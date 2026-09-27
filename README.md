@@ -238,7 +238,7 @@ kpr includes built-in OpenTelemetry support for distributed tracing, **disabled 
 ```bash
 # Enable tracing
 export OTEL_ENABLED=true
-export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4318
+export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
 
 # Run with tracing
 kpr serve
@@ -249,7 +249,7 @@ kpr serve
 ```bash
 # Start Jaeger
 docker run -d --name jaeger \
-  -p 16686:16686 -p 4318:4318 \
+  -p 16686:16686 -p 4317:4317 \
   jaegertracing/all-in-one:latest
 
 # Enable OTEL and run
@@ -263,7 +263,7 @@ kpr serve
 
 - `OTEL_ENABLED` - Enable/disable (default: `false`)
 - `OTEL_SERVICE_NAME` - Service name (default: `kpr`)
-- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint (default: `localhost:4318`)
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint (default: `localhost:4317`)
 - `OTEL_ENVIRONMENT` - Environment (default: `development`)
 - `OTEL_SERVICE_VERSION` - Version (default: `dev`)
 
@@ -377,7 +377,7 @@ Supported platforms:
 ```bash
 docker run --rm -p 8080:8080 -p 9300:9300 \
   -e OTEL_ENABLED=true \
-  -e OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4318 \
+  -e OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4317 \
   -e KPR_MANAGEMENT_HOST=0.0.0.0 \
   -e KPR_APP_HOST=0.0.0.0 \
   nrtn.dev/catalyst/kpr:latest

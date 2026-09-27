@@ -64,8 +64,11 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/hello", HelloHandler)
 	mux.HandleFunc("/api/data", DataHandler)
 
-	// Wrap with OTEL middleware if enabled
+	// Wrap with OTEL middleware if enabled. RequestTelemetry sits
+	// inside HTTPMiddleware so the span context (trace/span IDs) is
+	// already in the request context when the access log is written.
 	var handler http.Handler = mux
+	handler = otel.RequestTelemetry(handler, s.OTELEnabled)
 	handler = otel.HTTPMiddleware(handler, "application", s.OTELEnabled)
 
 	// Use net.JoinHostPort to properly handle IPv6 addresses

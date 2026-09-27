@@ -1,0 +1,89 @@
+# Observability spike overlay (see docs/OBSERVABILITY_SPIKE.md).
+#
+# Optional, profile-free: this file only ADDS services and overrides the
+# kpr service's telemetry env. Default `docker compose up` is untouched.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build
+#
+# Design note (compose friendly, cluster capable): kpr exports OTLP/gRPC
+# directly to Quickwit here. In a bigger cluster the same endpoint
+# becomes an OTel collector (DaemonSet/sidecar) fanning out to
+# Quickwit + Prometheus + friends — no app change, only the endpoint.
+
+services:
+  kpr:
+    environment:
+      - OTEL_ENABLED=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=quickwit:7281
+      - OTEL_SERVICE_NAME=kpr
+      - OTEL_ENVIRONMENT=development
+    depends_on:
+      quickwit:
+        condition: service_started
+
+  # Single-node log+trace store. Persists across `compose down` in the
+  # quickwit-data volume — that is the whole "logs survive dev runs" bit.
+  quickwit:
+    image: quickwit/quickwit:0.9.1
+    container_name: kpr-quickwit
+    command: ["run"]
+    environment:
+      - QW_ENABLE_OTLP_ENDPOINT=true
+      - QW_ENABLE_JAEGER_ENDPOINT=true
+    ports:
+      - "127.0.0.1:7280:7280" # REST + UI + OTLP/HTTP (Quickwit paths)
+      - "127.0.0.1:7281:7281" # OTLP/gRPC ingest + Jaeger storage API
+    volumes:
+      - quickwit-data:/quickwit/qwdata
+    restart: unless-stopped
+    networks:
+      - kpr-net
+
+  # Trace UI only — storage backend is Quickwit over gRPC.
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    container_name: kpr-jaeger
+    environment:
+      - SPAN_STORAGE_TYPE=grpc
+      - GRPC_STORAGE_SERVER=quickwit:7281
+    ports:
+      - "127.0.0.1:16686:16686"
+    depends_on:
+      quickwit:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - kpr-net
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: kpr-prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+    networks:
+      - kpr-net
+
+  grafana:
+    image: grafana/grafana:12.4.11
+    container_name: kpr-grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - kpr-net
+
+volumes:
+  quickwit-data:

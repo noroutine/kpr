@@ -75,7 +75,7 @@ const (
 	// EnvOTELEnabled, when set to "true", enables OpenTelemetry tracing.
 	EnvOTELEnabled = "OTEL_ENABLED"
 
-	// EnvOTELEndpoint overrides the OTLP/HTTP exporter endpoint
+	// EnvOTELEndpoint overrides the OTLP/gRPC exporter endpoint
 	// (host:port; a leading http:// or https:// is stripped).
 	// Defaults to DefaultOTELEndpoint.
 	EnvOTELEndpoint = "OTEL_EXPORTER_OTLP_ENDPOINT"
@@ -112,7 +112,7 @@ var EnvVars = []EnvVar{
 	{EnvAppPort, "Application server port. Defaults to 8080; invalid values fall back to the default."},
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379; the compose stack sets redis:6379."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},
-	{EnvOTELEndpoint, "OTLP/HTTP exporter endpoint (host:port). Defaults to localhost:4318."},
+	{EnvOTELEndpoint, "OTLP/gRPC exporter endpoint (host:port). Defaults to localhost:4317."},
 	{EnvOTELServiceName, "Service name reported in traces. Defaults to kpr."},
 	{EnvOTELServiceVersion, "Service version reported in traces. Defaults to the built binary's version."},
 	{EnvOTELEnvironment, "Deployment environment reported in traces. Defaults to development."},
@@ -132,7 +132,7 @@ const (
 	DefaultRedisAddr = "localhost:6379"
 
 	// Observability defaults.
-	DefaultOTELEndpoint    = "localhost:4318"
+	DefaultOTELEndpoint    = "localhost:4317"
 	DefaultOTELServiceName = "kpr"
 	DefaultOTELEnvironment = "development"
 

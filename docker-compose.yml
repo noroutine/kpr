@@ -24,7 +24,7 @@ services:
 
       # OpenTelemetry (optional)
       - OTEL_ENABLED=false
-      # - OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4318
+      # - OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4317
       # - OTEL_SERVICE_NAME=kpr
       # - OTEL_ENVIRONMENT=production
       # - OTEL_SERVICE_VERSION=${VERSION:-dev}

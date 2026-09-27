@@ -11,9 +11,9 @@ OpenTelemetry is **disabled by default**. Enable it via environment variables:
 
 ### Optional
 - `OTEL_SERVICE_NAME` - Service name (default: "kpr")
-- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint (default: "localhost:4318")
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint (default: "localhost:4317")
   - Can include protocol (http:// or https://) - will be stripped automatically
-  - Examples: `localhost:4318`, `http://localhost:4318`, `tempo:4318`
+  - Examples: `localhost:4317`, `http://localhost:4317`, `tempo:4317`
 - `OTEL_ENVIRONMENT` - Environment name (default: "development")
 - `OTEL_SERVICE_VERSION` - Service version (default: "dev")
 
@@ -23,7 +23,7 @@ OpenTelemetry is **disabled by default**. Enable it via environment variables:
 
 ```bash
 export OTEL_ENABLED=true
-export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4318
+export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
 kpr serve
 ```
 
@@ -33,12 +33,12 @@ kpr serve
 # Run Jaeger with OTLP support
 docker run -d --name jaeger \
   -p 16686:16686 \
-  -p 4318:4318 \
+  -p 4317:4317 \
   jaegertracing/all-in-one:latest
 
 # Enable OTEL
 export OTEL_ENABLED=true
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 export OTEL_SERVICE_NAME=kpr
 export OTEL_ENVIRONMENT=production
 
@@ -51,7 +51,7 @@ Visit Jaeger UI at http://localhost:16686
 
 ```bash
 export OTEL_ENABLED=true
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
 export OTEL_SERVICE_NAME=kpr
 kpr serve
 ```
@@ -68,7 +68,7 @@ export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=YOUR_API_KEY"
 **Datadog:**
 ```bash
 export OTEL_ENABLED=true
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 # Configure Datadog Agent with OTLP receiver
 ```
 

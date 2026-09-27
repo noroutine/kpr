@@ -9,6 +9,8 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server represents the HTTP server
@@ -33,9 +35,17 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/", IndexHandler)
 	mux.HandleFunc("/metrics", MetricsHandler)
 	mux.HandleFunc("/health", HealthHandler)
+	if s.OTELEnabled {
+		// Prometheus exposition for the OTel meter provider;
+		// scraped by Prometheus, not linked from the console UI.
+		mux.Handle("/metrics/prometheus", promhttp.Handler())
+	}
 
-	// Wrap with OTEL middleware if enabled
+	// Wrap with OTEL middleware if enabled. RequestTelemetry sits
+	// inside HTTPMiddleware so the span context (trace/span IDs) is
+	// already in the request context when the access log is written.
 	var handler http.Handler = mux
+	handler = otel.RequestTelemetry(handler, s.OTELEnabled)
 	handler = otel.HTTPMiddleware(handler, "management-console", s.OTELEnabled)
 
 	// Use net.JoinHostPort to properly handle IPv6 addresses with brackets

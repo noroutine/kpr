@@ -2,14 +2,21 @@ package otel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"log/slog"
+	"os"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
@@ -38,6 +45,15 @@ func LoadConfig() Config {
 	}
 }
 
+// accessLogger is the process-wide request logger. Before Init it
+// writes human-readable text to stdout only; Init (when enabled)
+// fans the same records out to OTLP as well.
+var accessLogger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+// Logger returns the process-wide access logger used by
+// RequestTelemetry. Never nil.
+func Logger() *slog.Logger { return accessLogger }
+
 // Init initializes OpenTelemetry if enabled
 func Init(cfg Config) (func(context.Context) error, error) {
 	if !cfg.Enabled {
@@ -62,11 +78,12 @@ func Init(cfg Config) (func(context.Context) error, error) {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Create OTLP HTTP exporter
+	// OTLP/gRPC exporters: the native tongue of collectors and of
+	// Quickwit (otlp-traces / otlp-logs on its gRPC port).
 	ctx := context.Background()
-	exporter, err := otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpoint(cfg.Endpoint),
-		otlptracehttp.WithInsecure(), // Use TLS in production
+	exporter, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithEndpoint(cfg.Endpoint),
+		otlptracegrpc.WithInsecure(), // Use TLS in production
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create exporter: %w", err)
@@ -88,12 +105,45 @@ func Init(cfg Config) (func(context.Context) error, error) {
 		propagation.Baggage{},
 	))
 
+	// OTLP/gRPC logs share the trace endpoint. Construction is lazy
+	// — an unreachable backend fails at export time, not here.
+	logExporter, err := otlploggrpc.New(ctx,
+		otlploggrpc.WithEndpoint(cfg.Endpoint),
+		otlploggrpc.WithInsecure(), // Use TLS in production
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log exporter: %w", err)
+	}
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
+		sdklog.WithResource(res),
+	)
+
+	// Metrics ride the Prometheus exporter on the default registry;
+	// the management console exposes it for scraping.
+	promExporter, err := otelprom.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create prometheus exporter: %w", err)
+	}
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(promExporter),
+		sdkmetric.WithResource(res),
+	)
+	otel.SetMeterProvider(mp)
+
+	// From here on the access log fans out to stdout and OTLP.
+	accessLogger = newAccessLogger(lp)
+
 	log.Println("OpenTelemetry initialized successfully")
 
 	// Return shutdown function
 	return func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, config.Current().ShutdownTimeout)
 		defer cancel()
-		return tp.Shutdown(ctx)
+		return errors.Join(
+			tp.Shutdown(ctx),
+			lp.Shutdown(ctx),
+			mp.Shutdown(ctx),
+		)
 	}, nil
 }
