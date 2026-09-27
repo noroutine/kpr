@@ -10,6 +10,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // Server represents the application HTTP server
@@ -17,6 +18,9 @@ type Server struct {
 	Host        string
 	Port        int
 	OTELEnabled bool
+	// Store backs the notification receiver. Nil disables /events
+	// (503); production always wires the redis store.
+	Store store.Store
 	// Listener, when non-nil, serves on it instead of listening on
 	// Host:Port. Tests inject a loopback listener on an ephemeral port;
 	// production leaves it nil.
@@ -63,6 +67,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// API endpoints
 	mux.HandleFunc("/api/hello", HelloHandler)
 	mux.HandleFunc("/api/data", DataHandler)
+
+	// Distribution notification receiver (-> redis rows).
+	mux.HandleFunc("/events", EventsHandler(s.Store))
 
 	// Wrap with OTEL middleware if enabled. RequestTelemetry sits
 	// inside HTTPMiddleware so the span context (trace/span IDs) is

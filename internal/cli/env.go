@@ -46,6 +46,10 @@ func envValue(cfg *config.Config, name string) string {
 		return strconv.Itoa(cfg.AppPort)
 	case config.EnvRedisAddr:
 		return cfg.RedisAddr
+	case config.EnvRegistryURL:
+		return cfg.RegistryURL
+	case config.EnvNoDryRun:
+		return strconv.FormatBool(cfg.NoDryRun)
 	case config.EnvOTELEnabled:
 		return strconv.FormatBool(cfg.OTELEnabled)
 	case config.EnvOTELEndpoint:

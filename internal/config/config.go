@@ -71,6 +71,16 @@ const (
 	// and cleanup bookkeeping. Defaults to DefaultRedisAddr.
 	EnvRedisAddr = "KPR_REDIS_ADDR"
 
+	// EnvRegistryURL overrides the distribution registry base URL the
+	// sweeper deletes through and reap reads the catalog from.
+	// Defaults to DefaultRegistryURL.
+	EnvRegistryURL = "KPR_REGISTRY_URL"
+
+	// EnvNoDryRun, when set to exactly "true", arms real execution:
+	// the sweeper deletes and reap marks. Anything else keeps the
+	// implicit dry-run (plan and log, change nothing).
+	EnvNoDryRun = "KPR_NO_DRY_RUN"
+
 	// EnvOTELEnabled, when set to "true", enables OpenTelemetry tracing.
 	EnvOTELEnabled = "OTEL_ENABLED"
 
@@ -126,6 +136,8 @@ var EnvVars = []EnvVar{
 	{EnvAppHost, "Application server bind address. Defaults to \"::\" (dual-stack IPv4+IPv6)."},
 	{EnvAppPort, "Application server port. Defaults to 8080; invalid values fall back to the default."},
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
+	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
+	{EnvNoDryRun, "Set to \"true\" to arm real execution (sweeper deletes, reap marks). Anything else keeps dry-run."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},
 	{EnvOTELEndpoint, "OTLP/gRPC exporter endpoint (host:port). Defaults to localhost:4317."},
 	{EnvOTELServiceName, "Service name reported in traces. Defaults to kpr."},
@@ -149,6 +161,10 @@ const (
 	// DefaultRedisAddr is the redis address used when KPR_REDIS_ADDR is
 	// unset — a bare local run with no compose stack alongside it.
 	DefaultRedisAddr = "localhost:6379"
+
+	// DefaultRegistryURL is the registry base URL used when
+	// KPR_REGISTRY_URL is unset — the dev-stack registry.
+	DefaultRegistryURL = "http://localhost:5000"
 
 	// Observability defaults.
 	DefaultOTELEndpoint    = "localhost:4317"
@@ -193,6 +209,14 @@ type Config struct {
 
 	// RedisAddr is EnvRedisAddr's value, or DefaultRedisAddr if unset.
 	RedisAddr string
+
+	// RegistryURL is EnvRegistryURL's value, or DefaultRegistryURL if
+	// unset.
+	RegistryURL string
+
+	// NoDryRun is true only when EnvNoDryRun is exactly "true".
+	// Anything else keeps the implicit dry-run.
+	NoDryRun bool
 
 	// OTELEnabled is true when EnvOTELEnabled is exactly "true".
 	OTELEnabled bool
@@ -243,6 +267,7 @@ func defaultConfig() Config {
 		AppHost:        DefaultAppHost,
 		AppPort:        DefaultAppPort,
 		RedisAddr:      DefaultRedisAddr,
+		RegistryURL:    DefaultRegistryURL,
 
 		OTLPEndpoint:       DefaultOTELEndpoint,
 		OTELServiceName:    DefaultOTELServiceName,
@@ -300,6 +325,8 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.ManagementHost = envOr(EnvManagementHost, DefaultManagementHost)
 	b.cfg.AppHost = envOr(EnvAppHost, DefaultAppHost)
 	b.cfg.RedisAddr = envOr(EnvRedisAddr, DefaultRedisAddr)
+	b.cfg.RegistryURL = envOr(EnvRegistryURL, DefaultRegistryURL)
+	b.cfg.NoDryRun = os.Getenv(EnvNoDryRun) == "true"
 
 	var err error
 	b.cfg.ManagementPort, err = parsePort(os.Getenv(EnvManagementPort), DefaultManagementPort)
@@ -348,6 +375,8 @@ func (b *Builder) WithManagementPort(v int) *Builder            { b.cfg.Manageme
 func (b *Builder) WithAppHost(v string) *Builder                { b.cfg.AppHost = v; return b }
 func (b *Builder) WithAppPort(v int) *Builder                   { b.cfg.AppPort = v; return b }
 func (b *Builder) WithRedisAddr(v string) *Builder              { b.cfg.RedisAddr = v; return b }
+func (b *Builder) WithRegistryURL(v string) *Builder            { b.cfg.RegistryURL = v; return b }
+func (b *Builder) WithNoDryRun(v bool) *Builder                 { b.cfg.NoDryRun = v; return b }
 func (b *Builder) WithOTELEnabled(v bool) *Builder              { b.cfg.OTELEnabled = v; return b }
 func (b *Builder) WithOTLPEndpoint(v string) *Builder           { b.cfg.OTLPEndpoint = stripScheme(v); return b }
 func (b *Builder) WithOTELServiceName(v string) *Builder        { b.cfg.OTELServiceName = v; return b }
