@@ -80,7 +80,7 @@ stateDiagram-v2
     running --> failed: pass-level error
     done --> idle: lock released
     failed --> idle: lock released
-    note right of idle: trigger while locked\nemits skip, never queues
+    note right of idle: a locked trigger emits skip, never queues
 ```
 
 | Stage | Meaning |
