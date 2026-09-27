@@ -312,3 +312,60 @@ kpr's position: stay a dumb-registry companion. Speak the plain
 distribution API (keeps zot working as a backend for free), keep all
 policy in testable Go with colocated tunings, absorb ttl.sh's sidecar
 semantics minus the hosted-service load.
+
+## Status (MVP, September 2026)
+
+Built on `master`, CI green, full suite + lint clean, coverage ~91%,
+proven live in compose: push → receiver tracks → `reap --no-dry-run`
+marks → `sweep` deletes by digest → `make gc` reclaims disk
+(48M → 1.1M on the test repo).
+
+### M1 — housekeeping: mostly wired, one gap
+
+- **Stale uploads** (`partial:older than 24h`): selector implemented,
+  tested, evaluated by `reap`. Caveat: the receiver records manifests,
+  which always carry digests — so digest-less rows barely occur
+  outside backfill. The behavior exists; the residue it hunts mostly
+  doesn't, yet.
+- **Untagged past grace** (`untagged:past grace 168h`): implemented,
+  tested (including absent-catalog skip), evaluated by `reap` against
+  live catalog reads.
+- **keep-N** (`keep-n:exceeds 10`): this is the gap. The selector is
+  implemented and tested (boundaries, include/exclude filters,
+  catalog-only tags default keep) and `reap` does evaluate it — but
+  with a hardcoded N=10 and nil include/exclude. No flag, no
+  per-repo tuning, no way to protect a release line outside code.
+  Tested, running, but not a usable policy surface: the first thing
+  to finish if keep-N is meant to be real.
+- **Implicit dry-run**: done at both layers — `reap` prints unless
+  `--no-dry-run`, the sweeper plans unless armed.
+
+### M2 — ephemeral tags: done
+
+TTL parse/clamp/eligibility (overflow saturates, unknown age defaults
+keep), receiver-stamped push time, sweeper expiry floor regardless of
+mark, confirmed deletes by digest with tag fallback. Done-criteria
+met live: `:10s` tags pull fresh, marked past promise, gone after
+`sweep`; `:latest` untouched.
+
+### Beyond the milestones
+
+Single-owner sweeper (redis lock, 5m bound; a kill mid-pass pauses
+sweeping until expiry — observed live), delete-by-digest (tag
+deletes 405 on distribution:3), server-rendered console, colocated
+`status`/`plan`/`reap`/`sweep` CLI, OTel overlay (Quickwit + Jaeger
++ Prometheus + Grafana) with `sweep pass`/`sweep row` activity
+records indexed in Quickwit, `make gc` for the offline blob
+reclaim (`--delete-untagged`, registry downtime accepted).
+
+### Open, in no order
+
+- Finish keep-N as a policy surface (N + include/exclude exposure).
+- Backfill for pre-kpr tags; unknown-age rows default keep today.
+- Real partial-upload detection (bounded manifest reads).
+- Detached `reap`/`sweep` over the console HTTP surface.
+- Sweep live-stages transport (polling vs websocket) — still
+  deferred; the vocabulary and keys are the contract.
+- Online GC — a much-later registry conversation; soft-deleted blobs
+  dedupe re-pushes until then.
+- Tag-release flow (image push + Forgejo release) unverified.

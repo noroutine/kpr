@@ -1,449 +1,119 @@
 # kpr (keeper)
 
-Lightweight companion sidecar for an OCI distribution registry:
-ephemeral images and lightweight retention cleanups, without the
-weight of Harbor or Nexus. Inspired by ttl.sh.
+Lightweight companion sidecar for a stock OCI `distribution`
+registry: ephemeral images and lightweight retention cleanups,
+without the weight of Harbor or Nexus. Inspired by ttl.sh.
 
-> Starter state: the tree is still the skeleton the service will grow
-> out of — project structure, docs, and toolchain are in place, the
-> registry companion itself is not built yet. Start with
-> [docs/goals.md](docs/goals.md).
+One binary, one redis, opinions written as plain code — no policy
+engine. Push a tag like `app:10m` and it becomes eligible for
+collection 10 minutes after push; `kpr reap` marks it, the sweeper
+in `kpr serve` deletes it by digest. Design lives in
+[docs/PLAN.md](docs/PLAN.md); per-milestone build status is in the
+[Status section](docs/PLAN.md#status-mvp-september-2026) at the end
+of that file.
 
-## Features
+## How it works
 
-- **Dual Server Architecture**
-  - Management console on port 9300 (metrics, configuration, health)
-  - Application server on port 8080 (SPA + API endpoints)
-- **Embedded Assets**: Static files compiled into the binary
-- **Clean Structure**: Separated concerns for management and application logic
-- **Production Ready**: Dual-stack IPv4/IPv6, proper timeouts, logging
-- **Zero Dependencies**: Pure Go stdlib for web serving
-- **Cross-Platform**: Builds for Linux, macOS (Intel & ARM)
+1. `docker push` → the registry notifies the receiver in `kpr serve`,
+   which records the row (repo/tag/digest/push time) in redis.
+2. `kpr reap` evaluates the policies and **marks** rows due with a
+   reason. Dry-run unless `--no-dry-run` — unarmed, it only prints.
+3. The sweeper in `kpr serve` (tick backstop, sweep-on-start, or
+   `kpr sweep` trigger) **deletes** due rows by digest and resolves
+   them: deleted, gone, untracked, planned, failed, or skipped.
+4. Console (`:9300`) shows banner, counters, plan, and activity;
+   `kpr status` / `kpr plan` show the same as text.
 
-## Project Structure
+Marking a row due with a reason **is** the interface: anything that
+can write the mark (a script, cron, a human with redis-cli) decides
+how and when to clean what. Deleting has one owner: the sweeper.
 
-```
-kpr/
-├── cmd/app/              # Application entry point
-├── internal/
-│   ├── web/              # Management console (port 9300)
-│   │   ├── server.go     # HTTP server setup
-│   │   ├── handlers.go   # Metrics, config, health endpoints
-│   │   └── templates.go  # Dashboard HTML
-│   └── app/              # Application server (port 8080)
-│       ├── server.go     # HTTP server setup
-│       ├── handlers.go   # API endpoints
-│       ├── assets.go     # Static file embedding
-│       └── static/       # SPA assets (HTML, CSS, JS)
-├── Makefile              # Build automation
-├── justfile              # Alternative build tool (just)
-└── go.mod                # Go module definition
-```
-
-## Installation
-
-### From Source
-
-Requires Go 1.27+:
+## Quickstart
 
 ```bash
-# Clone the repository
-git clone https://nrtn.dev/catalyst/kpr.git
-cd kpr
+make up            # kpr + redis + registry (detached)
+# or: just up
 
-# Build the binary
-make build
-# or
-just build
+# Push something ephemeral (needs localhost:5000 free —
+# macOS AirPlay Receiver squats it when enabled):
+crane copy busybox:latest localhost:5000/test/busybox:10s
 
-# Run locally
-./kpr serve
+docker exec kpr kpr reap --no-dry-run   # mark (nothing before minute 10)
+sleep 15
+docker exec kpr kpr reap --no-dry-run   # ttl:10s elapsed
+docker exec kpr kpr sweep               # delete by digest, watch the summary
+docker exec kpr kpr status              # counters
 ```
 
-### Build for Multiple Platforms
+Console: http://localhost:9300. Registry GC (reclaims blob bytes
+after manifest deletes — offline, registry stops) is `make gc`.
+
+## Policies
+
+Evaluated client-side by `kpr reap`; tunings live next to the code
+in `internal/policy`, not in the main config.
+
+| Policy | Reason | Tuning | State |
+|---|---|---|---|
+| TTL tags (`^\d+[smhdw]$`) eligible after push + TTL | `ttl:10s elapsed` | `DefaultTTL` (off), `MaxTTL` 30d | Done, proven live |
+| Digest-less rows older than max age (push residue) | `partial:older than 24h` | `StaleUploadMaxAge` 24h | Wired; rarely fires (receiver records digests) |
+| Tag vanished from catalog past grace | `untagged:past grace 168h` | `UntaggedGrace` 168h | Wired; needs catalog reads |
+| All but N freshest tags per repo | `keep-n:exceeds 10` | `KeepN` 10, **fixed** | Selector tested and runs, but N and include/exclude are not exposed — not a usable policy surface yet (see plan status) |
+
+The sweeper adds its own floor regardless of marks: a TTL row whose
+promise hasn't elapsed is never wiped by a stale mark.
+
+## CLI
 
 ```bash
-# Build for all platforms
-make build-all
-
-# Or specific platform
-GOOS=linux GOARCH=amd64 go build -o kpr-linux-amd64 ./cmd/app
+kpr serve    # console :9300 + app :8080 + receiver + sweeper loop
+kpr status   # banner + counters as text
+kpr plan     # pending candidates (--json for piping)
+kpr reap     # evaluate policies, mark due (--no-dry-run to mark)
+kpr sweep    # POST the sweep trigger, print the pass summary
+kpr env      # resolved configuration
 ```
 
-Supported platforms:
-- `linux/amd64`, `linux/arm64`, `linux/arm`
-- `darwin/amd64`, `darwin/arm64`
+The keeper CLI talks to redis directly, so it runs colocated with
+`serve` (same network: `docker exec kpr kpr …`). Detached operation
+is explicitly deferred.
 
-## Usage
+## Configuration
 
-### Start Both Servers
-
-```bash
-# Start management console (9300) and app server (8080)
-kpr serve
-
-# Custom ports
-kpr serve --management-port 9300 --app-port 8080
-
-# Custom hosts
-kpr serve --management-host :: --app-host 0.0.0.0
-```
-
-### Environment Variables
-
-```bash
-# Management console
-export KPR_MANAGEMENT_HOST=::     # Default: :: (dual-stack)
-export KPR_MANAGEMENT_PORT=9300   # Default: 9300
-
-# Application server
-export KPR_APP_HOST=::            # Default: :: (dual-stack)
-export KPR_APP_PORT=8080          # Default: 8080
-
-kpr serve
-```
-
-## Endpoints
-
-### Management Console (Port 9300)
-
-- **Dashboard**: http://localhost:9300
-  - Application metrics (uptime, requests, Go version)
-  - Configuration viewer (version, commit, build time)
-  - Environment variables
-
-- **Metrics**: http://localhost:9300/metrics
-  ```json
-  {
-    "uptime": "1h23m45s",
-    "uptime_seconds": 5025,
-    "requests": 42,
-    "go_version": "go1.25.4",
-    "version": "v1.0.0",
-    "commit": "abc123",
-    "build_time": "2025-12-08T09:30:00Z",
-    "environment": { ... }
-  }
-  ```
-
-- **Health**: http://localhost:9300/health
-  - Returns 200 OK if service is healthy
-
-### Application Server (Port 8080)
-
-- **SPA**: http://localhost:8080
-  - Single page application with embedded assets
-  - Served from internal/app/static/
-
-- **API Endpoints**:
-  - `GET /api/hello` - Simple hello response
-    ```json
-    {
-      "message": "Hello from kpr!",
-      "timestamp": "2025-12-08T09:30:00Z",
-      "version": "1.0.0"
-    }
-    ```
-
-  - `GET /api/data` - Example data endpoint
-    ```json
-    {
-      "items": ["Item 1", "Item 2", ...],
-      "count": 5,
-      "timestamp": "2025-12-08T09:30:00Z"
-    }
-    ```
-
-## Dev stack
-
-kpr runs beside stock `distribution` and `redis` via compose:
-
-```bash
-docker compose up --build
-```
-
-- kpr: `:8080` (app), `:9300` (management console)
-- registry: `127.0.0.1:5000` (plain OCI distribution, `registry-config.yml`)
-- redis: `127.0.0.1:6379` (TTL tracking and cleanup bookkeeping)
-
-The registry's notification hook to kpr is stubbed out in
-`registry-config.yml` until kpr implements the receiver.
-
-## Development
-
-### Building
-
-```bash
-# Build current platform
-make build
-
-# Build all platforms
-make build-all
-
-# Build with version info
-VERSION=v1.0.0 make build
-```
-
-### Testing
-
-```bash
-# Run tests (gotestsum summary when installed, plain go test otherwise)
-make test
-
-# With coverage (terminal table + coverage.out + coverage.html)
-make coverage
-
-# Reprint the last coverage table without re-running tests
-make coverage-report
-
-# Linux-container suite, benchmarks, full gate
-make test-linux
-make bench
-make check
-```
-
-Testing approach, coverage, and CI integration are documented in
-[docs/TESTING.md](docs/TESTING.md); configuration in
+Wiring only (ports, redis addr, registry URL, arming); see
 [docs/CONFIG.md](docs/CONFIG.md).
 
-### Code Quality
+| Variable | Meaning |
+|---|---|
+| `KPR_REDIS_ADDR` | redis (default `localhost:6379`; compose sets `redis:6379`) |
+| `KPR_REGISTRY_URL` | registry peer (dev default `http://localhost:5000`) |
+| `KPR_NO_DRY_RUN=true` | arm the sweeper (anything else keeps implicit dry-run) |
+
+The local compose arms by default (comment the line out to go back
+to planning). Recreating the kpr container can pause sweeping for up
+to the 5-minute sweep lock if the old instance died mid-pass —
+self-heals at lock expiry.
+
+## Observability
+
+Optional overlay, off by default; see
+[docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 ```bash
-# Format code
-make fmt
-
-# Lint
-make lint
-
-# Run all checks
-make check
+make up-observability   # + Quickwit, Jaeger, Prometheus, Grafana
 ```
 
-### Running Locally
+Structured access logs and sweeper activity (`sweep pass` / `sweep
+row` records) land in Quickwit; traces in Jaeger; `:9300` links all
+four. Testing approach and coverage gates: [docs/TESTING.md](docs/TESTING.md).
 
-```bash
-# Run with go run
-make run
+## Deliberately out
 
-# Or directly
-go run ./cmd/app serve
-```
-
-## OpenTelemetry (Optional)
-
-kpr includes built-in OpenTelemetry support for distributed tracing, **disabled by default**.
-
-### Enable OTEL
-
-```bash
-# Enable tracing
-export OTEL_ENABLED=true
-export OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
-
-# Run with tracing
-kpr serve
-```
-
-### Quick Setup with Jaeger
-
-```bash
-# Start Jaeger
-docker run -d --name jaeger \
-  -p 16686:16686 -p 4317:4317 \
-  jaegertracing/all-in-one:latest
-
-# Enable OTEL and run
-export OTEL_ENABLED=true
-kpr serve
-
-# View traces at http://localhost:16686
-```
-
-### Configuration
-
-- `OTEL_ENABLED` - Enable/disable (default: `false`)
-- `OTEL_SERVICE_NAME` - Service name (default: `kpr`)
-- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTLP endpoint (default: `localhost:4317`)
-- `OTEL_ENVIRONMENT` - Environment (default: `development`)
-- `OTEL_SERVICE_VERSION` - Version (default: `dev`)
-
-See `internal/otel/README.md` for detailed configuration and cloud provider setup.
-
-## Customization
-
-### Adding New API Endpoints
-
-Edit `internal/app/handlers.go`:
-
-```go
-func YourHandler(w http.ResponseWriter, r *http.Request) {
-    // Your logic here
-    json.NewEncoder(w).Encode(response)
-}
-```
-
-Register in `internal/app/server.go`:
-
-```go
-mux.HandleFunc("/api/your-endpoint", YourHandler)
-```
-
-### Modifying the SPA
-
-Static assets are in `internal/app/static/`:
-- `index.html` - Main HTML
-- `style.css` - Styling
-- `app.js` - JavaScript
-
-Assets are embedded at build time using `go:embed`.
-
-### Adding Management Console Metrics
-
-Edit `internal/web/handlers.go` to add custom metrics:
-
-```go
-type metricsData struct {
-    // Add your custom fields
-    CustomMetric string `json:"custom_metric"`
-}
-```
-
-## Deployment
-
-### Systemd Service
-
-See `contrib/systemd/` for systemd service files and installation instructions.
-
-```bash
-# Quick install
-sudo cp contrib/systemd/kpr.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now kpr
-```
-
-### Docker
-
-kpr uses a two-stage build approach: compile binaries with make/just (fast, cached) and package with Docker (simple, consistent).
-
-#### Quick Start
-
-```bash
-# Build the image for current platform
-make docker-build
-# or
-just docker-build
-
-# Run the container
-make docker-run
-```
-
-#### Build Configuration
-
-Docker builds:
-- Automatically tag as `latest` for version tags (e.g., `v1.0.0`)
-- Use dev version tag for non-release builds
-- Support multiplatform builds (amd64, arm64, armv7)
-- Package pre-built binaries from `dist/` directory
-
-#### Build from Source
-
-```bash
-# Build for current platform (builds binary + packages in Docker)
-make docker-build
-
-# Build with custom version
-VERSION=v1.0.0 make docker-build
-
-# Build binary only (outputs to dist/)
-make build
-```
-
-#### Multiplatform Build
-
-Build for multiple architectures (requires Docker Buildx):
-
-```bash
-# Build and push multiplatform image (builds all binaries first)
-make docker-build-multiplatform
-```
-
-Supported platforms:
-- `linux/amd64` (x86_64)
-- `linux/arm64` (ARM64/AArch64)
-- `linux/arm/v7` (ARMv7)
-
-#### Run with Environment Variables
-
-```bash
-docker run --rm -p 8080:8080 -p 9300:9300 \
-  -e OTEL_ENABLED=true \
-  -e OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4317 \
-  -e KPR_MANAGEMENT_HOST=0.0.0.0 \
-  -e KPR_APP_HOST=0.0.0.0 \
-  nrtn.dev/catalyst/kpr:latest
-```
-
-#### Docker Compose
-
-```yaml
-version: '3.8'
-services:
-  kpr:
-    image: nrtn.dev/catalyst/kpr:latest
-    ports:
-      - "8080:8080"
-      - "9300:9300"
-    environment:
-      - OTEL_ENABLED=false
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9300/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-```
-
-#### Image Details
-
-- **Base Image**: Alpine Linux (minimal footprint)
-- **Size**: ~15-20 MB (compressed)
-- **User**: Runs as non-root user `kpr` (UID 1000)
-- **Security**: No capabilities, read-only filesystem compatible
-- **Health Check**: Built-in health check on port 9300
+Policy/workflow engine, scheduler, per-repo rule sets, auth,
+signing, replication, cloud integrations, online registry GC. Where
+each of these stands is tracked in the
+[plan status](docs/PLAN.md#status-mvp-september-2026).
 
 ## License
 
 [Your License Here]
-
-## Contributing
-
-Contributions welcome! This is a blueprint/skeleton project designed to be forked and customized for your needs.
-
-## Architecture Notes
-
-### Why Two Servers?
-
-- **Separation of Concerns**: Management operations separate from application logic
-- **Security**: Management console can be firewalled separately
-- **Different Audiences**: Ops teams use management console, users use application
-- **Independent Scaling**: Can run management console on a single instance
-
-### Embedded Assets
-
-Static files are compiled into the binary using Go's `embed` package. This means:
-- Single binary deployment
-- No external file dependencies
-- Faster startup (no disk I/O for assets)
-- Easier containerization
-
-### Future Enhancements
-
-This blueprint can be extended with:
-- Database connection management (PostgreSQL, MySQL, etc.)
-- Authentication/authorization middleware (JWT, OAuth)
-- Prometheus metrics integration
-- ✅ **OpenTelemetry tracing** (included, disabled by default)
-- gRPC API endpoints
-- WebSocket support
-- GraphQL API
-- Rate limiting and circuit breakers
