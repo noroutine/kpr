@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/sdk/trace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -46,7 +45,7 @@ func TestRequestTelemetryLogsTraceIDs(t *testing.T) {
 
 	// A real SDK span so the context carries valid IDs (the global
 	// noop provider would leave them invalid and unlogged).
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(trace.AlwaysSample()))
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 	ctx, span := tp.Tracer("test").Start(context.Background(), "op")
 	defer span.End()
@@ -88,7 +87,7 @@ func TestTelemetryInsideMiddlewareSeesSpan(t *testing.T) {
 	accessLogger = slog.New(slog.NewTextHandler(&buf, nil))
 	t.Cleanup(func() { accessLogger = prev })
 
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(trace.AlwaysSample()))
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
 	prevTP := otel.GetTracerProvider()
 	otel.SetTracerProvider(tp)
 	t.Cleanup(func() {
