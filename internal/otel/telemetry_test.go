@@ -3,11 +3,13 @@ package otel
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -163,6 +165,83 @@ func TestFanoutDeliversToAll(t *testing.T) {
 func TestLoggerNeverNil(t *testing.T) {
 	if Logger() == nil {
 		t.Error("Logger() is nil")
+	}
+}
+
+// The synthetic gauge folds epoch seconds into 0-99. If this fails,
+// the dashboard sawtooth reports the wrong load shape.
+func TestDemoQueueDepth(t *testing.T) {
+	cases := map[int64]float64{0: 0, 1: 1, 150: 50, 199: 99, 200: 0}
+	for unix, want := range cases {
+		if got := demoQueueDepth(time.Unix(unix, 0)); got != want {
+			t.Errorf("demoQueueDepth(%d) = %v, want %v", unix, got, want)
+		}
+	}
+}
+
+// With instruments missing (meter failed), requests must still serve
+// and log: metrics are best-effort, never load-bearing. If this fails,
+// a broken meter takes down serving instead of degrading silently.
+func TestRequestTelemetryNilInstruments(t *testing.T) {
+	var buf bytes.Buffer
+	prevLog := accessLogger
+	accessLogger = slog.New(slog.NewTextHandler(&buf, nil))
+	t.Cleanup(func() { accessLogger = prevLog })
+
+	prevReq, prevDur := httpRequests, httpDuration
+	httpRequests, httpDuration = nil, nil
+	t.Cleanup(func() { httpRequests, httpDuration = prevReq, prevDur })
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	})
+	h := RequestTelemetry(next, true)
+
+	req := httptest.NewRequest(http.MethodGet, "/fragile", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK || rr.Body.String() != "ok" {
+		t.Fatalf("got %d %q", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(buf.String(), "path=/fragile") {
+		t.Errorf("request unlogged without instruments: %q", buf.String())
+	}
+}
+
+// stubHandler is a slog.Handler with a scripted error for fanout tests.
+type stubHandler struct {
+	buf *bytes.Buffer
+	err error
+}
+
+func (s *stubHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (s *stubHandler) Handle(_ context.Context, r slog.Record) error {
+	s.buf.WriteString(r.Message)
+	return s.err
+}
+func (s *stubHandler) WithAttrs([]slog.Attr) slog.Handler { return s }
+func (s *stubHandler) WithGroup(string) slog.Handler      { return s }
+
+// A failing sink must surface its error (first one wins) while the
+// healthy sinks still get their record: silent fanout loss means
+// Quickwit starves with stdout looking fine. If this fails, sink
+// errors vanish.
+func TestFanoutPropagatesFirstError(t *testing.T) {
+	var okBuf bytes.Buffer
+	ok := &stubHandler{buf: &okBuf}
+	bad := &stubHandler{buf: &bytes.Buffer{}, err: errors.New("sink down")}
+	later := &stubHandler{buf: &bytes.Buffer{}, err: errors.New("later")}
+
+	h := fanoutHandler{ok, bad, later}
+	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "hello", 0)
+	err := h.Handle(context.Background(), rec)
+
+	if err == nil || err.Error() != "sink down" {
+		t.Errorf("got %v, want the first sink error", err)
+	}
+	if okBuf.String() != "hello" {
+		t.Errorf("healthy sink starved: %q", okBuf.String())
 	}
 }
 

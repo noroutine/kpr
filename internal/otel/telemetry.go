@@ -50,7 +50,7 @@ func initMetrics() error {
 		_, err = m.Float64ObservableGauge("kpr.example.queue_depth",
 			metric.WithDescription("Example synthetic gauge proving the metrics path moves."),
 			metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
-				o.Observe(float64(time.Now().Unix()%100), metric.WithAttributes(
+				o.Observe(demoQueueDepth(time.Now()), metric.WithAttributes(
 					attribute.String("queue", "demo"),
 				))
 				return nil
@@ -59,6 +59,12 @@ func initMetrics() error {
 		initMetricsErr = err
 	})
 	return initMetricsErr
+}
+
+// demoQueueDepth is the synthetic gauge value: seconds since epoch
+// folded into 0-99. Pure so the callback math is unit-testable.
+func demoQueueDepth(now time.Time) float64 {
+	return float64(now.Unix() % 100)
 }
 
 // statusRecorder captures the status code for logging and metrics.
