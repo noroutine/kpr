@@ -24,7 +24,8 @@ distribution registry: ephemeral images and lightweight retention
 cleanups.
 
 Configuration comes from KPR_* environment variables (see
-docs/CONFIG.md); every flag below overrides its matching variable.`,
+docs/CONFIG.md); every flag below overrides its matching variable.
+Run "kpr env" to list every variable with its effective value.`,
 	Version: config.Version,
 }
 
