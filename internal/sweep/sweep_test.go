@@ -287,6 +287,138 @@ func TestEmptyDueSkips(t *testing.T) {
 // Without an injected clock the pass anchors at wall time: production
 // has no test seam, so an overdue TTL row still sweeps. If this fails,
 // the zero clock either panics the pass or freezes eligibility.
+// recordSink captures emitted activity records so tests prove the
+// sweeper narrates every pass — the same records Quickwit indexes.
+type logRecord struct {
+	msg   string
+	attrs map[string]any
+}
+
+type recordSink struct {
+	mu      sync.Mutex
+	records []logRecord
+}
+
+func (r *recordSink) log(_ context.Context, msg string, args ...any) {
+	rec := logRecord{msg: msg, attrs: map[string]any{}}
+	for i := 0; i+1 < len(args); i += 2 {
+		k, ok := args[i].(string)
+		if !ok {
+			continue
+		}
+		rec.attrs[k] = args[i+1]
+	}
+	r.mu.Lock()
+	r.records = append(r.records, rec)
+	r.mu.Unlock()
+}
+
+func (r *recordSink) byMsg(msg string) []logRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []logRecord
+	for _, rec := range r.records {
+		if rec.msg == msg {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
+// Every pass narrates itself to the activity log: one record per
+// resolved row plus a pass summary. These records are what Quickwit
+// indexes — if this fails, the console knows but observability is
+// blind.
+func TestPassEmitsActivityLogRecords(t *testing.T) {
+	f := newFake(http.StatusAccepted, "")
+	defer f.close()
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
+	sw := newSweeper(s, f.srv.URL, false)
+	sink := &recordSink{}
+	sw.Log = sink.log
+
+	sum := sw.RunPass(testCtx(), "POST")
+
+	rows := sink.byMsg("sweep row")
+	if len(rows) != 1 {
+		t.Fatalf("row records = %d, want 1", len(rows))
+	}
+	row := rows[0].attrs
+	for k, want := range map[string]any{
+		"repo": "app", "tag": "v1", "reason": "test", "outcome": "deleted",
+	} {
+		if row[k] != want {
+			t.Errorf("row %s = %v, want %v", k, row[k], want)
+		}
+	}
+	if row["pass_id"] != sum.PassID || sum.PassID == "" {
+		t.Errorf("row pass_id = %v, want summary PassID %q", row["pass_id"], sum.PassID)
+	}
+	passes := sink.byMsg("sweep pass")
+	if len(passes) != 1 {
+		t.Fatalf("pass records = %d, want 1", len(passes))
+	}
+	pass := passes[0].attrs
+	for k, want := range map[string]any{
+		"trigger": "POST", "performed": 1, "planned": 0,
+		"failed": 0, "untracked": 0, "skipped": false, "dry_run": false,
+	} {
+		if pass[k] != want {
+			t.Errorf("pass %s = %v, want %v", k, pass[k], want)
+		}
+	}
+	if pass["pass_id"] != sum.PassID {
+		t.Errorf("pass pass_id = %v, want %q", pass["pass_id"], sum.PassID)
+	}
+}
+
+// A skipped pass still logs its summary (skipped=true, no rows): in
+// Quickwit, ticks with nothing due must be distinguishable from a
+// sweeper that stopped ticking.
+func TestSkippedPassLogsSummary(t *testing.T) {
+	f := newFake(http.StatusAccepted, "")
+	defer f.close()
+	sw := newSweeper(store.NewMemStore(), f.srv.URL, false)
+	sink := &recordSink{}
+	sw.Log = sink.log
+
+	sum := sw.RunPass(testCtx(), "tick")
+	if !sum.Skipped {
+		t.Fatalf("summary = %+v, want skipped", sum)
+	}
+	if rows := sink.byMsg("sweep row"); len(rows) != 0 {
+		t.Errorf("row records = %d, want 0 for a skipped pass", len(rows))
+	}
+	passes := sink.byMsg("sweep pass")
+	if len(passes) != 1 || passes[0].attrs["skipped"] != true {
+		t.Errorf("pass records = %+v, want one skipped summary", passes)
+	}
+}
+
+// A failed row carries its error on the record: counts alone don't
+// tell the operator why a digest delete 405d.
+func TestFailedRowLogsError(t *testing.T) {
+	f := newFake(http.StatusInternalServerError, "boom")
+	defer f.close()
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
+	sw := newSweeper(s, f.srv.URL, false)
+	sink := &recordSink{}
+	sw.Log = sink.log
+
+	_ = sw.RunPass(testCtx(), "POST")
+
+	rows := sink.byMsg("sweep row")
+	if len(rows) != 1 || rows[0].attrs["outcome"] != "failed" {
+		t.Fatalf("row records = %+v, want one failed outcome", rows)
+	}
+	errmsg, _ := rows[0].attrs["err"].(string)
+	if !strings.Contains(errmsg, "500") {
+		t.Errorf("row err = %q, want the registry status", errmsg)
+	}
+}
+
 func TestRunPassDefaultsToWallClock(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",

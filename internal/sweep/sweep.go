@@ -11,6 +11,7 @@ import (
 	"log"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -55,6 +56,11 @@ type Sweeper struct {
 	DryRun   bool
 	// Now is a seam for tests; production leaves it nil (wall clock).
 	Now func() time.Time
+	// Log emits activity records: one per resolved row plus a pass
+	// summary. Nil defaults to the process OTel logger — plain stdout
+	// text when telemetry is off, stdout plus Quickwit via OTLP when
+	// the observability overlay enables it.
+	Log func(ctx context.Context, msg string, args ...any)
 }
 
 func (s *Sweeper) now() time.Time {
@@ -67,9 +73,24 @@ func (s *Sweeper) now() time.Time {
 // RunPass runs one sweep to its summary. Store write errors on the
 // event path (current/activity) are logged, never fatal; a pass fails
 // only when it cannot read what is due.
-func (s *Sweeper) RunPass(ctx context.Context, trigger string) Summary {
+func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	now := s.now()
-	sum := Summary{PassID: fmt.Sprintf("%d", now.UnixNano()), Trigger: trigger}
+	sum = Summary{PassID: fmt.Sprintf("%d", now.UnixNano()), Trigger: trigger}
+
+	// Every exit narrates its summary: a skipped tick in Quickwit
+	// must read as "nothing due", not as "sweeper went quiet".
+	defer func() {
+		args := []any{
+			"pass_id", sum.PassID, "trigger", trigger, "dry_run", s.DryRun,
+			"performed", sum.Performed, "planned", sum.Planned,
+			"failed", sum.Failed, "untracked", sum.Untracked,
+			"skipped", sum.Skipped,
+		}
+		if len(sum.Failures) > 0 {
+			args = append(args, "failures", sum.Failures)
+		}
+		s.emit(ctx, "sweep pass", args...)
+	}()
 
 	setStage := func(stage string, due, done int) {
 		if err := s.Store.SetCurrent(ctx, store.Current{
@@ -79,12 +100,22 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) Summary {
 			log.Printf("sweeper: current write failed: %v", err)
 		}
 	}
-	activity := func(r policy.Row, outcome string) {
+	// resolve records the outcome in the redis ring and on the
+	// activity log together: the console and Quickwit never diverge.
+	resolve := func(r policy.Row, outcome string, rerr error) {
 		if err := s.Store.PushActivity(ctx, store.Outcome{
 			Repo: r.Repo, Tag: r.Tag, Reason: r.Reason, Outcome: outcome, At: s.now(),
 		}); err != nil {
 			log.Printf("sweeper: activity write failed: %v", err)
 		}
+		args := []any{
+			"pass_id", sum.PassID,
+			"repo", r.Repo, "tag", r.Tag, "reason", r.Reason, "outcome", outcome,
+		}
+		if rerr != nil {
+			args = append(args, "err", rerr.Error())
+		}
+		s.emit(ctx, "sweep row", args...)
 	}
 
 	held, err := s.Store.AcquireLock(ctx, LockTTL)
@@ -124,12 +155,12 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) Summary {
 		// held no matter what the mark says (a stale mark must not
 		// wipe a fresh push).
 		if _, isTTL := policy.EffectiveTTL(r.Tag); isTTL && !policy.Eligible(r.Tag, r.PushedAt, now) {
-			activity(r, "skipped")
+			resolve(r, "skipped", nil)
 			done++
 			continue
 		}
 		if s.DryRun {
-			activity(r, "planned")
+			resolve(r, "planned", nil)
 			sum.Planned++
 			done++
 			continue
@@ -145,17 +176,17 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) Summary {
 		outcome, derr := s.Registry.DeleteManifest(ctx, r.Repo, ref)
 		switch {
 		case derr != nil:
-			activity(r, "failed")
-			sum.Failed++
 			sum.Failures = append(sum.Failures, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, derr))
+			resolve(r, "failed", derr)
+			sum.Failed++
 		case outcome == registry.OutcomeHeld:
-			activity(r, "untracked")
+			resolve(r, "untracked", nil)
 			sum.Untracked++
 			if rerr := s.Store.Delete(ctx, r.Repo, r.Tag); rerr != nil {
 				log.Printf("sweeper: row delete failed: %v", rerr)
 			}
 		default: // deleted or already gone: confirmed, resolve.
-			activity(r, "deleted")
+			resolve(r, "deleted", nil)
 			sum.Performed++
 			if rerr := s.Store.Delete(ctx, r.Repo, r.Tag); rerr != nil {
 				log.Printf("sweeper: row delete failed: %v", rerr)
@@ -165,4 +196,15 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) Summary {
 	}
 	setStage(StageDone, len(due), done)
 	return sum
+}
+
+// emit sends one activity record to the injected Log sink, or to the
+// process OTel logger when none is set (resolved lazily so a serve
+// that Init's telemetry after construction still fans out to OTLP).
+func (s *Sweeper) emit(ctx context.Context, msg string, args ...any) {
+	if s.Log != nil {
+		s.Log(ctx, msg, args...)
+		return
+	}
+	otel.Logger().InfoContext(ctx, msg, args...)
 }

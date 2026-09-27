@@ -44,6 +44,18 @@ is not instant (observed: <90s, tutorial says ~30s).
 3. Grafana dashboard: request rate by path, p50/p95 latency, and the
    `kpr_example_queue_depth` gauge — synthetic sawtooth, clearly named,
    there only to prove the metrics path moves.
+4. Sweeper activity in the same log index: every pass emits one
+   `sweep pass` summary (`trigger/performed/planned/failed/untracked/
+   skipped/dry_run`) plus one `sweep row` per resolved row
+   (`repo/tag/reason/outcome`, `err` on failures) — the redis
+   activity ring mirrored as searchable records, never a dump.
+   Skipped ticks log too, so "nothing due" reads distinctly from
+   "sweeper went quiet". Quickwit UI (or REST) query examples:
+
+   ```
+   body.message:sweep AND attributes.outcome:deleted
+   body.message:sweep AND attributes.skipped:true
+   ```
 
 ## Notes
 
