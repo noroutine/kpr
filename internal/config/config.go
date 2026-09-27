@@ -68,8 +68,7 @@ const (
 	EnvAppPort = "KPR_APP_PORT"
 
 	// EnvRedisAddr overrides the redis address kpr uses for TTL tracking
-	// and cleanup bookkeeping. Defaults to DefaultRedisAddr. The compose
-	// stack sets this to redis:6379.
+	// and cleanup bookkeeping. Defaults to DefaultRedisAddr.
 	EnvRedisAddr = "KPR_REDIS_ADDR"
 
 	// EnvOTELEnabled, when set to "true", enables OpenTelemetry tracing.
@@ -126,7 +125,7 @@ var EnvVars = []EnvVar{
 	{EnvManagementPort, "Management console port. Defaults to 9300; invalid values fall back to the default."},
 	{EnvAppHost, "Application server bind address. Defaults to \"::\" (dual-stack IPv4+IPv6)."},
 	{EnvAppPort, "Application server port. Defaults to 8080; invalid values fall back to the default."},
-	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379; the compose stack sets redis:6379."},
+	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},
 	{EnvOTELEndpoint, "OTLP/gRPC exporter endpoint (host:port). Defaults to localhost:4317."},
 	{EnvOTELServiceName, "Service name reported in traces. Defaults to kpr."},
