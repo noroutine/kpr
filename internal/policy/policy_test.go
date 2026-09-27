@@ -56,6 +56,18 @@ func TestEffectiveTTLClampsToMax(t *testing.T) {
 	}
 }
 
+// Exactly-at-max passes through unclamped while one unit over clamps:
+// the clamp boundary must be exact, not approximate. If this fails,
+// a max-sized TTL either shrinks silently or an over-max one slips by.
+func TestEffectiveTTLMaxBoundaryExact(t *testing.T) {
+	if ttl, ok := EffectiveTTL("720h"); !ok || ttl != MaxTTL {
+		t.Errorf("EffectiveTTL(720h) = (%v, %v), want (%v, true) unclamped", ttl, ok, MaxTTL)
+	}
+	if ttl, ok := EffectiveTTL("721h"); !ok || ttl != MaxTTL {
+		t.Errorf("EffectiveTTL(721h) = (%v, %v), want (%v, true) clamped", ttl, ok, MaxTTL)
+	}
+}
+
 // Eligibility anchors at the receiver-stamped push time, not at mark
 // time: app:10m pushed at T is eligible at T+10m however late reap
 // runs. If this fails, a late reap grants extra life (or an early one

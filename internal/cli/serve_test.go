@@ -126,6 +126,45 @@ func TestServeRunServesAndStopsOnSigterm(t *testing.T) {
 	}
 }
 
+// A `serve` boot with redis down still serves — the keeper sections
+// degrade with a warning instead of blocking startup, and the sweeper
+// loop skips ticks it cannot read. If this fails, a redis outage is a
+// startup outage instead of a red banner.
+func TestServeRunDegradesWithoutRedis(t *testing.T) {
+	t.Setenv("KPR_REDIS_ADDR", "127.0.0.1:1") // nothing answers on port 1
+	setServeAddrs(t, 18235, 18236)
+	logs := captureLog(t)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		serveCmd.Run(serveCmd, nil)
+	}()
+
+	waitFor(t, "http://127.0.0.1:18235/health")
+	func() {
+		defer func() {
+			if t.Failed() {
+				t.Logf("captured logs:\n%s", logs.String())
+			}
+		}()
+		waitFor(t, "http://127.0.0.1:18236/api/hello")
+	}()
+
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("signal self: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("serve did not stop after SIGTERM")
+	}
+
+	if out := logs.String(); !strings.Contains(out, "keeper sections degrade") {
+		t.Errorf("no redis-degraded warning logged:\\n%s", out)
+	}
+}
+
 // A server that fails to bind at startup must take `serve` down with a
 // logged error rather than hanging or serving half. If this fails, a
 // port conflict at boot leaves the process wedged instead of reporting

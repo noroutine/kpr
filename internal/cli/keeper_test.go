@@ -241,6 +241,146 @@ func TestCatalogOnDeadRegistryFails(t *testing.T) {
 	}
 }
 
+// status without a registry client still reports (red banner), since
+// the probe is optional — only state is mandatory. If this fails, a
+// nil client panics the status path instead of reddening it.
+func TestStatusNilRegistry(t *testing.T) {
+	var out bytes.Buffer
+	if err := runStatus(cliCtx(), &out, cliStore(), nil, false); err != nil {
+		t.Fatalf("runStatus with nil registry: %v", err)
+	}
+	if !strings.Contains(out.String(), "unreachable") {
+		t.Errorf("status hides missing registry:\n%s", out.String())
+	}
+}
+
+// reap without a registry client still applies the rows-only policies:
+// a missing catalog skips catalog selectors, never the whole pass. If
+// this fails, reap is all-or-nothing on registry reachability.
+func TestReapNilRegistryMarksRowsOnly(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
+		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
+	var out bytes.Buffer
+	if err := runReap(cliCtx(), &out, s, nil, true, cliNow); err != nil {
+		t.Fatalf("runReap with nil registry: %v", err)
+	}
+	if due, _ := s.Due(context.Background()); len(due) != 1 {
+		t.Errorf("nil-registry reap marked %d rows, want 1 (TTL needs no catalog)", len(due))
+	}
+}
+
+// A 500 catalog for a repo skips its untagged selector but still marks
+// its expired rows: one sick endpoint must not blind the whole pass,
+// and must not mark rows it cannot see. If this fails, a catalog blip
+// either starves reap or mass-marks the repo.
+func TestReapSkipsRepoOnCatalogFailure(t *testing.T) {
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer broken.Close()
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "old", Tag: "v1",
+		Digest: "sha256:o", PushedAt: cliNow.Add(-200 * 24 * time.Hour)})
+	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m",
+		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
+	var out bytes.Buffer
+	if err := runReap(cliCtx(), &out, s, registry.NewClient(broken.URL), true, cliNow); err != nil {
+		t.Fatalf("runReap: %v", err)
+	}
+	due, _ := s.Due(c)
+	if len(due) != 1 || due[0].Tag != "10m" {
+		t.Errorf("due = %+v, want only the expired row (failed catalog skips untagged)", due)
+	}
+}
+
+// The dry-run plan renders the full candidate line (identity + reason):
+// approval tooling reads this text, so a reformatted line must fail
+// here, not slip past a substring check. If this fails, the plan's
+// contract with its readers is unpinned.
+func TestReapDryRunRendersFullLine(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
+		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
+	var out bytes.Buffer
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, cliNow); err != nil {
+		t.Fatalf("runReap: %v", err)
+	}
+	if !strings.Contains(out.String(), "scratch:10m — ttl:10m0s elapsed\n") {
+		t.Errorf("dry-run line not exact:\n%s", out.String())
+	}
+}
+
+// A non-200 trigger answers the backstop, not a decode error: the tick
+// picks marked rows up regardless. A 200 with garbage likewise
+// degrades instead of crashing the watch. If this fails, a sick
+// console turns the puppeteer into a stack trace.
+func TestSweepDegradesOnBadTrigger(t *testing.T) {
+	for name, status := range map[string]struct {
+		code int
+		body string
+	}{
+		"server error": {http.StatusInternalServerError, "boom"},
+		"garbage":      {http.StatusOK, "{nope"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status.code)
+			_, _ = w.Write([]byte(status.body))
+		}))
+		var out bytes.Buffer
+		if err := runSweep(cliCtx(), &out, cliStore(), srv.URL); err != nil {
+			t.Errorf("%s: degrading failed: %v", name, err)
+		}
+		if !strings.Contains(out.String(), "next tick") {
+			t.Errorf("%s: no backstop:\n%s", name, out.String())
+		}
+		srv.Close()
+	}
+}
+
+// sweep with no console and no state errors naming redis: both paths
+// down is a failure, not a backstop message over invented numbers. If
+// this fails, a double outage reports a confident count of nothing.
+func TestSweepDoubleOutageFails(t *testing.T) {
+	if err := runSweep(cliCtx(), io.Discard, errStore{}, "http://127.0.0.1:1"); err == nil {
+		t.Error("sweep with console and redis down succeeded, want an error")
+	}
+}
+
+// failAfterWriter fails every write after n successes: the flaky-pipe
+// stand-in for multi-line output.
+type failAfterWriter struct {
+	n     int
+	calls int
+}
+
+func (w *failAfterWriter) Write(p []byte) (int, error) {
+	w.calls++
+	if w.calls > w.n {
+		return 0, errors.New("broken pipe")
+	}
+	return len(p), nil
+}
+
+// A pipe breaking mid-summary surfaces the error: a half-printed pass
+// summary must not read as success. If this fails, truncated output
+// passes silently.
+func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
+	sum := sweep.Summary{PassID: "p1", Trigger: "POST", Performed: 1,
+		Failures: []string{"app:v1: 500"}}
+	console := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(sum)
+	}))
+	defer console.Close()
+	if err := runSweep(cliCtx(), &failAfterWriter{}, cliStore(), console.URL); err == nil {
+		t.Error("sweep into failing pipe succeeded, want an error")
+	}
+	if err := runSweep(cliCtx(), &failAfterWriter{n: 1}, cliStore(), console.URL); err == nil {
+		t.Error("sweep failing on the failures line succeeded, want an error")
+	}
+}
+
 // reap against dead state fails instead of marking nothing and
 // calling it a plan: an unreadable backend is an error, not an empty
 // evaluation. If this fails, outages print confident empty plans.

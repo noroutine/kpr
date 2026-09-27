@@ -53,6 +53,45 @@ func TestSelectStaleUploadsNeedsMissingDigestAndAge(t *testing.T) {
 	}
 }
 
+// Exactly-at-max-age is still a retry in flight; one nanosecond past
+// is residue. If this fails, the boundary wobbles and uploads get
+// flagged while still retrying (or residue lingers a tick too long).
+func TestSelectStaleUploadsBoundaryExact(t *testing.T) {
+	at := []Row{{Repo: "app", Tag: "edge", PushedAt: sliceNow.Add(-StaleUploadMaxAge)}}
+	if got := SelectStaleUploads(at, sliceNow); len(got) != 0 {
+		t.Errorf("selected %v at exactly max age, want kept", got)
+	}
+	past := []Row{{Repo: "app", Tag: "edge", PushedAt: sliceNow.Add(-StaleUploadMaxAge - time.Nanosecond)}}
+	if got := SelectStaleUploads(past, sliceNow); len(got) != 1 {
+		t.Errorf("selected %v past max age, want [edge]", got)
+	}
+}
+
+// Exactly-at-grace is still protected; one nanosecond past is dead
+// weight. If this fails, manifests vanish a tick early (or linger a
+// tick late) around the grace boundary.
+func TestSelectUntaggedBoundaryExact(t *testing.T) {
+	catalog := map[string][]string{"app": {"other"}}
+	at := []Row{mkrow("app", "gone", UntaggedGrace)}
+	if got := SelectUntagged(at, catalog, sliceNow); len(got) != 0 {
+		t.Errorf("selected %v at exactly grace, want kept", got)
+	}
+	past := []Row{mkrow("app", "gone", UntaggedGrace+time.Nanosecond)}
+	if got := SelectUntagged(past, catalog, sliceNow); len(got) != 1 {
+		t.Errorf("selected %v past grace, want [gone]", got)
+	}
+}
+
+// A repo with no catalog at all (fetch failed) is skipped, never
+// treated as empty: an unreadable catalog must not read as "every row
+// untagged". If this fails, a registry blip mass-marks old rows.
+func TestSelectUntaggedSkipsUnknownRepo(t *testing.T) {
+	rows := []Row{mkrow("ghost", "v1", 200*24*time.Hour)}
+	if got := SelectUntagged(rows, map[string][]string{}, sliceNow); len(got) != 0 {
+		t.Errorf("selected %v without a catalog, want none (skip, not empty)", got)
+	}
+}
+
 // Tags deleted upstream leave manifest rows behind; past the grace
 // period they are dead weight and must be marked. A row whose tag is
 // still in the catalog stays even when ancient. If this fails, reap

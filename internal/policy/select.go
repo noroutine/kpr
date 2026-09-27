@@ -71,7 +71,9 @@ func SelectStaleUploads(rows []Row, now time.Time) []Row {
 }
 
 // SelectUntagged marks rows whose tag left the catalog past the grace
-// period: tags deleted upstream leave manifests behind.
+// period: tags deleted upstream leave manifests behind. A repo with no
+// catalog entry (fetch failed) is skipped — absent means unknown, only
+// a fetched-but-empty list means "everything gone".
 func SelectUntagged(rows []Row, catalog map[string][]string, now time.Time) []Row {
 	live := map[string]bool{}
 	for repo, tags := range catalog {
@@ -81,6 +83,9 @@ func SelectUntagged(rows []Row, catalog map[string][]string, now time.Time) []Ro
 	}
 	var due []Row
 	for _, r := range rows {
+		if _, known := catalog[r.Repo]; !known {
+			continue
+		}
 		if live[r.Repo+"\x00"+r.Tag] {
 			continue
 		}

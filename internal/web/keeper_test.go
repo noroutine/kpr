@@ -98,6 +98,8 @@ func TestKeeperCountersAndPlanOrder(t *testing.T) {
 		PushedAt: time.Now().UTC().Add(-time.Hour), Due: true, Reason: "keep-n:exceeds 10"})
 	_ = s.Record(c, policy.Row{Repo: "a-repo", Tag: "m", Digest: "sha256:2",
 		PushedAt: time.Now().UTC().Add(-time.Hour), Due: true, Reason: "ttl:10m elapsed"})
+	_ = s.Record(c, policy.Row{Repo: "a-repo", Tag: "c", Digest: "sha256:4",
+		PushedAt: time.Now().UTC().Add(-2 * time.Hour), Due: true, Reason: "keep-n:exceeds 10"})
 	_ = s.Record(c, policy.Row{Repo: "a-repo", Tag: "a", Digest: "sha256:3",
 		PushedAt: time.Now().UTC().Add(-time.Hour)})
 	for _, outcome := range []string{"deleted", "planned", "failed", "untracked"} {
@@ -113,16 +115,37 @@ func TestKeeperCountersAndPlanOrder(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		"3 / 2",
+		"4 / 3",
 		"performed 1 · planned 1 · failed 1 · untracked 1",
-		"a-repo:m", "b-repo:z",
+		"a-repo:c", "a-repo:m", "b-repo:z",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}
 	}
-	if strings.Index(body, "a-repo:m") > strings.Index(body, "b-repo:z") {
-		t.Error("plan not sorted by repo then tag")
+	ordered := []string{"a-repo:c", "a-repo:m", "b-repo:z"}
+	last := -1
+	for _, want := range ordered {
+		at := strings.Index(body, want)
+		if at <= last {
+			t.Errorf("plan order broken at %q (repo, then tag)", want)
+			break
+		}
+		last = at
+	}
+}
+
+// A broken pipe on the trigger must not panic the console: the encode
+// error is logged and the handler returns, like every other endpoint.
+// If this fails, one wedged `sweep` watcher takes the console down.
+func TestSweepEndpointToleratesWriteError(t *testing.T) {
+	testConfig(t)
+	logs := captureLog(t)
+	s := &Server{Store: keeperStore(t), Sweeper: &sweep.Sweeper{Store: store.NewMemStore(), DryRun: true}}
+	req := httptest.NewRequest(http.MethodPost, "/api/sweep", nil)
+	s.sweepHandler(errWriter{header: http.Header{}}, req)
+	if n := strings.Count(logs.String(), "Error"); n != 1 {
+		t.Errorf("logged %d write errors, want 1 (sweep summary)", n)
 	}
 }
 

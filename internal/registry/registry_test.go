@@ -139,6 +139,20 @@ func TestCatalogListsTags(t *testing.T) {
 	}
 }
 
+// A non-200 base probe is unreachable too: the banner must redden on
+// a sick registry, not just a dead socket. If this fails, a 500ing
+// registry shows green.
+func TestReachableRejectsServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	if err := NewClient(srv.URL).Reachable(testCtx()); err == nil {
+		t.Error("Reachable on 500 registry = nil, want an error")
+	}
+}
+
 // The console banner needs one cheap reachability probe. If this
 // fails, the banner reports a down registry as up (or vice versa).
 func TestReachableProbesBase(t *testing.T) {

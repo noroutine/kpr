@@ -1,9 +1,12 @@
 package sweep
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -232,5 +235,46 @@ func TestRunPassDefaultsToWallClock(t *testing.T) {
 	sw := &Sweeper{Store: s, DryRun: true}
 	if sum := sw.RunPass(testCtx(), "tick"); sum.Planned != 1 {
 		t.Errorf("summary = %+v, want 1 planned on wall clock", sum)
+	}
+}
+
+// errCurrentStore fails pass-record and activity writes (redis lost
+// mid-pass) while keeping rows readable.
+type errCurrentStore struct {
+	*store.MemStore
+}
+
+func (errCurrentStore) SetCurrent(context.Context, store.Current) error {
+	return errEventPath
+}
+
+func (errCurrentStore) PushActivity(context.Context, store.Outcome) error {
+	return errEventPath
+}
+
+type errEventPathT string
+
+func (e errEventPathT) Error() string { return string(e) }
+
+const errEventPath = errEventPathT("event path down")
+
+// The event path degrades to logs, never to a failed pass: a redis
+// blip mid-pass must not abort work or resolve rows wrongly, and the
+// failure stays visible in logs. If this fails, store hiccups either
+// fail passes spuriously or vanish silently.
+func TestPassSurvivesEventWriteFailure(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	s := &errCurrentStore{MemStore: store.NewMemStore()}
+	_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
+	sw := &Sweeper{Store: s, DryRun: true}
+	if sum := sw.RunPass(testCtx(), "tick"); sum.Planned != 1 {
+		t.Errorf("summary = %+v, want the pass to complete despite event-path errors", sum)
+	}
+	if n := strings.Count(buf.String(), "failed"); n == 0 {
+		t.Errorf("log = %q, want the visible event-path failures", buf.String())
 	}
 }
