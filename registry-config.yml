@@ -15,6 +15,10 @@ notifications:
 version: 0.1
 
 storage:
+  delete:
+    # kpr sweeps expired manifests: deletes must be enabled or every
+    # DELETE 405s with UNSUPPORTED.
+    enabled: true
   filesystem:
     rootdirectory: /var/lib/registry
 
