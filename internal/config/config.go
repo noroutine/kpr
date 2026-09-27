@@ -313,7 +313,7 @@ func (b *Builder) WithAppHost(v string) *Builder                { b.cfg.AppHost 
 func (b *Builder) WithAppPort(v int) *Builder                   { b.cfg.AppPort = v; return b }
 func (b *Builder) WithRedisAddr(v string) *Builder              { b.cfg.RedisAddr = v; return b }
 func (b *Builder) WithOTELEnabled(v bool) *Builder              { b.cfg.OTELEnabled = v; return b }
-func (b *Builder) WithOTLPEndpoint(v string) *Builder           { b.cfg.OTLPEndpoint = v; return b }
+func (b *Builder) WithOTLPEndpoint(v string) *Builder           { b.cfg.OTLPEndpoint = stripScheme(v); return b }
 func (b *Builder) WithOTELServiceName(v string) *Builder        { b.cfg.OTELServiceName = v; return b }
 func (b *Builder) WithOTELServiceVersion(v string) *Builder     { b.cfg.OTELServiceVersion = v; return b }
 func (b *Builder) WithOTELEnvironment(v string) *Builder        { b.cfg.OTELEnvironment = v; return b }

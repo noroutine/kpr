@@ -10,6 +10,10 @@ LDFLAGS := "-s -w -X " + PKG + "/internal/config.Version=" + VERSION + " -X " + 
 # since raw escape codes just clutter the step log.
 gotestsum_flags := if env("CI", "") == "true" { "--no-color" } else { "" }
 
+# Pinned gremlins (mutation testing) version. go install keeps it out of
+# go.mod/go.sum; same pattern as gotestsum above.
+GREMLINS_VERSION := "v0.6.0"
+
 # Default recipe - show available commands
 default:
     @just --list
@@ -31,7 +35,7 @@ prereqs:
     # Required tools (for building)
     REQUIRED=(go git)
     # Optional tools (for development)
-    OPTIONAL=(golangci-lint gotestsum goreleaser upx)
+    OPTIONAL=(golangci-lint gotestsum gremlins goreleaser upx)
 
     all_good=true
 
@@ -50,9 +54,9 @@ prereqs:
     echo "Optional tools:"
     for tool in "${OPTIONAL[@]}"; do
         if command -v "$tool" &> /dev/null; then
-            # gotestsum and goreleaser take --version; the rest take version.
+            # gotestsum, gremlins and goreleaser take --version; the rest take version.
             case "$tool" in
-                gotestsum|goreleaser)
+                gotestsum|gremlins|goreleaser)
                     version=$($tool --version 2>&1 | head -n1 || echo "installed")
                     ;;
                 *)
@@ -72,6 +76,7 @@ prereqs:
         echo "To install optional tools:"
         echo "  golangci-lint: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
         echo "  gotestsum:     go install gotest.tools/gotestsum@latest"
+        echo "  gremlins:      go install github.com/go-gremlins/gremlins/cmd/gremlins@{{GREMLINS_VERSION}}"
         echo "  goreleaser:    brew install goreleaser"
         echo "  upx:           brew install upx  # or: apt-get install upx"
     else
@@ -195,6 +200,35 @@ coverage-report:
 # Run benchmarks (no tests, measurements only)
 bench:
     go test -run=NONE -bench=. -benchmem ./...
+
+# Mutation testing (gremlins). Slow by design (minutes) — periodic and
+# on-demand, never part of check or per-push CI. --timeout-coefficient
+# is high on purpose: gremlins derives each mutant's timeout from its
+# covering tests' own milliseconds, and a test binary can't start and
+# serve in that budget (everything spuriously TIMED OUT at the default
+# coefficient of 3). --workers caps parallelism so hungry test runs
+# don't starve each other into timeouts.
+mutation workers="4":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v gremlins &> /dev/null; then
+        echo "gremlins not found. Install it (pinned {{GREMLINS_VERSION}}, stays out of go.mod):"
+        echo "  go install github.com/go-gremlins/gremlins/cmd/gremlins@{{GREMLINS_VERSION}}"
+        exit 1
+    fi
+    gremlins unleash --timeout-coefficient=100 --workers={{workers}} \
+        --threshold-efficacy=90 --threshold-mcover=85 .
+
+# Discover mutation candidates without running any tests
+mutation-dry:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v gremlins &> /dev/null; then
+        echo "gremlins not found. Install it (pinned {{GREMLINS_VERSION}}, stays out of go.mod):"
+        echo "  go install github.com/go-gremlins/gremlins/cmd/gremlins@{{GREMLINS_VERSION}}"
+        exit 1
+    fi
+    gremlins unleash --dry-run .
 
 # Docker image used by test-linux*. Tracks go.mod's `go` directive closely
 # enough for chasing Linux-only flakes; not meant to byte-for-byte match

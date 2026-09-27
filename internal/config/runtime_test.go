@@ -44,12 +44,44 @@ func TestInstalledBinaryPathFallsBackToName(t *testing.T) {
 // every test after it on a different assumption about the platform.
 func TestSetCurrentRuntimeRestoresPrevious(t *testing.T) {
 	before := CurrentRuntime()
-	restore := SetCurrentRuntime(NewRuntimeBuilder().WithGOOS("windows").Build())
-	if CurrentRuntime().GOOS != "windows" {
+	restore := SetCurrentRuntime(NewRuntimeBuilder().WithGOOS("windows").WithGOARCH("arm64").Build())
+	if CurrentRuntime().GOOS != "windows" || CurrentRuntime().GOARCH != "arm64" {
 		t.Fatal("override not installed")
 	}
 	restore()
 	if CurrentRuntime() != before {
 		t.Error("restore did not put the previous runtime back")
+	}
+}
+
+// The default builder must report the real platform: a test overriding
+// only GOOS still gets a real GOARCH, and production never sees an empty
+// pair. If this fails, platform branching downstream keys off blank
+// values.
+func TestNewRuntimeBuilderDefaultsToRealPlatform(t *testing.T) {
+	rt := NewRuntimeBuilder().Build()
+	if rt.GOOS == "" || rt.GOARCH == "" {
+		t.Errorf("runtime = %+v, want real GOOS/GOARCH", rt)
+	}
+}
+
+// The binary-path helper must always return something printable: the
+// $HOME-collapsed form under home, the raw path elsewhere, and the
+// binary name when the OS can't report the path at all. If this fails,
+// install hints print a blank or a temp-test path instead of a
+// copy-pasteable one.
+func TestInstalledBinaryPath(t *testing.T) {
+	if got := InstalledBinaryPath(); got == "" {
+		t.Error("empty path for the real executable")
+	}
+
+	oldAbs := filepathAbs
+	filepathAbs = func(string) (string, error) { return "", errors.New("nope") }
+	defer func() { filepathAbs = oldAbs }()
+	if got := InstalledBinaryPath(); got == "" {
+		t.Error("empty path when Abs fails")
+	}
+	if got := HomeRelativePath("/home/u/.local/bin/kpr", "/home/u"); got != "$HOME/.local/bin/kpr" {
+		t.Errorf("abs-fallback rewrite = %q", got)
 	}
 }

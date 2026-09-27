@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test coverage coverage-report bench test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean
+.PHONY: all build build-all clean clean-dist test coverage coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean
 .DEFAULT_GOAL := help
 
 # Version information
@@ -51,6 +51,7 @@ prereqs:
 	@echo "Optional tools:"
 	@command -v golangci-lint >/dev/null 2>&1 && echo "  ✓ golangci-lint - $$(golangci-lint version 2>&1 | head -n1)" || echo "  - golangci-lint - not installed (optional)"
 	@command -v gotestsum >/dev/null 2>&1 && echo "  ✓ gotestsum - $$(gotestsum --version 2>&1 | head -n1)" || echo "  - gotestsum - not installed (optional)"
+	@command -v gremlins >/dev/null 2>&1 && echo "  ✓ gremlins - $$(gremlins --version 2>&1 | head -n1)" || echo "  - gremlins - not installed (optional)"
 	@command -v goreleaser >/dev/null 2>&1 && echo "  ✓ goreleaser - $$(goreleaser --version 2>&1 | head -n1)" || echo "  - goreleaser - not installed (optional)"
 	@command -v upx >/dev/null 2>&1 && echo "  ✓ upx - $$(upx --version 2>&1 | head -n1)" || echo "  - upx - not installed (optional)"
 	@echo ""
@@ -135,6 +136,32 @@ coverage-report:
 ## bench: Run benchmarks (no tests, measurements only)
 bench:
 	go test -run=NONE -bench=. -benchmem ./...
+
+# Pinned gremlins (mutation testing) version. go install keeps it out of
+# go.mod/go.sum; same pattern as gotestsum.
+GREMLINS_VERSION := v0.6.0
+# Parallel mutant workers; override with WORKERS=... (see justfile for why
+# parallelism is capped and the timeout coefficient is high).
+WORKERS ?= 4
+
+## mutation: Mutation testing (gremlins). Slow by design (minutes) — periodic and on-demand, never part of check or per-push CI
+mutation:
+	@if ! command -v gremlins >/dev/null 2>&1; then \
+		echo "gremlins not found. Install it (pinned $(GREMLINS_VERSION), stays out of go.mod):"; \
+		echo "  go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)"; \
+		exit 1; \
+	fi
+	gremlins unleash --timeout-coefficient=100 --workers=$(WORKERS) \
+		--threshold-efficacy=90 --threshold-mcover=85 .
+
+## mutation-dry: Discover mutation candidates without running any tests
+mutation-dry:
+	@if ! command -v gremlins >/dev/null 2>&1; then \
+		echo "gremlins not found. Install it (pinned $(GREMLINS_VERSION), stays out of go.mod):"; \
+		echo "  go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)"; \
+		exit 1; \
+	fi
+	gremlins unleash --dry-run .
 
 # Docker image used by test-linux*. Tracks go.mod's `go` directive closely
 # enough for chasing Linux-only flakes; not meant to byte-for-byte match

@@ -17,7 +17,15 @@ type Server struct {
 	Host        string
 	Port        int
 	OTELEnabled bool
-	server      *http.Server
+	// Listener, when non-nil, serves on it instead of listening on
+	// Host:Port. Tests inject a loopback listener on an ephemeral port;
+	// production leaves it nil.
+	Listener net.Listener
+	// shutdownDone is closed when the shutdown watcher finishes. Tests
+	// wait on it to observe shutdown side effects (like error logging)
+	// without racing the watcher goroutine.
+	shutdownDone chan struct{}
+	server       *http.Server
 }
 
 // Start starts the application HTTP server on port 8080
@@ -76,17 +84,23 @@ func (s *Server) Start(ctx context.Context) error {
 		IdleTimeout:  cfg.HTTPIdleTimeout,
 	}
 
-	// Listen on the specified address
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", addr, err)
+	// Listen on the specified address, unless a listener was injected.
+	listener := s.Listener
+	if listener == nil {
+		var err error
+		listener, err = net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("failed to listen on %s: %w", addr, err)
+		}
 	}
 
 	log.Printf("Starting app server")
 	log.Printf("Application: http://localhost:%d", s.Port)
 
 	// Handle graceful shutdown
+	s.shutdownDone = make(chan struct{})
 	go func() {
+		defer close(s.shutdownDone)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
@@ -95,8 +109,7 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	err = s.server.Serve(listener)
-	if err != nil && err != http.ErrServerClosed {
+	if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 	return nil

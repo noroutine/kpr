@@ -84,6 +84,41 @@ push, pushes the multiplatform image, and attaches the binaries to the
 Forgejo release. Publishing happens only on tags; ordinary pushes only
 build and verify.
 
+## Mutation testing
+
+Statement coverage can't tell a test that asserts nothing from one that
+asserts the right thing. `mutation` (gremlins, pinned `v0.6.0`, installed
+via `go install` so it stays out of `go.mod`) mutates covered code and
+checks the suite catches it:
+
+```bash
+make mutation-dry   # list candidates without running anything
+make mutation       # full run: kills or explains every mutant
+```
+
+The run gates on `--threshold-efficacy=90` (killed over killed+lived)
+and `--threshold-mcover=85` (covered mutants over all mutants), exiting
+nonzero below either. Both sit below the achieved baseline with room to
+tighten — raise them, don't lower them, when the suite improves.
+
+Two tunables, both learned the hard way:
+
+- `--timeout-coefficient=100`: gremlins derives each mutant's timeout
+  from its covering tests' own milliseconds; at the default coefficient
+  of 3 every mutant spuriously `TIMED OUT` because a test binary can't
+  start and serve in that budget.
+- `--workers=4` (override with `WORKERS=...` on make,
+  `just mutation workers=...`): caps parallelism so hungry test runs
+  don't starve each other into timeouts. If `TIMED OUT` climbs with no
+  code change, lower workers before touching anything else.
+
+A full run takes minutes and is deliberately **not** part of `check` or
+per-push CI — run it periodically and before significant test changes,
+preferably on a quiet machine: contended CPUs inflate `TIMED OUT` (which
+doesn't fail the gates, just slows the run). The manual `Mutation`
+Forgejo workflow (`workflow_dispatch`) runs the same `make mutation`
+gate on demand.
+
 ## Integration tests
 
 Not started yet. Notes on scope, fixtures (registry + redis from

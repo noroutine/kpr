@@ -44,6 +44,14 @@ build caches persist in named Docker volumes):
 just test-linux            # or test-linux-verbose, test-linux-repeat n=50
 ```
 
+Mutation testing (gremlins, periodic — minutes per run, never in
+per-push CI):
+
+```bash
+just mutation-dry          # list candidates, no tests run
+just mutation              # full run with efficacy/coverage gates
+```
+
 All tunable knobs live in `internal/config` (env-backed settings,
 build-time identity, runtime facts) — see `docs/CONFIG.md` before adding
 a new one. CLI flags stay on the cobra commands in `internal/cli`, with

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -71,14 +72,56 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 // known-good default, and the warning tells the operator exactly which
 // value was rejected. If this fails, one bad env var is a startup outage
 // instead of a log line.
+// An explicitly blank port is the same as unset: the default applies with
+// no warning. If this fails, clearing a variable (the documented way to
+// get the default back) warns spuriously or, worse, binds port zero.
+func TestFromEnvBlankPortMeansDefault(t *testing.T) {
+	t.Setenv(EnvManagementPort, "")
+	t.Setenv(EnvAppPort, "   ")
+	cfg := NewBuilder().FromEnv().Build()
+	if cfg.ManagementPort != DefaultManagementPort || cfg.AppPort != DefaultAppPort {
+		t.Errorf("ports = %d/%d, want defaults", cfg.ManagementPort, cfg.AppPort)
+	}
+	if cfg.ManagementPortWarning != nil || cfg.AppPortWarning != nil {
+		t.Error("blank ports must not warn")
+	}
+}
+
+// The boundary ports 1 and 65535 are valid and must be accepted without
+// warning: an off-by-one in the range check would silently rebind the
+// server to its default while the operator believes their explicit port
+// is in effect. If this fails, the valid range is narrower than
+// documented.
+func TestFromEnvAcceptsBoundaryPorts(t *testing.T) {
+	for _, raw := range []string{"1", "65535"} {
+		t.Setenv(EnvManagementPort, raw)
+		t.Setenv(EnvAppPort, raw)
+		cfg := NewBuilder().FromEnv().Build()
+		if cfg.ManagementPortWarning != nil || cfg.AppPortWarning != nil {
+			t.Errorf("raw %q: unexpected warning", raw)
+		}
+		want, err := strconv.Atoi(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ManagementPort != want || cfg.AppPort != want {
+			t.Errorf("raw %q: ports = %d/%d", raw, cfg.ManagementPort, cfg.AppPort)
+		}
+	}
+}
+
 func TestFromEnvBadPortFallsBackWithWarning(t *testing.T) {
 	for _, raw := range []string{"notaport", "0", "-1", "65536", "9300junk"} {
 		t.Setenv(EnvManagementPort, raw)
+		t.Setenv(EnvAppPort, raw)
 		cfg := NewBuilder().FromEnv().Build()
 		if cfg.ManagementPort != DefaultManagementPort {
-			t.Errorf("raw %q: port = %d, want default %d", raw, cfg.ManagementPort, DefaultManagementPort)
+			t.Errorf("raw %q: management port = %d, want default %d", raw, cfg.ManagementPort, DefaultManagementPort)
 		}
-		if cfg.ManagementPortWarning == nil {
+		if cfg.AppPort != DefaultAppPort {
+			t.Errorf("raw %q: app port = %d, want default %d", raw, cfg.AppPort, DefaultAppPort)
+		}
+		if cfg.ManagementPortWarning == nil || cfg.AppPortWarning == nil {
 			t.Errorf("raw %q: no warning recorded", raw)
 		} else if !strings.Contains(cfg.ManagementPortWarning.Error(), raw) {
 			t.Errorf("raw %q: warning %q does not name the value", raw, cfg.ManagementPortWarning)

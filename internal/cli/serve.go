@@ -73,9 +73,10 @@ var serveCmd = &cobra.Command{
 			}
 			addr := net.JoinHostPort(managementHost, fmt.Sprintf("%d", managementPort))
 			log.Printf("Starting management console on %s", addr)
-			if err := managementServer.Start(ctx); err != nil {
-				errors <- err
-			}
+			// Always forward the result, including a nil graceful stop:
+			// the select below filters, so a dropped-nil versus
+			// sent-nil difference can't hide here.
+			errors <- managementServer.Start(ctx)
 		}()
 
 		// Start application server
@@ -89,9 +90,7 @@ var serveCmd = &cobra.Command{
 			}
 			addr := net.JoinHostPort(appHost, fmt.Sprintf("%d", appPort))
 			log.Printf("Starting application server on %s", addr)
-			if err := appServer.Start(ctx); err != nil {
-				errors <- err
-			}
+			errors <- appServer.Start(ctx)
 		}()
 
 		// Wait for shutdown signal or error
