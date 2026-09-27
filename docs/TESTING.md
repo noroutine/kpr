@@ -140,9 +140,9 @@ one earned, none by neglect):
 - `policy.go` clamp guards (`59`, `77`): the boundary inputs evaluate
   to exactly `MaxTTL` on both sides, so the mutants are provably
   equivalent — no test can distinguish them.
-- Sort-comparator boundaries (`web/keeper.go` plan order): equal keys
-  sort identically under `<=`, so the only distinguishing inputs have
-  indistinguishable outputs.
+- Sort-comparator boundaries (`web/keeper.go` plan order, `cli/keeper.go`
+  plan/evaluate order): equal keys sort identically under `<=`, so the
+  only distinguishing inputs have indistinguishable outputs.
 - `store/mem.go` ring trim (`97`): trimming at-cap is a no-op either way.
 - Timing constants (`registry.go:35`, `cli/keeper.go:199,242`,
   `sweep.go:30`): changed timeouts don't change observable behavior.
