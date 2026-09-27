@@ -24,7 +24,10 @@ services:
 
       # Registry peer (sweeper deletes, reap reads catalog)
       - "KPR_REGISTRY_URL=http://registry:5000"
-      # KPR_NO_DRY_RUN stays unset: the stack plans, never deletes.
+      # Armed by default: the local stack really deletes. Comment the
+      # line out (anything but exactly "true" keeps dry-run) to go back
+      # to planning without touching anything.
+      - "KPR_NO_DRY_RUN=true"
 
       # OpenTelemetry (optional)
       - OTEL_ENABLED=false
