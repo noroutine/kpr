@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -193,6 +194,77 @@ type errStore struct{ store.Store }
 func (errStore) Ping(context.Context) error { return errors.New("redis: connection refused") }
 func (errStore) All(context.Context) ([]policy.Row, error) {
 	return nil, errors.New("redis: connection refused")
+}
+func (errStore) Due(context.Context) ([]policy.Row, error) {
+	return nil, errors.New("redis: connection refused")
+}
+
+// Opening state against a dead redis must fail fast naming redis —
+// the operator typo'd the address and needs to know it now, not after
+// a hang. If this fails, keeper commands stall or blame the wrong
+// backend.
+func TestOpenStoreNamesDeadRedis(t *testing.T) {
+	cfg := config.NewBuilder().WithRedisAddr("127.0.0.1:1").Build()
+	if _, err := openStore(cfg); err == nil {
+		t.Error("openStore on dead redis succeeded, want a fast error")
+	} else if !strings.Contains(err.Error(), "redis") {
+		t.Errorf("error = %q, want it to name redis", err.Error())
+	}
+}
+
+// The sweep trigger URL comes from the resolved console binding, with
+// IPv6 hosts bracketed: an unbracketed :: would POST nowhere. If this
+// fails, `sweep` calls the wrong console (or a malformed URL).
+func TestConsoleURLBracketsIPv6(t *testing.T) {
+	u := consoleURL(config.NewBuilder().WithManagementHost("::").WithManagementPort(9300).Build())
+	if u != "http://[::]:9300" {
+		t.Errorf("consoleURL = %q, want bracketed dual-stack host", u)
+	}
+}
+
+// plan against dead state fails naming redis instead of printing an
+// empty plan: "nothing due" must mean empty, never "unreadable". If
+// this fails, an outage renders as a clean bill of health.
+func TestPlanOnDeadRedisFails(t *testing.T) {
+	if err := runPlan(cliCtx(), io.Discard, errStore{}, false); err == nil {
+		t.Error("plan on dead redis succeeded, want an error")
+	}
+}
+
+// A catalog read against a dead registry fails fast: reap treats it as
+// "no catalog for this repo" downstream, but the client itself must
+// report the error rather than empty tags (empty would read as "every
+// row untagged"). If this fails, registry blips become mass untagging.
+func TestCatalogOnDeadRegistryFails(t *testing.T) {
+	if _, err := registry.NewClient("http://127.0.0.1:1").Catalog(cliCtx(), "app"); err == nil {
+		t.Error("catalog on dead registry succeeded, want an error")
+	}
+}
+
+// reap against dead state fails instead of marking nothing and
+// calling it a plan: an unreadable backend is an error, not an empty
+// evaluation. If this fails, outages print confident empty plans.
+func TestReapOnDeadRedisFails(t *testing.T) {
+	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), true, cliNow); err == nil {
+		t.Error("armed reap on dead redis succeeded, want an error")
+	}
+	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), false, cliNow); err == nil {
+		t.Error("dry-run reap on dead redis succeeded, want an error")
+	}
+}
+
+// errWriter fails every write: the broken-pipe stand-in.
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+// A broken pipe must surface as an error, not a silent short plan: a
+// truncated plan piped into approval tooling reads as approval-worthy.
+// If this fails, output errors vanish.
+func TestPlanSurfacesWriteError(t *testing.T) {
+	if err := runPlan(cliCtx(), errWriter{}, cliStore(), false); err == nil {
+		t.Error("plan into broken pipe succeeded, want an error")
+	}
 }
 
 // The serve loop fires sweep-on-start immediately (no full-interval

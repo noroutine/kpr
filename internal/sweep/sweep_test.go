@@ -221,3 +221,16 @@ func TestEmptyDueSkips(t *testing.T) {
 		t.Errorf("current = %+v, want skip stage with a pass id", cur)
 	}
 }
+
+// Without an injected clock the pass anchors at wall time: production
+// has no test seam, so an overdue TTL row still sweeps. If this fails,
+// the zero clock either panics the pass or freezes eligibility.
+func TestRunPassDefaultsToWallClock(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
+		PushedAt: time.Now().UTC().Add(-time.Hour), Due: true, Reason: "ttl:10m elapsed"})
+	sw := &Sweeper{Store: s, DryRun: true}
+	if sum := sw.RunPass(testCtx(), "tick"); sum.Planned != 1 {
+		t.Errorf("summary = %+v, want 1 planned on wall clock", sum)
+	}
+}

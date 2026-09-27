@@ -26,6 +26,9 @@ func ctx() context.Context {
 // record and plan and the whole pipeline reasons about nothing.
 func testRecordAndAll(t *testing.T, s Store) {
 	c := ctx()
+	if err := s.Ping(c); err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
 	if err := s.Record(c, srow("app", "v1")); err != nil {
 		t.Fatalf("Record: %v", err)
 	}

@@ -103,6 +103,21 @@ func TestDeleteManifestUnreachable(t *testing.T) {
 	}
 }
 
+// A registry blip on the catalog read is an error, never an empty tag
+// list: reap skips catalog selectors for that repo on error, but an
+// empty list would read as "every tracked row untagged". If this
+// fails, a 500 becomes mass untagging downstream.
+func TestCatalogServerErrorFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	if _, err := NewClient(srv.URL).Catalog(testCtx(), "app"); err == nil {
+		t.Error("catalog on 500 succeeded, want an error")
+	}
+}
+
 // keep-N needs the live tag list per repo from the plain catalog API.
 // If this fails, reap cannot tell the freshest N from the dead weight.
 func TestCatalogListsTags(t *testing.T) {
