@@ -500,3 +500,13 @@ up-observability:
 # Stop local stacks
 down:
     docker compose -f docker-compose.yml -f docker-compose.observability.yml down
+
+# Garbage-collect unreferenced registry blobs (API deletes drop the
+# tag reference only; --delete-untagged also drops the orphaned
+# manifest revisions that would otherwise keep every blob alive).
+# Runs offline with the service's own volumes, then restarts the
+# registry.
+gc:
+    docker compose stop registry
+    docker compose run --rm --no-deps --entrypoint /bin/registry registry garbage-collect --delete-untagged /etc/distribution/config.yml
+    docker compose start registry
