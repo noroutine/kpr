@@ -1,0 +1,144 @@
+package policy
+
+import (
+	"fmt"
+	"regexp"
+	"sort"
+	"time"
+)
+
+// Tunings for the M1 housekeeping behaviors (docs/PLAN.md). They live
+// here, next to the code that reads them — not in the main config.
+const (
+	// StaleUploadMaxAge bounds interrupted pushes: a row with no
+	// digest older than this is push residue, not a retry in flight.
+	StaleUploadMaxAge = 24 * time.Hour
+	// UntaggedGrace is how long a manifest whose tag vanished upstream
+	// is kept before collection.
+	UntaggedGrace = 168 * time.Hour
+	// KeepN is the default count of freshest tags a repo keeps.
+	KeepN = 10
+)
+
+// Row is one tracked tag: generous at ingest (repo/tag/digest/media,
+// push time, actor) so reap rarely needs a manifest fetch, plus the
+// mark (Due + Reason) selectors attach. Blob content is never fetched.
+type Row struct {
+	Repo      string
+	Tag       string
+	Digest    string
+	MediaType string
+	PushedAt  time.Time
+	Actor     string
+	Due       bool
+	Reason    string
+}
+
+// mark returns a due-marked copy; selectors never mutate their input
+// so reap can print the plan from the same rows it marks.
+func mark(r Row, reason string) Row {
+	r.Due = true
+	r.Reason = reason
+	return r
+}
+
+// SelectExpired marks rows whose TTL tag elapsed since push.
+func SelectExpired(rows []Row, now time.Time) []Row {
+	var due []Row
+	for _, r := range rows {
+		if Eligible(r.Tag, r.PushedAt, now) {
+			if ttl, ok := EffectiveTTL(r.Tag); ok {
+				due = append(due, mark(r, fmt.Sprintf("ttl:%s elapsed", ttl)))
+			}
+		}
+	}
+	return due
+}
+
+// SelectStaleUploads marks digest-less rows older than the max age:
+// pushes that never completed. Unknown age defaults keep.
+func SelectStaleUploads(rows []Row, now time.Time) []Row {
+	var due []Row
+	for _, r := range rows {
+		if r.Digest != "" || r.PushedAt.IsZero() {
+			continue
+		}
+		if now.Sub(r.PushedAt) > StaleUploadMaxAge {
+			due = append(due, mark(r, fmt.Sprintf("partial:older than %s", StaleUploadMaxAge)))
+		}
+	}
+	return due
+}
+
+// SelectUntagged marks rows whose tag left the catalog past the grace
+// period: tags deleted upstream leave manifests behind.
+func SelectUntagged(rows []Row, catalog map[string][]string, now time.Time) []Row {
+	live := map[string]bool{}
+	for repo, tags := range catalog {
+		for _, t := range tags {
+			live[repo+"\x00"+t] = true
+		}
+	}
+	var due []Row
+	for _, r := range rows {
+		if live[r.Repo+"\x00"+r.Tag] {
+			continue
+		}
+		if r.PushedAt.IsZero() || now.Sub(r.PushedAt) <= UntaggedGrace {
+			continue
+		}
+		due = append(due, mark(r, fmt.Sprintf("untagged:past grace %s", UntaggedGrace)))
+	}
+	return due
+}
+
+// compileRes compiles exclude/include patterns; nil means no filter.
+func compileRes(exprs []string) []*regexp.Regexp {
+	var out []*regexp.Regexp
+	for _, e := range exprs {
+		if re, err := regexp.Compile(e); err == nil {
+			out = append(out, re)
+		}
+	}
+	return out
+}
+
+func anyMatch(res []*regexp.Regexp, s string) bool {
+	for _, re := range res {
+		if re.MatchString(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// SelectKeepN marks all but the n freshest tags per repo. Excluded
+// tags (release lines, :latest) are never victims; when include is
+// non-empty only matching tags participate. Catalog-only tags with no
+// row (unknown age) default keep — only tracked rows are candidates.
+func SelectKeepN(rows []Row, n int, include, exclude []string, now time.Time) []Row {
+	_ = now
+	inc, exc := compileRes(include), compileRes(exclude)
+	byRepo := map[string][]Row{}
+	for _, r := range rows {
+		if anyMatch(exc, r.Tag) {
+			continue
+		}
+		if len(inc) > 0 && !anyMatch(inc, r.Tag) {
+			continue
+		}
+		byRepo[r.Repo] = append(byRepo[r.Repo], r)
+	}
+	var due []Row
+	for _, group := range byRepo {
+		sort.Slice(group, func(i, j int) bool {
+			return group[i].PushedAt.After(group[j].PushedAt)
+		})
+		for i, r := range group {
+			if i >= n {
+				due = append(due, mark(r, fmt.Sprintf("keep-n:exceeds %d", n)))
+			}
+		}
+	}
+	return due
+}
