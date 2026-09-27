@@ -1,6 +1,6 @@
 {
-  "title": "kpr demo (spike)",
-  "uid": "kpr-demo-spike",
+  "title": "kpr observability",
+  "uid": "kpr-observability",
   "timezone": "browser",
   "panels": [
     {
@@ -17,12 +17,12 @@
     },
     {
       "id": 2,
-      "title": "Demo queue depth (synthetic)",
+      "title": "Example queue depth (synthetic)",
       "type": "gauge",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "targets": [
         {
-          "expr": "kpr_demo_queue_depth"
+          "expr": "kpr_example_queue_depth"
         }
       ]
     },

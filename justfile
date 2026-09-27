@@ -90,8 +90,16 @@ build:
     CGO_ENABLED=0 go build -ldflags "{{LDFLAGS}}" -o dist/kpr-$GOOS-$GOARCH ./cmd/app
     echo "Built: dist/kpr-$GOOS-$GOARCH"
 
-# Build all platform binaries
+# Build all platform binaries (plus checksums report, like make build-all)
 build-all: build-linux-amd64 build-linux-arm64 build-linux-arm build-darwin-amd64 build-darwin-arm64
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p dist
+    echo "Building checksums..."
+    (cd dist && shasum -a 256 kpr-* > checksums.txt)
+    echo "All builds complete:"
+    ls -lh dist/
+    cat dist/checksums.txt
 
 # Build for Linux amd64
 build-linux-amd64:
@@ -118,9 +126,7 @@ release: clean-dist
     @echo "Building release {{VERSION}}..."
     @mkdir -p dist
     just build-all
-    cd dist && shasum -a 256 kpr-* > checksums.txt
     @echo "Release built: dist/"
-    @ls -lh dist/
 
 # Run the servers locally
 run:
@@ -132,7 +138,12 @@ fmt:
 
 # Check code formatting
 fmt-check:
-    test -z "$(gofmt -l .)"
+    #!/usr/bin/env bash
+    if [ -n "$(gofmt -l .)" ]; then
+        echo "Go code is not formatted:"
+        gofmt -d .
+        exit 1
+    fi
 
 # Lint code (golangci-lint v2 if available, otherwise go vet)
 lint:
@@ -460,7 +471,8 @@ docker-build-multiplatform: build-all
         $TAGS \
         --push .
 
-    echo "Multiplatform images pushed successfully"
+    echo "Multiplatform images pushed successfully:"
+    echo "  {{DOCKER_IMAGE}}:{{VERSION}}"
 
 # Run Docker container locally
 docker-run:
@@ -476,3 +488,15 @@ docker-clean:
     @echo "Removing local Docker images..."
     -docker rmi {{DOCKER_IMAGE}}:{{VERSION}} 2>/dev/null || true
     @echo "Docker images removed"
+
+# Start base dev stack locally (detached)
+up:
+    docker compose up -d --build
+
+# Start full dev stack with observability overlay (detached)
+up-observability:
+    docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
+
+# Stop local stacks
+down:
+    docker compose -f docker-compose.yml -f docker-compose.observability.yml down

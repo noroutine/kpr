@@ -44,11 +44,11 @@ func initMetrics() error {
 			initMetricsErr = err
 			return
 		}
-		// Synthetic load signal for the demo dashboard: a slow
+		// Synthetic load signal for the example dashboard: a slow
 		// sawtooth that visibly moves on every scrape. Clearly
-		// named demo — not a real queue.
-		_, err = m.Float64ObservableGauge("kpr.demo.queue_depth",
-			metric.WithDescription("SPIKE DEMO ONLY: synthetic queue depth."),
+		// named example — not a real queue.
+		_, err = m.Float64ObservableGauge("kpr.example.queue_depth",
+			metric.WithDescription("Example synthetic gauge proving the metrics path moves."),
 			metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
 				o.Observe(float64(time.Now().Unix()%100), metric.WithAttributes(
 					attribute.String("queue", "demo"),

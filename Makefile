@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test coverage coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean
+.PHONY: all build build-all clean clean-dist test coverage coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-observability down
 .DEFAULT_GOAL := help
 
 # Version information
@@ -418,3 +418,15 @@ docker-clean:
 	@echo "Removing local Docker images..."
 	-docker rmi $(DOCKER_IMAGE):$(VERSION) 2>/dev/null || true
 	@echo "Docker images removed"
+
+## up: Start base dev stack locally (detached)
+up:
+	docker compose up -d --build
+
+## up-observability: Start full dev stack with observability overlay (detached)
+up-observability:
+	docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
+
+## down: Stop local stacks
+down:
+	docker compose -f docker-compose.yml -f docker-compose.observability.yml down

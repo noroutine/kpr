@@ -1,4 +1,4 @@
-# Observability spike overlay (see docs/OBSERVABILITY_SPIKE.md).
+# Observability overlay (see docs/OBSERVABILITY.md).
 #
 # Optional, profile-free: this file only ADDS services and overrides the
 # kpr service's telemetry env. Default `docker compose up` is untouched.
