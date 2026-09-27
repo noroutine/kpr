@@ -90,6 +90,27 @@ func testRecordRepushClearsStaleMark(t *testing.T, s Store) {
 	}
 }
 
+// Marking a never-recorded row creates it (skeletal, then filled by
+// the next notification): reap reasons about tags the receiver hasn't
+// seen yet, and the mark must land somewhere. If this fails, marks on
+// unseen rows vanish instead of awaiting the push.
+func testMarkDueCreatesRow(t *testing.T, s Store) {
+	c := ctx()
+	if err := s.MarkDue(c, "new", "v9", "keep-n:exceeds 10"); err != nil {
+		t.Fatalf("MarkDue: %v", err)
+	}
+	due, err := s.Due(c)
+	if err != nil {
+		t.Fatalf("Due: %v", err)
+	}
+	if len(due) != 1 || due[0].Repo != "new" || due[0].Tag != "v9" {
+		t.Fatalf("Due = %+v, want the created mark", due)
+	}
+	if !due[0].Due || due[0].Reason != "keep-n:exceeds 10" {
+		t.Errorf("created row not marked: %+v", due[0])
+	}
+}
+
 // A confirmed registry delete removes the row: the sweeper resolves
 // marks by deleting, not by unmarking. If this fails, swept rows haunt
 // every future plan.
@@ -175,6 +196,7 @@ func TestMemStoreContract(t *testing.T) {
 	fresh := func() Store { return NewMemStore() }
 	t.Run("record", func(t *testing.T) { testRecordAndAll(t, fresh()) })
 	t.Run("mark", func(t *testing.T) { testMarkDuePersists(t, fresh()) })
+	t.Run("mark-creates", func(t *testing.T) { testMarkDueCreatesRow(t, fresh()) })
 	t.Run("repush", func(t *testing.T) { testRecordRepushClearsStaleMark(t, fresh()) })
 	t.Run("delete", func(t *testing.T) { testDeleteRemovesRow(t, fresh()) })
 	t.Run("current", func(t *testing.T) { testCurrentRoundTrip(t, fresh()) })
@@ -204,6 +226,7 @@ func TestRedisStoreContract(t *testing.T) {
 	}
 	t.Run("record", func(t *testing.T) { flush(t); testRecordAndAll(t, s) })
 	t.Run("mark", func(t *testing.T) { flush(t); testMarkDuePersists(t, s) })
+	t.Run("mark-creates", func(t *testing.T) { flush(t); testMarkDueCreatesRow(t, s) })
 	t.Run("repush", func(t *testing.T) { flush(t); testRecordRepushClearsStaleMark(t, s) })
 	t.Run("delete", func(t *testing.T) { flush(t); testDeleteRemovesRow(t, s) })
 	t.Run("current", func(t *testing.T) { flush(t); testCurrentRoundTrip(t, s) })

@@ -37,6 +37,10 @@ func cliStore() *store.MemStore {
 		PushedAt: cliNow.Add(-time.Hour)})
 	_ = s.PushActivity(c, store.Outcome{Repo: "scratch", Tag: "10m",
 		Reason: "ttl:10m elapsed", Outcome: "deleted", At: cliNow})
+	_ = s.PushActivity(c, store.Outcome{Repo: "scratch", Tag: "9m",
+		Reason: "ttl:9m elapsed", Outcome: "planned", At: cliNow})
+	_ = s.PushActivity(c, store.Outcome{Repo: "app", Tag: "v1",
+		Reason: "keep-n:exceeds 10", Outcome: "failed", At: cliNow})
 	return s
 }
 
@@ -59,7 +63,7 @@ func TestStatusRendersBannerAndCounters(t *testing.T) {
 	}
 	// Exact line: "unreachable" contains "reachable", so a bare
 	// substring check would pass on a red banner.
-	for _, want := range []string{"dry-run", "registry: reachable\n", "tracked: 2", "due: 1", "performed: 1"} {
+	for _, want := range []string{"dry-run", "registry: reachable\n", "tracked: 2", "due: 1", "performed: 1", "planned: 1", "failed: 1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("status missing %q:\n%s", want, out.String())
 		}
@@ -113,6 +117,35 @@ func TestPlanListsDueWithReasons(t *testing.T) {
 	}
 }
 
+// plan with several due rows renders them sorted by repo then tag: a
+// swapped comparator must fail here. If this fails, the plan order
+// contract is unpinned.
+func TestPlanRendersRowsSorted(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "zebra", Tag: "v1", Digest: "sha256:1",
+		PushedAt: cliNow, Due: true, Reason: "x"})
+	_ = s.Record(c, policy.Row{Repo: "apple", Tag: "v2", Digest: "sha256:2",
+		PushedAt: cliNow, Due: true, Reason: "y"})
+	_ = s.Record(c, policy.Row{Repo: "apple", Tag: "v1", Digest: "sha256:3",
+		PushedAt: cliNow, Due: true, Reason: "z"})
+	var out bytes.Buffer
+	if err := runPlan(cliCtx(), &out, s, false); err != nil {
+		t.Fatalf("runPlan: %v", err)
+	}
+	body := out.String()
+	ordered := []string{"apple:v1", "apple:v2", "zebra:v1"}
+	last := -1
+	for _, want := range ordered {
+		at := strings.Index(body, want)
+		if at <= last {
+			t.Errorf("plan order broken at %q:\n%s", want, body)
+			break
+		}
+		last = at
+	}
+}
+
 // Unarmed reap only prints the plan (same source as plan): nothing is
 // marked, nothing will sweep. If this fails, the default run mutates —
 // the implicit-dry-run promise broken at its most important site.
@@ -157,6 +190,40 @@ func TestReapArmedMarksOnlySelected(t *testing.T) {
 	}
 }
 
+// Armed reap with several selected rows marks all of them, sorted: the
+// evaluate order contract must hold past a single row. If this fails,
+// multi-mark passes scramble or drop candidates.
+func TestReapArmedMarksAllSorted(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "zebra", Tag: "10m",
+		Digest: "sha256:1", PushedAt: cliNow.Add(-time.Hour)})
+	_ = s.Record(c, policy.Row{Repo: "apple", Tag: "10m",
+		Digest: "sha256:2", PushedAt: cliNow.Add(-time.Hour)})
+	var out bytes.Buffer
+	// No registry: rows-only selectors still apply, catalog ones skip.
+	if err := runReap(cliCtx(), &out, s, nil, true, cliNow); err != nil {
+		t.Fatalf("runReap: %v", err)
+	}
+	due, _ := s.Due(c)
+	// Store order is unspecified (readers sort); the set is the contract.
+	got := map[string]bool{}
+	for _, r := range due {
+		got[r.Repo+":"+r.Tag] = true
+	}
+	if len(due) != 2 || !got["apple:10m"] || !got["zebra:10m"] {
+		t.Errorf("due = %+v, want {apple:10m zebra:10m}", due)
+	}
+	// evaluate itself sorts: the order contract lives there, not in Due.
+	marked, err := evaluate(cliCtx(), s, nil, cliNow)
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(marked) != 2 || marked[0].Repo != "apple" || marked[1].Repo != "zebra" {
+		t.Errorf("evaluate = %+v, want sorted [apple zebra]", marked)
+	}
+}
+
 // sweep POSTs the console trigger and prints the pass summary. When
 // the console cannot be reached it degrades to the tick backstop with
 // the due count — never a bare connection error. If this fails, the
@@ -187,6 +254,25 @@ func TestSweepTriggersAndDegrades(t *testing.T) {
 	for _, want := range []string{"1 rows due", "not reached", "next tick"} {
 		if !strings.Contains(dout.String(), want) {
 			t.Errorf("degraded sweep missing %q:\n%s", want, dout.String())
+		}
+	}
+}
+
+// Every keeper command fails fast naming redis when there is no
+// state: the cobra wrappers are thin, but their one branch (refuse
+// without a backend) must hold. If this fails, a command invents
+// numbers with redis down.
+func TestKeeperCommandsRefuseWithoutRedis(t *testing.T) {
+	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
+	for _, args := range [][]string{
+		{"status"}, {"plan"}, {"reap"}, {"sweep"},
+	} {
+		RootCmd.SetArgs(args)
+		defer RootCmd.SetArgs(nil)
+		if err := RootCmd.Execute(); err == nil {
+			t.Errorf("kpr %s without redis succeeded, want a fast error", args[0])
+		} else if !strings.Contains(err.Error(), "redis") {
+			t.Errorf("kpr %s error = %q, want it to name redis", args[0], err.Error())
 		}
 	}
 }
@@ -312,6 +398,32 @@ func TestReapSkipsRepoOnCatalogFailure(t *testing.T) {
 	due, _ := s.Due(c)
 	if len(due) != 1 || due[0].Tag != "10m" {
 		t.Errorf("due = %+v, want only the expired row (failed catalog skips untagged)", due)
+	}
+}
+
+// The dry-run plan renders every candidate line, in order: with a
+// single row, an early return after the first print would pass unnoticed.
+// If this fails, multi-row plans silently truncate to the first row.
+func TestReapDryRunRendersAllRows(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m",
+		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
+	_ = s.Record(c, policy.Row{Repo: "aardvark", Tag: "5m",
+		Digest: "sha256:z", PushedAt: cliNow.Add(-time.Hour)})
+	var out bytes.Buffer
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, cliNow); err != nil {
+		t.Fatalf("runReap: %v", err)
+	}
+	body := out.String()
+	aardvark := strings.Index(body, "aardvark:5m — ttl:5m0s elapsed\n")
+	scratch := strings.Index(body, "scratch:10m — ttl:10m0s elapsed\n")
+	trailer := strings.Index(body, "(dry-run: nothing marked")
+	if aardvark < 0 || scratch < 0 || trailer < 0 {
+		t.Fatalf("dry-run missing rows or trailer:\n%s", body)
+	}
+	if aardvark >= scratch || scratch >= trailer {
+		t.Errorf("dry-run rows out of order or trailer misplaced:\n%s", body)
 	}
 }
 

@@ -129,6 +129,11 @@ Thresholds are advisory in gremlins v0.6.0: `--threshold-efficacy` /
 100/100 still exits 0), so read the tally yourself instead of trusting
 the exit code.
 
+Gremlins' NOT COVERED set is advisory, not ground truth: its coverage
+pass occasionally misses lines the suite provably executes (verified
+by hand-mutating `sweep.go:139/143` and `registry.go:90-95` — the tests
+catch both loudly). Trust a failing hand-mutant over the label.
+
 Accepted survivors (equivalent or untestable-by-construction — every
 one earned, none by neglect):
 

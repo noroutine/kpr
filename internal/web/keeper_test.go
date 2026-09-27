@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -75,13 +76,17 @@ func TestKeeperSectionsRenderTrackedState(t *testing.T) {
 	for _, want := range []string{
 		"scratch", "10m", "ttl:10m elapsed", // the plan, with reason
 		"deleted", // activity outcome
-		// Exact cell: "unreachable" contains "reachable", so a bare
-		// substring check would pass on a red banner.
-		`<div class="value">reachable</div>`, // registry probe
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}
+	}
+	// The probe cell anchored on its label: both banner cells share the
+	// same markup (and "unreachable" contains "reachable"), so neither
+	// a bare word nor a bare cell proves the REGISTRY row is green.
+	registryGreen := regexp.MustCompile(`Registry</div>\s*<div class="value">reachable</div>`)
+	if !registryGreen.MatchString(body) {
+		t.Error("registry banner cell is not green")
 	}
 	if strings.Contains(body, "/v2/app/tags/list") {
 		t.Error("dashboard links registry catalog browsing, want tracked-state only")
