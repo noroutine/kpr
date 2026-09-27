@@ -29,6 +29,11 @@ const (
 // LockTTL bounds single-flight: a crashed sweeper can't hold it forever.
 const LockTTL = 5 * time.Minute
 
+// TickInterval is the sweeper tick: marked rows are picked up on the
+// next tick even if nobody ever POSTs the trigger (the trigger is an
+// accelerator, not a dependency).
+const TickInterval = time.Minute
+
 // Summary is the pass outcome: the sweep endpoint's HTTP response
 // carries it, so `sweep` gets synchronous feedback without polling.
 type Summary struct {

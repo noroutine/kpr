@@ -22,6 +22,10 @@ services:
       # State backend (see docs/goals.md)
       - "KPR_REDIS_ADDR=redis:6379"
 
+      # Registry peer (sweeper deletes, reap reads catalog)
+      - "KPR_REGISTRY_URL=http://registry:5000"
+      # KPR_NO_DRY_RUN stays unset: the stack plans, never deletes.
+
       # OpenTelemetry (optional)
       - OTEL_ENABLED=false
       # - OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4317

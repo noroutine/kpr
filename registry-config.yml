@@ -2,17 +2,15 @@
 # Referenced as /etc/distribution/config.yml by the `registry` service
 # in docker-compose.yml.
 #
-# TODO(kpr): wire the notification endpoint once kpr implements the
-# receiver — distribution will then POST event envelopes for every
-# push/pull/delete and kpr will track TTLs and retention in redis:
-#
-# notifications:
-#   endpoints:
-#     - name: kpr
-#       url: http://kpr:8080/events
-#       timeout: 1s
-#       threshold: 5
-#       backoff: 1s
+# Push/pull/delete envelopes -> the kpr receiver, which tracks rows in
+# redis (see POST /events and docs/PLAN.md).
+notifications:
+  endpoints:
+    - name: kpr
+      url: http://kpr:8080/events
+      timeout: 1s
+      threshold: 5
+      backoff: 1s
 
 version: 0.1
 

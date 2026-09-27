@@ -9,11 +9,15 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/app"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
+	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/sweep"
 	"nrtn.dev/catalyst/kpr/internal/web"
 )
 
@@ -55,8 +59,39 @@ var serveCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		// Shared keeper state: the redis store (lazy — a down redis
+		// degrades banner/receiver/sweeper instead of blocking boot),
+		// the registry client, and the single-owner sweeper.
+		keeperStore, err := store.NewRedisStore(cfg.RedisAddr)
+		if err != nil {
+			log.Fatalf("Failed to open state backend: %v", err)
+		}
+		defer func() { _ = keeperStore.Close() }()
+		if perr := keeperStore.Ping(ctx); perr != nil {
+			log.Printf("Warning: redis at %s unreachable, keeper sections degrade: %v", cfg.RedisAddr, perr)
+		}
+		regClient := registry.NewClient(cfg.RegistryURL)
+		sweeper := &sweep.Sweeper{
+			Store:    keeperStore,
+			Registry: regClient,
+			DryRun:   !cfg.NoDryRun,
+		}
+		if cfg.NoDryRun {
+			log.Printf("Sweeper armed: deletes are real")
+		} else {
+			log.Printf("Sweeper dry-run: deletes only planned (arm with --no-dry-run or KPR_NO_DRY_RUN=true)")
+		}
+
 		var wg sync.WaitGroup
-		errors := make(chan error, 2)
+		errors := make(chan error, 3)
+
+		// Sweeper loop: sweep-on-start (a restart doesn't wait a full
+		// interval) plus the tick backstop.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			startSweeperLoop(ctx, sweeper, sweep.TickInterval)
+		}()
 
 		// Setup signal handling
 		sigChan := make(chan os.Signal, 1)
@@ -70,6 +105,10 @@ var serveCmd = &cobra.Command{
 				Host:        managementHost,
 				Port:        managementPort,
 				OTELEnabled: otelCfg.Enabled,
+				Store:       keeperStore,
+				Registry:    regClient,
+				Sweeper:     sweeper,
+				Armed:       cfg.NoDryRun,
 			}
 			addr := net.JoinHostPort(managementHost, fmt.Sprintf("%d", managementPort))
 			log.Printf("Starting management console on %s", addr)
@@ -87,6 +126,7 @@ var serveCmd = &cobra.Command{
 				Host:        appHost,
 				Port:        appPort,
 				OTELEnabled: otelCfg.Enabled,
+				Store:       keeperStore,
 			}
 			addr := net.JoinHostPort(appHost, fmt.Sprintf("%d", appPort))
 			log.Printf("Starting application server on %s", addr)
@@ -112,4 +152,21 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	RootCmd.AddCommand(serveCmd)
+}
+
+// startSweeperLoop runs the sweep-on-start pass (a restart doesn't wait
+// a full interval) then the tick backstop until ctx ends. Triggers are
+// exactly these two plus the console POST — no queue, no backlog.
+func startSweeperLoop(ctx context.Context, sw *sweep.Sweeper, interval time.Duration) {
+	sw.RunPass(ctx, "startup")
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sw.RunPass(ctx, "tick")
+		}
+	}
 }

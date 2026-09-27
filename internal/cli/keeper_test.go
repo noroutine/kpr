@@ -194,3 +194,37 @@ func (errStore) Ping(context.Context) error { return errors.New("redis: connecti
 func (errStore) All(context.Context) ([]policy.Row, error) {
 	return nil, errors.New("redis: connection refused")
 }
+
+// The serve loop fires sweep-on-start immediately (no full-interval
+// wait after a restart) and keeps ticking until shutdown: exactly the
+// two server-side triggers, no queue. If this fails, restarts sleep
+// through due rows or the loop outlives serve.
+func TestSweeperLoopStartupAndTick(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
+		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour),
+		Due: true, Reason: "ttl:10m elapsed"})
+	sw := &sweep.Sweeper{Store: s, Registry: liveRegistryClient(t), DryRun: true}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); startSweeperLoop(ctx, sw, 20*time.Millisecond) }()
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sweeper loop outlived cancel")
+	}
+	cur, err := s.GetCurrent(context.Background())
+	if err != nil {
+		t.Fatalf("GetCurrent: %v", err)
+	}
+	if cur.Stage != sweep.StageDone || cur.Trigger == "" {
+		t.Errorf("current = %+v, want a completed pass on record", cur)
+	}
+	acts, _ := s.Activity(context.Background())
+	if len(acts) == 0 {
+		t.Error("loop ran no passes, want startup + ticks recorded")
+	}
+}
