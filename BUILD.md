@@ -163,9 +163,9 @@ The build uses these ldflags:
 
 ```bash
 -s -w                                           # Strip debug info (smaller binary)
--X nrtn.dev/catalyst/kpr/internal/web.Version=$VERSION
--X nrtn.dev/catalyst/kpr/internal/web.Commit=$COMMIT
--X nrtn.dev/catalyst/kpr/internal/web.BuildTime=$BUILD_TIME
+-X nrtn.dev/catalyst/kpr/internal/config.Version=$VERSION
+-X nrtn.dev/catalyst/kpr/internal/config.Commit=$COMMIT
+-X nrtn.dev/catalyst/kpr/internal/config.BuildTime=$BUILD_TIME
 ```
 
 This embeds version information in the binary.
@@ -176,7 +176,7 @@ For reproducible builds, you can use Docker:
 
 ```bash
 # Build inside Docker (Linux binary)
-docker run --rm -v "$PWD":/src -w /src golang:1.21 \
+docker run --rm -v "$PWD":/src -w /src golang:1.27 \
     go build -o kpr-linux-amd64 ./cmd/app
 ```
 
@@ -193,14 +193,14 @@ These are static binaries with no runtime dependencies.
 
 ### Build fails with "command not found"
 
-Install Go 1.21+:
+Install Go 1.27+:
 ```bash
 # macOS
 brew install go
 
 # Linux
-wget https://go.dev/dl/go1.21.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.27.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.27.linux-amd64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 ```
 
@@ -264,7 +264,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.27'
       - uses: goreleaser/goreleaser-action@v5
         with:
           version: latest

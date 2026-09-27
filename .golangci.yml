@@ -1,0 +1,24 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+# Pinned explicitly (rather than relying on whatever golangci-lint's
+# defaults happen to be) so a golangci-lint upgrade can't silently start
+# enabling stricter linters and breaking CI, and so `make lint`/`just lint`
+# locally and CI always run the exact same set. v1's separate gosimple
+# linter was merged into staticcheck in v2, hence its absence here.
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

@@ -7,19 +7,14 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strconv"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/app"
+	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
 var (
-	// Version is set via ldflags at build time
-	Version = "dev"
-	// Commit is set via ldflags at build time
-	Commit = "unknown"
-	// BuildTime is set via ldflags at build time
-	BuildTime = "unknown"
-
 	// Metrics
 	startTime = time.Now()
 )
@@ -59,36 +54,23 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 	hostname, _ := os.Hostname()
 	uptime := time.Since(startTime).Round(time.Second)
 
-	// Get default values if env vars not set
-	managementHost := os.Getenv("KPR_MANAGEMENT_HOST")
-	if managementHost == "" {
-		managementHost = "::"
-	}
-	managementPort := os.Getenv("KPR_MANAGEMENT_PORT")
-	if managementPort == "" {
-		managementPort = "9300"
-	}
-	appHost := os.Getenv("KPR_APP_HOST")
-	if appHost == "" {
-		appHost = "::"
-	}
-	appPort := os.Getenv("KPR_APP_PORT")
-	if appPort == "" {
-		appPort = "8080"
-	}
+	// Effective configuration, resolved once at startup (see
+	// internal/cli and internal/config) — never re-read from the
+	// environment here.
+	cfg := config.Current()
 
 	data := pageData{
 		Hostname:       hostname,
-		Version:        Version,
-		Commit:         Commit,
-		BuildTime:      BuildTime,
+		Version:        config.Version,
+		Commit:         config.Commit,
+		BuildTime:      config.BuildTime,
 		Uptime:         uptime.String(),
 		Requests:       app.GetAPIRequestCount(),
 		GoVersion:      runtime.Version(),
-		ManagementHost: managementHost,
-		ManagementPort: managementPort,
-		AppHost:        appHost,
-		AppPort:        appPort,
+		ManagementHost: cfg.ManagementHost,
+		ManagementPort: strconv.Itoa(cfg.ManagementPort),
+		AppHost:        cfg.AppHost,
+		AppPort:        strconv.Itoa(cfg.AppPort),
 	}
 
 	tmpl, err := template.New("index").Parse(indexTemplate)
@@ -109,10 +91,14 @@ func MetricsHandler(w http.ResponseWriter, r *http.Request) {
 	hostname, _ := os.Hostname()
 	uptime := time.Since(startTime)
 
+	cfg := config.Current()
 	env := map[string]string{
-		"HOSTNAME": hostname,
-		"PORT":     os.Getenv("KPR_PORT"),
-		"HOST":     os.Getenv("KPR_HOST"),
+		"HOSTNAME":            hostname,
+		"KPR_MANAGEMENT_HOST": cfg.ManagementHost,
+		"KPR_MANAGEMENT_PORT": strconv.Itoa(cfg.ManagementPort),
+		"KPR_APP_HOST":        cfg.AppHost,
+		"KPR_APP_PORT":        strconv.Itoa(cfg.AppPort),
+		"KPR_REDIS_ADDR":      cfg.RedisAddr,
 	}
 
 	metrics := metricsData{
@@ -120,9 +106,9 @@ func MetricsHandler(w http.ResponseWriter, r *http.Request) {
 		UptimeSeconds: int64(uptime.Seconds()),
 		Requests:      app.GetAPIRequestCount(),
 		GoVersion:     runtime.Version(),
-		Version:       Version,
-		Commit:        Commit,
-		BuildTime:     BuildTime,
+		Version:       config.Version,
+		Commit:        config.Commit,
+		BuildTime:     config.BuildTime,
 		Environment:   env,
 	}
 

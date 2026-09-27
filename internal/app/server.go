@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 )
 
@@ -62,13 +63,17 @@ func (s *Server) Start(ctx context.Context) error {
 	// Use net.JoinHostPort to properly handle IPv6 addresses
 	addr := net.JoinHostPort(s.Host, fmt.Sprintf("%d", s.Port))
 
+	// Timeouts come from the resolved config (see internal/config),
+	// not literals here.
+	cfg := config.Current()
+
 	// Configure server
 	s.server = &http.Server{
 		Addr:         addr,
 		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  cfg.HTTPReadTimeout,
+		WriteTimeout: cfg.HTTPWriteTimeout,
+		IdleTimeout:  cfg.HTTPIdleTimeout,
 	}
 
 	// Listen on the specified address
@@ -83,7 +88,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Handle graceful shutdown
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
 		if err := s.server.Shutdown(shutdownCtx); err != nil {
 			log.Printf("Application server shutdown error: %v", err)

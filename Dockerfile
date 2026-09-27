@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make
@@ -23,9 +23,9 @@ ARG BUILD_TIME=unknown
 # Build the binary
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-w -s \
-    -X 'nrtn.dev/catalyst/kpr/internal/web.Version=${VERSION}' \
-    -X 'nrtn.dev/catalyst/kpr/internal/web.Commit=${COMMIT}' \
-    -X 'nrtn.dev/catalyst/kpr/internal/web.BuildTime=${BUILD_TIME}'" \
+    -X 'nrtn.dev/catalyst/kpr/internal/config.Version=${VERSION}' \
+    -X 'nrtn.dev/catalyst/kpr/internal/config.Commit=${COMMIT}' \
+    -X 'nrtn.dev/catalyst/kpr/internal/config.BuildTime=${BUILD_TIME}'" \
     -o kpr ./cmd/app
 
 # Runtime stage

@@ -14,6 +14,9 @@ just test
 
 `make test` works identically — every recipe exists in both files, keep
 them in sync when adding a new one. Plain `go test ./...` also works.
+Both go through `gotestsum` for a dense per-package summary when it's
+installed, falling back to `go test -v` otherwise. `just check` runs
+fmt-check + vet + lint + test.
 
 Coverage (statement-based; Go has no branch-coverage mode) with the
 summary printed to the terminal plus `coverage.out`/`coverage.html`:
@@ -33,6 +36,18 @@ Benchmarks (no tests, measurements only):
 ```bash
 just bench
 ```
+
+Linux-container suite (for Linux/filesystem-only flakes; module and
+build caches persist in named Docker volumes):
+
+```bash
+just test-linux            # or test-linux-verbose, test-linux-repeat n=50
+```
+
+All tunable knobs live in `internal/config` (env-backed settings,
+build-time identity, runtime facts) — see `docs/CONFIG.md` before adding
+a new one. CLI flags stay on the cobra commands in `internal/cli`, with
+defaults seeded from the resolved `Config`.
 
 There are no compose-based test fixtures yet. When integration tests
 against the dev stack (`docker-compose.yml`: kpr, redis, registry) are

@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"nrtn.dev/catalyst/kpr/internal/web"
+	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
 var (
@@ -18,20 +18,28 @@ var (
 // RootCmd is the root command for kpr
 var RootCmd = &cobra.Command{
 	Use:   "kpr",
-	Short: "kpr - Go application blueprint",
-	Long: `kpr is a Go application blueprint with embedded management console and application server.
-It provides a structure for building Go applications with web UI and API endpoints.`,
-	Version: web.Version,
+	Short: "kpr - lightweight companion for an OCI distribution registry",
+	Long: `kpr (keeper) is a lightweight companion sidecar for an OCI
+distribution registry: ephemeral images and lightweight retention
+cleanups.
+
+Configuration comes from KPR_* environment variables (see
+docs/CONFIG.md); every flag below overrides its matching variable.`,
+	Version: config.Version,
 }
 
 func init() {
+	// Flag defaults seed from the environment once, via config — the
+	// default value is written down in internal/config, not here.
+	defaults := config.NewBuilder().FromEnv().Build()
+
 	// Management console flags (:: for dual-stack IPv4+IPv6)
-	RootCmd.PersistentFlags().StringVar(&managementHost, "management-host", getEnv("KPR_MANAGEMENT_HOST", "::"), "Management console host")
-	RootCmd.PersistentFlags().IntVar(&managementPort, "management-port", getEnvInt("KPR_MANAGEMENT_PORT", 9300), "Management console port")
+	RootCmd.PersistentFlags().StringVar(&managementHost, "management-host", defaults.ManagementHost, "Management console host")
+	RootCmd.PersistentFlags().IntVar(&managementPort, "management-port", defaults.ManagementPort, "Management console port")
 
 	// Application server flags
-	RootCmd.PersistentFlags().StringVar(&appHost, "app-host", getEnv("KPR_APP_HOST", "::"), "Application server host")
-	RootCmd.PersistentFlags().IntVar(&appPort, "app-port", getEnvInt("KPR_APP_PORT", 8080), "Application server port")
+	RootCmd.PersistentFlags().StringVar(&appHost, "app-host", defaults.AppHost, "Application server host")
+	RootCmd.PersistentFlags().IntVar(&appPort, "app-port", defaults.AppPort, "Application server port")
 }
 
 // Execute runs the root command
@@ -40,21 +48,4 @@ func Execute() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		var intValue int
-		if _, err := fmt.Sscanf(value, "%d", &intValue); err == nil {
-			return intValue
-		}
-	}
-	return defaultValue
 }

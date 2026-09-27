@@ -44,7 +44,7 @@ kpr/
 
 ### From Source
 
-Requires Go 1.21+:
+Requires Go 1.27+:
 
 ```bash
 # Clone the repository
@@ -187,7 +187,7 @@ VERSION=v1.0.0 make build
 ### Testing
 
 ```bash
-# Run tests
+# Run tests (gotestsum summary when installed, plain go test otherwise)
 make test
 
 # With coverage (terminal table + coverage.out + coverage.html)
@@ -195,7 +195,16 @@ make coverage
 
 # Reprint the last coverage table without re-running tests
 make coverage-report
+
+# Linux-container suite, benchmarks, full gate
+make test-linux
+make bench
+make check
 ```
+
+Testing approach, coverage, and CI integration are documented in
+[docs/TESTING.md](docs/TESTING.md); configuration in
+[docs/CONFIG.md](docs/CONFIG.md).
 
 ### Code Quality
 

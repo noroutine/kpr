@@ -3,7 +3,12 @@
 VERSION := `git describe --tags --always --dirty 2>/dev/null || echo "dev"`
 COMMIT := `git rev-parse --short HEAD 2>/dev/null || echo "unknown"`
 BUILD_TIME := `date -u +%Y-%m-%dT%H:%M:%SZ`
-LDFLAGS := "-s -w -X nrtn.dev/catalyst/kpr/internal/web.Version=" + VERSION + " -X nrtn.dev/catalyst/kpr/internal/web.Commit=" + COMMIT + " -X nrtn.dev/catalyst/kpr/internal/web.BuildTime=" + BUILD_TIME
+PKG := "nrtn.dev/catalyst/kpr"
+LDFLAGS := "-s -w -X " + PKG + "/internal/config.Version=" + VERSION + " -X " + PKG + "/internal/config.Commit=" + COMMIT + " -X " + PKG + "/internal/config.BuildTime=" + BUILD_TIME
+
+# Act/Forgejo runners set CI=true; disable gotestsum's ANSI colors there
+# since raw escape codes just clutter the step log.
+gotestsum_flags := if env("CI", "") == "true" { "--no-color" } else { "" }
 
 # Default recipe - show available commands
 default:
@@ -26,7 +31,7 @@ prereqs:
     # Required tools (for building)
     REQUIRED=(go git)
     # Optional tools (for development)
-    OPTIONAL=(golangci-lint goreleaser upx)
+    OPTIONAL=(golangci-lint gotestsum goreleaser upx)
 
     all_good=true
 
@@ -45,7 +50,15 @@ prereqs:
     echo "Optional tools:"
     for tool in "${OPTIONAL[@]}"; do
         if command -v "$tool" &> /dev/null; then
-            version=$($tool version 2>&1 | head -n1 || echo "installed")
+            # gotestsum and goreleaser take --version; the rest take version.
+            case "$tool" in
+                gotestsum|goreleaser)
+                    version=$($tool --version 2>&1 | head -n1 || echo "installed")
+                    ;;
+                *)
+                    version=$($tool version 2>&1 | head -n1 || echo "installed")
+                    ;;
+            esac
             echo "  ✓ $tool - $version"
         else
             echo "  - $tool - not installed (optional)"
@@ -57,7 +70,8 @@ prereqs:
         echo "✓ All required prerequisites are installed!"
         echo ""
         echo "To install optional tools:"
-        echo "  golangci-lint: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+        echo "  golangci-lint: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+        echo "  gotestsum:     go install gotest.tools/gotestsum@latest"
         echo "  goreleaser:    brew install goreleaser"
         echo "  upx:           brew install upx  # or: apt-get install upx"
     else
@@ -103,7 +117,7 @@ release: clean-dist
     @echo "Building release {{VERSION}}..."
     @mkdir -p dist
     just build-all
-    cd dist && sha256sum kpr-* > checksums.txt
+    cd dist && shasum -a 256 kpr-* > checksums.txt
     @echo "Release built: dist/"
     @ls -lh dist/
 
@@ -119,30 +133,54 @@ fmt:
 fmt-check:
     test -z "$(gofmt -l .)"
 
-# Lint code (uses golangci-lint if available, otherwise go vet)
+# Lint code (golangci-lint v2 if available, otherwise go vet)
 lint:
     #!/usr/bin/env bash
-    if command -v golangci-lint &> /dev/null; then
+    # .golangci.yml is v2 syntax: a v1 binary would fail on it, and plain
+    # absence means the same fallback — both degrade to go vet.
+    if command -v golangci-lint &> /dev/null && ! golangci-lint version 2>&1 | grep -q " version v1\."; then
         echo "Running golangci-lint..."
         golangci-lint run
     else
-        echo "golangci-lint not found, using go vet..."
-        echo "Install golangci-lint for better linting:"
-        echo "  go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+        echo "golangci-lint v2 not found, using go vet..."
+        echo "Install golangci-lint v2 for better linting:"
+        echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
         echo ""
         go vet ./...
     fi
 
-# Run tests
+# Run go vet
+vet:
+    go vet ./...
+
+# Run tests (gotestsum if available, for a dense per-package pass/fail summary)
 test:
-    go test -v -race ./...
+    #!/usr/bin/env bash
+    if command -v gotestsum &> /dev/null; then
+        gotestsum {{gotestsum_flags}} --format pkgname -- -race ./...
+    else
+        echo "gotestsum not found, using go test..."
+        echo "Install gotestsum for a dense pass/fail summary:"
+        echo "  go install gotest.tools/gotestsum@latest"
+        echo ""
+        go test -v -race ./...
+    fi
 
 # Run tests with coverage (coverprofile + terminal summary + HTML report)
 coverage:
-    go test -race -coverprofile=coverage.out ./...
+    #!/usr/bin/env bash
+    if command -v gotestsum &> /dev/null; then
+        gotestsum {{gotestsum_flags}} --format pkgname -- -race -coverprofile=coverage.out ./...
+    else
+        echo "gotestsum not found, using go test..."
+        echo "Install gotestsum for a dense pass/fail summary:"
+        echo "  go install gotest.tools/gotestsum@latest"
+        echo ""
+        go test -race -coverprofile=coverage.out ./...
+    fi
     go tool cover -func=coverage.out | tail -n 20
     go tool cover -html=coverage.out -o coverage.html
-    @echo "Coverage report: coverage.html"
+    echo "Coverage report: coverage.html"
 
 # Reprint the coverage summary from the last run without re-running tests
 coverage-report:
@@ -157,6 +195,43 @@ coverage-report:
 # Run benchmarks (no tests, measurements only)
 bench:
     go test -run=NONE -bench=. -benchmem ./...
+
+# Docker image used by test-linux*. Tracks go.mod's `go` directive closely
+# enough for chasing Linux-only flakes; not meant to byte-for-byte match
+# the Forgejo runner image.
+linux_test_image := "golang:1.27"
+# Named volumes (not a bind mount) so module downloads and build cache
+# persist between runs without polluting the host's own Go caches or the
+# repo working tree with root-owned files written by the container.
+linux_test_mod_cache := "kpr-linux-test-gomod"
+linux_test_build_cache := "kpr-linux-test-gobuild"
+
+# Run the race+coverage suite in a Linux container (for Linux/filesystem-only flakes)
+test-linux:
+    docker run --rm -v "{{justfile_directory()}}:/work" -w /work \
+        -v {{linux_test_mod_cache}}:/go/pkg/mod \
+        -v {{linux_test_build_cache}}:/root/.cache/go-build \
+        -e GOFLAGS=-mod=mod \
+        {{linux_test_image}} \
+        sh -c 'go test -race -coverprofile=coverage.out ./...'
+
+# Same as test-linux but -v, for reading full output on a failure
+test-linux-verbose:
+    docker run --rm -v "{{justfile_directory()}}:/work" -w /work \
+        -v {{linux_test_mod_cache}}:/go/pkg/mod \
+        -v {{linux_test_build_cache}}:/root/.cache/go-build \
+        -e GOFLAGS=-mod=mod \
+        {{linux_test_image}} \
+        sh -c 'go test -v -race -coverprofile=coverage.out ./...'
+
+# Run the suite N times back to back (default 20) to chase a flake
+test-linux-repeat n="20":
+    docker run --rm -v "{{justfile_directory()}}:/work" -w /work \
+        -v {{linux_test_mod_cache}}:/go/pkg/mod \
+        -v {{linux_test_build_cache}}:/root/.cache/go-build \
+        -e GOFLAGS=-mod=mod \
+        {{linux_test_image}} \
+        sh -c 'go test -race -count={{n}} ./...'
 
 # Test Docker image
 test-docker:
@@ -247,7 +322,7 @@ test-docker:
     echo "All tests passed!"
 
 # Run all checks
-check: fmt-check lint
+check: fmt-check vet lint test
 
 # Fix all auto-fixable issues
 fix: fmt
@@ -265,6 +340,10 @@ clean-dist:
 deps:
     go mod download
     go mod tidy
+
+# Verify module dependencies
+verify:
+    go mod verify
 
 # Show version information
 version:

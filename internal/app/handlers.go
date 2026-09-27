@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
 var (
@@ -33,7 +35,7 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
 	response := HelloResponse{
 		Message:   "Hello from kpr!",
 		Timestamp: time.Now(),
-		Version:   "1.0.0",
+		Version:   config.Version,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

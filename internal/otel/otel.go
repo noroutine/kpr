@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"strings"
-	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/config"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -18,26 +17,24 @@ import (
 
 // Config holds OpenTelemetry configuration
 type Config struct {
-	Enabled     bool
-	ServiceName string
-	Endpoint    string
-	Environment string
+	Enabled        bool
+	ServiceName    string
+	ServiceVersion string
+	Endpoint       string
+	Environment    string
 }
 
-// LoadConfig loads OTEL configuration from environment variables
+// LoadConfig loads OTEL configuration from the active config.Config —
+// every OTEL_* variable is resolved there (see internal/config), so this
+// package never reads the environment itself.
 func LoadConfig() Config {
-	enabled := os.Getenv("OTEL_ENABLED") == "true"
-
-	endpoint := getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
-	// Strip protocol if present (otlptracehttp.WithEndpoint expects host:port only)
-	endpoint = strings.TrimPrefix(endpoint, "http://")
-	endpoint = strings.TrimPrefix(endpoint, "https://")
-
+	cfg := config.Current()
 	return Config{
-		Enabled:     enabled,
-		ServiceName: getEnv("OTEL_SERVICE_NAME", "kpr"),
-		Endpoint:    endpoint,
-		Environment: getEnv("OTEL_ENVIRONMENT", "development"),
+		Enabled:        cfg.OTELEnabled,
+		ServiceName:    cfg.OTELServiceName,
+		ServiceVersion: cfg.OTELServiceVersion,
+		Endpoint:       cfg.OTLPEndpoint,
+		Environment:    cfg.OTELEnvironment,
 	}
 }
 
@@ -57,7 +54,7 @@ func Init(cfg Config) (func(context.Context) error, error) {
 		resource.NewWithAttributes(
 			"", // No schema URL to avoid version conflicts
 			semconv.ServiceName(cfg.ServiceName),
-			semconv.ServiceVersion(getEnv("OTEL_SERVICE_VERSION", "dev")),
+			semconv.ServiceVersion(cfg.ServiceVersion),
 			semconv.DeploymentEnvironment(cfg.Environment),
 		),
 	)
@@ -95,15 +92,8 @@ func Init(cfg Config) (func(context.Context) error, error) {
 
 	// Return shutdown function
 	return func(ctx context.Context) error {
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, config.Current().ShutdownTimeout)
 		defer cancel()
 		return tp.Shutdown(ctx)
 	}, nil
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }

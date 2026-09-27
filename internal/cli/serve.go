@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/app"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/web"
 )
@@ -21,6 +22,23 @@ var serveCmd = &cobra.Command{
 	Short: "Start both management console and application servers",
 	Long:  `Start the kpr servers: management console on port 9300 and application server on port 8080.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Resolve configuration once: environment first, explicit flags
+		// win (an unset flag already carries the env value as its
+		// default, so layering flag values on top is exact).
+		cfg := config.NewBuilder().FromEnv().
+			WithManagementHost(managementHost).
+			WithManagementPort(managementPort).
+			WithAppHost(appHost).
+			WithAppPort(appPort).
+			Build()
+		defer config.SetCurrent(cfg)()
+		if !cmd.Flags().Changed("management-port") && cfg.ManagementPortWarning != nil {
+			log.Printf("Warning: %v", cfg.ManagementPortWarning)
+		}
+		if !cmd.Flags().Changed("app-port") && cfg.AppPortWarning != nil {
+			log.Printf("Warning: %v", cfg.AppPortWarning)
+		}
+
 		// Initialize OpenTelemetry
 		otelCfg := otel.LoadConfig()
 		shutdown, err := otel.Init(otelCfg)
