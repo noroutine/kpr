@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1
+
+# Packaging-only Dockerfile - binary must be pre-built in dist/
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates tzdata wget
+
+# Create non-root user
+RUN addgroup -g 1000 kpr && \
+    adduser -D -u 1000 -G kpr kpr
+
+WORKDIR /app
+
+# Copy pre-built binary from dist/ based on target platform
+ARG TARGETPLATFORM
+COPY dist/kpr-* /tmp/
+
+RUN set -ex; \
+    echo "Building for platform: $TARGETPLATFORM"; \
+    case "$TARGETPLATFORM" in \
+        "linux/amd64")  BINARY="kpr-linux-amd64" ;; \
+        "linux/arm64")  BINARY="kpr-linux-arm64" ;; \
+        "linux/arm/v7") BINARY="kpr-linux-arm" ;; \
+        *) echo "ERROR: Unsupported platform: $TARGETPLATFORM"; exit 1 ;; \
+    esac; \
+    echo "Looking for binary: /tmp/$BINARY"; \
+    ls -la /tmp/kpr-* || true; \
+    if [ ! -f "/tmp/$BINARY" ]; then \
+        echo "ERROR: Binary /tmp/$BINARY not found!"; \
+        exit 1; \
+    fi; \
+    cp "/tmp/$BINARY" /usr/local/bin/kpr; \
+    chmod +x /usr/local/bin/kpr; \
+    rm -rf /tmp/kpr-*; \
+    echo "Installed: $(ls -lh /usr/local/bin/kpr)"
+
+# Set ownership
+RUN chown -R kpr:kpr /app
+
+# Switch to non-root user
+USER kpr
+
+# Expose ports
+EXPOSE 8080 9300
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:9300/health || exit 1
+
+# Default command
+CMD ["kpr", "serve"]

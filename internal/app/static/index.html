@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>kpr App</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 kpr Application</h1>
+            <p class="subtitle">Go Application Blueprint - SPA Example</p>
+        </header>
+
+        <main>
+            <section class="card">
+                <h2>Welcome</h2>
+                <p>This is a skeleton Single Page Application embedded in your Go binary.</p>
+                <p>Static assets are served from the <code>/static</code> path and API endpoints are available at <code>/api/*</code></p>
+            </section>
+
+            <section class="card">
+                <h2>API Examples</h2>
+                <div class="api-examples">
+                    <button onclick="testHello()">Test /api/hello</button>
+                    <button onclick="testData()">Test /api/data</button>
+                </div>
+                <pre id="output" class="output"></pre>
+            </section>
+
+            <section class="card">
+                <h2>Links</h2>
+                <ul>
+                    <li><a href="http://localhost:9300">Management Console</a> (Port 9300)</li>
+                    <li><a href="/api/hello">API: Hello</a></li>
+                    <li><a href="/api/data">API: Data</a></li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p>kpr - Go Application Blueprint</p>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

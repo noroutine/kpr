@@ -1,0 +1,25 @@
+# Plain OCI distribution configuration for the kpr dev stack.
+# Referenced as /etc/distribution/config.yml by the `registry` service
+# in docker-compose.yml.
+#
+# TODO(kpr): wire the notification endpoint once kpr implements the
+# receiver — distribution will then POST event envelopes for every
+# push/pull/delete and kpr will track TTLs and retention in redis:
+#
+# notifications:
+#   endpoints:
+#     - name: kpr
+#       url: http://kpr:8080/events
+#       timeout: 1s
+#       threshold: 5
+#       backoff: 1s
+
+version: 0.1
+
+storage:
+  filesystem:
+    rootdirectory: /var/lib/registry
+
+http:
+  addr: :5000
+  host: https://localhost:5000

@@ -1,0 +1,106 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/otel"
+)
+
+// Server represents the application HTTP server
+type Server struct {
+	Host        string
+	Port        int
+	OTELEnabled bool
+	server      *http.Server
+}
+
+// Start starts the application HTTP server on port 8080
+func (s *Server) Start(ctx context.Context) error {
+	mux := http.NewServeMux()
+
+	// Serve static files
+	staticFS, err := GetStaticFS()
+	if err != nil {
+		return fmt.Errorf("failed to load static files: %w", err)
+	}
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(staticFS)))
+
+	// Serve index.html at root
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			file, err := staticFS.Open("index.html")
+			if err != nil {
+				http.Error(w, "Not found", http.StatusNotFound)
+				return
+			}
+			defer func() {
+				if err := file.Close(); err != nil {
+					log.Printf("Error closing index.html: %v", err)
+				}
+			}()
+
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			http.ServeContent(w, r, "index.html", time.Time{}, file)
+		} else {
+			http.NotFound(w, r)
+		}
+	})
+
+	// API endpoints
+	mux.HandleFunc("/api/hello", HelloHandler)
+	mux.HandleFunc("/api/data", DataHandler)
+
+	// Wrap with OTEL middleware if enabled
+	var handler http.Handler = mux
+	handler = otel.HTTPMiddleware(handler, "application", s.OTELEnabled)
+
+	// Use net.JoinHostPort to properly handle IPv6 addresses
+	addr := net.JoinHostPort(s.Host, fmt.Sprintf("%d", s.Port))
+
+	// Configure server
+	s.server = &http.Server{
+		Addr:         addr,
+		Handler:      handler,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Listen on the specified address
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", addr, err)
+	}
+
+	log.Printf("Starting app server")
+	log.Printf("Application: http://localhost:%d", s.Port)
+
+	// Handle graceful shutdown
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Application server shutdown error: %v", err)
+		}
+	}()
+
+	err = s.server.Serve(listener)
+	if err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+// Shutdown gracefully stops the server
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.server != nil {
+		return s.server.Shutdown(ctx)
+	}
+	return nil
+}

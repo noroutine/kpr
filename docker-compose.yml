@@ -1,0 +1,91 @@
+services:
+  kpr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: nrtn.dev/catalyst/kpr:${VERSION:-latest}
+    container_name: kpr
+    ports:
+      - "8080:8080"   # Application server
+      - "9300:9300"   # Management console
+    environment:
+      # Server configuration
+      - "KPR_MANAGEMENT_HOST=::"
+      - "KPR_MANAGEMENT_PORT=9300"
+      - "KPR_APP_HOST=::"
+      - "KPR_APP_PORT=8080"
+
+      # State backend (see docs/goals.md)
+      - "KPR_REDIS_ADDR=redis:6379"
+
+      # OpenTelemetry (optional)
+      - OTEL_ENABLED=false
+      # - OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4318
+      # - OTEL_SERVICE_NAME=kpr
+      # - OTEL_ENVIRONMENT=production
+      # - OTEL_SERVICE_VERSION=${VERSION:-dev}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9300/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    networks:
+      - kpr-net
+
+  # State backend for TTL tracking and cleanup bookkeeping.
+  redis:
+    image: redis:8-alpine
+    container_name: kpr-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    # Published for local development; drop in production.
+    ports:
+      - "127.0.0.1:6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    networks:
+      - kpr-net
+
+  # Plain OCI distribution registry that kpr companions.
+  # Notification hooks (-> kpr) and retention policies are wired up
+  # once kpr implements the receiver; see registry-config.yml.
+  registry:
+    image: registry:3
+    container_name: kpr-registry
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ./registry-config.yml:/etc/distribution/config.yml:ro
+      - registry-data:/var/lib/registry
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/v2/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    networks:
+      - kpr-net
+
+networks:
+  kpr-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+  registry-data:

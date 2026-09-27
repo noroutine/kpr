@@ -1,0 +1,40 @@
+# Build artifacts
+kpr
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test and coverage
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# CI/CD
+.forgejo/
+.github/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Development
+tmp/
+temp/
+*.log

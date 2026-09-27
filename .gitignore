@@ -1,0 +1,55 @@
+# Binaries for programs and plugins
+/kpr
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.out
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build artifacts
+dist/
+*.log
+
+# Dependency directories (uncommon but possible)
+vendor/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vimrc
+.envrc
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Environment and secrets
+.env
+.env.local
+*.pem
+*.key
+*.crt
+
+.claude
+.forgejo_token
+.github_token

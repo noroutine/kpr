@@ -1,0 +1,193 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+    tags:
+      - 'v*'
+      - '*.*.*'
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+
+    - name: Install golangci-lint
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+        echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Check formatting
+      run: make fmt-check
+
+    - name: Lint
+      run: make lint
+
+    - name: Run tests with coverage
+      run: make coverage
+
+    - name: Build
+      run: make build
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and test Docker image
+      run: |
+        make docker-build
+        make test-docker
+
+  build-all:
+    name: Build All Platforms
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+
+    - name: Extract build info
+      id: build_info
+      run: |
+        echo "version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" >> $GITHUB_OUTPUT
+        echo "commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+    - name: Build for all platforms
+      run: make build-all
+      env:
+        VERSION: ${{ steps.build_info.outputs.version }}
+        COMMIT: ${{ steps.build_info.outputs.commit }}
+        BUILD_TIME: ${{ steps.build_info.outputs.build_time }}
+
+    # No artifact upload: the runners lack the GHES artifact service
+    # (upload-artifact v4+ does not work there). Reports go to the job log.
+    - name: Verify builds
+      run: |
+        ls -lh dist/
+        cat dist/checksums.txt
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Setup Docker config
+      run: |
+        mkdir -p ~/.docker
+        echo "${{ secrets.DOCKER_CFG }}" | base64 -d > ~/.docker/config.json
+        chmod 600 ~/.docker/config.json
+
+    - name: Build and push multiplatform Docker images
+      run: make docker-build-multiplatform
+      env:
+        VERSION: ${{ steps.build_info.outputs.version }}
+        REGISTRY: nrtn.dev/catalyst
+
+    - name: Image info
+      run: |
+        echo "Built and pushed:"
+        echo "  nrtn.dev/catalyst/kpr:${{ steps.build_info.outputs.version }}"
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: build-all
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+
+    # Rebuilt here: no artifact service on the runners, so build-all
+    # does not pass dist/ between jobs.
+    - name: Build for all platforms
+      run: make build-all
+
+    # NOTE: If this step fails with "404 page not found" or "release already exists",
+    # delete the existing release in the Forgejo UI first, then re-run the workflow.
+    - name: Create Release
+      uses: https://github.com/softprops/action-gh-release@v2
+      with:
+        prerelease: true
+        files: |
+          dist/kpr-linux-amd64
+          dist/kpr-linux-arm64
+          dist/kpr-linux-arm
+          dist/kpr-darwin-amd64
+          dist/kpr-darwin-arm64
+          dist/checksums.txt
+        body: |
+          ## kpr ${{ github.ref_name }}
+
+          kpr (keeper) — lightweight companion sidecar for an OCI
+          distribution registry: ephemeral images and lightweight
+          retention cleanups. See `docs/goals.md`.
+
+          ### Docker (Recommended)
+
+          Multiplatform Docker images are available:
+
+          ```bash
+          # Run with Docker
+          docker run --rm -p 8080:8080 -p 9300:9300 nrtn.dev/catalyst/kpr:${{ github.ref_name }}
+
+          # Or use docker-compose
+          docker-compose up
+          ```
+
+          **Supported platforms:** linux/amd64, linux/arm64, linux/arm/v7
+
+          ### Binary Installation
+
+          Download the binary for your platform:
+
+          ```bash
+          # Linux amd64
+          curl -LO https://nrtn.dev/catalyst/kpr/releases/download/${{ github.ref_name }}/kpr-linux-amd64
+          chmod +x kpr-linux-amd64
+          sudo mv kpr-linux-amd64 /usr/local/bin/kpr
+
+          # macOS Apple Silicon
+          curl -LO https://nrtn.dev/catalyst/kpr/releases/download/${{ github.ref_name }}/kpr-darwin-arm64
+          chmod +x kpr-darwin-arm64
+          sudo mv kpr-darwin-arm64 /usr/local/bin/kpr
+          ```
+
+          ### Usage
+
+          ```bash
+          kpr serve
+          ```
+
+          - Management console: http://localhost:9300
+          - Application: http://localhost:8080
