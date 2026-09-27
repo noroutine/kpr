@@ -9,6 +9,9 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
+	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/sweep"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -18,6 +21,16 @@ type Server struct {
 	Host        string
 	Port        int
 	OTELEnabled bool
+	// Store backs the keeper sections (banner, counters, plan,
+	// activity). Nil renders them degraded (red/empty), never 500.
+	Store store.Store
+	// Registry is probed for the banner. Nil renders unreachable.
+	Registry *registry.Client
+	// Sweeper serves POST /api/sweep. Nil answers 503.
+	Sweeper *sweep.Sweeper
+	// Armed renders "armed" instead of "dry-run" in the banner.
+	// Zero value is dry-run: safety is the default.
+	Armed bool
 	// Listener, when non-nil, serves on it instead of listening on
 	// Host:Port. Tests inject a loopback listener on an ephemeral port;
 	// production leaves it nil.
@@ -32,9 +45,10 @@ type Server struct {
 // Start starts the HTTP server
 func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", IndexHandler)
+	mux.HandleFunc("/", s.indexHandler)
 	mux.HandleFunc("/metrics", MetricsHandler)
 	mux.HandleFunc("/health", HealthHandler)
+	mux.HandleFunc("/api/sweep", s.sweepHandler)
 	if s.OTELEnabled {
 		// Prometheus exposition for the OTel meter provider;
 		// scraped by Prometheus, not linked from the console UI.

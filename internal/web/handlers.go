@@ -35,6 +35,8 @@ type pageData struct {
 	// link appears only when its URL is configured — empty means the
 	// backend is absent and the template hides the whole section.
 	Links []consoleLink
+	// Keeper is what kpr tracks (banner, counters, plan, activity).
+	Keeper keeperData
 }
 
 // consoleLink is one observability UI entry on the console.
@@ -71,8 +73,14 @@ type metricsData struct {
 	Environment   map[string]string `json:"environment"`
 }
 
-// IndexHandler serves the main management console dashboard
+// IndexHandler serves the main management console dashboard.
+// It renders with no backends (degraded banner); Server.indexHandler
+// renders with this server's keeper wiring.
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
+	(&Server{}).indexHandler(w, r)
+}
+
+func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -99,6 +107,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 		AppHost:        cfg.AppHost,
 		AppPort:        strconv.Itoa(cfg.AppPort),
 		Links:          observabilityLinks(cfg),
+		Keeper:         s.keeperSnapshot(r.Context()),
 	}
 
 	tmpl, err := template.New("index").Parse(indexTemplate)

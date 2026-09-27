@@ -71,6 +71,51 @@ const indexTemplate = `<!DOCTYPE html>
         </div>
     </div>
 
+    <div class="section">
+        <h2>🧹 Keeper</h2>
+        <div class="grid">
+            <div class="card">
+                <div class="label">Registry</div>
+                <div class="value">{{ if .Keeper.RegistryOK }}reachable{{ else }}unreachable{{ end }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Redis</div>
+                <div class="value">{{ if .Keeper.RedisOK }}reachable{{ else }}unreachable{{ end }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Sweeper</div>
+                <div class="value">{{ if .Keeper.Armed }}armed{{ else }}dry-run{{ end }}</div>
+            </div>
+            <div class="card stat-card">
+                <div class="label">Tracked / Due</div>
+                <div class="value">{{ .Keeper.Tracked }} / {{ .Keeper.Due }}</div>
+                <div class="meta">performed {{ .Keeper.Performed }} · planned {{ .Keeper.Planned }} · failed {{ .Keeper.Failed }} · untracked {{ .Keeper.Untracked }}</div>
+            </div>
+        </div>
+    </div>
+
+    {{ if .Keeper.Plan }}
+    <div class="section">
+        <h2>📋 Plan</h2>
+        <ul>
+            {{ range .Keeper.Plan }}
+            <li>{{ .Repo }}:{{ .Tag }} — {{ .Reason }} (pushed {{ .Pushed }})</li>
+            {{ end }}
+        </ul>
+    </div>
+    {{ end }}
+
+    {{ if .Keeper.Activity }}
+    <div class="section">
+        <h2>📜 Activity</h2>
+        <ul>
+            {{ range .Keeper.Activity }}
+            <li>{{ .Repo }}:{{ .Tag }} — {{ .Outcome }} ({{ .Reason }}) at {{ .At }}</li>
+            {{ end }}
+        </ul>
+    </div>
+    {{ end }}
+
     {{ if .Links }}
     <div class="section">
         <h2>🔭 Observability</h2>
