@@ -72,7 +72,9 @@ services:
     image: registry:3
     container_name: kpr-registry
     ports:
-      - "127.0.0.1:5000:5000"
+      # 5001, not 5000: macOS AirPlay Receiver squats localhost:5000
+      # (answers 403 with Server: AirTunes). In-stack stays registry:5000.
+      - "127.0.0.1:5001:5000"
     volumes:
       - ./registry-config.yml:/etc/distribution/config.yml:ro
       - registry-data:/var/lib/registry
