@@ -29,36 +29,40 @@ var (
 
 func initMetrics() error {
 	initMetricsOnce.Do(func() {
-		m := otel.Meter("nrtn.dev/catalyst/kpr/internal/otel")
-		var err error
-		httpRequests, err = m.Int64Counter("kpr.http.server.requests",
-			metric.WithDescription("HTTP requests served."))
-		if err != nil {
-			initMetricsErr = err
-			return
-		}
-		httpDuration, err = m.Float64Histogram("kpr.http.server.request.duration",
-			metric.WithUnit("s"),
-			metric.WithDescription("HTTP request duration in seconds."))
-		if err != nil {
-			initMetricsErr = err
-			return
-		}
-		// Synthetic load signal for the example dashboard: a slow
-		// sawtooth that visibly moves on every scrape. Clearly
-		// named example — not a real queue.
-		_, err = m.Float64ObservableGauge("kpr.example.queue_depth",
-			metric.WithDescription("Example synthetic gauge proving the metrics path moves."),
-			metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
-				o.Observe(demoQueueDepth(time.Now()), metric.WithAttributes(
-					attribute.String("queue", "demo"),
-				))
-				return nil
-			}),
-		)
-		initMetricsErr = err
+		initMetricsErr = buildMetrics(otel.Meter("nrtn.dev/catalyst/kpr/internal/otel"))
 	})
 	return initMetricsErr
+}
+
+// buildMetrics creates the request-pipeline instruments on m. Split
+// from initMetrics so the creation error paths are unit-testable
+// without fighting the Once guard.
+func buildMetrics(m metric.Meter) error {
+	var err error
+	httpRequests, err = m.Int64Counter("kpr.http.server.requests",
+		metric.WithDescription("HTTP requests served."))
+	if err != nil {
+		return err
+	}
+	httpDuration, err = m.Float64Histogram("kpr.http.server.request.duration",
+		metric.WithUnit("s"),
+		metric.WithDescription("HTTP request duration in seconds."))
+	if err != nil {
+		return err
+	}
+	// Synthetic load signal for the example dashboard: a slow
+	// sawtooth that visibly moves on every scrape. Clearly
+	// named example — not a real queue.
+	_, err = m.Float64ObservableGauge("kpr.example.queue_depth",
+		metric.WithDescription("Example synthetic gauge proving the metrics path moves."),
+		metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
+			o.Observe(demoQueueDepth(time.Now()), metric.WithAttributes(
+				attribute.String("queue", "demo"),
+			))
+			return nil
+		}),
+	)
+	return err
 }
 
 // demoQueueDepth is the synthetic gauge value: seconds since epoch

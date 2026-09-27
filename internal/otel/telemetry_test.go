@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -254,5 +255,93 @@ func TestInitMetricsIdempotent(t *testing.T) {
 	}
 	if err := initMetrics(); err != nil {
 		t.Fatalf("second: %v", err)
+	}
+}
+
+// failMeter is a metric.Meter that fails creation on the named
+// constructor and records every attempt, so buildMetrics' error
+// branches are reachable without a real broken provider.
+type failMeter struct {
+	metric.Meter
+	failOn string
+	calls  *[]string
+}
+
+func (m failMeter) Int64Counter(_ string, _ ...metric.Int64CounterOption) (metric.Int64Counter, error) {
+	*m.calls = append(*m.calls, "counter")
+	if m.failOn == "counter" {
+		var c metric.Int64Counter
+		return c, errors.New("counter down")
+	}
+	var c metric.Int64Counter
+	return c, nil
+}
+
+func (m failMeter) Float64Histogram(_ string, _ ...metric.Float64HistogramOption) (metric.Float64Histogram, error) {
+	*m.calls = append(*m.calls, "histogram")
+	if m.failOn == "histogram" {
+		var h metric.Float64Histogram
+		return h, errors.New("histogram down")
+	}
+	var h metric.Float64Histogram
+	return h, nil
+}
+
+func (m failMeter) Float64ObservableGauge(_ string, _ ...metric.Float64ObservableGaugeOption) (metric.Float64ObservableGauge, error) {
+	*m.calls = append(*m.calls, "gauge")
+	if m.failOn == "gauge" {
+		var g metric.Float64ObservableGauge
+		return g, errors.New("gauge down")
+	}
+	var g metric.Float64ObservableGauge
+	return g, nil
+}
+
+func resetInstruments(t *testing.T) {
+	t.Helper()
+	prevReq, prevDur := httpRequests, httpDuration
+	t.Cleanup(func() { httpRequests, httpDuration = prevReq, prevDur })
+}
+
+// A counter-creation failure must surface immediately, before the
+// histogram is even attempted. If this fails, serving continues with
+// a half-built instrument set and no error recorded.
+func TestBuildMetricsPropagatesCounterError(t *testing.T) {
+	resetInstruments(t)
+	var calls []string
+	if err := buildMetrics(failMeter{failOn: "counter", calls: &calls}); err == nil {
+		t.Fatal("buildMetrics = nil, want counter error")
+	}
+	if len(calls) != 1 || calls[0] != "counter" {
+		t.Errorf("calls = %v, want [counter]", calls)
+	}
+}
+
+// A histogram-creation failure must surface even though the counter
+// was already created. If this fails, the duration instrument is
+// silently missing while its error is swallowed.
+func TestBuildMetricsPropagatesHistogramError(t *testing.T) {
+	resetInstruments(t)
+	var calls []string
+	if err := buildMetrics(failMeter{failOn: "histogram", calls: &calls}); err == nil {
+		t.Fatal("buildMetrics = nil, want histogram error")
+	}
+	if len(calls) != 2 || calls[0] != "counter" || calls[1] != "histogram" {
+		t.Errorf("calls = %v, want [counter histogram]", calls)
+	}
+}
+
+// A healthy meter must build every instrument in order. If this
+// fails, a later refactor dropped an instrument from the set while
+// the error branches still pass.
+func TestBuildMetricsSuccessBuildsAll(t *testing.T) {
+	resetInstruments(t)
+	var calls []string
+	if err := buildMetrics(failMeter{failOn: "none", calls: &calls}); err != nil {
+		t.Fatalf("buildMetrics = %v, want nil", err)
+	}
+	want := []string{"counter", "histogram", "gauge"}
+	if strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Errorf("calls = %v, want %v", calls, want)
 	}
 }
