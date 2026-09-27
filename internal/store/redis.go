@@ -1,0 +1,163 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"nrtn.dev/catalyst/kpr/internal/policy"
+)
+
+// RedisStore is the production Store over go-redis.
+type RedisStore struct {
+	rdb *redis.Client
+}
+
+// NewRedisStore dials addr lazily (first command fails if redis is
+// down — callers degrade, never crash at construction).
+func NewRedisStore(addr string) (*RedisStore, error) {
+	return &RedisStore{rdb: redis.NewClient(&redis.Options{Addr: addr})}, nil
+}
+
+// Close drains the client pool.
+func (s *RedisStore) Close() error { return s.rdb.Close() }
+
+// Flush drops every kpr key. Tests only: a clean slate per subtest so
+// contract cases never see each other's rows.
+func (s *RedisStore) Flush(ctx context.Context) error {
+	return s.rdb.Del(ctx, RowsKey, CurrentKey, ActivityKey, LockKey).Err()
+}
+
+func (s *RedisStore) Ping(ctx context.Context) error {
+	return s.rdb.Ping(ctx).Err()
+}
+
+func encodeRow(r policy.Row) string {
+	b, _ := json.Marshal(r)
+	return string(b)
+}
+
+func (s *RedisStore) Record(ctx context.Context, r policy.Row) error {
+	k := key(r.Repo, r.Tag)
+	raw, err := s.rdb.HGet(ctx, RowsKey, k).Bytes()
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	if err == nil {
+		var old policy.Row
+		if jerr := json.Unmarshal(raw, &old); jerr == nil && !r.PushedAt.After(old.PushedAt) {
+			r.Due, r.Reason = old.Due, old.Reason
+		}
+	}
+	return s.rdb.HSet(ctx, RowsKey, k, encodeRow(r)).Err()
+}
+
+func (s *RedisStore) All(ctx context.Context) ([]policy.Row, error) {
+	vals, err := s.rdb.HVals(ctx, RowsKey).Result()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]policy.Row, 0, len(vals))
+	for _, v := range vals {
+		var r policy.Row
+		if err := json.Unmarshal([]byte(v), &r); err != nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func (s *RedisStore) Due(ctx context.Context) ([]policy.Row, error) {
+	all, err := s.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []policy.Row
+	for _, r := range all {
+		if r.Due {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (s *RedisStore) MarkDue(ctx context.Context, repo, tag, reason string) error {
+	k := key(repo, tag)
+	raw, err := s.rdb.HGet(ctx, RowsKey, k).Bytes()
+	var r policy.Row
+	if err == nil {
+		if jerr := json.Unmarshal(raw, &r); jerr != nil {
+			return jerr
+		}
+	} else if err != redis.Nil {
+		return err
+	}
+	r.Repo, r.Tag = repo, tag
+	r.Due, r.Reason = true, reason
+	return s.rdb.HSet(ctx, RowsKey, k, encodeRow(r)).Err()
+}
+
+func (s *RedisStore) Delete(ctx context.Context, repo, tag string) error {
+	return s.rdb.HDel(ctx, RowsKey, key(repo, tag)).Err()
+}
+
+func (s *RedisStore) SetCurrent(ctx context.Context, c Current) error {
+	b, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return s.rdb.Set(ctx, CurrentKey, b, 0).Err()
+}
+
+func (s *RedisStore) GetCurrent(ctx context.Context) (Current, error) {
+	raw, err := s.rdb.Get(ctx, CurrentKey).Bytes()
+	if err == redis.Nil {
+		return Current{}, nil
+	}
+	if err != nil {
+		return Current{}, err
+	}
+	var c Current
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return Current{}, err
+	}
+	return c, nil
+}
+
+func (s *RedisStore) PushActivity(ctx context.Context, o Outcome) error {
+	b, err := json.Marshal(o)
+	if err != nil {
+		return err
+	}
+	pipe := s.rdb.Pipeline()
+	pipe.LPush(ctx, ActivityKey, b)
+	pipe.LTrim(ctx, ActivityKey, 0, ActivityCap-1)
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
+func (s *RedisStore) Activity(ctx context.Context) ([]Outcome, error) {
+	vals, err := s.rdb.LRange(ctx, ActivityKey, 0, -1).Result()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Outcome, 0, len(vals))
+	for _, v := range vals {
+		var o Outcome
+		if err := json.Unmarshal([]byte(v), &o); err != nil {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out, nil
+}
+
+func (s *RedisStore) AcquireLock(ctx context.Context, ttl time.Duration) (bool, error) {
+	return s.rdb.SetNX(ctx, LockKey, "1", ttl).Result()
+}
+
+func (s *RedisStore) ReleaseLock(ctx context.Context) error {
+	return s.rdb.Del(ctx, LockKey).Err()
+}
