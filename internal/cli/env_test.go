@@ -51,3 +51,18 @@ func TestEnvCommandShowsEffectiveValues(t *testing.T) {
 		}
 	}
 }
+
+// The redis password is a secret: `kpr env` must show only whether it is
+// set, never the value itself. If this fails, a screen share of `kpr env`
+// leaks the credential.
+func TestEnvCommandRedactsRedisPassword(t *testing.T) {
+	t.Setenv(config.EnvRedisPassword, "s3cret")
+
+	out := runEnv(t)
+	if strings.Contains(out, "s3cret") {
+		t.Errorf("kpr env leaks KPR_REDIS_PASSWORD value:\n%s", out)
+	}
+	if !strings.Contains(out, "KPR_REDIS_PASSWORD=set") {
+		t.Errorf("kpr env must show KPR_REDIS_PASSWORD presence:\n%s", out)
+	}
+}

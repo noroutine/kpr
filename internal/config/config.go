@@ -71,6 +71,13 @@ const (
 	// and cleanup bookkeeping. Defaults to DefaultRedisAddr.
 	EnvRedisAddr = "KPR_REDIS_ADDR"
 
+	// EnvRedisPassword sets the redis password kpr authenticates with.
+	// Empty (the default) means no authentication — the same redis can
+	// be shared with the registry's blobdescriptor cache (which lives
+	// on another DB) once both sides set the same password. Never
+	// rendered by `kpr env` or the console: presence only.
+	EnvRedisPassword = "KPR_REDIS_PASSWORD"
+
 	// EnvRegistryURL overrides the distribution registry base URL the
 	// sweeper deletes through and reap reads the catalog from.
 	// Defaults to DefaultRegistryURL.
@@ -136,6 +143,7 @@ var EnvVars = []EnvVar{
 	{EnvAppHost, "Application server bind address. Defaults to \"::\" (dual-stack IPv4+IPv6)."},
 	{EnvAppPort, "Application server port. Defaults to 8080; invalid values fall back to the default."},
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
+	{EnvRedisPassword, "Redis password (empty means no auth). Shown as set/unset only, never rendered."},
 	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
 	{EnvNoDryRun, "Set to \"true\" to arm real execution (sweeper deletes, reap marks). Anything else keeps dry-run."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},
@@ -209,6 +217,11 @@ type Config struct {
 
 	// RedisAddr is EnvRedisAddr's value, or DefaultRedisAddr if unset.
 	RedisAddr string
+
+	// RedisPassword is EnvRedisPassword's value, or "" if unset (no
+	// authentication). A secret: never log or render it, only its
+	// presence.
+	RedisPassword string
 
 	// RegistryURL is EnvRegistryURL's value, or DefaultRegistryURL if
 	// unset.
@@ -325,6 +338,7 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.ManagementHost = envOr(EnvManagementHost, DefaultManagementHost)
 	b.cfg.AppHost = envOr(EnvAppHost, DefaultAppHost)
 	b.cfg.RedisAddr = envOr(EnvRedisAddr, DefaultRedisAddr)
+	b.cfg.RedisPassword = os.Getenv(EnvRedisPassword)
 	b.cfg.RegistryURL = envOr(EnvRegistryURL, DefaultRegistryURL)
 	b.cfg.NoDryRun = os.Getenv(EnvNoDryRun) == "true"
 
@@ -375,6 +389,7 @@ func (b *Builder) WithManagementPort(v int) *Builder            { b.cfg.Manageme
 func (b *Builder) WithAppHost(v string) *Builder                { b.cfg.AppHost = v; return b }
 func (b *Builder) WithAppPort(v int) *Builder                   { b.cfg.AppPort = v; return b }
 func (b *Builder) WithRedisAddr(v string) *Builder              { b.cfg.RedisAddr = v; return b }
+func (b *Builder) WithRedisPassword(v string) *Builder          { b.cfg.RedisPassword = v; return b }
 func (b *Builder) WithRegistryURL(v string) *Builder            { b.cfg.RegistryURL = v; return b }
 func (b *Builder) WithNoDryRun(v bool) *Builder                 { b.cfg.NoDryRun = v; return b }
 func (b *Builder) WithOTELEnabled(v bool) *Builder              { b.cfg.OTELEnabled = v; return b }

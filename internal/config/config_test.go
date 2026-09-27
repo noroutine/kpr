@@ -23,6 +23,9 @@ func TestNewBuilderDefaults(t *testing.T) {
 	if cfg.RedisAddr != "localhost:6379" {
 		t.Errorf("RedisAddr = %q, want localhost:6379", cfg.RedisAddr)
 	}
+	if cfg.RedisPassword != "" {
+		t.Errorf("RedisPassword = %q, want empty (no auth by default)", cfg.RedisPassword)
+	}
 	if cfg.OTELEnabled {
 		t.Error("OTELEnabled = true, want false (tracing is opt-in)")
 	}
@@ -46,6 +49,7 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	t.Setenv(EnvAppHost, "127.0.0.1")
 	t.Setenv(EnvAppPort, "18080")
 	t.Setenv(EnvRedisAddr, "redis:6379")
+	t.Setenv(EnvRedisPassword, "s3cret")
 	t.Setenv(EnvOTELEnabled, "true")
 	t.Setenv(EnvOTELEndpoint, "https://tempo:4318")
 	t.Setenv(EnvOTELServiceName, "kpr-prod")
@@ -61,6 +65,9 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	}
 	if cfg.RedisAddr != "redis:6379" {
 		t.Errorf("RedisAddr = %q", cfg.RedisAddr)
+	}
+	if cfg.RedisPassword != "s3cret" {
+		t.Errorf("RedisPassword = %q, want s3cret", cfg.RedisPassword)
 	}
 	if !cfg.OTELEnabled || cfg.OTLPEndpoint != "tempo:4318" {
 		t.Errorf("otel = enabled:%v endpoint:%q", cfg.OTELEnabled, cfg.OTLPEndpoint)
@@ -157,6 +164,7 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 		WithAppHost("h2").
 		WithAppPort(2).
 		WithRedisAddr("r:1").
+		WithRedisPassword("pw").
 		WithRegistryURL("http://reg:5000").
 		WithNoDryRun(true).
 		WithOTELEnabled(true).
@@ -175,8 +183,8 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 	if cfg.AppHost != "h2" || cfg.AppPort != 2 {
 		t.Errorf("app = %s:%d", cfg.AppHost, cfg.AppPort)
 	}
-	if cfg.RedisAddr != "r:1" || !cfg.OTELEnabled || cfg.OTLPEndpoint != "e:1" {
-		t.Errorf("backend/otel = %q/%v/%q", cfg.RedisAddr, cfg.OTELEnabled, cfg.OTLPEndpoint)
+	if cfg.RedisAddr != "r:1" || cfg.RedisPassword != "pw" || !cfg.OTELEnabled || cfg.OTLPEndpoint != "e:1" {
+		t.Errorf("backend/otel = %q/%q/%v/%q", cfg.RedisAddr, cfg.RedisPassword, cfg.OTELEnabled, cfg.OTLPEndpoint)
 	}
 	if cfg.RegistryURL != "http://reg:5000" || !cfg.NoDryRun {
 		t.Errorf("keeper = %q/%v, want reg/armed", cfg.RegistryURL, cfg.NoDryRun)
@@ -212,7 +220,7 @@ func TestSetCurrentRestoresPrevious(t *testing.T) {
 func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
-		EnvRedisAddr, EnvRegistryURL, EnvNoDryRun,
+		EnvRedisAddr, EnvRedisPassword, EnvRegistryURL, EnvNoDryRun,
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
 		EnvQuickwitURL, EnvJaegerURL, EnvGrafanaURL, EnvPrometheusURL,

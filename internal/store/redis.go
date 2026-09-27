@@ -16,8 +16,12 @@ type RedisStore struct {
 
 // NewRedisStore dials addr lazily: construction never fails (the first
 // command fails if redis is down) — callers degrade, never crash here.
-func NewRedisStore(addr string) *RedisStore {
-	return &RedisStore{rdb: redis.NewClient(&redis.Options{Addr: addr})}
+// An empty password means no authentication (the long-standing default);
+// a set one is sent as AUTH on every connection (a shared,
+// password-protected redis also serving the registry blobdescriptor
+// cache).
+func NewRedisStore(addr, password string) *RedisStore {
+	return &RedisStore{rdb: redis.NewClient(&redis.Options{Addr: addr, Password: password})}
 }
 
 // Close drains the client pool.

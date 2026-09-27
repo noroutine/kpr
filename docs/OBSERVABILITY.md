@@ -77,8 +77,9 @@ is not instant (observed: <90s, tutorial says ~30s).
   modules pulled OTel core 1.38 → 1.46 and otelhttp 0.63 → 0.70 via
   MVS. Builds and full suite pass.
 - Metrics confirm Quickwit has no metrics story: Prometheus scrapes
-  `/metrics/prometheus` on the management console. Exemplars are
-  wired by the OTel exporter but not yet shown anywhere.
+  `/metrics/prometheus` on the management console plus the registry's
+  debug `/metrics` (registry `http.debug` block, `registry:5001` job).
+  Exemplars are wired by the OTel exporter but not yet shown anywhere.
 
 ## Follow-ups
 

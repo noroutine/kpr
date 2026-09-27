@@ -86,6 +86,7 @@ Wiring only (ports, redis addr, registry URL, arming); see
 | Variable | Meaning |
 |---|---|
 | `KPR_REDIS_ADDR` | redis (default `localhost:6379`; compose sets `redis:6379`) |
+| `KPR_REDIS_PASSWORD` | redis password (empty = no auth; compose sets the shared dev default — `kpr env` shows set/unset only) |
 | `KPR_REGISTRY_URL` | registry peer (dev default `http://localhost:5000`) |
 | `KPR_NO_DRY_RUN=true` | arm the sweeper (anything else keeps implicit dry-run) |
 

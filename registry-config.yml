@@ -1,9 +1,10 @@
-# Plain OCI distribution configuration for the kpr dev stack.
+# OCI distribution configuration for the kpr dev stack.
 # Referenced as /etc/distribution/config.yml by the `registry` service
-# in docker-compose.yml.
-#
-# Push/pull/delete envelopes -> the kpr receiver, which tracks rows in
-# redis (see POST /events and docs/PLAN.md).
+# in docker-compose.yml. Mirrors a realistic core deployment (log
+# fields, blobdescriptor cache on the shared redis, debug/prometheus,
+# health checks); the `notifications` endpoint is the one kpr-specific
+# addition — push/pull/delete envelopes -> the kpr receiver, which
+# tracks rows in redis (see POST /events and docs/PLAN.md).
 notifications:
   endpoints:
     - name: kpr
@@ -14,14 +15,63 @@ notifications:
 
 version: 0.1
 
+log:
+  level: info
+  fields:
+    service: registry
+    environment: core
+
 storage:
   delete:
     # kpr sweeps expired manifests: deletes must be enabled or every
     # DELETE 405s with UNSUPPORTED.
     enabled: true
+  cache:
+    # Blob descriptors (layer metadata) on the shared redis, DB 3 —
+    # kpr's TTL rows live on DB 0, so the two never collide. Needs the
+    # `redis` section below plus its password.
+    blobdescriptor: redis
   filesystem:
     rootdirectory: /var/lib/registry
+  maintenance:
+    uploadpurging:
+      # Off: kpr owns stale-upload reaping (its stale-upload selector
+      # marks rows the sweeper deletes). Registry-side purging would
+      # remove orphaned upload dirs under kpr's feet — enable with an
+      # explicit age/interval only if abandoned uploads pile up on disk.
+      enabled: false
+  tag:
+    # Tag-reference lookup concurrency on manifest delete (each delete
+    # scans the repo's tags for the digest); 0 would mean GOMAXPROCS.
+    concurrencylimit: 8
 
 http:
   addr: :5000
-  host: https://localhost:5000
+  debug:
+    addr: :5001
+    prometheus:
+      enabled: true
+      path: /metrics
+  headers:
+    X-Content-Type-Options: [nosniff]
+
+#auth:
+#  htpasswd:
+#    realm: basic-realm
+#    path: /etc/distribution/htpasswd
+
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3
+
+redis:
+  addrs:
+    - redis:6379
+  # Dev-only default, must match the compose stack's REDIS_PASSWORD
+  # (the registry service exports it as REGISTRY_REDIS_PASSWORD, which
+  # overrides this key). Production injects the real secret the same
+  # way and never commits it here.
+  password: kpr-dev-only
+  db: 3

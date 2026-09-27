@@ -213,7 +213,7 @@ func TestRedisStoreContract(t *testing.T) {
 	if addr == "" {
 		addr = "localhost:6379"
 	}
-	s := NewRedisStore(addr)
+	s := NewRedisStore(addr, os.Getenv("KPR_REDIS_PASSWORD"))
 	if err := s.Ping(ctx()); err != nil {
 		t.Skipf("redis at %s unreachable, skipping: %v", addr, err)
 	}
