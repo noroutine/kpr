@@ -68,6 +68,22 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	}
 }
 
+// UI base URLs resolve from the environment and default to empty
+// (no console link). If this fails, the launchpad links somewhere
+// stale or appears when nothing backs it.
+func TestFromEnvResolvesUILinks(t *testing.T) {
+	t.Setenv(EnvQuickwitURL, "http://localhost:7280")
+	t.Setenv(EnvGrafanaURL, "http://localhost:3000")
+
+	cfg := NewBuilder().FromEnv().Build()
+	if cfg.QuickwitURL != "http://localhost:7280" || cfg.GrafanaURL != "http://localhost:3000" {
+		t.Errorf("links = %q/%q", cfg.QuickwitURL, cfg.GrafanaURL)
+	}
+	if cfg.JaegerURL != "" || cfg.PrometheusURL != "" {
+		t.Errorf("unset links = %q/%q, want empty", cfg.JaegerURL, cfg.PrometheusURL)
+	}
+}
+
 // A typo'd port must not take the server down: kpr still comes up on the
 // known-good default, and the warning tells the operator exactly which
 // value was rejected. If this fails, one bad env var is a startup outage
@@ -191,6 +207,7 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
 		EnvRedisAddr, EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
+		EnvQuickwitURL, EnvJaegerURL, EnvGrafanaURL, EnvPrometheusURL,
 	}
 	seen := map[string]int{}
 	for _, v := range EnvVars {

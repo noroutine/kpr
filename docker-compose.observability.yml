@@ -17,6 +17,12 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=quickwit:7281
       - OTEL_SERVICE_NAME=kpr
       - OTEL_ENVIRONMENT=development
+      # Browser-facing UI base URLs for the console launchpad
+      # (empty = no link; these are what the operator's browser opens).
+      - KPR_QUICKWIT_URL=http://localhost:7280
+      - KPR_JAEGER_URL=http://localhost:16686
+      - KPR_GRAFANA_URL=http://localhost:3000
+      - KPR_PROMETHEUS_URL=http://localhost:9090
     depends_on:
       quickwit:
         condition: service_started

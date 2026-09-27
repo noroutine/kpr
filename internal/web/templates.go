@@ -71,6 +71,20 @@ const indexTemplate = `<!DOCTYPE html>
         </div>
     </div>
 
+    {{ if .Links }}
+    <div class="section">
+        <h2>🔭 Observability</h2>
+        <div class="grid">
+            {{ range .Links }}
+            <div class="card">
+                <div class="value"><a href="{{ .URL }}" target="_blank" rel="noopener">{{ .Name }}</a></div>
+                <div class="meta">{{ .Blurb }}</div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+    {{ end }}
+
     <div class="section">
         <h2>⚙️ Configuration</h2>
         <div class="grid">

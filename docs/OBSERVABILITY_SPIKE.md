@@ -23,6 +23,7 @@ Then generate traffic (`curl localhost:8080/api/hello`) and open:
 | Traces | http://localhost:16686 (Jaeger UI, storage = Quickwit) |
 | Metrics targets | http://localhost:9090 (Prometheus) |
 | Demo dashboard | http://localhost:3000, "kpr demo (spike)" (anonymous viewer) |
+| Launchpad | http://localhost:9300 — console links all four when the overlay sets the `KPR_*_URL` vars |
 
 Allow ~60s after traffic before expecting hits in Quickwit — indexing
 is not instant (observed: <90s, tutorial says ~30s).

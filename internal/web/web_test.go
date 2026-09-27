@@ -85,6 +85,62 @@ func TestIndexHandler(t *testing.T) {
 	}
 }
 
+// With no UI base URL configured the dashboard shows no Observability
+// section: links to backends nobody runs are worse than no links. If
+// this fails, the launchpad leaks into the default console.
+func TestIndexHandlerHidesObservabilityByDefault(t *testing.T) {
+	testConfig(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	IndexHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if strings.Contains(rr.Body.String(), "Observability") {
+		t.Errorf("dashboard shows Observability with no URLs configured")
+	}
+}
+
+// Every configured UI base URL renders as a launchpad card; an
+// unconfigured backend stays out. If this fails, the console links
+// somewhere it cannot reach, or hides somewhere it should link.
+func TestIndexHandlerShowsConfiguredLinks(t *testing.T) {
+	t.Cleanup(config.SetCurrent(config.NewBuilder().
+		WithManagementHost("127.0.0.1").
+		WithManagementPort(19300).
+		WithAppHost("127.0.0.1").
+		WithAppPort(18080).
+		WithQuickwitURL("http://localhost:7280").
+		WithJaegerURL("http://localhost:16686").
+		Build()))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	IndexHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		"Observability",
+		`href="http://localhost:7280"`,
+		`href="http://localhost:16686"`,
+		"Quickwit",
+		"Jaeger",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+	for _, absent := range []string{"Grafana", "Prometheus"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("dashboard links unconfigured %q", absent)
+		}
+	}
+}
+
 // Anything but the exact root path must 404: the dashboard handler owns
 // "/" and nothing else. If this fails, unknown console paths render the
 // dashboard instead of a proper 404.

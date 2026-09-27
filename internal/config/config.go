@@ -91,6 +91,22 @@ const (
 	// EnvOTELEnvironment overrides the deployment environment reported in
 	// traces. Defaults to DefaultOTELEnvironment.
 	EnvOTELEnvironment = "OTEL_ENVIRONMENT"
+
+	// EnvQuickwitURL is the browser-facing Quickwit UI base URL shown
+	// on the management console. Empty (the default) hides the link.
+	EnvQuickwitURL = "KPR_QUICKWIT_URL"
+
+	// EnvJaegerURL is the browser-facing Jaeger UI base URL shown on
+	// the management console. Empty (the default) hides the link.
+	EnvJaegerURL = "KPR_JAEGER_URL"
+
+	// EnvGrafanaURL is the browser-facing Grafana base URL shown on
+	// the management console. Empty (the default) hides the link.
+	EnvGrafanaURL = "KPR_GRAFANA_URL"
+
+	// EnvPrometheusURL is the browser-facing Prometheus base URL shown
+	// on the management console. Empty (the default) hides the link.
+	EnvPrometheusURL = "KPR_PROMETHEUS_URL"
 )
 
 // EnvVar is one environment variable this program reads, paired with the
@@ -116,6 +132,10 @@ var EnvVars = []EnvVar{
 	{EnvOTELServiceName, "Service name reported in traces. Defaults to kpr."},
 	{EnvOTELServiceVersion, "Service version reported in traces. Defaults to the built binary's version."},
 	{EnvOTELEnvironment, "Deployment environment reported in traces. Defaults to development."},
+	{EnvQuickwitURL, "Quickwit UI base URL linked from the management console. Empty by default (no link)."},
+	{EnvJaegerURL, "Jaeger UI base URL linked from the management console. Empty by default (no link)."},
+	{EnvGrafanaURL, "Grafana base URL linked from the management console. Empty by default (no link)."},
+	{EnvPrometheusURL, "Prometheus base URL linked from the management console. Empty by default (no link)."},
 }
 
 const (
@@ -190,6 +210,19 @@ type Config struct {
 	// OTELEnvironment is EnvOTELEnvironment's value, or
 	// DefaultOTELEnvironment if unset.
 	OTELEnvironment string
+
+	// QuickwitURL is EnvQuickwitURL's value, or "" if unset. Empty
+	// means the management console shows no Quickwit link.
+	QuickwitURL string
+	// JaegerURL is EnvJaegerURL's value, or "" if unset. Empty means
+	// the management console shows no Jaeger link.
+	JaegerURL string
+	// GrafanaURL is EnvGrafanaURL's value, or "" if unset. Empty means
+	// the management console shows no Grafana link.
+	GrafanaURL string
+	// PrometheusURL is EnvPrometheusURL's value, or "" if unset. Empty
+	// means the management console shows no Prometheus link.
+	PrometheusURL string
 
 	// HTTPReadTimeout, HTTPWriteTimeout, HTTPIdleTimeout, and
 	// ShutdownTimeout have no environment override — see the matching
@@ -284,6 +317,10 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.OTELServiceName = envOr(EnvOTELServiceName, DefaultOTELServiceName)
 	b.cfg.OTELServiceVersion = envOr(EnvOTELServiceVersion, Version)
 	b.cfg.OTELEnvironment = envOr(EnvOTELEnvironment, DefaultOTELEnvironment)
+	b.cfg.QuickwitURL = envOr(EnvQuickwitURL, "")
+	b.cfg.JaegerURL = envOr(EnvJaegerURL, "")
+	b.cfg.GrafanaURL = envOr(EnvGrafanaURL, "")
+	b.cfg.PrometheusURL = envOr(EnvPrometheusURL, "")
 	return b
 }
 
@@ -317,6 +354,10 @@ func (b *Builder) WithOTLPEndpoint(v string) *Builder           { b.cfg.OTLPEndp
 func (b *Builder) WithOTELServiceName(v string) *Builder        { b.cfg.OTELServiceName = v; return b }
 func (b *Builder) WithOTELServiceVersion(v string) *Builder     { b.cfg.OTELServiceVersion = v; return b }
 func (b *Builder) WithOTELEnvironment(v string) *Builder        { b.cfg.OTELEnvironment = v; return b }
+func (b *Builder) WithQuickwitURL(v string) *Builder            { b.cfg.QuickwitURL = v; return b }
+func (b *Builder) WithJaegerURL(v string) *Builder              { b.cfg.JaegerURL = v; return b }
+func (b *Builder) WithGrafanaURL(v string) *Builder             { b.cfg.GrafanaURL = v; return b }
+func (b *Builder) WithPrometheusURL(v string) *Builder          { b.cfg.PrometheusURL = v; return b }
 func (b *Builder) WithHTTPReadTimeout(v time.Duration) *Builder { b.cfg.HTTPReadTimeout = v; return b }
 func (b *Builder) WithHTTPWriteTimeout(v time.Duration) *Builder {
 	b.cfg.HTTPWriteTimeout = v
