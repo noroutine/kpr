@@ -134,7 +134,15 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) Summary {
 			done++
 			continue
 		}
-		outcome, derr := s.Registry.DeleteManifest(ctx, r.Repo, r.Tag)
+		// Delete by digest: modern registries (distribution:3) reject
+		// tag deletes outright, while a digest delete is confirmed and
+		// universal. Digest-less rows fall back to the tag and fail
+		// visibly where unsupported, staying due.
+		ref := r.Digest
+		if ref == "" {
+			ref = r.Tag
+		}
+		outcome, derr := s.Registry.DeleteManifest(ctx, r.Repo, ref)
 		switch {
 		case derr != nil:
 			activity(r, "failed")

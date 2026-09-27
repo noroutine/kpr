@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,12 +30,14 @@ func duerow(repo, tag string, age time.Duration) policy.Row {
 		PushedAt: sweepNow.Add(-age), Due: true, Reason: "test"}
 }
 
-// fakeRegistry answers manifest DELETEs with the given status/body and
-// counts them, so tests prove what the sweeper attempted — not just
-// what it claims.
+// fakeRegistry answers manifest DELETEs with the given status/body,
+// counting them and remembering every deleted reference, so tests
+// prove what the sweeper attempted — not just what it claims.
 type fakeRegistry struct {
 	srv   *httptest.Server
 	calls atomic.Int64
+	mu    sync.Mutex
+	refs  []string
 }
 
 func newFake(status int, body string) *fakeRegistry {
@@ -42,11 +45,23 @@ func newFake(status int, body string) *fakeRegistry {
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodDelete {
 			f.calls.Add(1)
+			f.mu.Lock()
+			f.refs = append(f.refs, r.URL.Path)
+			f.mu.Unlock()
 		}
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
 	}))
 	return f
+}
+
+func (f *fakeRegistry) lastRef() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.refs) == 0 {
+		return ""
+	}
+	return f.refs[len(f.refs)-1]
 }
 
 func (f *fakeRegistry) close() { f.srv.Close() }
@@ -89,6 +104,37 @@ func TestDryRunPlansWithoutDeleting(t *testing.T) {
 	// progress from a stall. If this fails, the run-state undercounts.
 	if cur, _ := s.GetCurrent(testCtx()); cur.Done != 1 || cur.Due != 1 {
 		t.Errorf("current = %+v, want Due 1 Done 1", cur)
+	}
+}
+
+// Deletes go by digest, never by tag: registries in the distribution:3
+// line reject tag deletes outright (405 UNSUPPORTED), while a digest
+// delete is confirmed and universal. A digest-less row falls back to
+// its tag (old registries accept it; new ones fail visibly and the row
+// stays due). If this fails, every armed pass 405s on modern
+// registries and nothing is ever collected.
+func TestArmedPassDeletesByDigest(t *testing.T) {
+	f := newFake(http.StatusAccepted, "")
+	defer f.close()
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
+	sw := newSweeper(s, f.srv.URL, false)
+
+	if sum := sw.RunPass(testCtx(), "tick"); sum.Performed != 1 {
+		t.Fatalf("summary = %+v, want Performed 1", sum)
+	}
+	if ref := f.lastRef(); !strings.HasSuffix(ref, "sha256:abc") {
+		t.Errorf("deleted ref = %q, want the row digest", ref)
+	}
+
+	tagOnly := duerow("app", "v9", 200*24*time.Hour)
+	tagOnly.Digest = ""
+	_ = s.Record(testCtx(), tagOnly)
+	if sum := sw.RunPass(testCtx(), "tick"); sum.Performed != 1 {
+		t.Fatalf("summary = %+v, want the digest-less row attempted too", sum)
+	}
+	if ref := f.lastRef(); !strings.HasSuffix(ref, "v9") {
+		t.Errorf("deleted ref = %q, want tag fallback for digest-less rows", ref)
 	}
 }
 

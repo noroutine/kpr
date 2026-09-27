@@ -78,6 +78,24 @@ func TestDeleteManifestDeniedUntracks(t *testing.T) {
 	}
 }
 
+// A tag delete refused as UNSUPPORTED (distribution:3 answers 405 to
+// every tag delete) is an error the caller surfaces: the row stays due
+// and visible instead of resolving something still there. Callers must
+// prefer digests; this path is the digest-less fallback failing
+// honestly. If this fails, unsupported deletes masquerade as success.
+func TestDeleteManifestUnsupportedTagDeleteFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"UNSUPPORTED","message":"unsupported"}]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	if _, err := c.DeleteManifest(testCtx(), "app", "v1"); err == nil {
+		t.Error("UNSUPPORTED tag delete succeeded, want an error")
+	}
+}
+
 // A 500 stays a retryable error: the row stays due and the next tick
 // retries. If this fails, registry blips either resolve rows that are
 // still there or spin without surfacing the failure.
