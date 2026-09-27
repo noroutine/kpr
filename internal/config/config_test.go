@@ -29,8 +29,10 @@ func TestNewBuilderDefaults(t *testing.T) {
 	if cfg.ManagementPortWarning != nil || cfg.AppPortWarning != nil {
 		t.Error("clean environment must not produce port warnings")
 	}
-	if cfg.HTTPReadTimeout != 10*time.Second || cfg.ShutdownTimeout != 5*time.Second {
-		t.Errorf("timeouts = %v/%v, want 10s/5s", cfg.HTTPReadTimeout, cfg.ShutdownTimeout)
+	if cfg.HTTPReadTimeout != 10*time.Second || cfg.HTTPWriteTimeout != 10*time.Second ||
+		cfg.HTTPIdleTimeout != 60*time.Second || cfg.ShutdownTimeout != 5*time.Second {
+		t.Errorf("timeouts = %v/%v/%v/%v, want 10s/10s/60s/5s",
+			cfg.HTTPReadTimeout, cfg.HTTPWriteTimeout, cfg.HTTPIdleTimeout, cfg.ShutdownTimeout)
 	}
 }
 
