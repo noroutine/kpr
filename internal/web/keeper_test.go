@@ -74,8 +74,10 @@ func TestKeeperSectionsRenderTrackedState(t *testing.T) {
 	body := rr.Body.String()
 	for _, want := range []string{
 		"scratch", "10m", "ttl:10m elapsed", // the plan, with reason
-		"deleted",   // activity outcome
-		"reachable", // registry probe
+		"deleted", // activity outcome
+		// Exact cell: "unreachable" contains "reachable", so a bare
+		// substring check would pass on a red banner.
+		`<div class="value">reachable</div>`, // registry probe
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)

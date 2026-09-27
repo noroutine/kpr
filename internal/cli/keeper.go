@@ -235,10 +235,7 @@ func sweepUnreached(ctx context.Context, w io.Writer, s store.Store) error {
 // error: every keeper command needs state, and inventing numbers
 // without it is worse than refusing.
 func openStore(cfg *config.Config) (*store.RedisStore, error) {
-	s, err := store.NewRedisStore(cfg.RedisAddr)
-	if err != nil {
-		return nil, fmt.Errorf("redis unreachable: %w", err)
-	}
+	s := store.NewRedisStore(cfg.RedisAddr)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := s.Ping(ctx); err != nil {

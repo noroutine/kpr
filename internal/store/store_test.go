@@ -191,10 +191,7 @@ func TestRedisStoreContract(t *testing.T) {
 	if addr == "" {
 		addr = "localhost:6379"
 	}
-	s, err := NewRedisStore(addr)
-	if err != nil {
-		t.Fatalf("NewRedisStore: %v", err)
-	}
+	s := NewRedisStore(addr)
 	if err := s.Ping(ctx()); err != nil {
 		t.Skipf("redis at %s unreachable, skipping: %v", addr, err)
 	}

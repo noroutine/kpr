@@ -120,6 +120,30 @@ doesn't fail the gates, just slows the run). The manual `Mutation`
 Forgejo workflow (`workflow_dispatch`) runs the same `make mutation`
 gate on demand.
 
+Start a local redis before the run (`redis-server --port 6379`, or the
+compose stack): without it the whole `RedisStore` contract skips and
+`redis.go` lands in NOT COVERED, tanking the score for no reason.
+
+Thresholds are advisory in gremlins v0.6.0: `--threshold-efficacy` /
+`--threshold-mcover` are accepted but never fire (a scoped probe at
+100/100 still exits 0), so read the tally yourself instead of trusting
+the exit code.
+
+Accepted survivors (equivalent or untestable-by-construction — every
+one earned, none by neglect):
+
+- `policy.go` clamp guards (`59`, `77`): the boundary inputs evaluate
+  to exactly `MaxTTL` on both sides, so the mutants are provably
+  equivalent — no test can distinguish them.
+- Sort-comparator boundaries (`web/keeper.go` plan order): equal keys
+  sort identically under `<=`, so the only distinguishing inputs have
+  indistinguishable outputs.
+- `store/mem.go` ring trim (`97`): trimming at-cap is a no-op either way.
+- Timing constants (`registry.go:35`, `cli/keeper.go:199,242`,
+  `sweep.go:30`): changed timeouts don't change observable behavior.
+- `otel/telemetry.go:95` (`initMetrics` error): needs a broken global
+  OTel SDK — same untestable family as the Once-guarded Warn survivor.
+
 ## Integration tests
 
 Not started yet. Notes on scope, fixtures (registry + redis from

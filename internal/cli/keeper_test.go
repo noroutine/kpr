@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -56,7 +57,9 @@ func TestStatusRendersBannerAndCounters(t *testing.T) {
 	if err := runStatus(cliCtx(), &out, cliStore(), liveRegistryClient(t), false); err != nil {
 		t.Fatalf("runStatus: %v", err)
 	}
-	for _, want := range []string{"dry-run", "reachable", "tracked: 2", "due: 1", "performed: 1"} {
+	// Exact line: "unreachable" contains "reachable", so a bare
+	// substring check would pass on a red banner.
+	for _, want := range []string{"dry-run", "registry: reachable\n", "tracked: 2", "due: 1", "performed: 1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("status missing %q:\n%s", want, out.String())
 		}
@@ -209,6 +212,23 @@ func TestOpenStoreNamesDeadRedis(t *testing.T) {
 		t.Error("openStore on dead redis succeeded, want a fast error")
 	} else if !strings.Contains(err.Error(), "redis") {
 		t.Errorf("error = %q, want it to name redis", err.Error())
+	}
+}
+
+// Opening state against a live redis succeeds: the Ping gate passes
+// and the store is usable. Skips without fixtures, like the contract.
+func TestOpenStoreLiveRedis(t *testing.T) {
+	addr := os.Getenv("KPR_REDIS_ADDR")
+	if addr == "" {
+		addr = "localhost:6379"
+	}
+	s, err := openStore(config.NewBuilder().WithRedisAddr(addr).Build())
+	if err != nil {
+		t.Skipf("redis at %s unreachable, skipping: %v", addr, err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Ping(cliCtx()); err != nil {
+		t.Errorf("opened store does not ping: %v", err)
 	}
 }
 
@@ -404,6 +424,18 @@ func (errWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe"
 func TestPlanSurfacesWriteError(t *testing.T) {
 	if err := runPlan(cliCtx(), errWriter{}, cliStore(), false); err == nil {
 		t.Error("plan into broken pipe succeeded, want an error")
+	}
+}
+
+// The same holds for the dry-run print: a truncated candidate list is
+// not a plan. If this fails, reap's safety output can silently drop
+// the very rows awaiting approval.
+func TestReapDryRunSurfacesWriteError(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
+		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
+	if err := runReap(cliCtx(), errWriter{}, s, liveRegistryClient(t), false, cliNow); err == nil {
+		t.Error("dry-run reap into broken pipe succeeded, want an error")
 	}
 }
 

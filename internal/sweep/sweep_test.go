@@ -85,6 +85,11 @@ func TestDryRunPlansWithoutDeleting(t *testing.T) {
 	if len(acts) != 1 || acts[0].Outcome != "planned" {
 		t.Errorf("activity = %+v, want one planned outcome", acts)
 	}
+	// The pass counts every attempted row: watchers read Done to tell
+	// progress from a stall. If this fails, the run-state undercounts.
+	if cur, _ := s.GetCurrent(testCtx()); cur.Done != 1 || cur.Due != 1 {
+		t.Errorf("current = %+v, want Due 1 Done 1", cur)
+	}
 }
 
 // The armed pass deletes due rows, resolves them from the store only
@@ -107,6 +112,9 @@ func TestArmedPassDeletesAndResolves(t *testing.T) {
 	acts, _ := s.Activity(testCtx())
 	if len(acts) != 1 || acts[0].Outcome != "deleted" {
 		t.Errorf("activity = %+v, want one deleted outcome", acts)
+	}
+	if cur, _ := s.GetCurrent(testCtx()); cur.Done != 1 || cur.Due != 1 {
+		t.Errorf("current = %+v, want Due 1 Done 1", cur)
 	}
 }
 
@@ -131,6 +139,11 @@ func TestFloorHoldsEarlyTTLMark(t *testing.T) {
 	}
 	if due, _ := s.Due(testCtx()); len(due) != 1 {
 		t.Error("floor-hold resolved the row, want it still due")
+	}
+	// A held row still counts as attempted: Done must include the
+	// skip, or watchers read a pass that never finishes its plan.
+	if cur, _ := s.GetCurrent(testCtx()); cur.Done != 1 || cur.Due != 1 {
+		t.Errorf("current = %+v, want Due 1 Done 1 (hold counts)", cur)
 	}
 }
 
@@ -252,6 +265,20 @@ func (errCurrentStore) PushActivity(context.Context, store.Outcome) error {
 	return errEventPath
 }
 
+func (errCurrentStore) ReleaseLock(context.Context) error {
+	return errEventPath
+}
+
+// errDeleteStore fails row deletes: the registry confirmed, but the
+// resolution write did not land.
+type errDeleteStore struct {
+	*store.MemStore
+}
+
+func (errDeleteStore) Delete(context.Context, string, string) error {
+	return errEventPath
+}
+
 type errEventPathT string
 
 func (e errEventPathT) Error() string { return string(e) }
@@ -274,7 +301,47 @@ func TestPassSurvivesEventWriteFailure(t *testing.T) {
 	if sum := sw.RunPass(testCtx(), "tick"); sum.Planned != 1 {
 		t.Errorf("summary = %+v, want the pass to complete despite event-path errors", sum)
 	}
-	if n := strings.Count(buf.String(), "failed"); n == 0 {
-		t.Errorf("log = %q, want the visible event-path failures", buf.String())
+	// Each failing write logs its own line: a shared substring check
+	// would pass with only one of them logging.
+	for _, want := range []string{"current write failed", "activity write failed", "lock release failed"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("log missing %q:\n%s", want, buf.String())
+		}
+	}
+}
+
+// A confirmed delete whose row resolution fails keeps the row for the
+// next tick while still counting the performed registry delete: the
+// registry did the work, only the bookkeeping missed. If this fails, a
+// store hiccup either drops unconfirmed rows or undercounts the pass.
+func TestConfirmedDeleteWithFailedResolution(t *testing.T) {
+	for name, status := range map[string]struct {
+		code int
+		body string
+	}{
+		"deleted":   {http.StatusAccepted, ""},
+		"untracked": {http.StatusMethodNotAllowed, `{"errors":[{"code":"DENIED"}]}`},
+	} {
+		f := newFake(status.code, status.body)
+		defer f.close()
+		s := &errDeleteStore{MemStore: store.NewMemStore()}
+		_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
+		sw := newSweeper(s, f.srv.URL, false)
+
+		var buf bytes.Buffer
+		old := log.Writer()
+		log.SetOutput(&buf)
+		sum := sw.RunPass(testCtx(), "tick")
+		log.SetOutput(old)
+
+		if sum.Performed+sum.Untracked != 1 {
+			t.Errorf("%s: summary = %+v, want the confirmed outcome counted", name, sum)
+		}
+		if all, _ := s.All(testCtx()); len(all) != 1 {
+			t.Errorf("%s: row resolved without a confirmed write, want it kept", name)
+		}
+		if !strings.Contains(buf.String(), "row delete failed") {
+			t.Errorf("%s: log missing the visible resolution failure", name)
+		}
 	}
 }

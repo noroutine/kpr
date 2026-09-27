@@ -62,10 +62,7 @@ var serveCmd = &cobra.Command{
 		// Shared keeper state: the redis store (lazy — a down redis
 		// degrades banner/receiver/sweeper instead of blocking boot),
 		// the registry client, and the single-owner sweeper.
-		keeperStore, err := store.NewRedisStore(cfg.RedisAddr)
-		if err != nil {
-			log.Fatalf("Failed to open state backend: %v", err)
-		}
+		keeperStore := store.NewRedisStore(cfg.RedisAddr)
 		defer func() { _ = keeperStore.Close() }()
 		if perr := keeperStore.Ping(ctx); perr != nil {
 			log.Printf("Warning: redis at %s unreachable, keeper sections degrade: %v", cfg.RedisAddr, perr)

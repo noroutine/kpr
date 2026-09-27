@@ -14,10 +14,10 @@ type RedisStore struct {
 	rdb *redis.Client
 }
 
-// NewRedisStore dials addr lazily (first command fails if redis is
-// down — callers degrade, never crash at construction).
-func NewRedisStore(addr string) (*RedisStore, error) {
-	return &RedisStore{rdb: redis.NewClient(&redis.Options{Addr: addr})}, nil
+// NewRedisStore dials addr lazily: construction never fails (the first
+// command fails if redis is down) — callers degrade, never crash here.
+func NewRedisStore(addr string) *RedisStore {
+	return &RedisStore{rdb: redis.NewClient(&redis.Options{Addr: addr})}
 }
 
 // Close drains the client pool.
