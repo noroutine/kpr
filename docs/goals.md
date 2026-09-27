@@ -5,7 +5,7 @@ distribution registry. It plugs into a plain `distribution` deployment
 (running next to it in docker compose) and adds the lifecycle behavior
 a bare registry lacks — without becoming Harbor or Nexus.
 
-Status: starter skeleton. The goals below are an outline, not a design.
+Status: starter skeleton. The design lives in `docs/PLAN.md`; the goals below are the backdrop.
 
 ## 1. What it is
 

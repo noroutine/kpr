@@ -66,6 +66,15 @@ published ports live on the host, so container localhost never works).
 Fixture files live flat next to the compose file; do not add another
 folder for test containers.
 
+## Destructive actions: implicit dry-run
+
+Any behavior that deletes or mutates registry state defaults to
+dry-run: it logs exactly what it would do and changes nothing. Real
+execution requires an explicit opt-out of safety (`--no-dry-run` flag
+or its env equivalent) — never a `--dry-run` opt-in, and never a
+default that deletes. Tests must cover both modes: the dry-run plan
+matches, and the armed run performs, what the plan promised.
+
 ## CI workflows
 
 Workflows live in `.forgejo/workflows/` and call `just`/`make` targets —
