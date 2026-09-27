@@ -86,6 +86,46 @@ func TestKeeperSectionsRenderTrackedState(t *testing.T) {
 	}
 }
 
+// Counters count every outcome kind and the plan sorts by repo then
+// tag: the dashboard is the operator's at-a-glance state, so a swapped
+// comparator or a miscounted outcome must fail here, not in production.
+// If this fails, the console misreports what the next sweep would do.
+func TestKeeperCountersAndPlanOrder(t *testing.T) {
+	testConfig(t)
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "b-repo", Tag: "z", Digest: "sha256:1",
+		PushedAt: time.Now().UTC().Add(-time.Hour), Due: true, Reason: "keep-n:exceeds 10"})
+	_ = s.Record(c, policy.Row{Repo: "a-repo", Tag: "m", Digest: "sha256:2",
+		PushedAt: time.Now().UTC().Add(-time.Hour), Due: true, Reason: "ttl:10m elapsed"})
+	_ = s.Record(c, policy.Row{Repo: "a-repo", Tag: "a", Digest: "sha256:3",
+		PushedAt: time.Now().UTC().Add(-time.Hour)})
+	for _, outcome := range []string{"deleted", "planned", "failed", "untracked"} {
+		_ = s.PushActivity(c, store.Outcome{Repo: "a-repo", Tag: "m",
+			Reason: "r", Outcome: outcome, At: time.Now().UTC()})
+	}
+	srv := &Server{Store: s, Registry: liveRegistry(t)}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.indexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		"3 / 2",
+		"performed 1 · planned 1 · failed 1 · untracked 1",
+		"a-repo:m", "b-repo:z",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+	if strings.Index(body, "a-repo:m") > strings.Index(body, "b-repo:z") {
+		t.Error("plan not sorted by repo then tag")
+	}
+}
+
 // POST /api/sweep triggers a pass and answers its summary as JSON —
 // the synchronous feedback `sweep` watches. GET is rejected, and a
 // console without a sweeper answers 503 instead of panicking. If this
