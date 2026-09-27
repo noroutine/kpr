@@ -43,9 +43,10 @@ func TestEnvCommandListsEveryVar(t *testing.T) {
 func TestEnvCommandShowsEffectiveValues(t *testing.T) {
 	t.Setenv(config.EnvAppPort, "18080")
 	t.Setenv(config.EnvOTELEnabled, "true")
+	t.Setenv(config.EnvRedisDB, "4")
 
 	out := runEnv(t)
-	for _, want := range []string{"KPR_APP_PORT=18080", "OTEL_ENABLED=true"} {
+	for _, want := range []string{"KPR_APP_PORT=18080", "OTEL_ENABLED=true", "KPR_REDIS_DB=4"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("kpr env missing %q:\n%s", want, out)
 		}

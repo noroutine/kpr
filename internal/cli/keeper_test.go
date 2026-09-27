@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -308,7 +309,13 @@ func TestOpenStoreLiveRedis(t *testing.T) {
 	if addr == "" {
 		addr = "localhost:6379"
 	}
-	s, err := openStore(config.NewBuilder().WithRedisAddr(addr).Build())
+	db := 0
+	if raw := os.Getenv("KPR_REDIS_DB"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			db = n
+		}
+	}
+	s, err := openStore(config.NewBuilder().WithRedisAddr(addr).WithRedisPassword(os.Getenv("KPR_REDIS_PASSWORD")).WithRedisDB(db).Build())
 	if err != nil {
 		t.Skipf("redis at %s unreachable, skipping: %v", addr, err)
 	}

@@ -78,6 +78,15 @@ const (
 	// rendered by `kpr env` or the console: presence only.
 	EnvRedisPassword = "KPR_REDIS_PASSWORD"
 
+	// EnvRedisDB selects the redis logical database kpr uses for TTL
+	// tracking and cleanup bookkeeping. Defaults to DefaultRedisDB (0,
+	// the redis convention); deployments sharing one instance pick a
+	// free one (compose uses 4: DBs 0-2 belong to other tenants, 3 is
+	// the registry blobdescriptor cache). Garbage falls back to the
+	// default with a warning (see RedisDBWarning) — selecting someone
+	// else's keyspace silently is worse than refusing.
+	EnvRedisDB = "KPR_REDIS_DB"
+
 	// EnvRegistryURL overrides the distribution registry base URL the
 	// sweeper deletes through and reap reads the catalog from.
 	// Defaults to DefaultRegistryURL.
@@ -144,6 +153,7 @@ var EnvVars = []EnvVar{
 	{EnvAppPort, "Application server port. Defaults to 8080; invalid values fall back to the default."},
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
 	{EnvRedisPassword, "Redis password (empty means no auth). Shown as set/unset only, never rendered."},
+	{EnvRedisDB, "Redis logical database for kpr rows. Defaults to 0; compose uses 4 (0-2 taken, 3 is the registry cache)."},
 	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
 	{EnvNoDryRun, "Set to \"true\" to arm real execution (sweeper deletes, reap marks). Anything else keeps dry-run."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},
@@ -169,6 +179,11 @@ const (
 	// DefaultRedisAddr is the redis address used when KPR_REDIS_ADDR is
 	// unset — a bare local run with no compose stack alongside it.
 	DefaultRedisAddr = "localhost:6379"
+
+	// DefaultRedisDB is the redis logical database used when
+	// KPR_REDIS_DB is unset or invalid — the redis convention. Shared
+	// instances override it (compose: 4).
+	DefaultRedisDB = 0
 
 	// DefaultRegistryURL is the registry base URL used when
 	// KPR_REGISTRY_URL is unset — the dev-stack registry.
@@ -222,6 +237,15 @@ type Config struct {
 	// authentication). A secret: never log or render it, only its
 	// presence.
 	RedisPassword string
+
+	// RedisDB is EnvRedisDB's parsed value, or DefaultRedisDB if unset
+	// or invalid. See RedisDBWarning.
+	RedisDB int
+	// RedisDBWarning is non-nil when EnvRedisDB was set but not a
+	// non-negative number; RedisDB still falls back to DefaultRedisDB.
+	// Callers that log this (serve startup) check it once, right after
+	// building the config.
+	RedisDBWarning error
 
 	// RegistryURL is EnvRegistryURL's value, or DefaultRegistryURL if
 	// unset.
@@ -333,12 +357,39 @@ func (w *PortWarning) Error() string {
 	return "invalid port " + strconv.Quote(w.Raw) + ", using default"
 }
 
+// parseDB resolves the redis DB env var: unset or blank means the
+// default, a non-negative number selects that database, and anything
+// else means the default plus a warning — a mistyped DB must never
+// silently select another tenant's keyspace.
+func parseDB(raw string) (int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return DefaultRedisDB, nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 0 {
+		return DefaultRedisDB, &DBWarning{Raw: raw, Default: DefaultRedisDB}
+	}
+	return n, nil
+}
+
+// DBWarning records an unusable redis DB env value that fell back to
+// its default. It prints as the startup log line, not as a hard error.
+type DBWarning struct {
+	Raw     string
+	Default int
+}
+
+func (w *DBWarning) Error() string {
+	return "invalid redis DB " + strconv.Quote(w.Raw) + ", using default"
+}
+
 // FromEnv resolves every environment-backed field from os.Getenv.
 func (b *Builder) FromEnv() *Builder {
 	b.cfg.ManagementHost = envOr(EnvManagementHost, DefaultManagementHost)
 	b.cfg.AppHost = envOr(EnvAppHost, DefaultAppHost)
 	b.cfg.RedisAddr = envOr(EnvRedisAddr, DefaultRedisAddr)
 	b.cfg.RedisPassword = os.Getenv(EnvRedisPassword)
+	b.cfg.RedisDB, b.cfg.RedisDBWarning = parseDB(os.Getenv(EnvRedisDB))
 	b.cfg.RegistryURL = envOr(EnvRegistryURL, DefaultRegistryURL)
 	b.cfg.NoDryRun = os.Getenv(EnvNoDryRun) == "true"
 
@@ -390,6 +441,7 @@ func (b *Builder) WithAppHost(v string) *Builder                { b.cfg.AppHost 
 func (b *Builder) WithAppPort(v int) *Builder                   { b.cfg.AppPort = v; return b }
 func (b *Builder) WithRedisAddr(v string) *Builder              { b.cfg.RedisAddr = v; return b }
 func (b *Builder) WithRedisPassword(v string) *Builder          { b.cfg.RedisPassword = v; return b }
+func (b *Builder) WithRedisDB(v int) *Builder                   { b.cfg.RedisDB = v; return b }
 func (b *Builder) WithRegistryURL(v string) *Builder            { b.cfg.RegistryURL = v; return b }
 func (b *Builder) WithNoDryRun(v bool) *Builder                 { b.cfg.NoDryRun = v; return b }
 func (b *Builder) WithOTELEnabled(v bool) *Builder              { b.cfg.OTELEnabled = v; return b }

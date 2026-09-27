@@ -42,6 +42,9 @@ var serveCmd = &cobra.Command{
 		if !cmd.Flags().Changed("app-port") && cfg.AppPortWarning != nil {
 			log.Printf("Warning: %v", cfg.AppPortWarning)
 		}
+		if cfg.RedisDBWarning != nil {
+			log.Printf("Warning: %v", cfg.RedisDBWarning)
+		}
 
 		// Initialize OpenTelemetry
 		otelCfg := otel.LoadConfig()
@@ -62,7 +65,7 @@ var serveCmd = &cobra.Command{
 		// Shared keeper state: the redis store (lazy — a down redis
 		// degrades banner/receiver/sweeper instead of blocking boot),
 		// the registry client, and the single-owner sweeper.
-		keeperStore := store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword)
+		keeperStore := store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 		defer func() { _ = keeperStore.Close() }()
 		if perr := keeperStore.Ping(ctx); perr != nil {
 			log.Printf("Warning: redis at %s unreachable, keeper sections degrade: %v", cfg.RedisAddr, perr)

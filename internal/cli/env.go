@@ -46,6 +46,8 @@ func envValue(cfg *config.Config, name string) string {
 		return strconv.Itoa(cfg.AppPort)
 	case config.EnvRedisAddr:
 		return cfg.RedisAddr
+	case config.EnvRedisDB:
+		return strconv.Itoa(cfg.RedisDB)
 	case config.EnvRedisPassword:
 		// A secret: presence only, never the value (see
 		// TestEnvCommandRedactsRedisPassword).

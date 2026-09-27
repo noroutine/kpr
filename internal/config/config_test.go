@@ -26,6 +26,12 @@ func TestNewBuilderDefaults(t *testing.T) {
 	if cfg.RedisPassword != "" {
 		t.Errorf("RedisPassword = %q, want empty (no auth by default)", cfg.RedisPassword)
 	}
+	if cfg.RedisDB != 0 {
+		t.Errorf("RedisDB = %d, want 0 (redis convention; deployments override)", cfg.RedisDB)
+	}
+	if cfg.RedisDBWarning != nil {
+		t.Error("clean environment must not produce a redis DB warning")
+	}
 	if cfg.OTELEnabled {
 		t.Error("OTELEnabled = true, want false (tracing is opt-in)")
 	}
@@ -50,6 +56,7 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	t.Setenv(EnvAppPort, "18080")
 	t.Setenv(EnvRedisAddr, "redis:6379")
 	t.Setenv(EnvRedisPassword, "s3cret")
+	t.Setenv(EnvRedisDB, "4")
 	t.Setenv(EnvOTELEnabled, "true")
 	t.Setenv(EnvOTELEndpoint, "https://tempo:4318")
 	t.Setenv(EnvOTELServiceName, "kpr-prod")
@@ -68,6 +75,9 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	}
 	if cfg.RedisPassword != "s3cret" {
 		t.Errorf("RedisPassword = %q, want s3cret", cfg.RedisPassword)
+	}
+	if cfg.RedisDB != 4 || cfg.RedisDBWarning != nil {
+		t.Errorf("RedisDB = %d/%v, want 4 with no warning", cfg.RedisDB, cfg.RedisDBWarning)
 	}
 	if !cfg.OTELEnabled || cfg.OTLPEndpoint != "tempo:4318" {
 		t.Errorf("otel = enabled:%v endpoint:%q", cfg.OTELEnabled, cfg.OTLPEndpoint)
@@ -165,6 +175,7 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 		WithAppPort(2).
 		WithRedisAddr("r:1").
 		WithRedisPassword("pw").
+		WithRedisDB(4).
 		WithRegistryURL("http://reg:5000").
 		WithNoDryRun(true).
 		WithOTELEnabled(true).
@@ -183,8 +194,8 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 	if cfg.AppHost != "h2" || cfg.AppPort != 2 {
 		t.Errorf("app = %s:%d", cfg.AppHost, cfg.AppPort)
 	}
-	if cfg.RedisAddr != "r:1" || cfg.RedisPassword != "pw" || !cfg.OTELEnabled || cfg.OTLPEndpoint != "e:1" {
-		t.Errorf("backend/otel = %q/%q/%v/%q", cfg.RedisAddr, cfg.RedisPassword, cfg.OTELEnabled, cfg.OTLPEndpoint)
+	if cfg.RedisAddr != "r:1" || cfg.RedisPassword != "pw" || cfg.RedisDB != 4 || !cfg.OTELEnabled || cfg.OTLPEndpoint != "e:1" {
+		t.Errorf("backend/otel = %q/%q/%d/%v/%q", cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.OTELEnabled, cfg.OTLPEndpoint)
 	}
 	if cfg.RegistryURL != "http://reg:5000" || !cfg.NoDryRun {
 		t.Errorf("keeper = %q/%v, want reg/armed", cfg.RegistryURL, cfg.NoDryRun)
@@ -220,7 +231,7 @@ func TestSetCurrentRestoresPrevious(t *testing.T) {
 func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
-		EnvRedisAddr, EnvRedisPassword, EnvRegistryURL, EnvNoDryRun,
+		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvRegistryURL, EnvNoDryRun,
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
 		EnvQuickwitURL, EnvJaegerURL, EnvGrafanaURL, EnvPrometheusURL,
@@ -239,5 +250,31 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	}
 	if len(EnvVars) != len(consts) {
 		t.Errorf("EnvVars has %d entries for %d consts — remove the stale one", len(EnvVars), len(consts))
+	}
+}
+
+// A garbage DB number must fail soft to DB 0 with a warning, never to a
+// half-parsed client: kpr shares its redis with other tenants (DBs 0-2
+// taken elsewhere), so a mistyped DB selecting someone else's keyspace
+// is worse than refusing. If this fails, KPR_REDIS_DB=typo silently
+// reads the wrong database.
+func TestFromEnvInvalidRedisDBFallsBackWithWarning(t *testing.T) {
+	for _, raw := range []string{"nope", "-1", "4.5", ""} {
+		t.Run("db="+raw, func(t *testing.T) {
+			t.Setenv(EnvRedisDB, raw)
+			cfg := NewBuilder().FromEnv().Build()
+			if raw == "" {
+				if cfg.RedisDB != 0 || cfg.RedisDBWarning != nil {
+					t.Errorf("unset DB = %d/%v, want 0 with no warning", cfg.RedisDB, cfg.RedisDBWarning)
+				}
+				return
+			}
+			if cfg.RedisDB != 0 {
+				t.Errorf("DB %q resolved to %d, want fallback 0", raw, cfg.RedisDB)
+			}
+			if cfg.RedisDBWarning == nil {
+				t.Errorf("DB %q produced no warning, want one", raw)
+			}
+		})
 	}
 }

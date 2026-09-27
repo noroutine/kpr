@@ -28,8 +28,8 @@ storage:
     enabled: true
   cache:
     # Blob descriptors (layer metadata) on the shared redis, DB 3 —
-    # kpr's TTL rows live on DB 0, so the two never collide. Needs the
-    # `redis` section below plus its password.
+    # kpr's TTL rows live on DB 4 (KPR_REDIS_DB), so the two never
+    # collide. Needs the `redis` section below plus its password.
     blobdescriptor: redis
   filesystem:
     rootdirectory: /var/lib/registry

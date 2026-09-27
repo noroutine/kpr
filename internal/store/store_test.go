@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -213,7 +214,13 @@ func TestRedisStoreContract(t *testing.T) {
 	if addr == "" {
 		addr = "localhost:6379"
 	}
-	s := NewRedisStore(addr, os.Getenv("KPR_REDIS_PASSWORD"))
+	db := 0
+	if raw := os.Getenv("KPR_REDIS_DB"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			db = n
+		}
+	}
+	s := NewRedisStore(addr, os.Getenv("KPR_REDIS_PASSWORD"), db)
 	if err := s.Ping(ctx()); err != nil {
 		t.Skipf("redis at %s unreachable, skipping: %v", addr, err)
 	}
@@ -232,4 +239,20 @@ func TestRedisStoreContract(t *testing.T) {
 	t.Run("current", func(t *testing.T) { flush(t); testCurrentRoundTrip(t, s) })
 	t.Run("activity", func(t *testing.T) { flush(t); testActivityRingCapped(t, s) })
 	t.Run("lock", func(t *testing.T) { flush(t); testLockSingleFlight(t, s) })
+}
+
+// The store must select the configured redis DB on the shared instance:
+// DBs 0-2 belong to other tenants, the registry cache sits on 3, kpr
+// rows go wherever KPR_REDIS_DB says (4 in compose). Construction is
+// lazy, so the selected DB is assertable without a live server — a
+// hardcoded DB 0 would silently read a foreign keyspace. If this fails,
+// kpr and the registry cache (or a ceph invader) share a database.
+func TestNewRedisStoreSelectsConfiguredDB(t *testing.T) {
+	for _, db := range []int{0, 3, 4} {
+		s := NewRedisStore("localhost:6379", "", db)
+		t.Cleanup(func() { _ = s.Close() })
+		if got := s.rdb.Options().DB; got != db {
+			t.Errorf("NewRedisStore(db %d) selected DB %d", db, got)
+		}
+	}
 }

@@ -21,9 +21,13 @@ services:
 
       # State backend (see docs/goals.md). The password must match the
       # redis service's REDIS_PASSWORD below; empty would mean no auth,
-      # which a shared, reachable redis should never run with.
+      # which a shared, reachable redis should never run with. DB 4 is
+      # kpr's: DBs 0-2 belong to other tenants, 3 is the registry
+      # blobdescriptor cache — never assume the 0 default on a shared
+      # instance.
       - "KPR_REDIS_ADDR=redis:6379"
       - "KPR_REDIS_PASSWORD=${REDIS_PASSWORD:-kpr-dev-only}"
+      - "KPR_REDIS_DB=4"
 
       # Registry peer (sweeper deletes, reap reads catalog)
       - "KPR_REGISTRY_URL=http://registry:5000"
@@ -52,7 +56,7 @@ services:
       - kpr-net
 
   # State backend for TTL tracking and cleanup bookkeeping (kpr rows
-  # on DB 0) plus the registry's blobdescriptor cache (DB 3) — one
+  # on DB 4) plus the registry's blobdescriptor cache (DB 3) — one
   # shared instance, password-protected like a realistic deployment.
   # Override the dev-only default from the environment:
   #   REDIS_PASSWORD=a-real-secret docker compose up --build
