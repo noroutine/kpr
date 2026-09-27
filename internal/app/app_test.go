@@ -200,7 +200,7 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
 		}
-		resp.Body.Close()
+		drainAndClose(t, resp)
 		if resp.StatusCode != want {
 			t.Errorf("GET %s = %d, want %d", path, resp.StatusCode, want)
 		}

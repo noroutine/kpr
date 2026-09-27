@@ -25,10 +25,14 @@ jobs:
       with:
         go-version: '1.27'
 
-    # No golangci-lint install: fetching its release tarball onto the
-    # runners is flaky (checksum mismatches). `make lint` falls back to
-    # `go vet` when the binary is absent; install it locally for the
-    # full lint pass (see `just prereqs`).
+    # Tools come from the module proxy (go install), not release
+    # tarballs — the latter failed checksum verification on these
+    # runners. With the tools present, lint/test run full strength
+    # instead of their go vet / go test fallbacks.
+    - name: Install CI prerequisites
+      run: |
+        make install-ci-prereqs
+        echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
     - name: Verify dependencies
       run: make verify

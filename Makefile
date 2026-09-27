@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test coverage coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean
+.PHONY: all build build-all clean clean-dist test coverage coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean
 .DEFAULT_GOAL := help
 
 # Version information
@@ -48,14 +48,13 @@ prereqs:
 	@command -v go >/dev/null 2>&1 && echo "  ✓ go - $$(go version)" || (echo "  ✗ go - NOT FOUND" && exit 1)
 	@command -v git >/dev/null 2>&1 && echo "  ✓ git - $$(git version)" || (echo "  ✗ git - NOT FOUND" && exit 1)
 	@echo ""
-	@echo "Optional tools:"
+	@echo "Optional tools (optional but hard to live without; make install-prereqs installs all of them):"
 	@command -v golangci-lint >/dev/null 2>&1 && echo "  ✓ golangci-lint - $$(golangci-lint version 2>&1 | head -n1)" || echo "  - golangci-lint - not installed (optional)"
 	@command -v gotestsum >/dev/null 2>&1 && echo "  ✓ gotestsum - $$(gotestsum --version 2>&1 | head -n1)" || echo "  - gotestsum - not installed (optional)"
 	@command -v gremlins >/dev/null 2>&1 && echo "  ✓ gremlins - $$(gremlins --version 2>&1 | head -n1)" || echo "  - gremlins - not installed (optional)"
-	@command -v goreleaser >/dev/null 2>&1 && echo "  ✓ goreleaser - $$(goreleaser --version 2>&1 | head -n1)" || echo "  - goreleaser - not installed (optional)"
-	@command -v upx >/dev/null 2>&1 && echo "  ✓ upx - $$(upx --version 2>&1 | head -n1)" || echo "  - upx - not installed (optional)"
 	@echo ""
 	@echo "✓ All required prerequisites are installed!"
+	@echo "To install optional tools, run: make install-prereqs"
 
 ## all: Build for all platforms
 all: build-all
@@ -336,6 +335,15 @@ deps:
 ## verify: Verify module dependencies
 verify:
 	go mod verify
+
+## install-prereqs: Install optional-but-essential dev tools (lint, test runner, mutants)
+install-prereqs:
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	go install gotest.tools/gotestsum@latest
+	go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)
+
+## install-ci-prereqs: Install the CI tool set (same tools; keeps CI output rich instead of fallback blurbs). Both Forgejo workflows call this
+install-ci-prereqs: install-prereqs
 
 ## install: Install binary to /usr/local/bin
 install: build

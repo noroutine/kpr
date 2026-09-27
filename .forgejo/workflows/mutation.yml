@@ -19,9 +19,9 @@ jobs:
       with:
         go-version: '1.27'
 
-    - name: Install gremlins
+    - name: Install CI prerequisites
       run: |
-        go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+        make install-ci-prereqs
         echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
     # Same gate as `make mutation` locally (efficacy + mutant coverage

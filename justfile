@@ -34,8 +34,9 @@ prereqs:
 
     # Required tools (for building)
     REQUIRED=(go git)
-    # Optional tools (for development)
-    OPTIONAL=(golangci-lint gotestsum gremlins goreleaser upx)
+    # Optional tools (for development) — optional but hard to live
+    # without; install-prereqs installs all of them.
+    OPTIONAL=(golangci-lint gotestsum gremlins)
 
     all_good=true
 
@@ -54,9 +55,9 @@ prereqs:
     echo "Optional tools:"
     for tool in "${OPTIONAL[@]}"; do
         if command -v "$tool" &> /dev/null; then
-            # gotestsum, gremlins and goreleaser take --version; the rest take version.
+            # gotestsum and gremlins take --version; golangci-lint takes version.
             case "$tool" in
-                gotestsum|gremlins|goreleaser)
+                gotestsum|gremlins)
                     version=$($tool --version 2>&1 | head -n1 || echo "installed")
                     ;;
                 *)
@@ -73,12 +74,7 @@ prereqs:
     if [ "$all_good" = true ]; then
         echo "✓ All required prerequisites are installed!"
         echo ""
-        echo "To install optional tools:"
-        echo "  golangci-lint: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
-        echo "  gotestsum:     go install gotest.tools/gotestsum@latest"
-        echo "  gremlins:      go install github.com/go-gremlins/gremlins/cmd/gremlins@{{GREMLINS_VERSION}}"
-        echo "  goreleaser:    brew install goreleaser"
-        echo "  upx:           brew install upx  # or: apt-get install upx"
+        echo "To install optional tools, run: just install-prereqs"
     else
         echo "✗ Missing required tools. Please install them first."
         exit 1
@@ -378,6 +374,16 @@ deps:
 # Verify module dependencies
 verify:
     go mod verify
+
+# Install optional-but-essential dev tools (lint, test runner, mutants)
+install-prereqs:
+    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+    go install gotest.tools/gotestsum@latest
+    go install github.com/go-gremlins/gremlins/cmd/gremlins@{{GREMLINS_VERSION}}
+
+# Install the CI tool set (same tools; keeps CI output rich instead of
+# fallback blurbs). Both Forgejo workflows call this.
+install-ci-prereqs: install-prereqs
 
 # Show version information
 version:

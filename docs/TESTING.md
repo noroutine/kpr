@@ -13,8 +13,9 @@ just coverage-report     # reprint the last coverage table, no re-run
 
 All three go through [`gotestsum`](https://github.com/gotestyourself/gotestsum)
 for a dense per-package pass/fail summary when it's installed
-(`go install gotest.tools/gotestsum@latest`), falling back to plain
-`go test -v` otherwise. `-race` is always on. `coverage` additionally
+(`make install-prereqs`, or `go install gotest.tools/gotestsum@latest`
+for just that one), falling back to plain `go test -v` otherwise.
+`-race` is always on. `coverage` additionally
 writes `coverage.out` and renders `coverage.html`
 (`open coverage.html` for the browsable per-line view).
 
