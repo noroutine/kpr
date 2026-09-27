@@ -48,12 +48,15 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
 func DataHandler(w http.ResponseWriter, r *http.Request) {
 	atomic.AddUint64(&apiRequestCount, 1)
 
+	// Mock pipeline rows: the shape /api/data serves (a list with a
+	// count) stays stable for the SPA callers; the content names the
+	// keeper pipeline instead of the template's sample data.
 	items := []string{
-		"Item 1: Example data",
-		"Item 2: More sample data",
-		"Item 3: Blueprint structure",
-		"Item 4: Embedded assets",
-		"Item 5: API endpoints",
+		"receiver tracks every push as a redis row",
+		"reap marks expired rows due, with a reason",
+		"sweep deletes marked manifests by digest",
+		"offline GC reclaims the orphaned blobs",
+		"console and Quickwit show what the sweeper did",
 	}
 
 	response := DataResponse{

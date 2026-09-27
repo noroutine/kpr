@@ -103,40 +103,16 @@ Version comes from:
 git tag -a v0.2.0 -m "Release v0.2.0"
 git push origin v0.2.0
 
-# Build release binaries
-just release
+# Build release binaries (either tool)
+just release   # or: make release
 
 # Outputs to dist/ with checksums
 ls -lh dist/
 ```
 
-### Using GoReleaser
-
-Install goreleaser:
-```bash
-# macOS
-brew install goreleaser
-
-# Linux
-go install github.com/goreleaser/goreleaser@latest
-```
-
-Build release:
-```bash
-# Test release locally (no push)
-goreleaser release --snapshot --clean
-
-# Build and publish release (requires GitHub token)
-export GITHUB_TOKEN=your_token
-goreleaser release --clean
-```
-
-GoReleaser will:
-- Build for all platforms
-- Create tar.gz archives
-- Generate checksums
-- Create GitHub release
-- Upload binaries as release assets
+Pushing a `v*` tag additionally runs the CI release job, which
+rebuilds all platforms and pushes multiplatform Docker images —
+no GoReleaser involved anywhere in this repo.
 
 ## Cross-Compilation
 
@@ -227,48 +203,21 @@ upx dist/kpr-linux-amd64  # Requires upx
 
 ## CI/CD Integration
 
-### Forgejo Actions (Current)
-
-Workflows in `.forgejo/workflows/`:
+Workflows in `.forgejo/workflows/` (all `make`-based):
 
 **CI** (`ci.yml`):
-- Runs on every push/PR
-- Lints, tests, builds all platforms
-- Uses `just` for builds
+- Runs on every push/PR: verify, format check, lint, coverage, build,
+  Docker image build + smoke test
+- `build-all` (multiplatform binaries) runs on `v*` tags only —
+  per-push multiplatform builds are pure heat
 
-**Release** (`release.yml`):
-- Runs on git tags (`v*`)
-- Uses GoReleaser with Forgejo support
-- Publishes to Forgejo releases
+**Release** (the `release` job in `ci.yml`):
+- Runs on git tags (`v*`), after `build-all`
+- Rebuilds all platforms and pushes multiplatform Docker images
+  (needs the org `DOCKER_CFG` secret)
 
 To create a release:
 ```bash
 git tag -a v0.1.0 -m "Release v0.1.0"
 git push origin v0.1.0
-```
-
-See [.forgejo/workflows/README.md](.forgejo/workflows/README.md) for details.
-
-### GitHub Actions (Alternative)
-
-```yaml
-name: Release
-on:
-  push:
-    tags:
-      - 'v*'
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.27'
-      - uses: goreleaser/goreleaser-action@v5
-        with:
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```

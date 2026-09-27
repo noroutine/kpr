@@ -1,3 +1,7 @@
+/* kpr app page: same dark console voice as the management console
+   (monospace, flat dark cards, teal accents) — no gradients, no
+   hover lifts, no glow. */
+
 * {
     margin: 0;
     padding: 0;
@@ -5,11 +9,11 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-family: monospace;
+    background: #1e1e1e;
     min-height: 100vh;
     padding: 20px;
-    color: #333;
+    color: #d4d4d4;
 }
 
 .container {
@@ -18,60 +22,56 @@ body {
 }
 
 header {
-    text-align: center;
-    color: white;
-    margin-bottom: 40px;
-    padding: 30px 0;
+    margin-bottom: 30px;
+    padding: 10px 0;
 }
 
 header h1 {
-    font-size: 2.5em;
-    margin-bottom: 10px;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+    font-size: 2em;
+    margin-bottom: 5px;
+    color: #4ec9b0;
 }
 
 .subtitle {
-    font-size: 1.1em;
-    opacity: 0.9;
+    font-size: 1em;
+    color: #808080;
+}
+
+.version {
+    font-size: 0.85em;
+    color: #808080;
+    margin-top: 4px;
 }
 
 main {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 15px;
 }
 
 .card {
-    background: white;
-    border-radius: 12px;
-    padding: 30px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 15px 40px rgba(0,0,0,0.15);
+    background: #2d2d30;
+    border-radius: 6px;
+    padding: 20px 24px;
 }
 
 .card h2 {
-    color: #667eea;
-    margin-bottom: 15px;
-    font-size: 1.5em;
+    color: #dcdcaa;
+    margin-bottom: 12px;
+    font-size: 1.2em;
 }
 
 .card p {
     line-height: 1.6;
     margin-bottom: 10px;
-    color: #666;
+    color: #d4d4d4;
 }
 
 code {
-    background: #f4f4f4;
+    background: #1e1e1e;
     padding: 2px 6px;
     border-radius: 4px;
-    font-family: 'Courier New', monospace;
-    color: #667eea;
+    color: #9cdcfe;
 }
 
 .api-examples {
@@ -81,30 +81,26 @@ code {
 }
 
 button {
-    background: #667eea;
+    background: #0e639c;
     color: white;
     border: none;
-    padding: 12px 24px;
-    border-radius: 8px;
+    padding: 10px 20px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 1em;
-    transition: background 0.2s;
+    font-family: monospace;
 }
 
 button:hover {
-    background: #5568d3;
-}
-
-button:active {
-    transform: scale(0.98);
+    background: #1177bb;
 }
 
 .output {
     background: #1e1e1e;
     color: #d4d4d4;
     padding: 15px;
-    border-radius: 8px;
-    font-family: 'Courier New', monospace;
+    border-radius: 4px;
+    font-family: monospace;
     font-size: 0.9em;
     min-height: 100px;
     max-height: 300px;
@@ -119,23 +115,22 @@ ul {
 
 ul li {
     margin-bottom: 10px;
+    line-height: 1.5;
 }
 
 a {
-    color: #667eea;
+    color: #569cd6;
     text-decoration: none;
-    transition: color 0.2s;
 }
 
 a:hover {
-    color: #5568d3;
     text-decoration: underline;
 }
 
 footer {
     text-align: center;
-    color: white;
+    color: #808080;
     margin-top: 40px;
     padding: 20px;
-    opacity: 0.8;
+    font-size: 0.85em;
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	goruntime "runtime"
 	"testing"
 )
 
@@ -44,8 +45,8 @@ func TestInstalledBinaryPathFallsBackToName(t *testing.T) {
 // every test after it on a different assumption about the platform.
 func TestSetCurrentRuntimeRestoresPrevious(t *testing.T) {
 	before := CurrentRuntime()
-	restore := SetCurrentRuntime(NewRuntimeBuilder().WithGOOS("windows").WithGOARCH("arm64").Build())
-	if CurrentRuntime().GOOS != "windows" || CurrentRuntime().GOARCH != "arm64" {
+	restore := SetCurrentRuntime(NewRuntimeBuilder().WithGOOS("windows").WithGOARCH("arm64").WithGoVersion("go9.9-test").Build())
+	if CurrentRuntime().GOOS != "windows" || CurrentRuntime().GOARCH != "arm64" || CurrentRuntime().GoVersion != "go9.9-test" {
 		t.Fatal("override not installed")
 	}
 	restore()
@@ -54,14 +55,17 @@ func TestSetCurrentRuntimeRestoresPrevious(t *testing.T) {
 	}
 }
 
-// The default builder must report the real platform: a test overriding
-// only GOOS still gets a real GOARCH, and production never sees an empty
-// pair. If this fails, platform branching downstream keys off blank
-// values.
+// The default builder must report the real platform and toolchain: a
+// test overriding only GOOS still gets a real GOARCH and Go version,
+// and production never sees an empty triple. If this fails, the
+// console's runtime card keys off blank values.
 func TestNewRuntimeBuilderDefaultsToRealPlatform(t *testing.T) {
 	rt := NewRuntimeBuilder().Build()
 	if rt.GOOS == "" || rt.GOARCH == "" {
 		t.Errorf("runtime = %+v, want real GOOS/GOARCH", rt)
+	}
+	if rt.GoVersion != goruntime.Version() {
+		t.Errorf("GoVersion = %q, want %q", rt.GoVersion, goruntime.Version())
 	}
 }
 

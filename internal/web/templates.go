@@ -66,7 +66,7 @@ const indexTemplate = `<!DOCTYPE html>
             <div class="card stat-card">
                 <div class="label">Go Runtime</div>
                 <div class="value">{{ .GoVersion }}</div>
-                <div class="meta">Running version</div>
+                <div class="meta">{{ .GoOSArch }}</div>
             </div>
         </div>
     </div>
@@ -154,11 +154,11 @@ const indexTemplate = `<!DOCTYPE html>
                 </div>
                 <div class="config-item">
                     <div class="config-key">Management Console</div>
-                    <div class="config-value">{{ .ManagementHost }}:{{ .ManagementPort }}</div>
+                    <div class="config-value">{{ .ManagementAddr }}</div>
                 </div>
                 <div class="config-item">
                     <div class="config-key">Application Server</div>
-                    <div class="config-value">{{ .AppHost }}:{{ .AppPort }}</div>
+                    <div class="config-value">{{ .AppAddr }}</div>
                 </div>
             </div>
         </div>
@@ -172,7 +172,7 @@ const indexTemplate = `<!DOCTYPE html>
     </ul>
 
     <div class="footer">
-        kpr {{ .Version }} - Go Application Blueprint
+        kpr {{ .Version }} · registry TTL companion — reap marks, sweep deletes
     </div>
 </body>
 </html>

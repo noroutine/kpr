@@ -6,8 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/app"
@@ -20,23 +20,41 @@ var (
 )
 
 type pageData struct {
-	Hostname       string
-	Version        string
-	Commit         string
-	BuildTime      string
-	Uptime         string
-	Requests       uint64
-	GoVersion      string
+	Hostname  string
+	Version   string
+	Commit    string
+	BuildTime string
+	Uptime    string
+	Requests  uint64
+	GoVersion string
+	// GoOSArch names the platform this binary was built for
+	// (GOOS/GOARCH from the runtime config).
+	GoOSArch       string
 	ManagementHost string
 	ManagementPort string
+	// ManagementAddr is the bracketed host:port display form —
+	// "::" renders as "[::]:9300", never ":::9300".
+	ManagementAddr string
 	AppHost        string
 	AppPort        string
+	// AppAddr is the bracketed host:port display form, as above.
+	AppAddr string
 	// Links holds the configured observability launchpad entries. A
 	// link appears only when its URL is configured — empty means the
 	// backend is absent and the template hides the whole section.
 	Links []consoleLink
 	// Keeper is what kpr tracks (banner, counters, plan, activity).
 	Keeper keeperData
+}
+
+// bracketHost renders a bind address for display: a bare IPv6 host
+// (containing ':') gets brackets so the console shows "[::]:9300",
+// never ":::9300". Already-bracketed and plain hostnames pass through.
+func bracketHost(host string) string {
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		return "[" + host + "]"
+	}
+	return host
 }
 
 // consoleLink is one observability UI entry on the console.
@@ -94,6 +112,8 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 	// environment here.
 	cfg := config.Current()
 
+	rt := config.CurrentRuntime()
+
 	data := pageData{
 		Hostname:       hostname,
 		Version:        config.Version,
@@ -101,11 +121,14 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		BuildTime:      config.BuildTime,
 		Uptime:         uptime.String(),
 		Requests:       app.GetAPIRequestCount(),
-		GoVersion:      runtime.Version(),
+		GoVersion:      rt.GoVersion,
+		GoOSArch:       rt.GOOS + "/" + rt.GOARCH,
 		ManagementHost: cfg.ManagementHost,
 		ManagementPort: strconv.Itoa(cfg.ManagementPort),
+		ManagementAddr: bracketHost(cfg.ManagementHost) + ":" + strconv.Itoa(cfg.ManagementPort),
 		AppHost:        cfg.AppHost,
 		AppPort:        strconv.Itoa(cfg.AppPort),
+		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
 		Links:          observabilityLinks(cfg),
 		Keeper:         s.keeperSnapshot(r.Context()),
 	}
@@ -142,7 +165,7 @@ func MetricsHandler(w http.ResponseWriter, r *http.Request) {
 		Uptime:        uptime.Round(time.Second).String(),
 		UptimeSeconds: int64(uptime.Seconds()),
 		Requests:      app.GetAPIRequestCount(),
-		GoVersion:     runtime.Version(),
+		GoVersion:     config.CurrentRuntime().GoVersion,
 		Version:       config.Version,
 		Commit:        config.Commit,
 		BuildTime:     config.BuildTime,

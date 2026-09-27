@@ -108,7 +108,7 @@ sites (`--version` via cobra, startup log lines, the console) call these
 — never a hand-built `"kpr " + Version` at the call site.
 
 **Wired by:** the `-X` paths in `Makefile`'s and `justfile`'s `LDFLAGS`,
-`Dockerfile`, and the example in `BUILD.md#build-flags`. If this package
+`Dockerfile`, and the example in `docs/BUILD.md#build-flags`. If this package
 or these var names ever move again, all of those need updating too.
 Verify any such change with a real build:
 

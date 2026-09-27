@@ -26,39 +26,46 @@ import (
 	"sync/atomic"
 )
 
-// Runtime holds this process's build target, as reported by the standard
-// runtime package. Read via CurrentRuntime(), never this type's fields
-// directly — the indirection is what lets a test substitute another
-// platform's values without an actual cross-compile. This does not extend
-// to code whose branch exists because the real OS's syscall semantics
-// differ: faking GOOS there exercises the code path but proves nothing
-// about the real platform behavior it exists for.
+// Runtime holds this process's build target and toolchain version, as
+// reported by the standard runtime package. Read via CurrentRuntime(),
+// never this type's fields directly — the indirection is what lets a
+// test substitute another platform's values without an actual
+// cross-compile. This does not extend to code whose branch exists
+// because the real OS's syscall semantics differ: faking GOOS there
+// exercises the code path but proves nothing about the real platform
+// behavior it exists for.
 type Runtime struct {
 	GOOS   string
 	GOARCH string
+	// GoVersion is the toolchain version (runtime.Version()), kept
+	// here so display code (the console runtime card, /metrics) never
+	// imports the standard runtime package directly.
+	GoVersion string
 }
 
 func defaultRuntime() Runtime {
-	return Runtime{GOOS: goruntime.GOOS, GOARCH: goruntime.GOARCH}
+	return Runtime{GOOS: goruntime.GOOS, GOARCH: goruntime.GOARCH, GoVersion: goruntime.Version()}
 }
 
-// RuntimeBuilder builds a Runtime, defaulting to the real GOOS/GOARCH this
-// binary was actually built for. Production never needs one — only
-// CurrentRuntime() — but a test overriding a platform-specific branch
-// builds one and installs it with SetCurrentRuntime:
+// RuntimeBuilder builds a Runtime, defaulting to the real platform and
+// toolchain this binary was actually built with. Production never needs
+// one — only CurrentRuntime() — but a test overriding a
+// platform-specific branch builds one and installs it with
+// SetCurrentRuntime:
 //
 //	t.Cleanup(config.SetCurrentRuntime(config.NewRuntimeBuilder().WithGOOS("windows").Build()))
 type RuntimeBuilder struct {
 	rt Runtime
 }
 
-// NewRuntimeBuilder starts from the real GOOS/GOARCH.
+// NewRuntimeBuilder starts from the real platform and toolchain.
 func NewRuntimeBuilder() *RuntimeBuilder {
 	return &RuntimeBuilder{rt: defaultRuntime()}
 }
 
-func (b *RuntimeBuilder) WithGOOS(v string) *RuntimeBuilder   { b.rt.GOOS = v; return b }
-func (b *RuntimeBuilder) WithGOARCH(v string) *RuntimeBuilder { b.rt.GOARCH = v; return b }
+func (b *RuntimeBuilder) WithGOOS(v string) *RuntimeBuilder      { b.rt.GOOS = v; return b }
+func (b *RuntimeBuilder) WithGOARCH(v string) *RuntimeBuilder    { b.rt.GOARCH = v; return b }
+func (b *RuntimeBuilder) WithGoVersion(v string) *RuntimeBuilder { b.rt.GoVersion = v; return b }
 
 // Build returns the built Runtime.
 func (b *RuntimeBuilder) Build() *Runtime {
@@ -67,8 +74,8 @@ func (b *RuntimeBuilder) Build() *Runtime {
 }
 
 // currentRuntime holds the active Runtime. Never nil: init seeds it with
-// the real GOOS/GOARCH so CurrentRuntime() is safe to call even before
-// anything calls SetCurrentRuntime.
+// the real platform and toolchain so CurrentRuntime() is safe to call
+// even before anything calls SetCurrentRuntime.
 var currentRuntime atomic.Pointer[Runtime]
 
 func init() {
@@ -76,9 +83,10 @@ func init() {
 }
 
 // CurrentRuntime returns the active Runtime. Every consumer reads
-// CurrentRuntime().GOOS/.GOARCH this way rather than importing the standard
-// "runtime" package directly, so every OS/arch-conditional branch in this
-// program has one source — and, in a test, one place to override.
+// CurrentRuntime().GOOS/.GOARCH/.GoVersion this way rather than importing
+// the standard "runtime" package directly, so every OS/arch-conditional
+// branch in this program has one source — and, in a test, one place to
+// override.
 func CurrentRuntime() *Runtime {
 	return currentRuntime.Load()
 }

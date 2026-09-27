@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -385,5 +386,68 @@ func TestServerShutdown(t *testing.T) {
 	waitShutdown(t, s)
 	if out := logs.String(); strings.Contains(out, "shutdown error") {
 		t.Errorf("clean shutdown logged errors: %q", out)
+	}
+}
+
+// A bare IPv6 bind must render bracketed: "::" prints as "[::]:9300",
+// never ":::9300". If this fails, the console misreports where it
+// listens on dual-stack defaults.
+func TestIndexHandlerBracketsIPv6Bind(t *testing.T) {
+	t.Cleanup(config.SetCurrent(config.NewBuilder().
+		WithManagementHost("::").
+		WithManagementPort(19300).
+		WithAppHost("::").
+		WithAppPort(18080).
+		Build()))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	IndexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"[::]:19300", "[::]:18080"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, ":::19300") || strings.Contains(body, ":::18080") {
+		t.Errorf("dashboard shows unbracketed IPv6 bind:\n%s", body)
+	}
+}
+
+// The runtime card must name the platform the binary was built for,
+// from the runtime config — not just the Go toolchain version. If
+// this fails, the card regressed to the template's version-only line.
+func TestIndexHandlerShowsRuntimePlatform(t *testing.T) {
+	testConfig(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	IndexHandler(rr, req)
+	body := rr.Body.String()
+	rt := config.CurrentRuntime()
+	for _, want := range []string{runtime.Version(), rt.GOOS + "/" + rt.GOARCH} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing runtime %q:\n%s", want, body)
+		}
+	}
+}
+
+// bracketHost exists so the console never prints ":::9300": bare IPv6
+// gets brackets, everything else passes through untouched.
+func TestBracketHost(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"::", "[::]"},
+		{"::1", "[::1]"},
+		{"[::1]", "[::1]"},
+		{"127.0.0.1", "127.0.0.1"},
+		{"localhost", "localhost"},
+		{"kpr", "kpr"},
+	} {
+		if got := bracketHost(tc.in); got != tc.want {
+			t.Errorf("bracketHost(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
