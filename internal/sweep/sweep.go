@@ -1,4 +1,4 @@
-// Package sweep owns the single-owner delete loop (docs/PLAN.md):
+// Package sweep owns the single-owner delete loop (docs/ARCHITECTURE.md):
 // the sweeper in `serve` is the only writer that deletes from the
 // registry. A pass reads due rows, enforces the TTL expiry floor
 // regardless of the mark, and resolves every row exactly once —

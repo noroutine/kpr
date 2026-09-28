@@ -1,5 +1,5 @@
 // Package store is redis-as-API: rows, marks, run state, and the
-// sweep lock live in redis under the keys below (see docs/PLAN.md).
+// sweep lock live in redis under the keys below (see docs/ARCHITECTURE.md).
 // Redis holds state, never log streams: the activity ring is capped,
 // and verbose operational logs stay on stdout/OTLP.
 package store

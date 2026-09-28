@@ -1,5 +1,5 @@
 // Package registry speaks the plain distribution API: kpr stays a
-// dumb-registry companion (see docs/PLAN.md), so this client needs no
+// dumb-registry companion (see docs/ARCHITECTURE.md), so this client needs no
 // auth, no catalog extensions — DELETE manifests, list tags, probe.
 package registry
 

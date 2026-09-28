@@ -8,8 +8,8 @@ One binary, one redis, opinions written as plain code — no policy
 engine. Push a tag like `app:10m` and it becomes eligible for
 collection 10 minutes after push; `kpr reap` marks it, the sweeper
 in `kpr serve` deletes it by digest. Design lives in
-[docs/PLAN.md](docs/PLAN.md); per-milestone build status is in the
-[Status section](docs/PLAN.md#status-mvp-september-2026) at the end
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the current state is in the
+[Current state section](docs/ARCHITECTURE.md#current-state) at the end
 of that file.
 
 ## How it works
@@ -177,7 +177,7 @@ four. Testing approach and coverage gates: [docs/TESTING.md](docs/TESTING.md).
 Policy/workflow engine, scheduler, per-repo rule sets, auth,
 signing, replication, cloud integrations, online registry GC. Where
 each of these stands is tracked in the
-[plan status](docs/PLAN.md#status-mvp-september-2026).
+[current state](docs/ARCHITECTURE.md#current-state).
 
 ## License
 

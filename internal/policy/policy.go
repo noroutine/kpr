@@ -1,5 +1,5 @@
 // Package policy holds the programmatic cleanup behaviors and their
-// tunings, colocated here — not in the main config. Per docs/PLAN.md
+// tunings, colocated here — not in the main config. Per docs/ARCHITECTURE.md
 // these are client-side opinions evaluated by `kpr reap` (or any
 // script): they mark rows due with a reason, they never delete.
 // internal/config stays wiring-only (ports, redis addr, registry URL).
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Tunings for the ephemeral-tag behavior (docs/PLAN.md M2). DefaultTTL
+// Tunings for the ephemeral-tag behavior (docs/ARCHITECTURE.md, Behaviors). DefaultTTL
 // is the TTL non-matching tags fall back to; zero means no expiry, so
 // a normal :latest is untouched. MaxTTL clamps every parsed TTL.
 // HashTTL is the default for bare commit hashes (no -ttl suffix): 48h

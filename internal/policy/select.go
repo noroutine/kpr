@@ -12,7 +12,7 @@ import (
 // is newest, and the next push recreates it anyway.
 const latestTag = "latest"
 
-// Tunings for the M1 housekeeping behaviors (docs/PLAN.md). They live
+// Tunings for the housekeeping behaviors (docs/ARCHITECTURE.md, Behaviors). They live
 // here, next to the code that reads them — not in the main config.
 const (
 	// StaleUploadMaxAge bounds interrupted pushes: a row with no
