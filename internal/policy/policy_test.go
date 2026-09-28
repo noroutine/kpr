@@ -42,6 +42,38 @@ func TestEffectiveTTLNonMatchingTagNeverExpires(t *testing.T) {
 	}
 }
 
+// CI pushes app:<sha>-<ttl>: a lowercase hex stem of any length plus a
+// -ttl suffix is a TTL tag, while a non-hex stem (a human name, an
+// uppercase hash) never matches — the suffix form stays scoped to
+// commit builds instead of eating every -10m tag. If this fails,
+// either commit builds never expire or the blast radius is back.
+func TestEffectiveTTLCommitHashSuffix(t *testing.T) {
+	matched := map[string]time.Duration{
+		"abc1234-10m": 10 * time.Minute,
+		"a-1h":        1 * time.Hour, // any length, even one
+		"1234567-2h":  2 * time.Hour, // all-digit stems are hex-valid
+		"face-7d":     7 * 24 * time.Hour,
+		"fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e-30s": 30 * time.Second,
+	}
+	for tag, want := range matched {
+		got, ok := EffectiveTTL(tag)
+		if !ok {
+			t.Errorf("EffectiveTTL(%q) not matched, want %v", tag, want)
+			continue
+		}
+		if got != want {
+			t.Errorf("EffectiveTTL(%q) = %v, want %v", tag, got, want)
+		}
+	}
+	// face-7d above locks the documented edge: hex-spellable words
+	// match. Everything else human must not.
+	for _, tag := range []string{"myapp-10m", "release-7d", "v1.2.3-1h", "ABC1234-10m", "abc1234-", "-10m", "10m-"} {
+		if ttl, ok := EffectiveTTL(tag); ok {
+			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
+		}
+	}
+}
+
 // A TTL larger than the colocated max must clamp to the max, and a
 // numeric part that overflows int64 must saturate instead of wrapping
 // negative (a wrapped duration would expire immediately — the opposite

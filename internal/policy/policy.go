@@ -19,8 +19,13 @@ const (
 	MaxTTL     = 30 * 24 * time.Hour
 )
 
-// ttlRe matches ttl.sh-style TTL tags: a bare number plus one unit.
-var ttlRe = regexp.MustCompile(`^(\d+)([smhdw])` + `$`)
+// ttlRe matches TTL tags in two forms: a bare ttl.sh-style number plus
+// one unit (10m), or a CI commit build — a lowercase hex stem of any
+// length plus a -ttl suffix (abc1234-10m). The stem group is
+// non-capturing so submatch indices never move. Stems are lowercase
+// hex only (what git emits); non-hex names like myapp-10m never match,
+// while hex-spellable words (face-7d) inherently do.
+var ttlRe = regexp.MustCompile(`^(?:[0-9a-f]+-)?(\d+)([smhdw])` + `$`)
 
 // unitDur maps a TTL tag unit to its duration.
 func unitDur(u byte) time.Duration {
