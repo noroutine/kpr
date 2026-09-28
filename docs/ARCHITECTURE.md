@@ -246,9 +246,10 @@ DB-backed rules, per-repo rule sets, auth, signing, replication,
 cloud integrations. keep-last-N tuning beyond the exclude flag stays
 a const — as a plain function with colocated tunings, not a rule
 language. If a behavior starts wanting its own engine, it moves out
-to the admin CLI instead of growing inside kpr. Online GC is a
-much-later registry conversation; soft-deleted blobs dedupe re-pushes
-until then.
+to the admin CLI instead of growing inside kpr. Online GC is out
+of scope: it would need our own registry engine, not a sidecar —
+offline `kpr gc` is the reclaim mechanism, and soft-deleted blobs
+dedupe re-pushes until it runs.
 
 ## Background: ttl.sh and zot
 
@@ -368,8 +369,6 @@ repo).
 - Detached `reap`/`sweep` over the console HTTP surface.
 - Sweep live-stages transport (polling vs websocket) — still
   deferred; the vocabulary and keys are the contract.
-- Online GC — a much-later registry conversation; soft-deleted blobs
-  dedupe re-pushes until then.
 - Registry metrics as a GC-readiness signal (storage pressure before
   collecting) — noted, not scheduled.
 - Tag-release flow (image push + Forgejo release) unverified.
