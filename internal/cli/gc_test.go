@@ -231,6 +231,24 @@ func TestProbeBadLocationSkipsCancel(t *testing.T) {
 	}
 }
 
+// A failed cancel DELETE skips the close, cleanly: there is no
+// body on an errored request. If this fails, a registry that takes
+// the probe but refuses the cancel panics the probe on a nil body.
+func TestProbeDeleteFailureSkipsClose(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "http://127.0.0.1:1/v2/kpr-gc-probe/blobs/uploads/u1")
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	mode, uuid, err := probeRegistry(context.Background(), srv.URL)
+	if err != nil || mode != probeWritable {
+		t.Fatalf("refused-cancel probe = (%v, %q, %v), want (writable, u1, nil)", mode, uuid, err)
+	}
+	if uuid != "u1" {
+		t.Errorf("refused-cancel probe uuid = %q, want u1", uuid)
+	}
+}
+
 // stageBin writes an executable shell stub as the collector binary.
 func stageBin(t *testing.T, body string) string {
 	t.Helper()
