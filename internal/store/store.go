@@ -63,6 +63,9 @@ type Store interface {
 	Due(ctx context.Context) ([]policy.Row, error)
 	// MarkDue marks a row due with a sweep reason (the reap interface).
 	MarkDue(ctx context.Context, repo, tag, reason string) error
+	// ClearDue drops every due mark, returning how many went (the
+	// plan-discard interface). Rows survive; only marks go.
+	ClearDue(ctx context.Context) (int, error)
 	// Delete removes a row after the registry confirms the delete.
 	Delete(ctx context.Context, repo, tag string) error
 	// SetCurrent/GetCurrent overwrite/read the one pass record.

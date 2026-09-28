@@ -256,7 +256,7 @@ func (s *Scenario) ReapArmed() {
 	s.t.Helper()
 	ctx, cancel := s.ctx()
 	defer cancel()
-	marked, err := cli.EvaluatePolicies(ctx, s.store, s.reg, time.Now())
+	marked, err := cli.EvaluatePolicies(ctx, s.store, s.reg, time.Now(), nil)
 	if err != nil {
 		s.t.Fatalf("evaluate policies: %v", err)
 	}

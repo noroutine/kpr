@@ -23,6 +23,7 @@ func RunContract(t *testing.T, setup func(t *testing.T) store.Store) {
 	t.Run("record", func(t *testing.T) { testRecordAndAll(t, setup(t)) })
 	t.Run("mark", func(t *testing.T) { testMarkDuePersists(t, setup(t)) })
 	t.Run("mark-creates", func(t *testing.T) { testMarkDueCreatesRow(t, setup(t)) })
+	t.Run("clear", func(t *testing.T) { testClearDueEmptiesMarks(t, setup(t)) })
 	t.Run("repush", func(t *testing.T) { testRecordRepushClearsStaleMark(t, setup(t)) })
 	t.Run("delete", func(t *testing.T) { testDeleteRemovesRow(t, setup(t)) })
 	t.Run("current", func(t *testing.T) { testCurrentRoundTrip(t, setup(t)) })
@@ -129,6 +130,33 @@ func testMarkDueCreatesRow(t *testing.T, s store.Store) {
 	}
 	if !due[0].Due || due[0].Reason != "keep-n:exceeds 10" {
 		t.Errorf("created row not marked: %+v", due[0])
+	}
+}
+
+// Discarding the plan drops every due mark and reports the count while
+// rows survive; a second clear is a zero no-op. If this fails, pardon
+// either keeps rows marked (sweep eats them anyway) or deletes rows.
+func testClearDueEmptiesMarks(t *testing.T, s store.Store) {
+	c := ctx()
+	_ = s.Record(c, srow("app", "v1"))
+	_ = s.Record(c, srow("app", "v2"))
+	_ = s.MarkDue(c, "app", "v1", "keep-n:exceeds 10")
+	_ = s.MarkDue(c, "app", "v2", "ttl:10m elapsed")
+	n, err := s.ClearDue(c)
+	if err != nil {
+		t.Fatalf("ClearDue: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("ClearDue = %d, want 2", n)
+	}
+	if due, _ := s.Due(c); len(due) != 0 {
+		t.Fatalf("%d marks survived, want 0", len(due))
+	}
+	if all, _ := s.All(c); len(all) != 2 {
+		t.Errorf("All = %d rows after clear, want 2 surviving rows", len(all))
+	}
+	if n, _ := s.ClearDue(c); n != 0 {
+		t.Errorf("second ClearDue = %d, want 0", n)
 	}
 }
 

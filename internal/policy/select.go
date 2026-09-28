@@ -131,6 +131,11 @@ func anyMatch(res []*regexp.Regexp, s string) bool {
 	return false
 }
 
+// qualified names a row registry-relative (repo:tag): the subject
+// include/exclude patterns match against, so one expression scopes
+// whole repos (^app:release-) or tag shapes across repos (:latest$).
+func qualified(r Row) string { return r.Repo + ":" + r.Tag }
+
 // SelectKeepN marks all but the n freshest tags per repo. Excluded
 // tags (release lines, :latest) are never victims; when include is
 // non-empty only matching tags participate. Catalog-only tags with no
@@ -145,10 +150,10 @@ func SelectKeepN(rows []Row, n int, include, exclude []string, now time.Time) []
 		if r.Tag == latestTag {
 			continue
 		}
-		if anyMatch(exc, r.Tag) {
+		if anyMatch(exc, qualified(r)) {
 			continue
 		}
-		if len(inc) > 0 && !anyMatch(inc, r.Tag) {
+		if len(inc) > 0 && !anyMatch(inc, qualified(r)) {
 			continue
 		}
 		byRepo[r.Repo] = append(byRepo[r.Repo], r)

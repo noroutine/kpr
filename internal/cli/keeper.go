@@ -108,9 +108,11 @@ func runPlan(ctx context.Context, w io.Writer, s store.Store, asJSON bool) error
 // EvaluatePolicies runs every policy over tracked rows plus live
 // catalogs and returns the joined mark per row. Catalog failures skip
 // that repo's catalog-dependent selectors (rows-only selectors still
-// apply). Exported so the e2e scenarios (test/e2e) drive the same
-// evaluation the CLI marks from — one policy path, never a copy.
-func EvaluatePolicies(ctx context.Context, s store.Store, reg *registry.Client, now time.Time) ([]policy.Row, error) {
+// apply). keepNExclude spares keep-N for rows whose repo:tag matches
+// (registry stripped). Exported so the e2e scenarios (test/e2e) drive
+// the same evaluation the CLI marks from — one policy path, never a
+// copy.
+func EvaluatePolicies(ctx context.Context, s store.Store, reg *registry.Client, now time.Time, keepNExclude []string) ([]policy.Row, error) {
 	rows, err := s.All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("redis unreachable: %w", err)
@@ -140,7 +142,7 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg *registry.Client, 
 		}
 	}
 	add(policy.SelectUntagged(rows, catalogs, now))
-	add(policy.SelectKeepN(rows, policy.KeepN, nil, nil, now))
+	add(policy.SelectKeepN(rows, policy.KeepN, nil, keepNExclude, now))
 
 	var out []policy.Row
 	for _, r := range rows {
@@ -161,9 +163,10 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg *registry.Client, 
 
 // runReap evaluates the policies and, when armed, marks rows due.
 // Unarmed it only prints the plan (same source as plan will show once
-// marked): dry-run is implicit, --no-dry-run explicit.
-func runReap(ctx context.Context, w io.Writer, s store.Store, reg *registry.Client, armed bool, now time.Time) error {
-	marked, err := EvaluatePolicies(ctx, s, reg, now)
+// marked): dry-run is implicit, --no-dry-run explicit. excludes spares
+// keep-N for matching repo:tag names.
+func runReap(ctx context.Context, w io.Writer, s store.Store, reg *registry.Client, armed bool, excludes []string, now time.Time) error {
+	marked, err := EvaluatePolicies(ctx, s, reg, now, excludes)
 	if err != nil {
 		return err
 	}
@@ -287,14 +290,33 @@ var planCmd = &cobra.Command{
 	},
 }
 
+// runDiscardPlan drops every due mark and reports the count. No
+// dry-run: discarding previews nothing — plan already showed the rows,
+// this reports what went.
+func runDiscardPlan(ctx context.Context, w io.Writer, s store.Store) error {
+	n, err := s.ClearDue(ctx)
+	if err != nil {
+		return fmt.Errorf("redis unreachable: %w", err)
+	}
+	if n == 0 {
+		_, err := io.WriteString(w, "nothing due\n")
+		return err
+	}
+	_, err = fmt.Fprintf(w, "discarded %d due marks\n", n)
+	return err
+}
+
 var reapNoDryRun bool
+
+var reapExclude []string
 
 var reapCmd = &cobra.Command{
 	Use:   "reap",
 	Short: "Evaluate policies and mark rows due",
 	Long: `Evaluate the programmatic policies and mark selected rows due
 with reasons. Dry-run unless --no-dry-run (or KPR_NO_DRY_RUN=true):
-unarmed, it only prints the plan.`,
+unarmed, it only prints the plan. Repeat --exclude to spare keep-N
+for rows whose repo:tag matches (registry stripped).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
 		s, err := OpenStore(cfg)
@@ -304,7 +326,23 @@ unarmed, it only prints the plan.`,
 		defer func() { _ = s.Close() }()
 		armed := reapNoDryRun || cfg.NoDryRun
 		return runReap(cmd.Context(), cmd.OutOrStdout(), s,
-			registry.NewClient(cfg.RegistryURL), armed, time.Now().UTC())
+			registry.NewClient(cfg.RegistryURL), armed, reapExclude, time.Now().UTC())
+	},
+}
+
+var planDiscardCmd = &cobra.Command{
+	Use:   "discard",
+	Short: "Drop the whole plan (clear all due marks)",
+	Long: `Clear every due mark. Rows survive; only marks go, so the next
+sweep finds nothing until a fresh reap marks again.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg := config.NewBuilder().FromEnv().Build()
+		s, err := OpenStore(cfg)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = s.Close() }()
+		return runDiscardPlan(cmd.Context(), cmd.OutOrStdout(), s)
 	},
 }
 
@@ -327,6 +365,8 @@ An unreachable console degrades to the tick backstop.`,
 
 func init() {
 	planCmd.Flags().BoolVar(&planJSON, "json", false, "Render candidates as JSON for piping")
+	planCmd.AddCommand(planDiscardCmd)
 	reapCmd.Flags().BoolVar(&reapNoDryRun, "no-dry-run", false, "Mark rows due for real (default prints the plan only)")
+	reapCmd.Flags().StringSliceVar(&reapExclude, "exclude", nil, "Spare keep-N for rows whose repo:tag matches (repeatable regex, registry stripped)")
 	RootCmd.AddCommand(statusCmd, planCmd, reapCmd, sweepCmd)
 }

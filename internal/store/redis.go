@@ -105,6 +105,25 @@ func (s *RedisStore) MarkDue(ctx context.Context, repo, tag, reason string) erro
 	return s.rdb.HSet(ctx, RowsKey, k, encodeRow(r)).Err()
 }
 
+func (s *RedisStore) ClearDue(ctx context.Context) (int, error) {
+	all, err := s.All(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range all {
+		if !r.Due {
+			continue
+		}
+		r.Due, r.Reason = false, ""
+		if err := s.rdb.HSet(ctx, RowsKey, key(r.Repo, r.Tag), encodeRow(r)).Err(); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 func (s *RedisStore) Delete(ctx context.Context, repo, tag string) error {
 	return s.rdb.HDel(ctx, RowsKey, key(repo, tag)).Err()
 }

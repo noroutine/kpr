@@ -149,6 +149,31 @@ func TestSelectKeepNHonorsIncludeExclude(t *testing.T) {
 	}
 }
 
+// Include/exclude patterns match the qualified name repo:tag (registry
+// stripped), so one flag scopes whole repos: ^app:release- spares app
+// releases while other:release-1 still vies. A tag-anchored pattern
+// (^v1$) matches nothing — the repo prefix is part of the subject. If
+// this fails, excludes silently lost their repo scope.
+func TestSelectKeepNMatchesQualifiedNames(t *testing.T) {
+	rows := []Row{
+		mkrow("app", "release-1", 100*24*time.Hour),
+		mkrow("app", "v1", 3*time.Hour),
+		mkrow("other", "release-1", 100*24*time.Hour),
+	}
+	got := SelectKeepN(rows, 0, nil, []string{"^app:release-"}, sliceNow)
+	names := map[string]bool{}
+	for _, r := range got {
+		names[r.Repo+":"+r.Tag] = true
+	}
+	if len(got) != 2 || !names["app:v1"] || !names["other:release-1"] {
+		t.Errorf("selected %v, want [app:v1 other:release-1]", got)
+	}
+	anchored := SelectKeepN(rows, 0, nil, []string{"^v1$"}, sliceNow)
+	if len(anchored) != 3 {
+		t.Errorf("tag-anchored exclude spared %d rows, want 0 spared (subject is repo:tag)", 3-len(anchored))
+	}
+}
+
 // Selectors must not mutate their input: reap prints the plan from the
 // same rows it marks, so an in-place mark would corrupt the unmarked
 // view. If this fails, dry-run output and armed-run behavior diverge.

@@ -70,6 +70,20 @@ func (m *MemStore) MarkDue(_ context.Context, repo, tag, reason string) error {
 	return nil
 }
 
+func (m *MemStore) ClearDue(context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for k, r := range m.rows {
+		if r.Due {
+			r.Due, r.Reason = false, ""
+			m.rows[k] = r
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (m *MemStore) Delete(_ context.Context, repo, tag string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

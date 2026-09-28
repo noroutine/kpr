@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -153,7 +154,7 @@ func TestReapDryRunPrintsWithoutMarking(t *testing.T) {
 	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, nil, cliNow); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	if !strings.Contains(out.String(), "scratch:10m") {
@@ -177,7 +178,7 @@ func TestReapArmedMarksOnlySelected(t *testing.T) {
 	_ = s.Record(c, policy.Row{Repo: "app", Tag: "latest",
 		Digest: "sha256:b", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), true, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), true, nil, cliNow); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	due, _ := s.Due(c)
@@ -186,6 +187,62 @@ func TestReapArmedMarksOnlySelected(t *testing.T) {
 	}
 	if due[0].Reason == "" {
 		t.Error("marked row carries no reason")
+	}
+}
+
+// Armed reap with --exclude skips keep-N for matching qualified names:
+// eleven scratch versions would lose their oldest to keep-10, but the
+// operator excluded the repo. If this fails, excludes don't reach the
+// only selector that reads them.
+func TestReapExcludeSkipsKeepN(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	for i := 1; i <= 11; i++ {
+		_ = s.Record(c, policy.Row{Repo: "scratch", Tag: fmt.Sprintf("v%d", i),
+			Digest: "sha256:a", PushedAt: cliNow.Add(-time.Duration(i) * time.Hour)})
+	}
+	var out bytes.Buffer
+	if err := runReap(cliCtx(), &out, s, nil, true, []string{"^scratch:"}, cliNow); err != nil {
+		t.Fatalf("runReap: %v", err)
+	}
+	if due, _ := s.Due(c); len(due) != 0 {
+		t.Errorf("excluded repo lost %d rows to keep-N, want 0", len(due))
+	}
+}
+
+// plan discard drops the whole plan (due marks) and says how many went.
+// No dry-run: discarding previews nothing, it reports. If this fails,
+// a stale plan survives its discard and the next sweep eats rows the
+// operator already pardoned.
+func TestPlanDiscardClearsMarks(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m",
+		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
+	_ = s.MarkDue(c, "scratch", "10m", "ttl:10m elapsed")
+	_ = s.MarkDue(c, "scratch", "v9", "keep-n:exceeds 10")
+	var out bytes.Buffer
+	if err := runDiscardPlan(cliCtx(), &out, s); err != nil {
+		t.Fatalf("runDiscardPlan: %v", err)
+	}
+	if due, _ := s.Due(c); len(due) != 0 {
+		t.Errorf("%d marks survived discard, want 0", len(due))
+	}
+	if got := out.String(); !strings.Contains(got, "discarded 2 due marks") {
+		t.Errorf("discard reported %q, want the count", got)
+	}
+}
+
+// Discarding an empty plan is a no-op with a plain answer, not an
+// error. If this fails, the operator can't tell empty from broken.
+func TestPlanDiscardEmptyPlanNoOp(t *testing.T) {
+	s := store.NewMemStore()
+	var out bytes.Buffer
+	if err := runDiscardPlan(cliCtx(), &out, s); err != nil {
+		t.Fatalf("runDiscardPlan: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "nothing due") {
+		t.Errorf("empty discard reported %q, want nothing-due", got)
 	}
 }
 
@@ -201,7 +258,7 @@ func TestReapArmedMarksAllSorted(t *testing.T) {
 		Digest: "sha256:2", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
 	// No registry: rows-only selectors still apply, catalog ones skip.
-	if err := runReap(cliCtx(), &out, s, nil, true, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	due, _ := s.Due(c)
@@ -214,7 +271,7 @@ func TestReapArmedMarksAllSorted(t *testing.T) {
 		t.Errorf("due = %+v, want {apple:10m zebra:10m}", due)
 	}
 	// evaluate itself sorts: the order contract lives there, not in Due.
-	marked, err := EvaluatePolicies(cliCtx(), s, nil, cliNow)
+	marked, err := EvaluatePolicies(cliCtx(), s, nil, cliNow, nil)
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
@@ -350,7 +407,7 @@ func TestReapNilRegistryMarksRowsOnly(t *testing.T) {
 	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, nil, true, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow); err != nil {
 		t.Fatalf("runReap with nil registry: %v", err)
 	}
 	if due, _ := s.Due(context.Background()); len(due) != 1 {
@@ -374,7 +431,7 @@ func TestReapSkipsRepoOnCatalogFailure(t *testing.T) {
 	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, registry.NewClient(broken.URL), true, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, registry.NewClient(broken.URL), true, nil, cliNow); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	due, _ := s.Due(c)
@@ -394,7 +451,7 @@ func TestReapDryRunRendersAllRows(t *testing.T) {
 	_ = s.Record(c, policy.Row{Repo: "aardvark", Tag: "5m",
 		Digest: "sha256:z", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, nil, cliNow); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	body := out.String()
@@ -418,7 +475,7 @@ func TestReapDryRunRendersFullLine(t *testing.T) {
 	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, nil, cliNow); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	if !strings.Contains(out.String(), "scratch:10m — ttl:10m0s elapsed\n") {
@@ -499,10 +556,10 @@ func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
 // calling it a plan: an unreadable backend is an error, not an empty
 // evaluation. If this fails, outages print confident empty plans.
 func TestReapOnDeadRedisFails(t *testing.T) {
-	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), true, cliNow); err == nil {
+	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), true, nil, cliNow); err == nil {
 		t.Error("armed reap on dead redis succeeded, want an error")
 	}
-	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), false, cliNow); err == nil {
+	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), false, nil, cliNow); err == nil {
 		t.Error("dry-run reap on dead redis succeeded, want an error")
 	}
 }
@@ -528,7 +585,7 @@ func TestReapDryRunSurfacesWriteError(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
-	if err := runReap(cliCtx(), errWriter{}, s, liveRegistryClient(t), false, cliNow); err == nil {
+	if err := runReap(cliCtx(), errWriter{}, s, liveRegistryClient(t), false, nil, cliNow); err == nil {
 		t.Error("dry-run reap into broken pipe succeeded, want an error")
 	}
 }
