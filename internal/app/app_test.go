@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // captureLog redirects the standard logger into a buffer for the test's
@@ -42,50 +43,46 @@ func waitShutdown(t *testing.T, s *Server) {
 	}
 }
 
-// A client hitting the hello endpoint must get the greeting, the running
-// binary's version, and a request counter that actually counts. If this
-// fails, the console's request metrics silently disagree with reality.
-func TestHelloHandler(t *testing.T) {
-	before := GetAPIRequestCount()
-	req := httptest.NewRequest(http.MethodGet, "/api/hello", nil)
-	rr := httptest.NewRecorder()
-	HelloHandler(rr, req)
+// pingFailStore is a Store whose Ping always fails: the degraded half of
+// the health contract without needing a dead redis.
+type pingFailStore struct{ store.Store }
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	var body HelloResponse
-	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if body.Message != "Hello from kpr!" {
-		t.Errorf("message = %q", body.Message)
-	}
-	if body.Version != config.Version {
-		t.Errorf("version = %q, want running binary's %q", body.Version, config.Version)
-	}
-	if GetAPIRequestCount() != before+1 {
-		t.Error("request counter did not increment")
-	}
-}
+func (pingFailStore) Ping(context.Context) error { return errors.New("redis down") }
 
-// A client hitting the data endpoint must get all five sample items with
-// a matching count. If this fails, the example API contract the SPA
-// consumes is broken.
-func TestDataHandler(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/data", nil)
-	rr := httptest.NewRecorder()
-	DataHandler(rr, req)
+// The status ball on the front page reads /health: it must report the
+// process alive with the running binary's version, and say whether the
+// receiver's redis is reachable — degraded, not dead, when redis is
+// down, because boot degrades the same way. If this fails, the page
+// either shows a green ball over a blind receiver or cries red on a
+// healthy keeper.
+func TestHealthHandler(t *testing.T) {
+	for name, st := range map[string]struct {
+		store         store.Store
+		status, redis string
+	}{
+		"reachable": {store.NewMemStore(), "ok", "reachable"},
+		"down":      {pingFailStore{}, "degraded", "unreachable"},
+		"disabled":  {nil, "ok", "disabled"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/health", nil)
+			rr := httptest.NewRecorder()
+			HealthHandler(st.store)(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	var body DataResponse
-	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if body.Count != len(body.Items) || len(body.Items) != 5 {
-		t.Errorf("count = %d for %d items, want 5 and 5", body.Count, len(body.Items))
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rr.Code)
+			}
+			var body HealthResponse
+			if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if body.Status != st.status || body.Redis != st.redis {
+				t.Errorf("got %s/%s, want %s/%s", body.Status, body.Redis, st.status, st.redis)
+			}
+			if body.Version != config.Version {
+				t.Errorf("version = %q, want running binary's %q", body.Version, config.Version)
+			}
+		})
 	}
 }
 
@@ -100,13 +97,12 @@ func (w errWriter) WriteHeader(int)           {}
 // logged and the handler returns. If this fails, one wedged client can
 // take down the serving goroutine with it — or failures go silent while
 // successes log, and nobody can tell which happened.
-func TestHandlersTolerateEncodeError(t *testing.T) {
+func TestHealthToleratesEncodeError(t *testing.T) {
 	logs := captureLog(t)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	HelloHandler(errWriter{header: http.Header{}}, req)
-	DataHandler(errWriter{header: http.Header{}}, req)
-	if n := strings.Count(logs.String(), "Error encoding JSON"); n != 2 {
-		t.Errorf("logged %d encode errors, want 2 (one per handler)", n)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	HealthHandler(store.NewMemStore())(errWriter{header: http.Header{}}, req)
+	if n := strings.Count(logs.String(), "Error encoding JSON"); n != 1 {
+		t.Errorf("logged %d encode errors, want 1", n)
 	}
 }
 
@@ -169,10 +165,11 @@ func loopbackListener(t *testing.T) net.Listener {
 	return ln
 }
 
-// A started server must serve the SPA at /, the API under /api, and 404
-// anything else — then shut down cleanly on context cancel. If this
-// fails, `serve` comes up but doesn't actually serve, or it hangs on
-// shutdown instead of draining.
+// A started server must serve the SPA at /, the keeper status at
+// /health, and 404 anything else (the template mock API is gone) —
+// then shut down cleanly on context cancel. If this fails, `serve`
+// comes up but doesn't actually serve, or it hangs on shutdown
+// instead of draining.
 func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	ln := loopbackListener(t)
 	s := &Server{Listener: ln}
@@ -183,7 +180,7 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	go func() { errCh <- s.Start(ctx) }()
 
 	base := "http://" + ln.Addr().String()
-	waitFor(t, base+"/api/hello")
+	waitFor(t, base+"/health")
 
 	// Healthy serving logs nothing: a success that logs an error (or a
 	// failure that stays silent) means the error branches lie. Handler
@@ -192,8 +189,9 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	logs := captureLog(t)
 	for path, want := range map[string]int{
 		"/":              http.StatusOK,
-		"/api/hello":     http.StatusOK,
-		"/api/data":      http.StatusOK,
+		"/health":        http.StatusOK,
+		"/api/hello":     http.StatusNotFound,
+		"/api/data":      http.StatusNotFound,
 		"/no-such-asset": http.StatusNotFound,
 	} {
 		resp, err := testClient.Get(base + path) //nolint:gosec,noctx // test-only loopback
@@ -269,7 +267,7 @@ func TestServerShutdown(t *testing.T) {
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- s.Start(ctx) }()
-	waitFor(t, "http://"+ln.Addr().String()+"/api/hello")
+	waitFor(t, "http://"+ln.Addr().String()+"/health")
 
 	if err := s.Shutdown(context.Background()); err != nil {
 		t.Errorf("Shutdown = %v, want nil", err)
@@ -281,5 +279,66 @@ func TestServerShutdown(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after Shutdown")
+	}
+}
+
+// The front page is the keeper's face: ttl.sh spirit (push, pull,
+// forget — homelab wording, not ephemeral-only), the pipeline it
+// actually runs, and a status ball fed by the real /health. No mock
+// API buttons, no links section. If this fails, the template demo is
+// back or the ball reads a dead endpoint.
+func TestIndexPageIsKeeperFront(t *testing.T) {
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = s.Start(ctx) }()
+	base := "http://" + ln.Addr().String()
+	waitFor(t, base+"/health")
+
+	resp, err := testClient.Get(base + "/") //nolint:gosec,noctx // test-only loopback
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	drainAndClose(t, resp)
+	if err != nil {
+		t.Fatalf("read /: %v", err)
+	}
+	body := string(raw)
+	for _, want := range []string{"Push. Pull.", "/health", "reap", "sweep", "keeper"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("front page lacks %q", want)
+		}
+	}
+	for _, gone := range []string{"api/hello", "api/data", "testHello", "<button", "<a ", "Quickwit"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("front page still carries %q (mock or link)", gone)
+		}
+	}
+}
+
+// The console's request metric counts real app-server traffic now that
+// the mock endpoints are gone: every live request moves the counter.
+// If this fails, the metric is decoration again.
+func TestRequestCounterCountsLiveTraffic(t *testing.T) {
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = s.Start(ctx) }()
+	base := "http://" + ln.Addr().String()
+	waitFor(t, base+"/health")
+
+	before := GetAPIRequestCount()
+	for _, path := range []string{"/health", "/health", "/"} {
+		resp, err := testClient.Get(base + path) //nolint:gosec,noctx // test-only loopback
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		drainAndClose(t, resp)
+	}
+	if got := GetAPIRequestCount(); got != before+3 {
+		t.Errorf("counter moved by %d, want 3 for 3 live requests", got-before)
 	}
 }

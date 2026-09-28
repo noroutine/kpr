@@ -64,17 +64,18 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	})
 
-	// API endpoints
-	mux.HandleFunc("/api/hello", HelloHandler)
-	mux.HandleFunc("/api/data", DataHandler)
+	// Keeper status for the front page's ball (process alive, build
+	// version, receiver redis reachability).
+	mux.HandleFunc("/health", HealthHandler(s.Store))
 
 	// Distribution notification receiver (-> redis rows).
 	mux.HandleFunc("/events", EventsHandler(s.Store))
 
-	// Wrap with OTEL middleware if enabled. RequestTelemetry sits
+	// Count every served request for the console's request metric,
+	// then the OTEL middleware if enabled. RequestTelemetry sits
 	// inside HTTPMiddleware so the span context (trace/span IDs) is
 	// already in the request context when the access log is written.
-	var handler http.Handler = mux
+	handler := CountRequests(mux)
 	handler = otel.RequestTelemetry(handler, s.OTELEnabled)
 	handler = otel.HTTPMiddleware(handler, "application", s.OTELEnabled)
 

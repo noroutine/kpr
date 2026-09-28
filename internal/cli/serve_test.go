@@ -98,7 +98,7 @@ func TestServeRunServesAndStopsOnSigterm(t *testing.T) {
 				t.Logf("captured logs:\n%s", logs.String())
 			}
 		}()
-		waitFor(t, "http://127.0.0.1:18232/api/hello")
+		waitFor(t, "http://127.0.0.1:18232/health")
 	}()
 
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
@@ -148,7 +148,7 @@ func TestServeRunDegradesWithoutRedis(t *testing.T) {
 				t.Logf("captured logs:\n%s", logs.String())
 			}
 		}()
-		waitFor(t, "http://127.0.0.1:18236/api/hello")
+		waitFor(t, "http://127.0.0.1:18236/health")
 	}()
 
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {

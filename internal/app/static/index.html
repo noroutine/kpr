@@ -3,50 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>kpr · registry TTL companion</title>
+    <title>kpr · keeper for your homelab registry</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>kpr</h1>
-            <p class="subtitle">TTL companion for OCI distribution registries</p>
-            <p class="version">build <span id="version">…</span></p>
+            <p class="subtitle">keeper for your homelab registry</p>
+            <!-- Status ball: the only call this page makes is GET /health. -->
+            <p class="status"><span id="ball" class="ball idle"></span><span id="status-text">checking keeper…</span> · build <span id="version">…</span></p>
         </header>
 
         <main>
+            <section class="hero">
+                <h2>Push. Pull.<br>Forget.</h2>
+                <p>Tag any image with a TTL and it expires on its own —
+                stale uploads and vanished tags get swept too. No
+                account, no cleanup cron. Your registry, your disk
+                back.</p>
+                <pre class="commands">$ docker tag my-app:build my-registry:5000/my-app:10m
+$ docker push my-registry:5000/my-app:10m
+# …10 minutes later, it's gone. Like magic.</pre>
+            </section>
+
             <section class="card">
                 <h2>What kpr does</h2>
                 <ul>
-                    <li>receiver tracks every push as a redis row</li>
-                    <li>reap marks expired rows due, with a reason</li>
-                    <li>serve sweeps marked manifests by digest</li>
+                    <li><code>receiver</code> tracks every push as a redis row</li>
+                    <li><code>reap</code> marks expired rows due, with a reason</li>
+                    <li><code>sweep</code> deletes marked manifests by digest</li>
                     <li>offline <code>make gc</code> reclaims the orphaned blobs</li>
-                </ul>
-            </section>
-
-            <section class="card">
-                <h2>API</h2>
-                <div class="api-examples">
-                    <button onclick="testHello()">GET /api/hello</button>
-                    <button onclick="testData()">GET /api/data</button>
-                </div>
-                <pre id="output" class="output"></pre>
-            </section>
-
-            <section class="card">
-                <h2>Links</h2>
-                <ul>
-                    <li><a href="http://localhost:9300">Management Console</a> (port 9300)</li>
-                    <li><a href="http://localhost:7280">Quickwit</a> (sweeper activity log)</li>
-                    <li><a href="/api/hello">API: Hello</a></li>
-                    <li><a href="/api/data">API: Data</a></li>
                 </ul>
             </section>
         </main>
 
         <footer>
-            <p>kpr · registry TTL companion — reap marks, sweep deletes</p>
+            <p>kpr · reap marks, sweep deletes</p>
         </footer>
     </div>
 

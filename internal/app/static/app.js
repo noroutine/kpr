@@ -1,41 +1,21 @@
-// kpr SPA callers: thin fetch wrappers over the mock API plus the
-// build version shown in the header (from /api/hello).
+// kpr front page: one real call. The status ball reads GET /health
+// (process alive, build version, receiver redis reachability):
+// ok is green, degraded is amber, an unreachable keeper is red.
 
-function render(data) {
-    document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+function setStatus(ballClass, text, version) {
+    document.getElementById('ball').className = 'ball ' + ballClass;
+    document.getElementById('status-text').textContent = text;
+    document.getElementById('version').textContent = version || 'dev';
 }
 
-function fail(error) {
-    document.getElementById('output').textContent = 'Error: ' + error.message;
-}
-
-function testHello() {
-    document.getElementById('output').textContent = 'Loading...';
-
-    fetch('/api/hello')
-        .then(response => response.json())
-        .then(render)
-        .catch(fail);
-}
-
-function testData() {
-    document.getElementById('output').textContent = 'Loading...';
-
-    fetch('/api/data')
-        .then(response => response.json())
-        .then(render)
-        .catch(fail);
-}
-
-// Show the serving binary's build version in the header; the mock
-// callers above stay manual.
 document.addEventListener('DOMContentLoaded', function() {
-    fetch('/api/hello')
+    fetch('/health')
         .then(response => response.json())
         .then(data => {
-            document.getElementById('version').textContent = data.version || 'dev';
+            var ball = data.status === 'ok' ? 'ok' : 'warn';
+            setStatus(ball, 'keeper ' + data.status + ' · redis ' + data.redis, data.version);
         })
         .catch(() => {
-            document.getElementById('version').textContent = 'unknown';
+            setStatus('down', 'keeper unreachable', 'unknown');
         });
 });

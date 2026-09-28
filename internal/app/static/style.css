@@ -37,16 +37,65 @@ header h1 {
     color: #808080;
 }
 
-.version {
+.status {
     font-size: 0.85em;
     color: #808080;
     margin-top: 4px;
+}
+
+.ball {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+}
+
+.ball.idle {
+    background: #808080;
+}
+
+.ball.ok {
+    background: #89d185;
+}
+
+.ball.warn {
+    background: #dcdcaa;
+}
+
+.ball.down {
+    background: #f44747;
 }
 
 main {
     display: flex;
     flex-direction: column;
     gap: 15px;
+}
+
+.hero h2 {
+    font-size: 2.6em;
+    line-height: 1.1;
+    margin-bottom: 14px;
+    color: #d4d4d4;
+}
+
+.hero p {
+    line-height: 1.6;
+    margin-bottom: 14px;
+    color: #d4d4d4;
+    max-width: 60ch;
+}
+
+.commands {
+    background: #1e1e1e;
+    padding: 15px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9em;
+    line-height: 1.7;
+    color: #9cdcfe;
+    overflow-x: auto;
 }
 
 .card {
@@ -74,41 +123,6 @@ code {
     color: #9cdcfe;
 }
 
-.api-examples {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 15px;
-}
-
-button {
-    background: #0e639c;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 1em;
-    font-family: monospace;
-}
-
-button:hover {
-    background: #1177bb;
-}
-
-.output {
-    background: #1e1e1e;
-    color: #d4d4d4;
-    padding: 15px;
-    border-radius: 4px;
-    font-family: monospace;
-    font-size: 0.9em;
-    min-height: 100px;
-    max-height: 300px;
-    overflow: auto;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-}
-
 ul {
     list-style: none;
 }
@@ -116,15 +130,6 @@ ul {
 ul li {
     margin-bottom: 10px;
     line-height: 1.5;
-}
-
-a {
-    color: #569cd6;
-    text-decoration: none;
-}
-
-a:hover {
-    text-decoration: underline;
 }
 
 footer {
