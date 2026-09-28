@@ -146,6 +146,38 @@ func TestGCArgsDryRun(t *testing.T) {
 	}
 }
 
+// The event renderer voices each stage loud: probe verdicts, the
+// collector pid (a long mark phase must look alive), the flip
+// WARNING, failures with cause. If this fails, gc runs quiet about
+// exactly the moments the operator watches.
+func TestRenderGCEventVoicesStages(t *testing.T) {
+	var out strings.Builder
+	report := renderGCEvent(&out, true)
+	report(GCEvent{Stage: GCStagePreProbe, Message: "readonly"})
+	report(GCEvent{Stage: GCStageStarted, PID: 4242})
+	report(GCEvent{Stage: GCStagePostProbe, Message: "readonly"})
+	report(GCEvent{Stage: GCStageModeFlip, Message: "readonly→writable"})
+	report(GCEvent{Stage: GCStageFailure, Error: "exit status 3: boom"})
+	for _, want := range []string{
+		"sentinel: registry is READONLY",
+		"collector started (pid 4242)",
+		"dry-run, nothing will be deleted",
+		"sentinel: registry still READONLY",
+		"WARNING: registry flipped readonly→writable mid-run",
+		"collector failed: exit status 3: boom",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("rendered events lack %q:\n%s", want, out.String())
+		}
+	}
+	var real strings.Builder
+	renderGCEvent(&real, false)(GCEvent{Stage: GCStageStarted, PID: 7})
+	if strings.Contains(real.String(), "dry-run") {
+		t.Errorf("real-run start claims dry-run:\n%s", real.String())
+	}
+	renderGCEvent(&real, false)(GCEvent{Stage: GCStageStarted})
+}
+
 func hasArg(args []string, want string) bool {
 	for _, a := range args {
 		if a == want {
