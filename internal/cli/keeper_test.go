@@ -284,6 +284,34 @@ func TestReapAccumulatesAcrossPolicies(t *testing.T) {
 	}
 }
 
+// The untagged policy reads the live catalog: a tracked tag gone
+// from the registry past the grace period marks, a listed tag does
+// not. If this fails, reap untagged reasons about rows alone and
+// either never fires or fires on fetch failures.
+func TestReapUntaggedUsesCatalog(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tags := []string{}
+		if strings.Contains(r.URL.Path, "/kept/") {
+			tags = []string{"v9"}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"tags": tags})
+	}))
+	defer srv.Close()
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
+		PushedAt: cliNow.Add(-200 * time.Hour)})
+	_ = s.Record(c, policy.Row{Repo: "kept", Tag: "v9", Digest: "sha256:b",
+		PushedAt: cliNow.Add(-200 * time.Hour)})
+	marked, err := EvaluatePolicy(cliCtx(), s, registry.NewClient(srv.URL), cliNow, nil, "untagged")
+	if err != nil {
+		t.Fatalf("EvaluatePolicy untagged: %v", err)
+	}
+	if len(marked) != 1 || marked[0].Repo != "gone" {
+		t.Errorf("untagged = %v, want only gone:v1", dueTags(marked))
+	}
+}
+
 // An unknown policy name refuses and lists the valid ones, so a
 // typo never silently reaps everything. If this fails, `reap bogus`
 // either panics or reaps the world.

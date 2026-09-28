@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -57,7 +58,30 @@ func TestCollectorStreamsLinesAndReportsStages(t *testing.T) {
 	if got := stages(*events); !equalStages(got, wantStages) {
 		t.Errorf("stages = %v, want %v", got, wantStages)
 	}
+	for _, e := range *events {
+		if e.Stage == GCStageStarted && e.PID <= 0 {
+			t.Errorf("started event carries pid %d, want the live child", e.PID)
+		}
+	}
 }
+
+// A scanner read error surfaces as the failure's last line, never
+// swallowed: the pipe is the only feedback channel. If this fails, a
+// broken collector stream reports success with no output.
+func TestScanGCOutputSurfacesReadError(t *testing.T) {
+	lines := scanGCOutput(errReader{})
+	line, ok := <-lines
+	if !ok {
+		t.Fatal("erroring reader closed the channel without the error")
+	}
+	if line.err == nil {
+		t.Error("read error came back as text, want it in err")
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 
 func equalStages(a, b []string) bool {
 	if len(a) != len(b) {

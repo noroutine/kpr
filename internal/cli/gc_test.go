@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -95,6 +96,107 @@ func stageTagLink(t *testing.T, root, repo, tag, digest string) {
 	}
 	if err := os.WriteFile(link, []byte(digest+"\n"), 0o644); err != nil {
 		t.Fatalf("stage link: %v", err)
+	}
+}
+
+// An upload id comes from the path segment after "uploads" —
+// nothing else. A Location with no id (or no uploads leg at all)
+// proves nothing, and must not panic the proof. If this fails, a
+// registry answering odd Locations either crashes gc or mints
+// evidence from thin air.
+func TestUploadUUIDEdges(t *testing.T) {
+	if got := uploadUUID("http://reg:5000/v2/kpr-gc-probe/blobs/uploads/abc123"); got != "abc123" {
+		t.Errorf("uploadUUID = %q, want abc123", got)
+	}
+	for _, loc := range []string{
+		"",
+		"http://reg:5000/v2/kpr-gc-probe/blobs/uploads/",
+		"http://reg:5000/v2/kpr-gc-probe/blobs/uploads",
+		"http://reg:5000/v2/repositories",
+		"http://reg:5000/v2/kpr-gc-probe/blobs/uploads/abc?digest=sha256:x",
+	} {
+		if loc == "http://reg:5000/v2/kpr-gc-probe/blobs/uploads/abc?digest=sha256:x" {
+			if got := uploadUUID(loc); got != "abc" {
+				t.Errorf("uploadUUID(%q) = %q, want abc (query stripped)", loc, got)
+			}
+			continue
+		}
+		if got := uploadUUID(loc); got != "" {
+			t.Errorf("uploadUUID(%q) = %q, want empty (proves nothing)", loc, got)
+		}
+	}
+}
+
+// A sentinel upload nobody can find is a different store — false,
+// after the retry bound, not a hang. If this fails, gc blocks on a
+// stranger's registry instead of refusing it.
+func TestSameStoreUploadMissingDir(t *testing.T) {
+	if sameStoreUpload(t.TempDir(), "no-such-uuid") {
+		t.Error("missing upload dir proved same-store, want false")
+	}
+}
+
+// A lock release failure after a good run warns (with the TTL bound)
+// instead of failing the run: the collection already happened. If
+// this fails, a redis blip at release time rewrites history.
+func TestRunGCReleaseFailureWarns(t *testing.T) {
+	deny := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer deny.Close()
+
+	root := t.TempDir()
+	cfg := stageGCStore(t, root)
+	digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
+	s := &releaseFailStore{MemStore: store.NewMemStore()}
+	_ = s.Record(context.Background(), policy.Row{Repo: "app", Tag: "v1", Digest: digest, PushedAt: time.Now()})
+	stageTagLink(t, root, "app", "v1", digest)
+
+	oldBin := registryBinPath
+	registryBinPath = stageBin(t, "exit 0")
+	defer func() { registryBinPath = oldBin }()
+
+	var out strings.Builder
+	if err := runGC(context.Background(), &out, s, deny.URL, cfg, GCOptions{}); err != nil {
+		t.Fatalf("gc with failing release = %v, want nil (warn only)", err)
+	}
+	if !strings.Contains(out.String(), "lock release failed") {
+		t.Errorf("release failure warned nothing:\n%s", out.String())
+	}
+}
+
+type releaseFailStore struct {
+	*store.MemStore
+}
+
+func (releaseFailStore) ReleaseGCLock(context.Context) error { return errRelease }
+
+var errRelease = errors.New("release failed")
+
+// A broken pipe during the forced-writable warning fails the run
+// instead of collecting deaf: the operator never saw the risk they
+// accepted. If this fails, gc nods along with nobody listening.
+func TestRunGCForceWarnWriteError(t *testing.T) {
+	accept := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer accept.Close()
+
+	root := t.TempDir()
+	cfg := stageGCStore(t, root)
+	stageUploadDir(t, root, "uuid")
+
+	oldBin := registryBinPath
+	registryBinPath = stageBin(t, "exit 0")
+	defer func() { registryBinPath = oldBin }()
+
+	if err := runGC(context.Background(), errWriter{}, store.NewMemStore(), accept.URL, cfg, GCOptions{Force: true}); err == nil {
+		t.Error("forced gc with broken output succeeded, want the write error")
 	}
 }
 

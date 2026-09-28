@@ -34,10 +34,29 @@ func TestPlanAddMarksMatching(t *testing.T) {
 	if len(due) != 2 {
 		t.Fatalf("due = %v, want the 2 scratch rows", dueTags(due))
 	}
+	if !strings.Contains(out.String(), "marked 2 rows") {
+		t.Errorf("add reported %q, want the count", out.String())
+	}
 	for _, r := range due {
 		if r.Reason != "manual" {
 			t.Errorf("due reason = %q, want manual", r.Reason)
 		}
+	}
+}
+
+// Adding what matches nothing says so and marks nothing: silence
+// would leave the operator guessing whether the pattern worked.
+func TestPlanAddNoMatch(t *testing.T) {
+	s := editStage()
+	var out bytes.Buffer
+	if err := runPlanAdd(cliCtx(), &out, s, []string{"nomatch:*"}); err != nil {
+		t.Fatalf("plan add: %v", err)
+	}
+	if !strings.Contains(out.String(), "no tracked rows matched") {
+		t.Errorf("add reported %q, want no-match", out.String())
+	}
+	if due, _ := s.Due(cliCtx()); len(due) != 0 {
+		t.Errorf("no-match add marked %v, want nothing", dueTags(due))
 	}
 }
 
@@ -82,6 +101,9 @@ func TestPlanRemoveUnmarksMatching(t *testing.T) {
 	due, _ := s.Due(cliCtx())
 	if len(due) != 1 || due[0].Repo != "app" {
 		t.Errorf("due = %v, want only app:v1", dueTags(due))
+	}
+	if !strings.Contains(out.String(), "removed 1 due marks") {
+		t.Errorf("remove reported %q, want the count", out.String())
 	}
 }
 
