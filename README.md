@@ -92,10 +92,16 @@ kpr serve    # console :9300 + app :8080 + receiver + sweeper loop
 kpr status   # banner + counters as text
 kpr plan     # pending candidates (--json for piping)
 kpr plan discard  # drop the whole plan (clear due marks, no dry-run)
-kpr reap     # evaluate policies, mark due (--no-dry-run to mark,
-             # repeat --exclude to spare keep-N for matching repo:tag)
+kpr plan add <pattern>...     # mark tracked repo:tag by glob or regex: (no dry-run)
+kpr plan remove <pattern>...  # unmark due rows by glob, regex: or exact image (no dry-run)
+kpr reap [policy]  # evaluate one policy (expired, partial, untagged,
+                   # keep-n) or all; marks accumulate until sweep or
+                   # plan discard (--no-dry-run to mark, repeat --exclude
+                   # to spare keep-N for matching repo:tag)
+kpr reap add <image>...  # mark exact tracked repo:tag images (no dry-run)
 kpr sweep    # POST the sweep trigger, print the pass summary
-kpr gc       # garbage-collect the shared store (readonly probe first)
+kpr gc       # garbage-collect the shared store (dry-run preview by
+             # default; --no-dry-run collects, readonly probe first)
 kpr env      # resolved configuration
 ```
 
@@ -109,19 +115,25 @@ Deletes drop the manifest reference only; blob bytes need the stock
 collector against the shared store:
 
 ```bash
+# 0. Preview anytime (dry-run default, streams the collector):
+docker exec kpr kpr gc
 # 1. Registry readonly (config file! the env override panics
 #    registry:3): storage.maintenance.readonly.enabled: true + restart.
 # 2. Collect from the kpr container (shared mounts, same binary):
-docker exec kpr kpr gc                 # refuses unless readonly
-docker exec kpr kpr gc --delete-untagged
+docker exec kpr kpr gc --no-dry-run                 # refuses unless readonly
+docker exec kpr kpr gc --no-dry-run --delete-untagged
 # 3. Flip readonly back off + restart.
 ```
 
-`kpr gc` refuses rather than collects blind: no binary/config mounts,
-no filesystem store root, inconclusive sentinel, writable without
-`--force`, unproven shared store, unreachable blobdescriptor cache,
-another run holding `kpr:gc:lock` (`make gc` honors the same key).
-After collecting it re-probes: a mode flip mid-run fails the run.
+`kpr gc` previews by default and refuses a real run rather than
+collecting blind: no binary/config mounts, no filesystem store root,
+inconclusive sentinel, writable without `--force` (a preview on
+writable proceeds warned — it deletes nothing), unproven shared
+store, unreachable blobdescriptor cache, another run holding
+`kpr:gc:lock` (`make gc` honors the same key). Collection streams the
+stock binary's output with stage events (sentinel verdicts, collector
+pid, post-probe). After collecting it re-probes: a mode flip mid-run
+is loud but never a panic — it fails the run unless `--force`.
 It needs the registry's redis password as `REGISTRY_REDIS_PASSWORD`
 (same convention the registry uses) — without it the cache
 mis-marks and collection eats live layers. Flipping readonly stays

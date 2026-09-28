@@ -317,8 +317,10 @@ semantics minus the hosted-service load.
 
 Built on `master`, CI green, full suite + lint clean, coverage ~91%,
 proven live in compose: push → receiver tracks → `reap --no-dry-run`
-marks → `sweep` deletes by digest → `make gc` reclaims disk
-(48M → 1.1M on the test repo).
+marks (one policy via `reap <name>`, or hand-picked via `plan add` /
+`reap add`, pruned via `plan remove`) → `sweep` deletes by digest →
+`make gc` reclaims disk (48M → 1.1M on the test repo; `kpr gc`
+previews by default, `--no-dry-run` collects).
 
 ### M1 — housekeeping: mostly wired, one gap
 
@@ -356,7 +358,12 @@ deletes 405 on distribution:3), server-rendered console, colocated
 `status`/`plan`/`reap`/`sweep` CLI, OTel overlay (Quickwit + Jaeger
 + Prometheus + Grafana) with `sweep pass`/`sweep row` activity
 records indexed in Quickwit, `make gc` for the offline blob
-reclaim (`--delete-untagged`, registry downtime accepted).
+reclaim (`--delete-untagged`, registry downtime accepted): sentinel
+readiness probe plus same-store proof, shared `kpr:gc:lock` with
+30m bound, post-run re-probe that fails on a mode flip. The lock is
+advisory by necessity — distribution's `MarkAndSweep` (audited at
+v3.1.2) sets no lock and mark-then-sweep races a concurrent
+collector, so never run a manual `garbage-collect` alongside.
 
 ### Open, in no order
 

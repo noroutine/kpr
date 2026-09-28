@@ -105,6 +105,86 @@ func runPlan(ctx context.Context, w io.Writer, s store.Store, asJSON bool) error
 	return nil
 }
 
+// PolicyNames are the reap selectors: every live policy plus all.
+// expired takes elapsed TTL tags, partial takes digest-less stale
+// uploads, untagged takes tags gone from the catalog past grace,
+// keep-n takes everything past the freshest ten per repo.
+var PolicyNames = []string{"all", "expired", "partial", "untagged", "keep-n"}
+
+// fetchCatalogs reads the live tag list per tracked repo. A repo
+// whose fetch fails stays out of the map, and catalog-dependent
+// selectors treat absent as unknown (skip), never as empty.
+func fetchCatalogs(ctx context.Context, reg *registry.Client, rows []policy.Row) map[string][]string {
+	catalogs := map[string][]string{}
+	if reg == nil {
+		return catalogs
+	}
+	repos := map[string]bool{}
+	for _, r := range rows {
+		repos[r.Repo] = true
+	}
+	for repo := range repos {
+		tags, cerr := reg.Catalog(ctx, repo)
+		if cerr != nil {
+			continue
+		}
+		catalogs[repo] = tags
+	}
+	return catalogs
+}
+
+// evalOne runs a single named policy over rows. Unknown names refuse
+// before anything marks, so a typo never reaps the world.
+func evalOne(name string, rows []policy.Row, catalogs map[string][]string, now time.Time, keepNExclude []string) ([]policy.Row, error) {
+	switch name {
+	case "expired":
+		return policy.SelectExpired(rows, now), nil
+	case "partial":
+		return policy.SelectStaleUploads(rows, now), nil
+	case "untagged":
+		return policy.SelectUntagged(rows, catalogs, now), nil
+	case "keep-n":
+		return policy.SelectKeepN(rows, policy.KeepN, nil, keepNExclude, now), nil
+	default:
+		return nil, fmt.Errorf("unknown policy %q (want one of: %s)", name, strings.Join(PolicyNames, ", "))
+	}
+}
+
+// sortMarks orders marks repo-major for stable plan output: the
+// keep-n selector walks a map, so its order is random without this.
+func sortMarks(out []policy.Row) {
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Repo != out[j].Repo {
+			return out[i].Repo < out[j].Repo
+		}
+		return out[i].Tag < out[j].Tag
+	})
+}
+
+// EvaluatePolicy runs one named policy (or all) over tracked rows
+// plus live catalogs. keepNExclude spares keep-N for rows whose
+// repo:tag matches (registry stripped). Exported alongside
+// EvaluatePolicies so scripts drive one policy path, never a copy.
+func EvaluatePolicy(ctx context.Context, s store.Store, reg *registry.Client, now time.Time, keepNExclude []string, name string) ([]policy.Row, error) {
+	if name == "all" {
+		return EvaluatePolicies(ctx, s, reg, now, keepNExclude)
+	}
+	rows, err := s.All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("redis unreachable: %w", err)
+	}
+	var catalogs map[string][]string
+	if name == "untagged" {
+		catalogs = fetchCatalogs(ctx, reg, rows)
+	}
+	marked, err := evalOne(name, rows, catalogs, now, keepNExclude)
+	if err != nil {
+		return nil, err
+	}
+	sortMarks(marked)
+	return marked, nil
+}
+
 // EvaluatePolicies runs every policy over tracked rows plus live
 // catalogs and returns the joined mark per row. Catalog failures skip
 // that repo's catalog-dependent selectors (rows-only selectors still
@@ -117,32 +197,18 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg *registry.Client, 
 	if err != nil {
 		return nil, fmt.Errorf("redis unreachable: %w", err)
 	}
+	catalogs := fetchCatalogs(ctx, reg, rows)
 	marks := map[string][]string{}
-	add := func(rs []policy.Row) {
-		for _, r := range rs {
+	for _, name := range []string{"expired", "partial", "untagged", "keep-n"} {
+		marked, serr := evalOne(name, rows, catalogs, now, keepNExclude)
+		if serr != nil {
+			return nil, serr
+		}
+		for _, r := range marked {
 			k := r.Repo + "\x00" + r.Tag
 			marks[k] = append(marks[k], r.Reason)
 		}
 	}
-	add(policy.SelectExpired(rows, now))
-	add(policy.SelectStaleUploads(rows, now))
-
-	repos := map[string]bool{}
-	for _, r := range rows {
-		repos[r.Repo] = true
-	}
-	catalogs := map[string][]string{}
-	if reg != nil {
-		for repo := range repos {
-			tags, cerr := reg.Catalog(ctx, repo)
-			if cerr != nil {
-				continue
-			}
-			catalogs[repo] = tags
-		}
-	}
-	add(policy.SelectUntagged(rows, catalogs, now))
-	add(policy.SelectKeepN(rows, policy.KeepN, nil, keepNExclude, now))
 
 	var out []policy.Row
 	for _, r := range rows {
@@ -152,21 +218,18 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg *registry.Client, 
 			out = append(out, r)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Repo != out[j].Repo {
-			return out[i].Repo < out[j].Repo
-		}
-		return out[i].Tag < out[j].Tag
-	})
+	sortMarks(out)
 	return out, nil
 }
 
-// runReap evaluates the policies and, when armed, marks rows due.
-// Unarmed it only prints the plan (same source as plan will show once
+// runReap evaluates one policy (or all) and, when armed, marks rows
+// due. Marks accumulate across calls until sweep or plan discard: a
+// second reap adds its rows, never wipes the first policy's. Unarmed
+// it only prints the plan (same source as plan will show once
 // marked): dry-run is implicit, --no-dry-run explicit. excludes spares
 // keep-N for matching repo:tag names.
-func runReap(ctx context.Context, w io.Writer, s store.Store, reg *registry.Client, armed bool, excludes []string, now time.Time) error {
-	marked, err := EvaluatePolicies(ctx, s, reg, now, excludes)
+func runReap(ctx context.Context, w io.Writer, s store.Store, reg *registry.Client, armed bool, excludes []string, now time.Time, policyName string) error {
+	marked, err := EvaluatePolicy(ctx, s, reg, now, excludes, policyName)
 	if err != nil {
 		return err
 	}
@@ -311,12 +374,17 @@ var reapNoDryRun bool
 var reapExclude []string
 
 var reapCmd = &cobra.Command{
-	Use:   "reap",
+	Use:   "reap [policy]",
 	Short: "Evaluate policies and mark rows due",
-	Long: `Evaluate the programmatic policies and mark selected rows due
-with reasons. Dry-run unless --no-dry-run (or KPR_NO_DRY_RUN=true):
-unarmed, it only prints the plan. Repeat --exclude to spare keep-N
-for rows whose repo:tag matches (registry stripped).`,
+	Long: `Evaluate one policy (or all) and mark selected rows due with
+reasons. Bare reap means reap all. Marks accumulate across calls
+until sweep or plan discard. Policies: expired (elapsed TTL tags),
+partial (digest-less stale uploads), untagged (tag gone from the
+catalog past grace), keep-n (past the freshest ten per repo).
+Dry-run unless --no-dry-run (or KPR_NO_DRY_RUN=true): unarmed, it
+only prints the plan. Repeat --exclude to spare keep-N for rows
+whose repo:tag matches (registry stripped).`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
 		s, err := OpenStore(cfg)
@@ -325,8 +393,12 @@ for rows whose repo:tag matches (registry stripped).`,
 		}
 		defer func() { _ = s.Close() }()
 		armed := reapNoDryRun || cfg.NoDryRun
+		name := "all"
+		if len(args) == 1 {
+			name = args[0]
+		}
 		return runReap(cmd.Context(), cmd.OutOrStdout(), s,
-			registry.NewClient(cfg.RegistryURL), armed, reapExclude, time.Now().UTC())
+			registry.NewClient(cfg.RegistryURL), armed, reapExclude, time.Now().UTC(), name)
 	},
 }
 
@@ -365,7 +437,8 @@ An unreachable console degrades to the tick backstop.`,
 
 func init() {
 	planCmd.Flags().BoolVar(&planJSON, "json", false, "Render candidates as JSON for piping")
-	planCmd.AddCommand(planDiscardCmd)
+	planCmd.AddCommand(planDiscardCmd, planAddCmd, planRemoveCmd)
+	reapCmd.AddCommand(reapAddCmd)
 	reapCmd.Flags().BoolVar(&reapNoDryRun, "no-dry-run", false, "Mark rows due for real (default prints the plan only)")
 	reapCmd.Flags().StringSliceVar(&reapExclude, "exclude", nil, "Spare keep-N for rows whose repo:tag matches (repeatable regex, registry stripped)")
 	RootCmd.AddCommand(statusCmd, planCmd, reapCmd, sweepCmd)

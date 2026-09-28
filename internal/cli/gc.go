@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -105,9 +104,13 @@ func probeRegistry(ctx context.Context, baseURL string) (gcProbe, string, error)
 }
 
 // gcArgs builds the stock collector invocation: the operator's flags,
-// nothing invented.
-func gcArgs(configPath string, deleteUntagged bool) []string {
+// nothing invented. dryRun previews (the default); only an explicit
+// --no-dry-run collects for real.
+func gcArgs(configPath string, deleteUntagged, dryRun bool) []string {
 	args := []string{"garbage-collect"}
+	if dryRun {
+		args = append(args, "--dry-run")
+	}
 	if deleteUntagged {
 		args = append(args, "--delete-untagged")
 	}
@@ -272,17 +275,33 @@ func sameStoreTagLink(root, repo, tag, digest string) bool {
 // instead of wedging every later run.
 const gcLockTTL = 30 * time.Minute
 
+// GCOptions tunes a gc run: the operator's flags plus the event
+// reporter the CLI renders loud. DryRun previews (the default) —
+// only an explicit --no-dry-run collects for real.
+type GCOptions struct {
+	DeleteUntagged bool
+	Force          bool
+	DryRun         bool
+	Report         GCReporter
+}
+
 // runGC probes the registry writable/readonly, proves the local mount
 // is the registry's own store, then runs the stock collector against
-// it under the shared collector lock. Writable without --force
+// it under the shared collector lock, streaming every line and
+// reporting each stage. A real (non-dry) run on a writable registry
 // refuses: the operator flips storage.maintenance.readonly and
-// restarts first. Anything unproven — inconclusive probe, invisible
-// upload, unresolvable link — refuses always. After a successful
-// collect the sentinel re-probes: a mode flip mid-run fails the run
-// (writes may have raced the mark phase), a dead post-probe only
-// warns. Flipping readonly stays with the operator; this command
-// never rewrites registry config.
-func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configPath string, deleteUntagged, force bool) error {
+// restarts first. A dry-run preview on a writable registry proceeds
+// with a loud warning instead — previews delete nothing, so a race
+// only stales the preview. Anything unproven — inconclusive probe,
+// invisible upload, unresolvable link — refuses always. After the
+// collect the sentinel re-probes: a mode flip mid-run is loud but
+// never a panic — without --force it fails the run (writes may have
+// raced the mark phase), with --force the operator presumed to know
+// and the run passes warned. A dead post-probe only warns.
+// Flipping readonly stays with the operator; this command never
+// rewrites registry config.
+func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configPath string, opts GCOptions) error {
+	gcStarted := time.Now()
 	if err := gcReady(registryBinPath, configPath); err != nil {
 		return err
 	}
@@ -309,16 +328,25 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 	if err != nil {
 		return err
 	}
+	pre := timedGCEvent(GCStagePreProbe, gcStarted)
+	pre.Message = modeName(mode)
+	emitGC(opts.Report, pre)
 	switch mode {
 	case probeWritable:
 		if !sameStoreUpload(root, uuid) {
 			return fmt.Errorf("sentinel upload %s not visible under %s: kpr does not share this registry's store", uuid, root)
 		}
-		if !force {
-			return errors.New("registry is writable: enable storage.maintenance.readonly and restart it first, or re-run with --force accepting the risk")
-		}
-		if _, err := io.WriteString(w, "Warning: registry is writable; collecting anyway (--force)\n"); err != nil {
-			return err
+		if opts.DryRun {
+			if _, err := io.WriteString(w, "Warning: registry is writable; preview only, nothing will be deleted\n"); err != nil {
+				return err
+			}
+		} else {
+			if !opts.Force {
+				return errors.New("registry is writable: enable storage.maintenance.readonly and restart it first, or re-run with --force accepting the risk")
+			}
+			if _, err := io.WriteString(w, "Warning: registry is writable; collecting anyway (--force)\n"); err != nil {
+				return err
+			}
 		}
 	case probeReadonly:
 		row, ok := firstDigestRow(ctx, s)
@@ -334,18 +362,27 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 	default:
 		return fmt.Errorf("sentinel inconclusive for %s", registryURL)
 	}
-	cmd := exec.CommandContext(ctx, registryBinPath, gcArgs(configPath, deleteUntagged)...)
-	cmd.Stdout, cmd.Stderr = w, w
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("garbage-collect: %w", err)
+	if err := runCollector(ctx, w, registryBinPath, gcArgs(configPath, opts.DeleteUntagged, opts.DryRun), opts.Report); err != nil {
+		return err
 	}
 	post, _, perr := probeRegistry(ctx, registryURL)
 	if perr != nil {
 		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, modeName(mode))
 		return nil
 	}
+	pev := timedGCEvent(GCStagePostProbe, gcStarted)
+	pev.Message = modeName(post)
+	emitGC(opts.Report, pev)
 	if post != mode {
-		return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run", modeName(mode), modeName(post))
+		flip := timedGCEvent(GCStageModeFlip, gcStarted)
+		flip.Message = modeName(mode) + "→" + modeName(post)
+		emitGC(opts.Report, flip)
+		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", modeName(mode), modeName(post)); werr != nil {
+			return werr
+		}
+		if !opts.Force {
+			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run", modeName(mode), modeName(post))
+		}
 	}
 	return nil
 }
@@ -382,14 +419,51 @@ var gcDeleteUntagged bool
 
 var gcForce bool
 
+var gcNoDryRun bool
+
+// renderGCEvent voices the lifecycle loud: probe verdicts, collector
+// start (pid, so a long mark phase is visibly alive), post-probe, and
+// the flip banner. Collector lines stream raw alongside.
+func renderGCEvent(w io.Writer, dryRun bool) GCReporter {
+	return func(e GCEvent) {
+		switch e.Stage {
+		case GCStagePreProbe:
+			_, _ = fmt.Fprintf(w, "sentinel: registry is %s\n", strings.ToUpper(e.Message))
+		case GCStageStarted:
+			if e.PID != 0 {
+				_, _ = fmt.Fprintf(w, "collector started (pid %d)%s\n", e.PID, drySuffix(dryRun))
+			}
+		case GCStagePostProbe:
+			_, _ = fmt.Fprintf(w, "sentinel: registry still %s\n", strings.ToUpper(e.Message))
+		case GCStageModeFlip:
+			_, _ = fmt.Fprintf(w, "WARNING: registry flipped %s mid-run\n", e.Message)
+		case GCStageFailure:
+			_, _ = fmt.Fprintf(w, "collector failed: %s\n", e.Error)
+		}
+	}
+}
+
+func drySuffix(dryRun bool) string {
+	if dryRun {
+		return " — dry-run, nothing will be deleted"
+	}
+	return ""
+}
+
 var gcCmd = &cobra.Command{
 	Use:   "gc",
 	Short: "Garbage-collect unreferenced registry blobs",
-	Long: `Run the stock registry garbage-collect against the shared store.
-The sentinel probes the registry first: readonly collects, writable
-refuses unless --force (flip storage.maintenance.readonly and restart
-it instead), inconclusive always refuses. Flipping readonly stays with
-the operator — this command never rewrites registry config.`,
+	Long: `Run the stock registry garbage-collect against the shared store,
+streaming its output and reporting each stage. Dry-run by default
+(preview only): --no-dry-run (or KPR_NO_DRY_RUN=true) collects for
+real. The sentinel probes the registry first: readonly collects, a
+real run on writable refuses unless --force (flip
+storage.maintenance.readonly and restart it instead), a preview on
+writable proceeds warned, inconclusive always refuses. After the
+collect the sentinel re-probes: a mode flip mid-run is loud but
+never a panic — it fails the run unless --force (which presumes you
+know). Flipping readonly stays with the operator — this command
+never rewrites registry config.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
 		s, err := OpenStore(cfg)
@@ -397,13 +471,21 @@ the operator — this command never rewrites registry config.`,
 			return err
 		}
 		defer func() { _ = s.Close() }()
-		return runGC(cmd.Context(), cmd.OutOrStdout(), s, cfg.RegistryURL, gcConfigPath, gcDeleteUntagged, gcForce)
+		out := cmd.OutOrStdout()
+		dryRun := !gcNoDryRun && !cfg.NoDryRun
+		return runGC(cmd.Context(), out, s, cfg.RegistryURL, gcConfigPath, GCOptions{
+			DeleteUntagged: gcDeleteUntagged,
+			Force:          gcForce,
+			DryRun:         dryRun,
+			Report:         renderGCEvent(out, dryRun),
+		})
 	},
 }
 
 func init() {
 	gcCmd.Flags().StringVar(&gcConfigPath, "config", "/etc/distribution/config.yml", "Registry config file (shared store paths come from it)")
 	gcCmd.Flags().BoolVar(&gcDeleteUntagged, "delete-untagged", false, "Also drop orphaned manifests (same flag as registry garbage-collect)")
-	gcCmd.Flags().BoolVar(&gcForce, "force", false, "Collect even when the sentinel finds the registry writable")
+	gcCmd.Flags().BoolVar(&gcForce, "force", false, "Collect even when the sentinel finds the registry writable (presumes you know)")
+	gcCmd.Flags().BoolVar(&gcNoDryRun, "no-dry-run", false, "Collect for real (default previews with the collector's --dry-run)")
 	RootCmd.AddCommand(gcCmd)
 }

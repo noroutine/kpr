@@ -24,6 +24,7 @@ func RunContract(t *testing.T, setup func(t *testing.T) store.Store) {
 	t.Run("mark", func(t *testing.T) { testMarkDuePersists(t, setup(t)) })
 	t.Run("mark-creates", func(t *testing.T) { testMarkDueCreatesRow(t, setup(t)) })
 	t.Run("clear", func(t *testing.T) { testClearDueEmptiesMarks(t, setup(t)) })
+	t.Run("unmark", func(t *testing.T) { testUnmarkDueClearsOneMark(t, setup(t)) })
 	t.Run("repush", func(t *testing.T) { testRecordRepushClearsStaleMark(t, setup(t)) })
 	t.Run("delete", func(t *testing.T) { testDeleteRemovesRow(t, setup(t)) })
 	t.Run("current", func(t *testing.T) { testCurrentRoundTrip(t, setup(t)) })
@@ -158,6 +159,36 @@ func testClearDueEmptiesMarks(t *testing.T, s store.Store) {
 	}
 	if n, _ := s.ClearDue(c); n != 0 {
 		t.Errorf("second ClearDue = %d, want 0", n)
+	}
+}
+
+// Unmarking drops one due mark and reports it; other marks, rows,
+// and non-marks are untouched. If this fails, plan remove either
+// clears the world (ClearDue) or lies about what went.
+func testUnmarkDueClearsOneMark(t *testing.T, s store.Store) {
+	c := ctx()
+	_ = s.Record(c, srow("app", "v1"))
+	_ = s.Record(c, srow("app", "v2"))
+	_ = s.MarkDue(c, "app", "v1", "manual")
+	_ = s.MarkDue(c, "app", "v2", "manual")
+	ok, err := s.UnmarkDue(c, "app", "v1")
+	if err != nil {
+		t.Fatalf("UnmarkDue: %v", err)
+	}
+	if !ok {
+		t.Error("UnmarkDue(app:v1) = false, want true for a held mark")
+	}
+	if due, _ := s.Due(c); len(due) != 1 || due[0].Tag != "v2" {
+		t.Errorf("Due after unmark = %v, want only app:v2", due)
+	}
+	if all, _ := s.All(c); len(all) != 2 {
+		t.Errorf("All = %d rows after unmark, want 2 surviving rows", len(all))
+	}
+	if ok, _ := s.UnmarkDue(c, "app", "v1"); ok {
+		t.Error("second UnmarkDue(app:v1) = true, want false (mark gone)")
+	}
+	if ok, _ := s.UnmarkDue(c, "app", "v9"); ok {
+		t.Error("UnmarkDue(app:v9) = true, want false (never marked)")
 	}
 }
 

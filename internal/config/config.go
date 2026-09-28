@@ -155,7 +155,7 @@ var EnvVars = []EnvVar{
 	{EnvRedisPassword, "Redis password (empty means no auth). Shown as set/unset only, never rendered."},
 	{EnvRedisDB, "Redis logical database for kpr rows. Defaults to 0; compose uses 4 (0-2 taken, 3 is the registry cache)."},
 	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
-	{EnvNoDryRun, "Set to \"true\" to arm real execution (sweeper deletes, reap marks). Anything else keeps dry-run."},
+	{EnvNoDryRun, "Set to \"true\" to arm real execution (sweeper deletes, reap marks, gc collects). Anything else keeps dry-run."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},
 	{EnvOTELEndpoint, "OTLP/gRPC exporter endpoint (host:port). Defaults to localhost:4317."},
 	{EnvOTELServiceName, "Service name reported in traces. Defaults to kpr."},

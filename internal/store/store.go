@@ -70,6 +70,9 @@ type Store interface {
 	// ClearDue drops every due mark, returning how many went (the
 	// plan-discard interface). Rows survive; only marks go.
 	ClearDue(ctx context.Context) (int, error)
+	// UnmarkDue drops one row's due mark, reporting whether a mark
+	// was held (the plan-remove interface). Rows survive.
+	UnmarkDue(ctx context.Context, repo, tag string) (bool, error)
 	// Delete removes a row after the registry confirms the delete.
 	Delete(ctx context.Context, repo, tag string) error
 	// SetCurrent/GetCurrent overwrite/read the one pass record.

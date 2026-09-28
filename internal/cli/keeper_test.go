@@ -154,7 +154,7 @@ func TestReapDryRunPrintsWithoutMarking(t *testing.T) {
 	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, nil, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, nil, cliNow, "all"); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	if !strings.Contains(out.String(), "scratch:10m") {
@@ -178,7 +178,7 @@ func TestReapArmedMarksOnlySelected(t *testing.T) {
 	_ = s.Record(c, policy.Row{Repo: "app", Tag: "latest",
 		Digest: "sha256:b", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), true, nil, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), true, nil, cliNow, "all"); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	due, _ := s.Due(c)
@@ -202,7 +202,7 @@ func TestReapExcludeSkipsKeepN(t *testing.T) {
 			Digest: "sha256:a", PushedAt: cliNow.Add(-time.Duration(i) * time.Hour)})
 	}
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, nil, true, []string{"^scratch:"}, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, nil, true, []string{"^scratch:"}, cliNow, "all"); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	if due, _ := s.Due(c); len(due) != 0 {
@@ -214,6 +214,97 @@ func TestReapExcludeSkipsKeepN(t *testing.T) {
 // No dry-run: discarding previews nothing, it reports. If this fails,
 // a stale plan survives its discard and the next sweep eats rows the
 // operator already pardoned.
+// reapStage builds one expired row, one partial (digest-less, stale)
+// row, and an 11-tag pile whose oldest is keep-n's victim: each
+// selective reap must mark only its own policy's rows.
+func reapStage(s *store.MemStore) {
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
+		PushedAt: cliNow.Add(-time.Hour)})
+	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "partial",
+		PushedAt: cliNow.Add(-25 * time.Hour)})
+	for i := 1; i <= 11; i++ {
+		_ = s.Record(c, policy.Row{Repo: "pile", Tag: fmt.Sprintf("v%02d", i),
+			Digest: "sha256:p", PushedAt: cliNow.Add(-time.Duration(12-i) * time.Minute)})
+	}
+}
+
+// A named reap marks only that policy's rows: expired takes the TTL
+// row, partial the digest-less stale one, keep-n the pile's oldest.
+// If this fails, selective reaping leaks across policies.
+func TestReapSelectivePolicy(t *testing.T) {
+	for pol, want := range map[string][2]string{
+		"expired": {"scratch", "10m"},
+		"partial": {"scratch", "partial"},
+		"keep-n":  {"pile", "v01"},
+	} {
+		s := store.NewMemStore()
+		reapStage(s)
+		var out bytes.Buffer
+		if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow, pol); err != nil {
+			t.Fatalf("reap %s: %v", pol, err)
+		}
+		due, err := s.Due(cliCtx())
+		if err != nil {
+			t.Fatalf("reap %s due: %v", pol, err)
+		}
+		if len(due) != 1 || due[0].Repo != want[0] || due[0].Tag != want[1] {
+			t.Errorf("reap %s due = %v, want exactly %s:%s", pol, dueTags(due), want[0], want[1])
+		}
+	}
+}
+
+func dueTags(due []policy.Row) []string {
+	var out []string
+	for _, r := range due {
+		out = append(out, r.Repo+":"+r.Tag)
+	}
+	return out
+}
+
+// Successive reaps accumulate in the plan until sweep or discard:
+// reaping expired then partial leaves both rows due. If this fails,
+// a second reap wipes the first policy's marks.
+func TestReapAccumulatesAcrossPolicies(t *testing.T) {
+	s := store.NewMemStore()
+	reapStage(s)
+	var out bytes.Buffer
+	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow, "expired"); err != nil {
+		t.Fatalf("reap expired: %v", err)
+	}
+	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow, "partial"); err != nil {
+		t.Fatalf("reap partial: %v", err)
+	}
+	due, err := s.Due(cliCtx())
+	if err != nil {
+		t.Fatalf("due: %v", err)
+	}
+	if len(due) != 2 {
+		t.Fatalf("due after two reaps = %v, want 2 rows", dueTags(due))
+	}
+}
+
+// An unknown policy name refuses and lists the valid ones, so a
+// typo never silently reaps everything. If this fails, `reap bogus`
+// either panics or reaps the world.
+func TestReapUnknownPolicyRefuses(t *testing.T) {
+	s := store.NewMemStore()
+	reapStage(s)
+	var out bytes.Buffer
+	err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow, "bogus")
+	if err == nil {
+		t.Fatal("reap bogus succeeded, want refusal")
+	}
+	for _, name := range []string{"all", "expired", "partial", "untagged", "keep-n"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("refusal %q does not list policy %q", err, name)
+		}
+	}
+	if due, _ := s.Due(cliCtx()); len(due) != 0 {
+		t.Errorf("refused reap marked %v, want nothing", dueTags(due))
+	}
+}
+
 func TestPlanDiscardClearsMarks(t *testing.T) {
 	s := store.NewMemStore()
 	c := context.Background()
@@ -258,7 +349,7 @@ func TestReapArmedMarksAllSorted(t *testing.T) {
 		Digest: "sha256:2", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
 	// No registry: rows-only selectors still apply, catalog ones skip.
-	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow, "all"); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	due, _ := s.Due(c)
@@ -407,7 +498,7 @@ func TestReapNilRegistryMarksRowsOnly(t *testing.T) {
 	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow, "all"); err != nil {
 		t.Fatalf("runReap with nil registry: %v", err)
 	}
 	if due, _ := s.Due(context.Background()); len(due) != 1 {
@@ -431,7 +522,7 @@ func TestReapSkipsRepoOnCatalogFailure(t *testing.T) {
 	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, registry.NewClient(broken.URL), true, nil, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, registry.NewClient(broken.URL), true, nil, cliNow, "all"); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	due, _ := s.Due(c)
@@ -451,7 +542,7 @@ func TestReapDryRunRendersAllRows(t *testing.T) {
 	_ = s.Record(c, policy.Row{Repo: "aardvark", Tag: "5m",
 		Digest: "sha256:z", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, nil, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, nil, cliNow, "all"); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	body := out.String()
@@ -475,7 +566,7 @@ func TestReapDryRunRendersFullLine(t *testing.T) {
 	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, nil, cliNow); err != nil {
+	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), false, nil, cliNow, "all"); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
 	if !strings.Contains(out.String(), "scratch:10m — ttl:10m0s elapsed\n") {
@@ -556,10 +647,10 @@ func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
 // calling it a plan: an unreadable backend is an error, not an empty
 // evaluation. If this fails, outages print confident empty plans.
 func TestReapOnDeadRedisFails(t *testing.T) {
-	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), true, nil, cliNow); err == nil {
+	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), true, nil, cliNow, "all"); err == nil {
 		t.Error("armed reap on dead redis succeeded, want an error")
 	}
-	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), false, nil, cliNow); err == nil {
+	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), false, nil, cliNow, "all"); err == nil {
 		t.Error("dry-run reap on dead redis succeeded, want an error")
 	}
 }
@@ -585,7 +676,7 @@ func TestReapDryRunSurfacesWriteError(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
-	if err := runReap(cliCtx(), errWriter{}, s, liveRegistryClient(t), false, nil, cliNow); err == nil {
+	if err := runReap(cliCtx(), errWriter{}, s, liveRegistryClient(t), false, nil, cliNow, "all"); err == nil {
 		t.Error("dry-run reap into broken pipe succeeded, want an error")
 	}
 }
