@@ -200,6 +200,37 @@ func TestRunGCForceWarnWriteError(t *testing.T) {
 	}
 }
 
+// A Location the URL parser chokes on skips the cancel, cleanly:
+// the probe still reports writable with no id, and nothing panics
+// on a nil request. If this fails, one odd registry fronting takes
+// down the probe.
+func TestProbeBadLocationSkipsCancel(t *testing.T) {
+	var sawDelete bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			w.Header().Set("Location", "http://::invalid")
+			w.WriteHeader(http.StatusAccepted)
+		case http.MethodDelete:
+			sawDelete = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+	mode, uuid, err := probeRegistry(context.Background(), srv.URL)
+	if err != nil || mode != probeWritable {
+		t.Fatalf("bad-location probe = (%v, %q, %v), want (writable, \"\", nil)", mode, uuid, err)
+	}
+	if uuid != "" {
+		t.Errorf("bad-location probe uuid = %q, want empty (proves nothing)", uuid)
+	}
+	if sawDelete {
+		t.Error("bad-location probe attempted a cancel DELETE, want it skipped")
+	}
+}
+
 // stageBin writes an executable shell stub as the collector binary.
 func stageBin(t *testing.T, body string) string {
 	t.Helper()

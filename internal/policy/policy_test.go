@@ -99,6 +99,23 @@ func TestEffectiveTTLHashDefault48h(t *testing.T) {
 	}
 }
 
+// The bare-hash letter check is boundary-exact: 'a' and 'f' count,
+// 'g' does not. A hash whose only letters sit on the boundary
+// (a12345, f12345) must still read as a hash. If this fails, an
+// off-by-one reclassifies boundary hashes as build numbers and they
+// lose their 48h default.
+func TestBareHashLetterBoundaries(t *testing.T) {
+	for _, tag := range []string{"a12345", "f12345", "a1b2c3", "f9e8d7"} {
+		got, ok := EffectiveTTL(tag)
+		if !ok || got != 48*time.Hour {
+			t.Errorf("EffectiveTTL(%q) = (%v, %v), want (48h, true)", tag, got, ok)
+		}
+	}
+	if ttl, ok := EffectiveTTL("g12345"); ok {
+		t.Errorf("EffectiveTTL(g12345) = (%v, true), want (0, false)", ttl)
+	}
+}
+
 // A TTL regex edit that drops a capture group must degrade to no-match
 // (keep), never to an index panic mid-reap. If this fails, the next
 // person to touch ttlRe can crash every reap run.
