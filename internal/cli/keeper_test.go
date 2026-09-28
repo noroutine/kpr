@@ -8,8 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -295,33 +293,10 @@ func (errStore) Due(context.Context) ([]policy.Row, error) {
 // backend.
 func TestOpenStoreNamesDeadRedis(t *testing.T) {
 	cfg := config.NewBuilder().WithRedisAddr("127.0.0.1:1").Build()
-	if _, err := openStore(cfg); err == nil {
-		t.Error("openStore on dead redis succeeded, want a fast error")
+	if _, err := OpenStore(cfg); err == nil {
+		t.Error("OpenStore on dead redis succeeded, want a fast error")
 	} else if !strings.Contains(err.Error(), "redis") {
 		t.Errorf("error = %q, want it to name redis", err.Error())
-	}
-}
-
-// Opening state against a live redis succeeds: the Ping gate passes
-// and the store is usable. Skips without fixtures, like the contract.
-func TestOpenStoreLiveRedis(t *testing.T) {
-	addr := os.Getenv("KPR_REDIS_ADDR")
-	if addr == "" {
-		addr = "localhost:6379"
-	}
-	db := 0
-	if raw := os.Getenv("KPR_REDIS_DB"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil {
-			db = n
-		}
-	}
-	s, err := openStore(config.NewBuilder().WithRedisAddr(addr).WithRedisPassword(os.Getenv("KPR_REDIS_PASSWORD")).WithRedisDB(db).Build())
-	if err != nil {
-		t.Skipf("redis at %s unreachable, skipping: %v", addr, err)
-	}
-	defer func() { _ = s.Close() }()
-	if err := s.Ping(cliCtx()); err != nil {
-		t.Errorf("opened store does not ping: %v", err)
 	}
 }
 

@@ -68,6 +68,13 @@ branch-coverage mode) and `coverage.html`. The terminal table
 log (the runners have no artifact service, so nothing is uploaded).
 Coverage is informational — no percentage gate.
 
+Unit-only coverage excludes the redis happy paths on purpose (they
+live in e2e now): `coverage-e2e` runs both suites with
+`-coverpkg` over product packages and unions them into
+`coverage-e2e.out`, so the harness files themselves never count
+against the total. The union — not the unit number — is the bar
+that must stay above 90%.
+
 ## CI Integration
 
 Workflows live in `.forgejo/workflows/` and call `make` targets rather

@@ -1,258 +1,71 @@
-package store
+package store_test
 
 import (
 	"context"
-	"os"
-	"strconv"
 	"testing"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/storetest"
 )
 
-var storeNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
-
-func srow(repo, tag string) policy.Row {
-	return policy.Row{Repo: repo, Tag: tag, Digest: "sha256:abc", PushedAt: storeNow}
-}
-
-func ctx() context.Context {
-	c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	_ = cancel
-	return c
-}
-
-// Every backend must round-trip recorded rows: the receiver writes what
-// the console and reap later read. If this fails, pushes vanish between
-// record and plan and the whole pipeline reasons about nothing.
-func testRecordAndAll(t *testing.T, s Store) {
-	c := ctx()
-	if err := s.Ping(c); err != nil {
-		t.Fatalf("Ping: %v", err)
-	}
-	if err := s.Record(c, srow("app", "v1")); err != nil {
-		t.Fatalf("Record: %v", err)
-	}
-	if err := s.Record(c, srow("app", "v2")); err != nil {
-		t.Fatalf("Record: %v", err)
-	}
-	got, err := s.All(c)
-	if err != nil {
-		t.Fatalf("All: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("All = %d rows, want 2", len(got))
-	}
-}
-
-// A reap mark (due + reason) must survive on the row until the sweeper
-// resolves it, and Due must return only marked rows. If this fails,
-// marks evaporate (sweep never fires) or unmarked rows look due (sweep
-// deletes what nobody approved).
-func testMarkDuePersists(t *testing.T, s Store) {
-	c := ctx()
-	_ = s.Record(c, srow("app", "v1"))
-	_ = s.Record(c, srow("app", "v2"))
-	if err := s.MarkDue(c, "app", "v1", "ttl:10m elapsed"); err != nil {
-		t.Fatalf("MarkDue: %v", err)
-	}
-	due, err := s.Due(c)
-	if err != nil {
-		t.Fatalf("Due: %v", err)
-	}
-	if len(due) != 1 || due[0].Tag != "v1" || !due[0].Due {
-		t.Fatalf("Due = %+v, want [v1 marked]", due)
-	}
-	if due[0].Reason != "ttl:10m elapsed" {
-		t.Errorf("Reason = %q, want the mark reap wrote", due[0].Reason)
-	}
-}
-
-// A re-push (newer push time) restarts the minimal promise, so it must
-// clear a stale due mark — otherwise the sweeper deletes a fresh push
-// on reasoning from before it existed. A re-notification of the same
-// push preserves the mark. If this fails, redeploys get swept.
-func testRecordRepushClearsStaleMark(t *testing.T, s Store) {
-	c := ctx()
-	_ = s.Record(c, srow("app", "10m"))
-	_ = s.MarkDue(c, "app", "10m", "ttl:10m elapsed")
-
-	same := srow("app", "10m")
-	_ = s.Record(c, same)
-	if due, _ := s.Due(c); len(due) != 1 {
-		t.Fatalf("same-push re-record cleared the mark, want preserved")
-	}
-
-	fresh := srow("app", "10m")
-	fresh.PushedAt = storeNow.Add(time.Hour)
-	_ = s.Record(c, fresh)
-	if due, _ := s.Due(c); len(due) != 0 {
-		t.Fatalf("re-push kept %d due rows, want 0 (promise restarted)", len(due))
-	}
-}
-
-// Marking a never-recorded row creates it (skeletal, then filled by
-// the next notification): reap reasons about tags the receiver hasn't
-// seen yet, and the mark must land somewhere. If this fails, marks on
-// unseen rows vanish instead of awaiting the push.
-func testMarkDueCreatesRow(t *testing.T, s Store) {
-	c := ctx()
-	if err := s.MarkDue(c, "new", "v9", "keep-n:exceeds 10"); err != nil {
-		t.Fatalf("MarkDue: %v", err)
-	}
-	due, err := s.Due(c)
-	if err != nil {
-		t.Fatalf("Due: %v", err)
-	}
-	if len(due) != 1 || due[0].Repo != "new" || due[0].Tag != "v9" {
-		t.Fatalf("Due = %+v, want the created mark", due)
-	}
-	if !due[0].Due || due[0].Reason != "keep-n:exceeds 10" {
-		t.Errorf("created row not marked: %+v", due[0])
-	}
-}
-
-// A confirmed registry delete removes the row: the sweeper resolves
-// marks by deleting, not by unmarking. If this fails, swept rows haunt
-// every future plan.
-func testDeleteRemovesRow(t *testing.T, s Store) {
-	c := ctx()
-	_ = s.Record(c, srow("app", "v1"))
-	if err := s.Delete(c, "app", "v1"); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	all, err := s.All(c)
-	if err != nil {
-		t.Fatalf("All: %v", err)
-	}
-	if len(all) != 0 {
-		t.Fatalf("All = %d rows after delete, want 0", len(all))
-	}
-}
-
-// Run state round-trips the current pass record so a CLI can report
-// what the sweeper is doing right now without streaming logs. If this
-// fails, `sweep` watches a stale or empty pass.
-func testCurrentRoundTrip(t *testing.T, s Store) {
-	c := ctx()
-	want := Current{PassID: "p1", Stage: "running", Trigger: "POST", Due: 3, Done: 1}
-	if err := s.SetCurrent(c, want); err != nil {
-		t.Fatalf("SetCurrent: %v", err)
-	}
-	got, err := s.GetCurrent(c)
-	if err != nil {
-		t.Fatalf("GetCurrent: %v", err)
-	}
-	if got != want {
-		t.Errorf("GetCurrent = %+v, want %+v", got, want)
-	}
-}
-
-// The activity ring is bounded state, not a log stream: past the cap
-// the oldest outcomes drop, newest first on read. If this fails, redis
-// grows a log feed — exactly what the plan forbids.
-func testActivityRingCapped(t *testing.T, s Store) {
-	c := ctx()
-	for i := 0; i < ActivityCap+5; i++ {
-		if err := s.PushActivity(c, Outcome{Repo: "app", Reason: "x"}); err != nil {
-			t.Fatalf("PushActivity: %v", err)
-		}
-	}
-	got, err := s.Activity(c)
-	if err != nil {
-		t.Fatalf("Activity: %v", err)
-	}
-	if len(got) != ActivityCap {
-		t.Errorf("Activity = %d outcomes, want cap %d", len(got), ActivityCap)
-	}
-}
-
-// The sweep lock is single-flight with expiry: a second trigger skips
-// instead of stacking, and release re-arms. If this fails, two passes
-// delete concurrently or a crashed sweeper holds the lock forever.
-func testLockSingleFlight(t *testing.T, s Store) {
-	c := ctx()
-	ok, err := s.AcquireLock(c, time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("first AcquireLock = (%v, %v), want (true, nil)", ok, err)
-	}
-	ok, err = s.AcquireLock(c, time.Minute)
-	if err != nil || ok {
-		t.Fatalf("second AcquireLock = (%v, %v), want (false, nil)", ok, err)
-	}
-	if err := s.ReleaseLock(c); err != nil {
-		t.Fatalf("ReleaseLock: %v", err)
-	}
-	ok, err = s.AcquireLock(c, time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("post-release AcquireLock = (%v, %v), want (true, nil)", ok, err)
-	}
-	_ = s.ReleaseLock(c)
-}
-
 // The in-memory backend implements the full contract so the sweeper,
-// CLI, and console tests never need a live redis. If this fails,
-// nothing above it can be tested hermetically.
+// CLI, and console tests never need a live redis. The redis leg of
+// the same contract runs in e2e (test/e2e, fixture redis with auth on
+// kpr's DB). If this fails, nothing above it can be tested
+// hermetically.
 func TestMemStoreContract(t *testing.T) {
-	fresh := func() Store { return NewMemStore() }
-	t.Run("record", func(t *testing.T) { testRecordAndAll(t, fresh()) })
-	t.Run("mark", func(t *testing.T) { testMarkDuePersists(t, fresh()) })
-	t.Run("mark-creates", func(t *testing.T) { testMarkDueCreatesRow(t, fresh()) })
-	t.Run("repush", func(t *testing.T) { testRecordRepushClearsStaleMark(t, fresh()) })
-	t.Run("delete", func(t *testing.T) { testDeleteRemovesRow(t, fresh()) })
-	t.Run("current", func(t *testing.T) { testCurrentRoundTrip(t, fresh()) })
-	t.Run("activity", func(t *testing.T) { testActivityRingCapped(t, fresh()) })
-	t.Run("lock", func(t *testing.T) { testLockSingleFlight(t, fresh()) })
+	storetest.RunContract(t, func(t *testing.T) store.Store { return store.NewMemStore() })
 }
 
-// The redis backend implements the same contract against the real
-// thing. It skips when no redis answers (unit suite stays green
-// without fixtures); the address comes from the environment, never a
-// hardcoded localhost (CI fixtures are siblings, not loopback).
-func TestRedisStoreContract(t *testing.T) {
-	addr := os.Getenv("KPR_REDIS_ADDR")
-	if addr == "" {
-		addr = "localhost:6379"
-	}
-	db := 0
-	if raw := os.Getenv("KPR_REDIS_DB"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil {
-			db = n
-		}
-	}
-	s := NewRedisStore(addr, os.Getenv("KPR_REDIS_PASSWORD"), db)
-	if err := s.Ping(ctx()); err != nil {
-		t.Skipf("redis at %s unreachable, skipping: %v", addr, err)
-	}
+// Every redis command against a dead server must surface its error —
+// the degraded path serve and the CLI rely on. A port nothing answers
+// exercises all of them hermetically (connection refused is instant).
+// If this fails, a redis outage panics or hangs instead of degrading.
+func TestRedisStoreDeadServer(t *testing.T) {
+	s := store.NewRedisStore("127.0.0.1:1", "", 0)
 	t.Cleanup(func() { _ = s.Close() })
-	flush := func(t *testing.T) {
-		t.Helper()
-		if err := s.Flush(ctx()); err != nil {
-			t.Fatalf("Flush: %v", err)
-		}
-	}
-	t.Run("record", func(t *testing.T) { flush(t); testRecordAndAll(t, s) })
-	t.Run("mark", func(t *testing.T) { flush(t); testMarkDuePersists(t, s) })
-	t.Run("mark-creates", func(t *testing.T) { flush(t); testMarkDueCreatesRow(t, s) })
-	t.Run("repush", func(t *testing.T) { flush(t); testRecordRepushClearsStaleMark(t, s) })
-	t.Run("delete", func(t *testing.T) { flush(t); testDeleteRemovesRow(t, s) })
-	t.Run("current", func(t *testing.T) { flush(t); testCurrentRoundTrip(t, s) })
-	t.Run("activity", func(t *testing.T) { flush(t); testActivityRingCapped(t, s) })
-	t.Run("lock", func(t *testing.T) { flush(t); testLockSingleFlight(t, s) })
-}
+	ctx := context.Background()
+	row := policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:abc", PushedAt: time.Now()}
 
-// The store must select the configured redis DB on the shared instance:
-// DBs 0-2 belong to other tenants, the registry cache sits on 3, kpr
-// rows go wherever KPR_REDIS_DB says (4 in compose). Construction is
-// lazy, so the selected DB is assertable without a live server — a
-// hardcoded DB 0 would silently read a foreign keyspace. If this fails,
-// kpr and the registry cache (or a ceph invader) share a database.
-func TestNewRedisStoreSelectsConfiguredDB(t *testing.T) {
-	for _, db := range []int{0, 3, 4} {
-		s := NewRedisStore("localhost:6379", "", db)
-		t.Cleanup(func() { _ = s.Close() })
-		if got := s.rdb.Options().DB; got != db {
-			t.Errorf("NewRedisStore(db %d) selected DB %d", db, got)
-		}
+	if err := s.Ping(ctx); err == nil {
+		t.Error("Ping = nil, want connection error")
+	}
+	if err := s.Flush(ctx); err == nil {
+		t.Error("Flush = nil, want connection error")
+	}
+	if err := s.Record(ctx, row); err == nil {
+		t.Error("Record = nil, want connection error")
+	}
+	if _, err := s.All(ctx); err == nil {
+		t.Error("All = nil, want connection error")
+	}
+	if _, err := s.Due(ctx); err == nil {
+		t.Error("Due = nil, want connection error")
+	}
+	if err := s.MarkDue(ctx, row.Repo, row.Tag, "x"); err == nil {
+		t.Error("MarkDue = nil, want connection error")
+	}
+	if err := s.Delete(ctx, row.Repo, row.Tag); err == nil {
+		t.Error("Delete = nil, want connection error")
+	}
+	if err := s.SetCurrent(ctx, store.Current{PassID: "p1"}); err == nil {
+		t.Error("SetCurrent = nil, want connection error")
+	}
+	if _, err := s.GetCurrent(ctx); err == nil {
+		t.Error("GetCurrent = nil, want connection error")
+	}
+	if err := s.PushActivity(ctx, store.Outcome{Repo: "app", Reason: "x"}); err == nil {
+		t.Error("PushActivity = nil, want connection error")
+	}
+	if _, err := s.Activity(ctx); err == nil {
+		t.Error("Activity = nil, want connection error")
+	}
+	if ok, err := s.AcquireLock(ctx, time.Minute); err == nil || ok {
+		t.Errorf("AcquireLock = %v/%v, want false with connection error", ok, err)
+	}
+	if err := s.ReleaseLock(ctx); err == nil {
+		t.Error("ReleaseLock = nil, want connection error")
 	}
 }

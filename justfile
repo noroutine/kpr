@@ -183,6 +183,12 @@ e2e:
     #!/usr/bin/env bash
     go test -race -tags e2e ./test/e2e/ -count=1 -v
 
+# Union of unit + e2e coverage over product packages (needs docker)
+coverage-e2e:
+    #!/usr/bin/env bash
+    go test -race -tags e2e -coverpkg='./internal/...,./cmd/...' -coverprofile=coverage-e2e.out ./...
+    go tool cover -func=coverage-e2e.out | tail -n 5
+
 # Run tests with coverage (coverprofile + terminal summary + HTML report)
 coverage:
     #!/usr/bin/env bash

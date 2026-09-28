@@ -233,10 +233,12 @@ func sweepUnreached(ctx context.Context, w io.Writer, s store.Store) error {
 	return err
 }
 
-// openStore dials the configured redis, failing fast with a clear
+// OpenStore dials the configured redis, failing fast with a clear
 // error: every keeper command needs state, and inventing numbers
-// without it is worse than refusing.
-func openStore(cfg *config.Config) (*store.RedisStore, error) {
+// without it is worse than refusing. Exported so the e2e suite
+// (test/e2e) opens state the same way every command does — auth, DB
+// selection, and refusal included.
+func OpenStore(cfg *config.Config) (*store.RedisStore, error) {
 	s := store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -259,7 +261,7 @@ var statusCmd = &cobra.Command{
 	Long:  `Banner plus counters from tracked state, for scripts and ssh. Needs redis; fails fast without it.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := openStore(cfg)
+		s, err := OpenStore(cfg)
 		if err != nil {
 			return err
 		}
@@ -276,7 +278,7 @@ var planCmd = &cobra.Command{
 	Long:  `Pending candidates (rows marked due) with reasons. --json renders them for piping.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := openStore(cfg)
+		s, err := OpenStore(cfg)
 		if err != nil {
 			return err
 		}
@@ -295,7 +297,7 @@ with reasons. Dry-run unless --no-dry-run (or KPR_NO_DRY_RUN=true):
 unarmed, it only prints the plan.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := openStore(cfg)
+		s, err := OpenStore(cfg)
 		if err != nil {
 			return err
 		}
@@ -314,7 +316,7 @@ No opinions, no marks: only rows already marked due are processed.
 An unreachable console degrades to the tick backstop.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := openStore(cfg)
+		s, err := OpenStore(cfg)
 		if err != nil {
 			return err
 		}

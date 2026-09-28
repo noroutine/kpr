@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test e2e coverage coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-observability down gc
+.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-observability down gc
 .DEFAULT_GOAL := help
 
 # Version information
@@ -135,6 +135,11 @@ coverage:
 coverage-report:
 	@if [ ! -f coverage.out ]; then echo "No coverage.out found — run 'make coverage' first."; exit 1; fi
 	go tool cover -func=coverage.out | tail -n 20
+
+## coverage-e2e: Union of unit + e2e coverage over product packages (needs docker)
+coverage-e2e:
+	go test -race -tags e2e -coverpkg='./internal/...,./cmd/...' -coverprofile=coverage-e2e.out ./...
+	go tool cover -func=coverage-e2e.out | tail -n 5
 
 ## bench: Run benchmarks (no tests, measurements only)
 bench:
