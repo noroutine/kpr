@@ -36,6 +36,7 @@ type Fixture struct {
 	redisAddr        string
 	registryHostPort string
 	registryLoopback string
+	registryDirect   string
 	registryURL      string
 }
 
@@ -87,11 +88,29 @@ func NewFixture(t *testing.T) *Fixture {
 	if err != nil {
 		t.Fatalf("registry port: %v", err)
 	}
+	info, err := regC.Inspect(ctx)
+	if err != nil {
+		t.Fatalf("registry inspect: %v", err)
+	}
+	// Container IP: how co-located containers (the toolbox) reach the
+	// registry without touching published ports at all. Modern
+	// engines report it per-network, not top-level.
+	direct := info.NetworkSettings.IPAddress
+	for _, net := range info.NetworkSettings.Networks {
+		if net.IPAddress != "" {
+			direct = net.IPAddress
+			break
+		}
+	}
+	if direct == "" {
+		t.Fatalf("registry has no container IP")
+	}
 	hostPort := regHost + ":" + regPort.Port()
 	return &Fixture{
 		redisAddr:        redisHost + ":" + redisPort.Port(),
 		registryHostPort: hostPort,
 		registryLoopback: "localhost:" + regPort.Port(),
+		registryDirect:   direct + ":5000",
 		registryURL:      "http://" + hostPort,
 	}
 }
@@ -114,3 +133,8 @@ func (f *Fixture) RegistryHostPort() string { return f.registryHostPort }
 // RegistryLoopback is the registry as localhost:port — for clients
 // that only speak to loopback over plain HTTP (the docker daemon).
 func (f *Fixture) RegistryLoopback() string { return f.registryLoopback }
+
+// RegistryDirect is the registry by container IP — for clients
+// running alongside the fixtures (the toolbox), bypassing published
+// ports entirely.
+func (f *Fixture) RegistryDirect() string { return f.registryDirect }

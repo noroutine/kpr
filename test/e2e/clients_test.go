@@ -24,6 +24,8 @@ func TestPushClientsMatrix(t *testing.T) {
 		{"docker", ClientDocker},
 		{"regclient", ClientRegclient},
 		{"oras", ClientOras},
+		{"skopeo", ClientSkopeo},
+		{"podman", ClientPodman},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := New(t, fx)

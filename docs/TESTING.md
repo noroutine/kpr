@@ -177,14 +177,22 @@ Two rules carry over from the fixture days:
   ports) — never hardcoded `localhost`.
 
 Covered so far: TTL expiry, keep-N retention, stale-upload
-tag-fallback, untagged-after-grace, a five-client push matrix
-(ggcr, crane, docker daemon, regclient, oras typed artifacts),
-multi-arch index sweeps, and referrer precision (an expired
-signature artifact sweeps while its subject stays listed and
-fetchable). The docker subtest skips on Docker Desktop
-(macOS/Windows), where the daemon's localhost cannot reach fixture
-ports — native Linux daemons, CI included, run it. oras flows skip
-when the oras CLI is absent.
+tag-fallback, untagged-after-grace, a seven-client push matrix
+(ggcr, crane, docker daemon, regclient, oras typed artifacts,
+skopeo copy, podman), multi-arch index sweeps, and referrer
+precision (an expired signature artifact sweeps while its subject
+stays listed and fetchable).
+
+Client homes: Go-library clients (ggcr, crane, regclient) run
+in-process. Binary-only clients (oras, skopeo) run in one toolbox
+container (`testdata/toolbox`, built once per package run by
+TestMain) that reaches fixtures by container IP — no host binary
+needed, no port forwards involved. The docker CLI must stay
+host-bound (pushes originate inside the daemon): it skips on Docker
+Desktop (macOS/Windows), where the daemon's localhost cannot reach
+fixture ports — native Linux daemons, CI included, run it. Podman
+is daemonless so it shares the test's viewpoint; it runs wherever
+the binary is present and ready, and skips otherwise.
 
 Not yet covered: the receiver-notification path (scenarios record the
 row the receiver would track; a serve-booting scenario asserting

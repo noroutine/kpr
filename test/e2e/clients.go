@@ -40,6 +40,13 @@ const (
 	// ClientOras pushes a typed OCI artifact via the oras CLI
 	// (artifactType manifests, not images).
 	ClientOras
+	// ClientSkopeo copies via the skopeo CLI (containers/image stack,
+	// its own manifest handling).
+	ClientSkopeo
+	// ClientPodman pushes via the podman CLI (daemonless: the push
+	// originates in the local process, unlike docker's in-daemon
+	// push — the control for the Desktop reachability question).
+	ClientPodman
 )
 
 func (c PushClient) String() string {
@@ -54,6 +61,10 @@ func (c PushClient) String() string {
 		return "regclient"
 	case ClientOras:
 		return "oras"
+	case ClientSkopeo:
+		return "skopeo"
+	case ClientPodman:
+		return "podman"
 	}
 	return "unknown"
 }
@@ -80,6 +91,10 @@ func pushImage(t *testing.T, fx *Fixture, client PushClient, repo, tag string) s
 		return pushImageRegclient(t, fx, repo, tag)
 	case ClientOras:
 		return pushImageOras(t, fx, repo, tag, e2eArtifactType)
+	case ClientSkopeo:
+		return pushImageSkopeo(t, fx, repo, tag)
+	case ClientPodman:
+		return pushImagePodman(t, fx, repo, tag)
 	}
 	t.Fatalf("unknown push client %d", int(client))
 	return ""
@@ -89,28 +104,25 @@ func pushImage(t *testing.T, fx *Fixture, client PushClient, repo, tag string) s
 // pushes: an OCI artifact, not an image.
 const e2eArtifactType = "application/vnd.kpr.e2e.artifact"
 
-// requireOras skips when the oras CLI is absent — artifact flows need
-// the binary, and its absence proves nothing about kpr.
-func requireOras(t *testing.T) {
+// toolboxFile stages an artifact payload inside the toolbox for a
+// later exec, under a per-repo name so sequential pushes never share
+// one.
+func toolboxFile(t *testing.T, ctx context.Context, repo, tag, payload string) string {
 	t.Helper()
-	if _, err := exec.LookPath("oras"); err != nil {
-		t.Skipf("oras CLI not installed, skipping artifact flow: %v", err)
-	}
+	name := strings.ReplaceAll(repo, "/", "_") + "-" + tag
+	return toolbox.WriteFile(t, ctx, name, []byte(payload+"\n"))
 }
 
 func pushImageOras(t *testing.T, fx *Fixture, repo, tag, artifactType string) string {
 	t.Helper()
-	requireOras(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "artifact"), []byte("kpr-e2e:"+repo+":"+tag+"\n"), 0o644); err != nil {
-		t.Fatalf("oras context: %v", err)
-	}
-	dst := fx.RegistryHostPort() + "/" + repo + ":" + tag
-	runIn(t, ctx, dir, "oras", "push", "--plain-http", "--artifact-type", artifactType, dst, "artifact:application/octet-stream")
-	return headDigest(t, dst)
+	file := toolboxFile(t, ctx, repo, tag, "kpr-e2e:"+repo+":"+tag)
+	dst := fx.RegistryDirect() + "/" + repo + ":" + tag
+	toolbox.Exec(t, ctx, "oras", "push", "--plain-http", "--disable-path-validation",
+		"--artifact-type", artifactType, dst, file+":application/octet-stream")
+	return headDigest(t, fx.RegistryHostPort()+"/"+repo+":"+tag)
 }
 
 // orasAttach pins a typed artifact onto a subject manifest and tags
@@ -118,20 +130,46 @@ func pushImageOras(t *testing.T, fx *Fixture, repo, tag, artifactType string) st
 // uniformly (not trusted from CLI output).
 func orasAttach(t *testing.T, fx *Fixture, repo, subjectDigest, tag, artifactType, payload string) string {
 	t.Helper()
-	requireOras(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	host := fx.RegistryHostPort()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "artifact"), []byte(payload+"\n"), 0o644); err != nil {
-		t.Fatalf("oras context: %v", err)
-	}
-	out := runIn(t, ctx, dir, "oras", "attach", "--plain-http", "--artifact-type", artifactType,
-		host+"/"+repo+"@"+subjectDigest, "artifact:application/octet-stream")
+	direct := fx.RegistryDirect()
+	file := toolboxFile(t, ctx, repo, tag, payload)
+	out := toolbox.Exec(t, ctx, "oras", "attach", "--plain-http", "--disable-path-validation",
+		"--artifact-type", artifactType, direct+"/"+repo+"@"+subjectDigest, file+":application/octet-stream")
 	digest := parseDigest(t, out)
-	run(t, ctx, "oras", "tag", "--plain-http", host+"/"+repo+"@"+digest, tag)
-	return headDigest(t, host+"/"+repo+":"+tag)
+	toolbox.Exec(t, ctx, "oras", "tag", "--plain-http", direct+"/"+repo+"@"+digest, tag)
+	return headDigest(t, fx.RegistryHostPort()+"/"+repo+":"+tag)
+}
+
+func pushImageSkopeo(t *testing.T, fx *Fixture, repo, tag string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	// Seed a source tag in-process, then copy it with skopeo: the copy
+	// re-serializes the manifest through the containers/image stack,
+	// which is what the matrix is proving. The seed is a fully typed
+	// image — skopeo's docker transport rejects the untyped
+	// octet-stream layers the plain builder emits.
+	direct := fx.RegistryDirect()
+	srcRepo := "test/e2e-src"
+	seed, err := buildArchImage(srcRepo, "base", "amd64", "linux")
+	if err != nil {
+		t.Fatalf("skopeo seed build: %v", err)
+	}
+	srcRef, err := name.NewTag(fx.RegistryHostPort()+"/"+srcRepo+":base", name.Insecure)
+	if err != nil {
+		t.Fatalf("skopeo seed ref: %v", err)
+	}
+	if err := remote.Write(srcRef, seed); err != nil {
+		t.Fatalf("skopeo seed push: %v", err)
+	}
+	toolbox.Exec(t, ctx, "skopeo", "copy",
+		"--src-tls-verify=false", "--dest-tls-verify=false",
+		"docker://"+direct+"/"+srcRepo+":base",
+		"docker://"+direct+"/"+repo+":"+tag)
+	return headDigest(t, fx.RegistryHostPort()+"/"+repo+":"+tag)
 }
 
 // parseDigest extracts the artifact digest from attach output — and
@@ -182,21 +220,12 @@ func pushImageCrane(t *testing.T, fx *Fixture, repo, tag string) string {
 	return d.String()
 }
 
-// run executes a CLI and fails the scenario on error, with combined
-// output — daemon CLIs fail opaquely otherwise.
+// run executes a host CLI and fails the scenario on error, with
+// combined output — daemon CLIs fail opaquely otherwise. Toolbox
+// clients go through Toolbox.Exec instead.
 func run(t *testing.T, ctx context.Context, bin string, args ...string) string {
 	t.Helper()
-	return runIn(t, ctx, "", bin, args...)
-}
-
-// runIn is run with a working directory — oras rejects absolute file
-// paths, so artifact files go by relative name from their temp dir.
-func runIn(t *testing.T, ctx context.Context, dir, bin string, args ...string) string {
-	t.Helper()
 	cmd := exec.CommandContext(ctx, bin, args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s %v: %v\n%s", bin, args, err, out)
@@ -223,15 +252,7 @@ func pushImageDocker(t *testing.T, fx *Fixture, repo, tag string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	// A scratch image builds offline: no base pull, daemon-produced
-	// schema-2 manifest.
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\nCOPY hello /hello\n"), 0o644); err != nil {
-		t.Fatalf("docker context: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "hello"), []byte("kpr-e2e:"+repo+":"+tag+"\n"), 0o644); err != nil {
-		t.Fatalf("docker context: %v", err)
-	}
+	dir := scratchContext(t, repo, tag)
 	local := "kpr-e2e-client:latest"
 	run(t, ctx, "docker", "build", "-q", "-t", local, dir)
 	// Loopback: the daemon reaches the fixture registry over HTTP the
@@ -242,6 +263,46 @@ func pushImageDocker(t *testing.T, fx *Fixture, repo, tag string) string {
 	run(t, ctx, "docker", "rmi", local, dst)
 
 	return headDigest(t, fx.RegistryHostPort()+"/"+repo+":"+tag)
+}
+
+func pushImagePodman(t *testing.T, fx *Fixture, repo, tag string) string {
+	t.Helper()
+	// Podman is daemonless: build and push run in the local process,
+	// so unlike docker the push shares the test's viewpoint and
+	// reaches fixture ports from macOS too. Absent or unready podman
+	// proves nothing — skip; a present one reports real verdicts.
+	if _, err := exec.LookPath("podman"); err != nil {
+		t.Skipf("podman not installed, skipping podman push: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "podman", "info", "--format", "{{.Host.OS}}").CombinedOutput(); err != nil {
+		t.Skipf("podman not ready, skipping podman push: %v\n%s", err, out)
+	}
+
+	dir := scratchContext(t, repo, tag)
+	local := "kpr-e2e-client:latest"
+	run(t, ctx, "podman", "build", "-q", "-t", local, dir)
+	dst := fx.RegistryHostPort() + "/" + repo + ":" + tag
+	run(t, ctx, "podman", "tag", local, dst)
+	run(t, ctx, "podman", "push", "--tls-verify=false", dst)
+	run(t, ctx, "podman", "rmi", local, dst)
+
+	return headDigest(t, dst)
+}
+
+// scratchContext writes an offline scratch-image build context: no
+// base pull, daemon-produced schema-2 manifests.
+func scratchContext(t *testing.T, repo, tag string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\nCOPY hello /hello\n"), 0o644); err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hello"), []byte("kpr-e2e:"+repo+":"+tag+"\n"), 0o644); err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	return dir
 }
 
 func pushImageRegclient(t *testing.T, fx *Fixture, repo, tag string) string {
