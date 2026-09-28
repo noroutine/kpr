@@ -83,6 +83,34 @@ type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 
+// A fast child is reaped while its last lines still sit in the
+// pipe: returning on the exit first drops them (CI caught this as
+// an empty collect). Five thousand lines with an instant exit must
+// arrive whole and in order. If this fails, the runner loses
+// collector output under load.
+func TestCollectorDrainsEveryLine(t *testing.T) {
+	old := collectorCommand
+	collectorCommand = stubCollector("i=1; while [ $i -le 5000 ]; do echo line-$i; i=$((i+1)); done")
+	defer func() { collectorCommand = old }()
+
+	events, report := collectEvents()
+	var out strings.Builder
+	if err := runCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("runCollector: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 5000 {
+		t.Fatalf("drained %d lines, want all 5000", len(lines))
+	}
+	if lines[0] != "line-1" || lines[4999] != "line-5000" {
+		t.Errorf("drain endpoints = %q..%q, want line-1..line-5000", lines[0], lines[4999])
+	}
+	got := stages(*events)
+	if len(got) == 0 || got[len(got)-1] != GCStageCollectExit {
+		t.Errorf("last stage = %v, want %q", got, GCStageCollectExit)
+	}
+}
+
 func equalStages(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

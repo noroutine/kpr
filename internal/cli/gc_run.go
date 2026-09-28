@@ -145,48 +145,77 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	defer drainGCOutput(lines)
 	emitGC(report, timedGCEvent(GCStageCollectBegin, started))
 	lastLine := ""
-	for {
+	// feed streams one line to out, tracking the last for
+	// failure context. Write errors kill the child and fail:
+	// nobody is listening, collecting deaf helps no one.
+	feed := func(line gcOutput) error {
+		if line.err != nil {
+			lastLine = line.err.Error()
+			return nil
+		}
+		if strings.TrimSpace(line.text) != "" {
+			lastLine = strings.TrimSpace(line.text)
+		}
+		_, werr := fmt.Fprintln(out, line.text)
+		return werr
+	}
+	failOutput := func(werr error) error {
+		killCollector(cmd)
+		<-waitErr
+		_ = reader.Close()
+		return failGC(report, started, fmt.Errorf("collector output: %w", werr))
+	}
+	// The exit and the stream race: a fast child is reaped while
+	// its last lines still sit in the pipe. Returning on the exit
+	// first would drop them, so the exit only ends the multiplex
+	// phase — every line drains to out before this returns.
+	var exitErr error
+	exited, cancelled := false, false
+	for !exited && !cancelled {
 		select {
 		case line, ok := <-lines:
 			if !ok {
 				lines = nil
 				continue
 			}
-			if line.err != nil {
-				lastLine = line.err.Error()
-				continue
-			}
-			if strings.TrimSpace(line.text) != "" {
-				lastLine = strings.TrimSpace(line.text)
-			}
-			if _, werr := fmt.Fprintln(out, line.text); werr != nil {
-				killCollector(cmd)
-				<-waitErr
-				_ = reader.Close()
-				return failGC(report, started, fmt.Errorf("collector output: %w", werr))
+			if ferr := feed(line); ferr != nil {
+				return failOutput(ferr)
 			}
 		case err := <-waitErr:
-			_ = reader.Close()
-			exit := timedGCEvent(GCStageCollectExit, started)
-			if err != nil {
-				exit.Error = err.Error()
-			}
-			emitGC(report, exit)
-			if err == nil {
-				return nil
-			}
-			if lastLine != "" {
-				err = fmt.Errorf("%w: %s", err, lastLine)
-			}
-			return failGC(report, started, fmt.Errorf("garbage-collect: %w", err))
+			exitErr = err
+			exited = true
 		case <-ctx.Done():
+			cancelled = true
 			killCollector(cmd)
-			<-waitErr
-			_ = reader.Close()
-			emitGC(report, timedGCEvent(GCStageStopped, started))
-			return ctx.Err()
 		}
 	}
+	_ = reader.Close()
+	if cancelled {
+		<-waitErr
+		emitGC(report, timedGCEvent(GCStageStopped, started))
+		return ctx.Err()
+	}
+	// The child is dead and every write end is closed, so the
+	// scanner must terminate: drain everything it still holds.
+	if lines != nil {
+		for line := range lines {
+			if ferr := feed(line); ferr != nil {
+				return failGC(report, started, fmt.Errorf("collector output: %w", ferr))
+			}
+		}
+	}
+	exit := timedGCEvent(GCStageCollectExit, started)
+	if exitErr != nil {
+		exit.Error = exitErr.Error()
+	}
+	emitGC(report, exit)
+	if exitErr == nil {
+		return nil
+	}
+	if lastLine != "" {
+		exitErr = fmt.Errorf("%w: %s", exitErr, lastLine)
+	}
+	return failGC(report, started, fmt.Errorf("garbage-collect: %w", exitErr))
 }
 
 func killCollector(cmd *exec.Cmd) {
