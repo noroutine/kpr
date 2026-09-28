@@ -189,21 +189,25 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 			killCollector(cmd)
 		}
 	}
-	_ = reader.Close()
 	if cancelled {
+		_ = reader.Close()
 		<-waitErr
 		emitGC(report, timedGCEvent(GCStageStopped, started))
 		return ctx.Err()
 	}
 	// The child is dead and every write end is closed, so the
-	// scanner must terminate: drain everything it still holds.
+	// scanner reaches EOF on its own: drain everything before
+	// touching the reader — closing it first would abort the
+	// in-flight read and drop whatever still sits in the pipe.
 	if lines != nil {
 		for line := range lines {
 			if ferr := feed(line); ferr != nil {
+				_ = reader.Close()
 				return failGC(report, started, fmt.Errorf("collector output: %w", ferr))
 			}
 		}
 	}
+	_ = reader.Close()
 	exit := timedGCEvent(GCStageCollectExit, started)
 	if exitErr != nil {
 		exit.Error = exitErr.Error()
