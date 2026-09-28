@@ -23,6 +23,10 @@ const (
 	ActivityKey = "kpr:sweep:activity"
 	// LockKey is the sweeper single-flight lock (expires).
 	LockKey = "kpr:sweep:lock"
+	// GCLockKey serializes collectors: kpr gc and make gc honor the
+	// same key, so the two never race the store. Manual collector
+	// runs bypass it — the registry itself sets no lock.
+	GCLockKey = "kpr:gc:lock"
 )
 
 // ActivityCap bounds the outcome ring: state, not a stream.
@@ -79,4 +83,8 @@ type Store interface {
 	AcquireLock(ctx context.Context, ttl time.Duration) (bool, error)
 	// ReleaseLock drops the lock after a pass.
 	ReleaseLock(ctx context.Context) error
+	// AcquireGCLock takes the collector lock (false = held, refuse).
+	AcquireGCLock(ctx context.Context, ttl time.Duration) (bool, error)
+	// ReleaseGCLock drops the collector lock after a run.
+	ReleaseGCLock(ctx context.Context) error
 }

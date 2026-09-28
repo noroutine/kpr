@@ -119,11 +119,15 @@ docker exec kpr kpr gc --delete-untagged
 
 `kpr gc` refuses rather than collects blind: no binary/config mounts,
 no filesystem store root, inconclusive sentinel, writable without
-`--force`, unproven shared store, unreachable blobdescriptor cache.
+`--force`, unproven shared store, unreachable blobdescriptor cache,
+another run holding `kpr:gc:lock` (`make gc` honors the same key).
+After collecting it re-probes: a mode flip mid-run fails the run.
 It needs the registry's redis password as `REGISTRY_REDIS_PASSWORD`
 (same convention the registry uses) — without it the cache
 mis-marks and collection eats live layers. Flipping readonly stays
-with the operator; the command never rewrites registry config.
+with the operator; the command never rewrites registry config. Manual
+collector runs bypass the lock (the registry itself sets none), so
+don't run those concurrently either.
 
 ## Configuration
 

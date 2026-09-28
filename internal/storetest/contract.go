@@ -29,6 +29,7 @@ func RunContract(t *testing.T, setup func(t *testing.T) store.Store) {
 	t.Run("current", func(t *testing.T) { testCurrentRoundTrip(t, setup(t)) })
 	t.Run("activity", func(t *testing.T) { testActivityRingCapped(t, setup(t)) })
 	t.Run("lock", func(t *testing.T) { testLockSingleFlight(t, setup(t)) })
+	t.Run("gc-lock", func(t *testing.T) { testGCLockSingleFlight(t, setup(t)) })
 }
 
 var storeNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
@@ -213,6 +214,29 @@ func testActivityRingCapped(t *testing.T, s store.Store) {
 	if len(got) != store.ActivityCap {
 		t.Errorf("Activity = %d outcomes, want cap %d", len(got), store.ActivityCap)
 	}
+}
+
+// The collector lock is single-flight like the sweep lock but on its
+// own key: a second collector refuses while one runs, and releasing
+// re-arms. If this fails, gc runs race each other on one store.
+func testGCLockSingleFlight(t *testing.T, s store.Store) {
+	c := ctx()
+	ok, err := s.AcquireGCLock(c, time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("first AcquireGCLock = (%v, %v), want (true, nil)", ok, err)
+	}
+	ok, err = s.AcquireGCLock(c, time.Minute)
+	if err != nil || ok {
+		t.Fatalf("second AcquireGCLock = (%v, %v), want (false, nil)", ok, err)
+	}
+	if err := s.ReleaseGCLock(c); err != nil {
+		t.Fatalf("ReleaseGCLock: %v", err)
+	}
+	ok, err = s.AcquireGCLock(c, time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("post-release AcquireGCLock = (%v, %v), want (true, nil)", ok, err)
+	}
+	_ = s.ReleaseGCLock(c)
 }
 
 // The sweep lock is single-flight with expiry: a second trigger skips

@@ -179,10 +179,26 @@ func (s *RedisStore) Activity(ctx context.Context) ([]Outcome, error) {
 	return out, nil
 }
 
+func (s *RedisStore) acquire(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return s.rdb.SetNX(ctx, key, "1", ttl).Result()
+}
+
+func (s *RedisStore) release(ctx context.Context, key string) error {
+	return s.rdb.Del(ctx, key).Err()
+}
+
 func (s *RedisStore) AcquireLock(ctx context.Context, ttl time.Duration) (bool, error) {
-	return s.rdb.SetNX(ctx, LockKey, "1", ttl).Result()
+	return s.acquire(ctx, LockKey, ttl)
 }
 
 func (s *RedisStore) ReleaseLock(ctx context.Context) error {
-	return s.rdb.Del(ctx, LockKey).Err()
+	return s.release(ctx, LockKey)
+}
+
+func (s *RedisStore) AcquireGCLock(ctx context.Context, ttl time.Duration) (bool, error) {
+	return s.acquire(ctx, GCLockKey, ttl)
+}
+
+func (s *RedisStore) ReleaseGCLock(ctx context.Context) error {
+	return s.release(ctx, GCLockKey)
 }

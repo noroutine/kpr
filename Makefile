@@ -446,8 +446,13 @@ down:
 ## tag reference only; --delete-untagged also drops the orphaned
 ## manifest revisions that would otherwise keep every blob alive).
 ## Runs offline with the service's own volumes, then restarts the
-## registry.
+## registry. Takes the shared collector lock first: a kpr gc run in
+## flight refuses this, and vice versa. Manual collector runs bypass
+## the lock (the registry itself sets none) — don't run those
+## concurrently either.
 gc:
+	@docker exec kpr-redis redis-cli -a "$${REDIS_PASSWORD:-kpr-dev-only}" -n 4 SET kpr:gc:lock make-gc NX EX 1800 2>/dev/null | grep -q OK || (echo "kpr:gc:lock held (kpr gc running?) or redis unreachable — wait it out, or DEL kpr:gc:lock on DB 4 if stale"; exit 1)
 	docker compose stop registry
 	docker compose run --rm --no-deps --entrypoint /bin/registry registry garbage-collect --delete-untagged /etc/distribution/config.yml
 	docker compose start registry
+	-docker exec kpr-redis redis-cli -a "$${REDIS_PASSWORD:-kpr-dev-only}" -n 4 DEL kpr:gc:lock

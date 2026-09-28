@@ -313,6 +313,105 @@ func TestGCCacheGateDialsRegistryRedis(t *testing.T) {
 	}
 }
 
+// A held gc lock refuses the run: gc serializes on kpr:gc:lock (same
+// key make gc honors), and a finished run releases it. If this fails,
+// two collectors race the same store, or one run wedges the rest.
+func TestRunGCLockContention(t *testing.T) {
+	deny := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer deny.Close()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	cfg := stageGCStore(t, root)
+	digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
+	s := store.NewMemStore()
+	_ = s.Record(ctx, policy.Row{Repo: "app", Tag: "v1", Digest: digest, PushedAt: time.Now()})
+	stageTagLink(t, root, "app", "v1", digest)
+
+	oldBin := registryBinPath
+	registryBinPath = stageBin(t, "exit 0")
+	defer func() { registryBinPath = oldBin }()
+
+	if ok, err := s.AcquireGCLock(ctx, time.Minute); err != nil || !ok {
+		t.Fatalf("pre-acquire = (%v, %v), want (true, nil)", ok, err)
+	}
+	var out strings.Builder
+	if err := runGC(ctx, &out, s, deny.URL, cfg, false, false); err == nil {
+		t.Fatal("gc under held lock succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "another gc") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+	if err := s.ReleaseGCLock(ctx); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	out.Reset()
+	if err := runGC(ctx, &out, s, deny.URL, cfg, false, false); err != nil {
+		t.Fatalf("gc after release = %v, want nil", err)
+	}
+	if ok, _ := s.AcquireGCLock(ctx, time.Minute); !ok {
+		t.Error("lock still held after successful gc, want released")
+	}
+	_ = s.ReleaseGCLock(ctx)
+}
+
+// The post-run probe detects a mode flip mid-collect (readonly went
+// writable: something may have written under the mark phase). Changed
+// mode fails the run — the delete already happened, silence would be
+// the lie. A failed post-probe only warns: unknown is not observed
+// interference. If this fails, gc blesses runs it watched go sideways.
+func TestRunGCPostProbeFlip(t *testing.T) {
+	flap := httptest.NewServer(flipFlop(405, 202))
+	defer flap.Close()
+	down := httptest.NewServer(flipFlop(405, 500))
+	defer down.Close()
+
+	staged := func(t *testing.T) (string, *store.MemStore, string) {
+		root := t.TempDir()
+		cfg := stageGCStore(t, root)
+		digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
+		s := store.NewMemStore()
+		_ = s.Record(context.Background(), policy.Row{Repo: "app", Tag: "v1", Digest: digest, PushedAt: time.Now()})
+		stageTagLink(t, root, "app", "v1", digest)
+		return cfg, s, root
+	}
+	oldBin := registryBinPath
+	registryBinPath = stageBin(t, "exit 0")
+	defer func() { registryBinPath = oldBin }()
+
+	cfg, s, _ := staged(t)
+	var out strings.Builder
+	if err := runGC(context.Background(), &out, s, flap.URL, cfg, false, false); err == nil {
+		t.Fatal("gc across a readonly→writable flip succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "changed during collection") {
+		t.Errorf("failure names no cause: %v", err)
+	}
+
+	cfg2, s2, _ := staged(t)
+	out.Reset()
+	if err := runGC(context.Background(), &out, s2, down.URL, cfg2, false, false); err != nil {
+		t.Fatalf("gc with dead post-probe = %v, want nil (warn only)", err)
+	}
+	if !strings.Contains(out.String(), "post-run probe") {
+		t.Errorf("dead post-probe warned nothing:\n%s", out.String())
+	}
+}
+
+// flipFlop answers the first upload-initiate with first and every later
+// one with rest: a mode change mid-run on demand.
+func flipFlop(first, rest int) http.HandlerFunc {
+	var calls int
+	return func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(first)
+			return
+		}
+		w.WriteHeader(rest)
+	}
+}
+
 // A readonly registry runs the stock collector with the operator's
 // flags — but only after a tracked tag resolves to its digest in the
 // local store. No tracked rows, or a mismatched link, refuses: URL

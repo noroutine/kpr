@@ -16,6 +16,7 @@ type MemStore struct {
 	current  Current
 	activity []Outcome
 	locked   bool
+	gcLocked bool
 }
 
 // NewMemStore builds an empty MemStore.
@@ -130,9 +131,26 @@ func (m *MemStore) AcquireLock(_ context.Context, _ time.Duration) (bool, error)
 	return true, nil
 }
 
+func (m *MemStore) AcquireGCLock(_ context.Context, _ time.Duration) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.gcLocked {
+		return false, nil
+	}
+	m.gcLocked = true
+	return true, nil
+}
+
 func (m *MemStore) ReleaseLock(context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.locked = false
+	return nil
+}
+
+func (m *MemStore) ReleaseGCLock(context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.gcLocked = false
 	return nil
 }

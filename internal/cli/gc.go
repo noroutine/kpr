@@ -268,13 +268,20 @@ func sameStoreTagLink(root, repo, tag, digest string) bool {
 	return strings.TrimSpace(string(raw)) == digest
 }
 
+// gcLockTTL bounds a collector run: a crashed gc releases at expiry
+// instead of wedging every later run.
+const gcLockTTL = 30 * time.Minute
+
 // runGC probes the registry writable/readonly, proves the local mount
 // is the registry's own store, then runs the stock collector against
-// it. Writable without --force refuses: the operator flips
-// storage.maintenance.readonly and restarts first. Anything
-// unproven — inconclusive probe, invisible upload, unresolvable
-// link — refuses always. Flipping readonly stays with the operator;
-// this command never rewrites registry config.
+// it under the shared collector lock. Writable without --force
+// refuses: the operator flips storage.maintenance.readonly and
+// restarts first. Anything unproven — inconclusive probe, invisible
+// upload, unresolvable link — refuses always. After a successful
+// collect the sentinel re-probes: a mode flip mid-run fails the run
+// (writes may have raced the mark phase), a dead post-probe only
+// warns. Flipping readonly stays with the operator; this command
+// never rewrites registry config.
 func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configPath string, deleteUntagged, force bool) error {
 	if err := gcReady(registryBinPath, configPath); err != nil {
 		return err
@@ -286,6 +293,18 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 	if err := gcCacheReady(ctx, configPath); err != nil {
 		return err
 	}
+	held, err := s.AcquireGCLock(ctx, gcLockTTL)
+	if err != nil {
+		return fmt.Errorf("redis unreachable: %w", err)
+	}
+	if !held {
+		return errors.New("another gc run holds the lock (kpr gc or make gc); wait it out or DEL kpr:gc:lock on the kpr redis DB if stale")
+	}
+	defer func() {
+		if rerr := s.ReleaseGCLock(ctx); rerr != nil {
+			_, _ = fmt.Fprintf(w, "Warning: gc lock release failed (%v); expires in %v\n", rerr, gcLockTTL)
+		}
+	}()
 	mode, uuid, err := probeRegistry(ctx, registryURL)
 	if err != nil {
 		return err
@@ -320,7 +339,27 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("garbage-collect: %w", err)
 	}
+	post, _, perr := probeRegistry(ctx, registryURL)
+	if perr != nil {
+		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, modeName(mode))
+		return nil
+	}
+	if post != mode {
+		return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run", modeName(mode), modeName(post))
+	}
 	return nil
+}
+
+// modeName renders the sentinel verdict for messages.
+func modeName(mode gcProbe) string {
+	switch mode {
+	case probeWritable:
+		return "writable"
+	case probeReadonly:
+		return "readonly"
+	default:
+		return "unknown"
+	}
 }
 
 // firstDigestRow returns any tracked row carrying a manifest digest.
