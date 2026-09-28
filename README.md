@@ -79,6 +79,9 @@ Hash forms never match (default keep):
 
 One honest edge: hex-spellable words of 6+ (`facade-7d`) do match.
 
+Spared: `latest` is never swept by any policy and never counts into
+keep-N — a repo keeps 10 plus `latest`.
+
 The sweeper adds its own floor regardless of marks: a TTL row whose
 promise hasn't elapsed is never wiped by a stale mark.
 

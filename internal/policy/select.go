@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// latestTag is spared by every policy and never counts into keep-N: it
+// always points at the current image, so collecting it deletes whatever
+// is newest, and the next push recreates it anyway.
+const latestTag = "latest"
+
 // Tunings for the M1 housekeeping behaviors (docs/PLAN.md). They live
 // here, next to the code that reads them — not in the main config.
 const (
@@ -46,6 +51,9 @@ func mark(r Row, reason string) Row {
 func SelectExpired(rows []Row, now time.Time) []Row {
 	var due []Row
 	for _, r := range rows {
+		if r.Tag == latestTag {
+			continue
+		}
 		if Eligible(r.Tag, r.PushedAt, now) {
 			if ttl, ok := EffectiveTTL(r.Tag); ok {
 				due = append(due, mark(r, fmt.Sprintf("ttl:%s elapsed", ttl)))
@@ -60,6 +68,9 @@ func SelectExpired(rows []Row, now time.Time) []Row {
 func SelectStaleUploads(rows []Row, now time.Time) []Row {
 	var due []Row
 	for _, r := range rows {
+		if r.Tag == latestTag {
+			continue
+		}
 		if r.Digest != "" || r.PushedAt.IsZero() {
 			continue
 		}
@@ -83,6 +94,9 @@ func SelectUntagged(rows []Row, catalog map[string][]string, now time.Time) []Ro
 	}
 	var due []Row
 	for _, r := range rows {
+		if r.Tag == latestTag {
+			continue
+		}
 		if _, known := catalog[r.Repo]; !known {
 			continue
 		}
@@ -126,6 +140,11 @@ func SelectKeepN(rows []Row, n int, include, exclude []string, now time.Time) []
 	inc, exc := compileRes(include), compileRes(exclude)
 	byRepo := map[string][]Row{}
 	for _, r := range rows {
+		// latest neither counts into the n nor takes a fall for
+		// being oldest: the repo keeps n plus latest.
+		if r.Tag == latestTag {
+			continue
+		}
 		if anyMatch(exc, r.Tag) {
 			continue
 		}
