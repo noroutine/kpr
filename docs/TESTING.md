@@ -177,11 +177,14 @@ Two rules carry over from the fixture days:
   ports) — never hardcoded `localhost`.
 
 Covered so far: TTL expiry, keep-N retention, stale-upload
-tag-fallback, untagged-after-grace, a four-client push matrix
-(ggcr, crane, docker daemon, regclient), and multi-arch index
-sweeps. The docker subtest skips on Docker Desktop (macOS/Windows),
-where the daemon's localhost cannot reach fixture ports — native
-Linux daemons, CI included, run it.
+tag-fallback, untagged-after-grace, a five-client push matrix
+(ggcr, crane, docker daemon, regclient, oras typed artifacts),
+multi-arch index sweeps, and referrer precision (an expired
+signature artifact sweeps while its subject stays listed and
+fetchable). The docker subtest skips on Docker Desktop
+(macOS/Windows), where the daemon's localhost cannot reach fixture
+ports — native Linux daemons, CI included, run it. oras flows skip
+when the oras CLI is absent.
 
 Not yet covered: the receiver-notification path (scenarios record the
 row the receiver would track; a serve-booting scenario asserting

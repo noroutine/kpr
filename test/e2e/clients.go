@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,9 @@ const (
 	// ClientRegclient copies via the regclient library (independent Go
 	// implementation, its own manifest serialization).
 	ClientRegclient
+	// ClientOras pushes a typed OCI artifact via the oras CLI
+	// (artifactType manifests, not images).
+	ClientOras
 )
 
 func (c PushClient) String() string {
@@ -48,9 +52,17 @@ func (c PushClient) String() string {
 		return "docker"
 	case ClientRegclient:
 		return "regclient"
+	case ClientOras:
+		return "oras"
 	}
 	return "unknown"
 }
+
+// digestRe extracts the artifact digest from oras attach output: the
+// `Digest:` line, never the subject ref in the `Attached to` line
+// above it (tagging the subject would retarget retention onto the
+// signed image itself).
+var digestRe = regexp.MustCompile(`(?m)^Digest:\s*(sha256:[0-9a-f]{64})\s*$`)
 
 // pushImage lands repo:tag on the fixture registry through the named
 // client and returns the manifest digest. Fatal on failure: a client
@@ -66,9 +78,71 @@ func pushImage(t *testing.T, fx *Fixture, client PushClient, repo, tag string) s
 		return pushImageDocker(t, fx, repo, tag)
 	case ClientRegclient:
 		return pushImageRegclient(t, fx, repo, tag)
+	case ClientOras:
+		return pushImageOras(t, fx, repo, tag, e2eArtifactType)
 	}
 	t.Fatalf("unknown push client %d", int(client))
 	return ""
+}
+
+// e2eArtifactType is the typed-blob artifact the oras matrix row
+// pushes: an OCI artifact, not an image.
+const e2eArtifactType = "application/vnd.kpr.e2e.artifact"
+
+// requireOras skips when the oras CLI is absent — artifact flows need
+// the binary, and its absence proves nothing about kpr.
+func requireOras(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("oras"); err != nil {
+		t.Skipf("oras CLI not installed, skipping artifact flow: %v", err)
+	}
+}
+
+func pushImageOras(t *testing.T, fx *Fixture, repo, tag, artifactType string) string {
+	t.Helper()
+	requireOras(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "artifact"), []byte("kpr-e2e:"+repo+":"+tag+"\n"), 0o644); err != nil {
+		t.Fatalf("oras context: %v", err)
+	}
+	dst := fx.RegistryHostPort() + "/" + repo + ":" + tag
+	runIn(t, ctx, dir, "oras", "push", "--plain-http", "--artifact-type", artifactType, dst, "artifact:application/octet-stream")
+	return headDigest(t, dst)
+}
+
+// orasAttach pins a typed artifact onto a subject manifest and tags
+// the result for retention. It returns the artifact digest, read back
+// uniformly (not trusted from CLI output).
+func orasAttach(t *testing.T, fx *Fixture, repo, subjectDigest, tag, artifactType, payload string) string {
+	t.Helper()
+	requireOras(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	host := fx.RegistryHostPort()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "artifact"), []byte(payload+"\n"), 0o644); err != nil {
+		t.Fatalf("oras context: %v", err)
+	}
+	out := runIn(t, ctx, dir, "oras", "attach", "--plain-http", "--artifact-type", artifactType,
+		host+"/"+repo+"@"+subjectDigest, "artifact:application/octet-stream")
+	digest := parseDigest(t, out)
+	run(t, ctx, "oras", "tag", "--plain-http", host+"/"+repo+"@"+digest, tag)
+	return headDigest(t, host+"/"+repo+":"+tag)
+}
+
+// parseDigest extracts the artifact digest from attach output — and
+// the tag readback confirms it actually landed under that digest.
+func parseDigest(t *testing.T, out string) string {
+	t.Helper()
+	m := digestRe.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no Digest: line in output:\n%s", out)
+	}
+	return m[1]
 }
 
 func pushImageGGCR(t *testing.T, fx *Fixture, repo, tag string) string {
@@ -112,7 +186,17 @@ func pushImageCrane(t *testing.T, fx *Fixture, repo, tag string) string {
 // output — daemon CLIs fail opaquely otherwise.
 func run(t *testing.T, ctx context.Context, bin string, args ...string) string {
 	t.Helper()
+	return runIn(t, ctx, "", bin, args...)
+}
+
+// runIn is run with a working directory — oras rejects absolute file
+// paths, so artifact files go by relative name from their temp dir.
+func runIn(t *testing.T, ctx context.Context, dir, bin string, args ...string) string {
+	t.Helper()
 	cmd := exec.CommandContext(ctx, bin, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s %v: %v\n%s", bin, args, err, out)

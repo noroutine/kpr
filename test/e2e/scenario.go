@@ -205,6 +205,51 @@ func (s *Scenario) DeleteManifest(repo, ref string) {
 	}
 }
 
+// AttachArtifact pins a typed OCI artifact onto a subject manifest,
+// tags it for retention, and records the row — the signed-artifact
+// shape: the artifact expires on its own TTL while the subject lives
+// on. It returns the artifact digest.
+func (s *Scenario) AttachArtifact(repo, subjectDigest, tag, artifactType, payload string, pushedAgo time.Duration) string {
+	s.t.Helper()
+	digest := orasAttach(s.t, s.fx, repo, subjectDigest, tag, artifactType, payload)
+	s.RecordRow(repo, tag, digest, pushedAgo)
+	return digest
+}
+
+// ExpectTagPresent asserts the tag is still listed — the survivor
+// half of a precision verdict (the subject outlives its artifact).
+func (s *Scenario) ExpectTagPresent(repo, tag string) {
+	s.t.Helper()
+	ctx, cancel := s.ctx()
+	defer cancel()
+	tags, err := s.reg.Catalog(ctx, repo)
+	if err != nil {
+		s.t.Fatalf("read e2e catalog: %v", err)
+	}
+	for _, t := range tags {
+		if t == tag {
+			return
+		}
+	}
+	s.t.Fatalf("tag %s:%s missing from catalog %v", repo, tag, tags)
+}
+
+// ExpectManifestFetchable asserts the digest still resolves upstream
+// (a HEAD, never a DELETE) — removing the artifact must not take the
+// subject with it.
+func (s *Scenario) ExpectManifestFetchable(repo, digest string) {
+	s.t.Helper()
+	ref, err := name.NewDigest(s.fx.RegistryHostPort()+"/"+repo+"@"+digest, name.Insecure)
+	if err != nil {
+		s.t.Fatalf("e2e fetch ref: %v", err)
+	}
+	ctx, cancel := s.ctx()
+	defer cancel()
+	if _, err := remote.Head(ref, remote.WithContext(ctx)); err != nil {
+		s.t.Fatalf("fetch %s@%s: %v", repo, digest, err)
+	}
+}
+
 // ReapArmed evaluates the CLI's own policies and marks every due row —
 // the armed `reap` branch, minus its printed report.
 func (s *Scenario) ReapArmed() {
