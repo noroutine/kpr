@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test coverage coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-observability down
+.PHONY: all build build-all clean clean-dist test e2e coverage coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-observability down gc
 .DEFAULT_GOAL := help
 
 # Version information
@@ -111,6 +111,10 @@ test:
 		echo ""; \
 		go test -v -race ./...; \
 	fi
+
+## e2e: Run end-to-end scenarios (testcontainers: real redis + registry, needs docker)
+e2e:
+	go test -race -tags e2e ./test/e2e/ -count=1 -v
 
 ## coverage: Run tests with coverage (coverprofile + terminal summary + HTML report)
 coverage:

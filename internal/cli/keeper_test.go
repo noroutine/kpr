@@ -216,7 +216,7 @@ func TestReapArmedMarksAllSorted(t *testing.T) {
 		t.Errorf("due = %+v, want {apple:10m zebra:10m}", due)
 	}
 	// evaluate itself sorts: the order contract lives there, not in Due.
-	marked, err := evaluate(cliCtx(), s, nil, cliNow)
+	marked, err := EvaluatePolicies(cliCtx(), s, nil, cliNow)
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}

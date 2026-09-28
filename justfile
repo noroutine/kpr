@@ -178,6 +178,11 @@ test:
         go test -v -race ./...
     fi
 
+# Run end-to-end scenarios (testcontainers: real redis + registry, needs docker)
+e2e:
+    #!/usr/bin/env bash
+    go test -race -tags e2e ./test/e2e/ -count=1 -v
+
 # Run tests with coverage (coverprofile + terminal summary + HTML report)
 coverage:
     #!/usr/bin/env bash

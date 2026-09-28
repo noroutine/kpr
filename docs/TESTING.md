@@ -149,14 +149,34 @@ one earned, none by neglect):
 - `otel/telemetry.go:95` (`initMetrics` error): needs a broken global
   OTel SDK — same untestable family as the Once-guarded Warn survivor.
 
-## Integration tests
+## End-to-end scenarios (`test/e2e`, `e2e` build tag)
 
-Not started yet. Notes on scope, fixtures (registry + redis from
-`docker-compose.yml`), and how they fit alongside the existing unit
-suite will land here once that work begins. Two rules already apply:
+Behavioral scenarios run the keeper pipeline against real containers
+via [testcontainers-go](https://github.com/testcontainers/testcontainers-go):
+a password-protected `redis:8-alpine` (kpr rows on DB 4, mirroring
+compose) plus a delete-enabled `registry:3`. Image pushes go through
+[go-containerregistry](https://github.com/google/go-containerregistry)
+(`remote.Write` — no docker daemon involved beyond the containers
+themselves). A small scenario DSL (`scenario.go`: `Push`, `ReapArmed`,
+`SweepArmed`, `Expect*`) drives the same `EvaluatePolicies`,
+`MarkDue`, and `Sweeper.RunPass` the CLI and serve run — one policy
+path, never a copy. `PushedAt` is backdated instead of sleeping on a
+clock, so scenarios stay fast and deterministic.
 
-- Tests must skip gracefully when the fixtures are not running.
-- Every fixture address is built from an env-exported host — never
-  hardcoded `localhost` (inside CI job containers the fixtures are
-  siblings whose published ports live on the host, so container
-  localhost never works there).
+```bash
+just e2e            # or: make e2e
+go test -race -tags e2e ./test/e2e/ -count=1 -v   # the long form
+```
+
+Two rules carry over from the fixture days:
+
+- Scenarios skip gracefully when no docker answers (`docker info`
+  gate); a container that fails to start once docker answers is a
+  real failure, never a skip.
+- Every fixture address comes from the container runtime (mapped
+  ports) — never hardcoded `localhost`.
+
+Not yet covered: the receiver-notification path (scenarios record the
+row the receiver would track; a serve-booting scenario asserting
+push → notification → row is the next slice), the registry
+blobdescriptor cache on shared redis, and offline GC.

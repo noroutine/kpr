@@ -105,10 +105,12 @@ func runPlan(ctx context.Context, w io.Writer, s store.Store, asJSON bool) error
 	return nil
 }
 
-// evaluate runs every policy over tracked rows plus live catalogs and
-// returns the joined mark per row. Catalog failures skip that repo's
-// catalog-dependent selectors (rows-only selectors still apply).
-func evaluate(ctx context.Context, s store.Store, reg *registry.Client, now time.Time) ([]policy.Row, error) {
+// EvaluatePolicies runs every policy over tracked rows plus live
+// catalogs and returns the joined mark per row. Catalog failures skip
+// that repo's catalog-dependent selectors (rows-only selectors still
+// apply). Exported so the e2e scenarios (test/e2e) drive the same
+// evaluation the CLI marks from — one policy path, never a copy.
+func EvaluatePolicies(ctx context.Context, s store.Store, reg *registry.Client, now time.Time) ([]policy.Row, error) {
 	rows, err := s.All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("redis unreachable: %w", err)
@@ -161,7 +163,7 @@ func evaluate(ctx context.Context, s store.Store, reg *registry.Client, now time
 // Unarmed it only prints the plan (same source as plan will show once
 // marked): dry-run is implicit, --no-dry-run explicit.
 func runReap(ctx context.Context, w io.Writer, s store.Store, reg *registry.Client, armed bool, now time.Time) error {
-	marked, err := evaluate(ctx, s, reg, now)
+	marked, err := EvaluatePolicies(ctx, s, reg, now)
 	if err != nil {
 		return err
 	}
