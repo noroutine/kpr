@@ -48,6 +48,14 @@ docker exec kpr kpr status              # counters
 Console: http://localhost:9300. Registry GC (reclaims blob bytes
 after manifest deletes — offline, registry stops) is `make gc`.
 
+## Adopting kpr into your own stack
+
+Already run `distribution` (behind Traefik or not) and want the keeper
+bolted on? Start here: [docs/ADOPT.md](docs/ADOPT.md) — three wires
+(notifications, deletes, one redis DB), a registry-config patch, a
+copy-paste kpr service with Traefik labels, and a disarmed first run.
+Pin `nrtn.dev/catalyst/kpr:<release-tag>`; images publish on tags.
+
 ## Policies
 
 Evaluated client-side by `kpr reap`; tunings live next to the code
