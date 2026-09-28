@@ -3,12 +3,15 @@
 package e2e
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
@@ -63,41 +66,143 @@ func (s *Scenario) ctx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), e2eTimeout)
 }
 
-// Push writes a real single-layer image to the fixture registry and
-// records the row the receiver would track for it (repo/tag/digest,
-// push time backdated by pushedAgo so scenarios expire rows without
-// sleeping on a clock). It returns the manifest digest.
-func (s *Scenario) Push(repo, tag string, pushedAgo time.Duration) string {
-	s.t.Helper()
+// buildImage assembles the scenario's single-layer image: distinct
+// bytes per repo:tag so every push mints a distinct digest.
+func buildImage(repo, tag string) (v1.Image, error) {
 	layer := static.NewLayer([]byte("kpr-e2e:"+repo+":"+tag), types.MediaType("application/octet-stream"))
+	return mutate.AppendLayers(empty.Image, layer)
+}
+
+// buildArchImage assembles a single-layer image stamped for one
+// platform: a genuinely gzipped layer under the compressed OCI type,
+// a config carrying both the architecture and the layer's DiffID in
+// its rootfs, and the OCI manifest envelope — the way real multi-arch
+// children look. The rootfs entry matters: ggcr derives Layers() from
+// the config's DiffIDs, so a bare Architecture/OS config silently
+// empties Layers() while the manifest still names the layer, and the
+// registry answers BLOB_UNKNOWN. (The untyped builder above suffices
+// for single images and stays untouched.)
+func buildArchImage(repo, tag, arch, os string) (v1.Image, error) {
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	if _, err := w.Write([]byte("kpr-e2e:" + repo + ":" + tag + "\n")); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	layer := static.NewLayer(buf.Bytes(), types.OCILayer)
 	img, err := mutate.AppendLayers(empty.Image, layer)
 	if err != nil {
-		s.t.Fatalf("build e2e image: %v", err)
+		return nil, err
 	}
+	diffID, err := layer.DiffID()
+	if err != nil {
+		return nil, err
+	}
+	img, err = mutate.ConfigFile(img, &v1.ConfigFile{
+		Architecture: arch,
+		OS:           os,
+		RootFS:       v1.RootFS{Type: "layers", DiffIDs: []v1.Hash{diffID}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mutate.MediaType(img, types.OCIManifestSchema1), nil
+}
+
+// imageRef parses a tag ref against the fixture registry (plain HTTP,
+// test-only).
+func (s *Scenario) imageRef(repo, tag string) name.Tag {
+	s.t.Helper()
 	ref, err := name.NewTag(s.fx.RegistryHostPort()+"/"+repo+":"+tag, name.Insecure)
 	if err != nil {
 		s.t.Fatalf("e2e image ref: %v", err)
 	}
-	if err := remote.Write(ref, img); err != nil {
-		s.t.Fatalf("push e2e image: %v", err)
-	}
-	d, err := img.Digest()
-	if err != nil {
-		s.t.Fatalf("e2e image digest: %v", err)
-	}
+	return ref
+}
+
+// RecordRow writes the row the receiver would track for a push
+// (repo/tag/digest, push time backdated by pushedAgo so scenarios
+// expire rows without sleeping on a clock) without pushing anything:
+// backfilled pre-kpr tags and digest-less twins go through here, and
+// so does every PushWithClient after its image lands.
+func (s *Scenario) RecordRow(repo, tag, digest string, pushedAgo time.Duration) {
+	s.t.Helper()
 	ctx, cancel := s.ctx()
 	defer cancel()
 	row := policy.Row{
 		Repo:     repo,
 		Tag:      tag,
-		Digest:   d.String(),
+		Digest:   digest,
 		PushedAt: time.Now().Add(-pushedAgo),
 		Actor:    "e2e",
 	}
 	if err := s.store.Record(ctx, row); err != nil {
 		s.t.Fatalf("record e2e row: %v", err)
 	}
+}
+
+// Push writes a real single-layer image via the default client and
+// records its row. It returns the manifest digest.
+func (s *Scenario) Push(repo, tag string, pushedAgo time.Duration) string {
+	s.t.Helper()
+	return s.PushWithClient(ClientGGCR, repo, tag, pushedAgo)
+}
+
+// PushWithClient pushes through the named client, then records the
+// row — the same composite as Push, with the producer swapped.
+func (s *Scenario) PushWithClient(client PushClient, repo, tag string, pushedAgo time.Duration) string {
+	s.t.Helper()
+	digest := pushImage(s.t, s.fx, client, repo, tag)
+	s.RecordRow(repo, tag, digest, pushedAgo)
+	return digest
+}
+
+// PushIndex writes a real multi-arch index (one child per arch) and
+// records the row against the index digest — what the receiver tracks
+// when a platform manifest list is pushed. It returns the index digest.
+func (s *Scenario) PushIndex(repo, tag string, pushedAgo time.Duration, arches ...string) string {
+	s.t.Helper()
+	var adds []mutate.IndexAddendum
+	for _, arch := range arches {
+		img, err := buildArchImage(repo, tag+"-"+arch, arch, "linux")
+		if err != nil {
+			s.t.Fatalf("build e2e image for %s: %v", arch, err)
+		}
+		// Children first, like every real client: blobs and child
+		// manifests must exist before the index referencing them
+		// lands (WriteIndex alone uploads only the index). The
+		// per-arch tags are scaffolding — verdicts only name the
+		// index tag.
+		child := s.imageRef(repo, tag+"-"+arch)
+		if err := remote.Write(child, img); err != nil {
+			s.t.Fatalf("push e2e child for %s: %v", arch, err)
+		}
+		adds = append(adds, mutate.IndexAddendum{Add: img})
+	}
+	idx := mutate.IndexMediaType(mutate.AppendManifests(empty.Index, adds...), types.OCIImageIndex)
+	ref := s.imageRef(repo, tag)
+	if err := remote.WriteIndex(ref, idx); err != nil {
+		s.t.Fatalf("push e2e index: %v", err)
+	}
+	d, err := idx.Digest()
+	if err != nil {
+		s.t.Fatalf("e2e index digest: %v", err)
+	}
+	s.RecordRow(repo, tag, d.String(), pushedAgo)
 	return d.String()
+}
+
+// DeleteManifest removes a manifest upstream, out from under kpr —
+// the external deletion the untagged policy exists for.
+func (s *Scenario) DeleteManifest(repo, ref string) {
+	s.t.Helper()
+	ctx, cancel := s.ctx()
+	defer cancel()
+	if _, err := s.reg.DeleteManifest(ctx, repo, ref); err != nil {
+		s.t.Fatalf("external delete %s@%s: %v", repo, ref, err)
+	}
 }
 
 // ReapArmed evaluates the CLI's own policies and marks every due row —
@@ -139,6 +244,48 @@ func (s *Scenario) ExpectDue(repo, tag, want string) {
 		}
 	}
 	s.t.Fatalf("row %s:%s not tracked", repo, tag)
+}
+
+// ExpectNotDue asserts the row is tracked but not marked — the
+// survivor half of a retention verdict.
+func (s *Scenario) ExpectNotDue(repo, tag string) {
+	s.t.Helper()
+	ctx, cancel := s.ctx()
+	defer cancel()
+	rows, err := s.store.All(ctx)
+	if err != nil {
+		s.t.Fatalf("read e2e rows: %v", err)
+	}
+	for _, r := range rows {
+		if r.Repo == repo && r.Tag == tag {
+			if r.Due {
+				s.t.Fatalf("row %s:%s due (%q), want survivor", repo, tag, r.Reason)
+			}
+			return
+		}
+	}
+	s.t.Fatalf("row %s:%s not tracked", repo, tag)
+}
+
+// ExpectDueCount asserts exactly n rows are marked — no silent
+// over- or under-marking around the named verdicts.
+func (s *Scenario) ExpectDueCount(n int) {
+	s.t.Helper()
+	ctx, cancel := s.ctx()
+	defer cancel()
+	rows, err := s.store.All(ctx)
+	if err != nil {
+		s.t.Fatalf("read e2e rows: %v", err)
+	}
+	var due int
+	for _, r := range rows {
+		if r.Due {
+			due++
+		}
+	}
+	if due != n {
+		s.t.Fatalf("due rows = %d, want %d", due, n)
+	}
 }
 
 // SweepArmed runs one armed pass — the tick's work, on demand — and

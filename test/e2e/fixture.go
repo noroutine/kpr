@@ -35,6 +35,7 @@ const (
 type Fixture struct {
 	redisAddr        string
 	registryHostPort string
+	registryLoopback string
 	registryURL      string
 }
 
@@ -90,6 +91,7 @@ func NewFixture(t *testing.T) *Fixture {
 	return &Fixture{
 		redisAddr:        redisHost + ":" + redisPort.Port(),
 		registryHostPort: hostPort,
+		registryLoopback: "localhost:" + regPort.Port(),
 		registryURL:      "http://" + hostPort,
 	}
 }
@@ -108,3 +110,7 @@ func (f *Fixture) RegistryURL() string { return f.registryURL }
 
 // RegistryHostPort is the registry without scheme, for image refs.
 func (f *Fixture) RegistryHostPort() string { return f.registryHostPort }
+
+// RegistryLoopback is the registry as localhost:port — for clients
+// that only speak to loopback over plain HTTP (the docker daemon).
+func (f *Fixture) RegistryLoopback() string { return f.registryLoopback }

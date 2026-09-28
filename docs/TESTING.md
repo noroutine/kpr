@@ -176,6 +176,13 @@ Two rules carry over from the fixture days:
 - Every fixture address comes from the container runtime (mapped
   ports) — never hardcoded `localhost`.
 
+Covered so far: TTL expiry, keep-N retention, stale-upload
+tag-fallback, untagged-after-grace, a four-client push matrix
+(ggcr, crane, docker daemon, regclient), and multi-arch index
+sweeps. The docker subtest skips on Docker Desktop (macOS/Windows),
+where the daemon's localhost cannot reach fixture ports — native
+Linux daemons, CI included, run it.
+
 Not yet covered: the receiver-notification path (scenarios record the
 row the receiver would track; a serve-booting scenario asserting
 push → notification → row is the next slice), the registry
