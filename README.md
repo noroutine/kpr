@@ -92,13 +92,13 @@ kpr serve    # console :9300 + app :8080 + receiver + sweeper loop
 kpr status   # banner + counters as text
 kpr plan     # pending candidates (--json for piping)
 kpr plan discard  # drop the whole plan (clear due marks, no dry-run)
-kpr plan add <pattern>...     # mark tracked repo:tag by glob or regex: (no dry-run)
+kpr plan add <pattern>...     # mark tracked repo:tag by glob, regex: or
+                             # exact image (exact names must match; no dry-run)
 kpr plan remove <pattern>...  # unmark due rows by glob, regex: or exact image (no dry-run)
 kpr reap [policy]  # evaluate one policy (expired, partial, untagged,
                    # keep-n) or all; marks accumulate until sweep or
                    # plan discard (--no-dry-run to mark, repeat --exclude
                    # to spare keep-N for matching repo:tag)
-kpr reap add <image>...  # mark exact tracked repo:tag images (no dry-run)
 kpr sweep    # POST the sweep trigger, print the pass summary
 kpr gc       # garbage-collect the shared store (dry-run preview by
              # default; --no-dry-run collects, readonly probe first)

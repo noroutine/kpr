@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/config"
@@ -42,7 +43,11 @@ func matchAny(patterns []string, qualified string) bool {
 
 // runPlanAdd marks tracked rows matching any pattern with a manual
 // reason. A direct plan edit like discard: no dry-run, the operator
-// named the images.
+// named the images. Exact spellings (no wildcards, no regex: prefix)
+// are typo-proof: one that matches no tracked row refuses before
+// anything marks (MarkDue would conjure a phantom row the sweeper
+// cannot resolve). Globs stay lenient — a pattern matching nothing
+// just adds nothing.
 func runPlanAdd(ctx context.Context, w io.Writer, s store.Store, patterns []string) error {
 	if err := checkPatterns(patterns); err != nil {
 		return err
@@ -50,6 +55,21 @@ func runPlanAdd(ctx context.Context, w io.Writer, s store.Store, patterns []stri
 	rows, err := s.All(ctx)
 	if err != nil {
 		return fmt.Errorf("redis unreachable: %w", err)
+	}
+	tracked := map[string]bool{}
+	for _, r := range rows {
+		tracked[r.Repo+":"+r.Tag] = true
+	}
+	for _, p := range patterns {
+		if strings.HasPrefix(p, "regex:") {
+			continue
+		}
+		if _, _, perr := policy.ParseExactImage(p); perr != nil {
+			continue
+		}
+		if !tracked[p] {
+			return fmt.Errorf("image %s matches no tracked row: push it first or check the name", p)
+		}
 	}
 	n := 0
 	for _, r := range rows {
@@ -101,49 +121,14 @@ func runPlanRemove(ctx context.Context, w io.Writer, s store.Store, patterns []s
 	return err
 }
 
-// runReapAdd marks exact tracked images due with a manual reason.
-// Everything validates before anything marks: an untracked name
-// refuses (MarkDue would conjure a phantom row the sweeper cannot
-// resolve) and wildcards refuse (that spelling is plan add).
-func runReapAdd(ctx context.Context, w io.Writer, s store.Store, images []string) error {
-	type target struct{ repo, tag string }
-	targets := make([]target, 0, len(images))
-	for _, image := range images {
-		repo, tag, perr := policy.ParseExactImage(image)
-		if perr != nil {
-			return perr
-		}
-		targets = append(targets, target{repo, tag})
-	}
-	rows, err := s.All(ctx)
-	if err != nil {
-		return fmt.Errorf("redis unreachable: %w", err)
-	}
-	tracked := map[string]bool{}
-	for _, r := range rows {
-		tracked[r.Repo+"\x00"+r.Tag] = true
-	}
-	for _, t := range targets {
-		if !tracked[t.repo+"\x00"+t.tag] {
-			return fmt.Errorf("image %s:%s is not tracked: push it first or check the name", t.repo, t.tag)
-		}
-	}
-	for _, t := range targets {
-		if merr := s.MarkDue(ctx, t.repo, t.tag, manualReason); merr != nil {
-			return fmt.Errorf("redis unreachable: %w", merr)
-		}
-	}
-	_, err = fmt.Fprintf(w, "marked %d rows due\n", len(targets))
-	return err
-}
-
 var planAddCmd = &cobra.Command{
 	Use:   "add <pattern>...",
 	Short: "Mark tracked images matching patterns due",
 	Long: `Mark tracked rows whose repo:tag (registry stripped) matches
 any pattern, with a manual reason. Kyverno-style globs (* crosses
 slashes, ? is one char) or regex: for full regex, repeatable —
-matches union. A direct plan edit: no dry-run.`,
+matches union. An exact repo:tag spelling is typo-proof: matching
+no tracked row refuses. A direct plan edit: no dry-run.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
@@ -171,23 +156,5 @@ Rows survive; only marks go. A direct plan edit: no dry-run.`,
 		}
 		defer func() { _ = s.Close() }()
 		return runPlanRemove(cmd.Context(), cmd.OutOrStdout(), s, args)
-	},
-}
-
-var reapAddCmd = &cobra.Command{
-	Use:   "add <image>...",
-	Short: "Mark exact tracked images due",
-	Long: `Mark exact tracked repo:tag images due with a manual reason.
-Names must be tracked already and wildcard-free (pattern spelling
-is plan add). A direct plan edit: no dry-run.`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := OpenStore(cfg)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = s.Close() }()
-		return runReapAdd(cmd.Context(), cmd.OutOrStdout(), s, args)
 	},
 }

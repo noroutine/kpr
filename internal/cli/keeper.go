@@ -438,7 +438,6 @@ An unreachable console degrades to the tick backstop.`,
 func init() {
 	planCmd.Flags().BoolVar(&planJSON, "json", false, "Render candidates as JSON for piping")
 	planCmd.AddCommand(planDiscardCmd, planAddCmd, planRemoveCmd)
-	reapCmd.AddCommand(reapAddCmd)
 	reapCmd.Flags().BoolVar(&reapNoDryRun, "no-dry-run", false, "Mark rows due for real (default prints the plan only)")
 	reapCmd.Flags().StringSliceVar(&reapExclude, "exclude", nil, "Spare keep-N for rows whose repo:tag matches (repeatable regex, registry stripped)")
 	RootCmd.AddCommand(statusCmd, planCmd, reapCmd, sweepCmd)

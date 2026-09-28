@@ -117,31 +117,20 @@ func TestPlanRemoveNoMatchNoOp(t *testing.T) {
 	}
 }
 
-// reap add takes exact tracked images into the plan. Untracked names
-// refuse (MarkDue would conjure phantom rows) and wildcards refuse
-// (that spelling is plan add). Nothing marks unless everything
-// validates.
-func TestReapAddExact(t *testing.T) {
-	s := editStage()
-	var out bytes.Buffer
-	if err := runReapAdd(cliCtx(), &out, s, []string{"scratch:10m", "app:v1"}); err != nil {
-		t.Fatalf("reap add: %v", err)
-	}
-	if due, _ := s.Due(cliCtx()); len(due) != 2 {
-		t.Errorf("due = %v, want 2 added rows", dueTags(due))
-	}
-}
-
-func TestReapAddRefusesUnknownAndWildcards(t *testing.T) {
-	for _, images := range [][]string{{"ghost:v1"}, {"scratch:*"}, {"notag"}} {
+// An exact name that matches no tracked row refuses, naming it:
+// a typoed image must not slip into (or past) the plan. Globs stay
+// lenient (see TestPlanAddNoMatch) — only exact spellings are
+// typo-proof. Nothing marks unless everything validates.
+func TestPlanAddExactMissRefuses(t *testing.T) {
+	for _, patterns := range [][]string{{"ghost:v1"}, {"scratch:10m", "ghost:v1"}} {
 		s := editStage()
 		var out bytes.Buffer
-		err := runReapAdd(cliCtx(), &out, s, images)
+		err := runPlanAdd(cliCtx(), &out, s, patterns)
 		if err == nil {
-			t.Fatalf("reap add %v succeeded, want refusal", images)
+			t.Fatalf("plan add %v succeeded, want refusal", patterns)
 		}
-		if !strings.Contains(err.Error(), images[0]) {
-			t.Errorf("refusal %q does not name %q", err, images[0])
+		if !strings.Contains(err.Error(), "ghost:v1") {
+			t.Errorf("refusal %q does not name ghost:v1", err)
 		}
 		if due, _ := s.Due(cliCtx()); len(due) != 0 {
 			t.Errorf("refused add marked %v, want nothing", dueTags(due))
