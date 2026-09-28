@@ -9,31 +9,40 @@ import (
 )
 
 // A CI commit build (hex stem + -ttl suffix) whose TTL elapsed must be
-// reaped due and swept like a bare TTL tag, while a human-named tag
-// with the same suffix shape stays untouched. If this fails, the suffix
-// form either never fires end to end or eats names it must not.
+// reaped due and swept like a bare TTL tag, a bare hash falls back to
+// the 48h default, while a human-named tag and an all-digit tag stay
+// untouched. If this fails, the hash forms either never fire end to
+// end or eat names they must not.
 func TestCommitHashSuffixSwept(t *testing.T) {
 	fx := NewFixture(t)
 	s := New(t, fx)
 
-	// Pushed an hour ago: the commit tag expired on arrival, the human
-	// tag never expires — the scenario never sleeps on a clock.
+	// The suffixed tag expired on arrival; the bare hash is past its
+	// 48h default; the human and all-digit tags never expire — the
+	// scenario never sleeps on a clock.
 	s.Push("test/ci", "abc1234-30s", time.Hour)
+	s.Push("test/ci", "deadbee", 49*time.Hour)
 	s.Push("test/ci", "myapp-30s", time.Hour)
+	s.Push("test/ci", "20240115", 30*24*time.Hour)
 
 	s.ReapArmed()
 	s.ExpectDue("test/ci", "abc1234-30s", "ttl:30s elapsed")
+	s.ExpectDue("test/ci", "deadbee", "ttl:48h0m0s elapsed")
 	s.ExpectNotDue("test/ci", "myapp-30s")
-	s.ExpectDueCount(1)
+	s.ExpectNotDue("test/ci", "20240115")
+	s.ExpectDueCount(2)
 
 	sum := s.SweepArmed()
-	if sum.Performed != 1 || sum.Failed != 0 {
-		t.Fatalf("sweep = %+v, want 1 performed, 0 failed", sum)
+	if sum.Performed != 2 || sum.Failed != 0 {
+		t.Fatalf("sweep = %+v, want 2 performed, 0 failed", sum)
 	}
 
 	s.ExpectAbsentFromCatalog("test/ci", "abc1234-30s")
 	s.ExpectRowGone("test/ci", "abc1234-30s")
+	s.ExpectAbsentFromCatalog("test/ci", "deadbee")
+	s.ExpectRowGone("test/ci", "deadbee")
 	s.ExpectTagPresent("test/ci", "myapp-30s")
+	s.ExpectTagPresent("test/ci", "20240115")
 }
 
 // Beyond the freshest KeepN tags, the oldest per repo must be reaped

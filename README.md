@@ -63,7 +63,7 @@ in `internal/policy`, not in the main config.
 
 | Policy | Reason | Tuning | State |
 |---|---|---|---|
-| TTL tags (`10m`) and CI commit builds (`abc1234-10m`: lowercase hex stem of any length + `-ttl`) eligible after push + TTL | `ttl:10s elapsed` | `DefaultTTL` (off), `MaxTTL` 30d | Done, proven live (human names like `myapp-10m` never match; hex-spellable words like `face-7d` inherently do) |
+| TTL tags (`10m`), CI commit builds (`abc1234-10m`: lowercase hex stem of 6+ + `-ttl`), and bare hashes (`abc1234`, default 48h) eligible after push + TTL | `ttl:10s elapsed` | `DefaultTTL` (off), `MaxTTL` 30d, `HashTTL` 48h | Done, proven live (human names like `myapp-10m` and all-digit tags like `20240115` never match; hex-spellable words like `facade-7d` inherently do) |
 | Digest-less rows older than max age (push residue) | `partial:older than 24h` | `StaleUploadMaxAge` 24h | Wired; rarely fires (receiver records digests) |
 | Tag vanished from catalog past grace | `untagged:past grace 168h` | `UntaggedGrace` 168h | Wired; needs catalog reads |
 | All but N freshest tags per repo | `keep-n:exceeds 10` | `KeepN` 10, **fixed** | Selector tested and runs, but N and include/exclude are not exposed — not a usable policy surface yet (see plan status) |

@@ -14,18 +14,41 @@ import (
 // Tunings for the ephemeral-tag behavior (docs/PLAN.md M2). DefaultTTL
 // is the TTL non-matching tags fall back to; zero means no expiry, so
 // a normal :latest is untouched. MaxTTL clamps every parsed TTL.
+// HashTTL is the default for bare commit hashes (no -ttl suffix): 48h
+// covers next-day triage where 24h proved too short.
 const (
 	DefaultTTL = time.Duration(0)
 	MaxTTL     = 30 * 24 * time.Hour
+	HashTTL    = 48 * time.Hour
 )
 
 // ttlRe matches TTL tags in two forms: a bare ttl.sh-style number plus
-// one unit (10m), or a CI commit build — a lowercase hex stem of any
-// length plus a -ttl suffix (abc1234-10m). The stem group is
+// one unit (10m), or a CI commit build — a lowercase hex stem of at
+// least six plus a -ttl suffix (abc1234-10m). The stem group is
 // non-capturing so submatch indices never move. Stems are lowercase
 // hex only (what git emits); non-hex names like myapp-10m never match,
-// while hex-spellable words (face-7d) inherently do.
-var ttlRe = regexp.MustCompile(`^(?:[0-9a-f]+-)?(\d+)([smhdw])` + `$`)
+// while hex-spellable words (facade-7d) inherently do.
+var ttlRe = regexp.MustCompile(`^(?:[0-9a-f]{6,}-)?(\d+)([smhdw])` + `$`)
+
+// hashRe matches a bare commit hash: lowercase hex, at least six
+// chars. The letter check lives in isBareHash: hex without a single
+// a-f is a build number until proven otherwise.
+var hashRe = regexp.MustCompile(`^[0-9a-f]{6,}$`)
+
+// isBareHash reports whether tag is a commit hash without an explicit
+// -ttl suffix: hex of at least six with at least one a-f letter, so
+// all-digit tags (dates, build numbers) default to keep.
+func isBareHash(tag string) bool {
+	if !hashRe.MatchString(tag) {
+		return false
+	}
+	for i := 0; i < len(tag); i++ {
+		if tag[i] >= 'a' && tag[i] <= 'f' {
+			return true
+		}
+	}
+	return false
+}
 
 // unitDur maps a TTL tag unit to its duration.
 func unitDur(u byte) time.Duration {
@@ -68,12 +91,16 @@ func parseTTL(tag string) (ttl time.Duration, ok bool) {
 }
 
 // EffectiveTTL resolves a tag to its TTL: the parsed value clamped to
-// MaxTTL, or the DefaultTTL fallback for non-matching tags. ok is false
-// when the tag never expires (empty default), so callers treat it as
-// keep without comparing durations.
+// MaxTTL, the HashTTL default for bare commit hashes, or the
+// DefaultTTL fallback for anything else. ok is false when the tag
+// never expires (empty default), so callers treat it as keep without
+// comparing durations.
 func EffectiveTTL(tag string) (ttl time.Duration, ok bool) {
 	ttl, matched := parseTTL(tag)
 	if !matched {
+		if isBareHash(tag) {
+			return HashTTL, true
+		}
 		if DefaultTTL == 0 {
 			return 0, false
 		}

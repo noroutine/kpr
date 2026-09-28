@@ -42,17 +42,18 @@ func TestEffectiveTTLNonMatchingTagNeverExpires(t *testing.T) {
 	}
 }
 
-// CI pushes app:<sha>-<ttl>: a lowercase hex stem of any length plus a
-// -ttl suffix is a TTL tag, while a non-hex stem (a human name, an
-// uppercase hash) never matches — the suffix form stays scoped to
-// commit builds instead of eating every -10m tag. If this fails,
-// either commit builds never expire or the blast radius is back.
+// CI pushes app:<sha>-<ttl>: a lowercase hex stem of at least six plus
+// a -ttl suffix is a TTL tag, while a non-hex stem (a human name, an
+// uppercase hash) or a short stem never matches — the suffix form
+// stays scoped to commit builds instead of eating every -10m tag. If
+// this fails, either commit builds never expire or the blast radius is
+// back.
 func TestEffectiveTTLCommitHashSuffix(t *testing.T) {
 	matched := map[string]time.Duration{
 		"abc1234-10m": 10 * time.Minute,
-		"a-1h":        1 * time.Hour, // any length, even one
-		"1234567-2h":  2 * time.Hour, // all-digit stems are hex-valid
-		"face-7d":     7 * 24 * time.Hour,
+		"abc123-10m":  10 * time.Minute, // six is the minimum
+		"1234567-2h":  2 * time.Hour,    // all-digit stems are hex-valid
+		"facade-7d":   7 * 24 * time.Hour,
 		"fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e-30s": 30 * time.Second,
 	}
 	for tag, want := range matched {
@@ -65,9 +66,32 @@ func TestEffectiveTTLCommitHashSuffix(t *testing.T) {
 			t.Errorf("EffectiveTTL(%q) = %v, want %v", tag, got, want)
 		}
 	}
-	// face-7d above locks the documented edge: hex-spellable words
+	// facade-7d above locks the documented edge: hex-spellable words
 	// match. Everything else human must not.
-	for _, tag := range []string{"myapp-10m", "release-7d", "v1.2.3-1h", "ABC1234-10m", "abc1234-", "-10m", "10m-"} {
+	for _, tag := range []string{"myapp-10m", "release-7d", "v1.2.3-1h", "ABC1234-10m", "abc1234-", "-10m", "10m-", "a-1h", "abc12-10m", "face-7d"} {
+		if ttl, ok := EffectiveTTL(tag); ok {
+			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
+		}
+	}
+}
+
+// A bare commit hash (no -ttl suffix) gets the hash default: 48h is
+// enough for next-day triage, 24h proved too short. The default needs
+// at least one a-f letter — an all-digit tag is a build number until
+// proven otherwise, and unknown intent defaults to keep. If this
+// fails, commit builds pile up forever or build numbers get eaten.
+func TestEffectiveTTLHashDefault48h(t *testing.T) {
+	for _, tag := range []string{"abc1234", "abcdef", "deadbee", "fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e"} {
+		got, ok := EffectiveTTL(tag)
+		if !ok {
+			t.Errorf("EffectiveTTL(%q) not matched, want 48h", tag)
+			continue
+		}
+		if got != 48*time.Hour {
+			t.Errorf("EffectiveTTL(%q) = %v, want 48h", tag, got)
+		}
+	}
+	for _, tag := range []string{"123456", "20240115", "myapp", "latest", "ABC1234", "abc12", "12345"} {
 		if ttl, ok := EffectiveTTL(tag); ok {
 			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
 		}
