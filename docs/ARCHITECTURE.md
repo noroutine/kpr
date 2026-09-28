@@ -69,10 +69,9 @@ and never counts into keep-N.
 | `untagged` | tracked tag gone from the live catalog past the grace period | `UntaggedGrace` 168h; unfetched repos skip (absent means unknown) |
 | `keep-n` | everything past the freshest N tags per repo | `KeepN` 10, fixed; `reap --exclude` regex spares release lines; catalog-only tags default keep |
 
-keep-N is honest about its limits: N is a const, include is unset,
-excludes arrive via the reap flag. Tested and running, but not a
-tunable policy surface — the first thing to finish if keep-N is meant
-to be real (see Open).
+keep-N is intentionally fixed: N is a const (10), include is unset,
+excludes arrive via the reap flag. Tested and running; per-repo
+tuning stays out by decision (see Deliberately out).
 
 Dry-run is implicit: `reap` prints unless `--no-dry-run`, the sweeper
 plans unless armed, `gc` previews unless `--no-dry-run`. Direct plan
@@ -363,7 +362,7 @@ repo).
 
 ## Open, in no order
 
-- Finish keep-N as a policy surface (N still fixed at 10).
+- keep-N tuning surface (`--last`, `--include`): declined, N stays 10 with `--exclude`.
 - Backfill for pre-kpr tags; unknown-age rows default keep today.
 - Real partial-upload detection (bounded manifest reads).
 - Detached `reap`/`sweep` over the console HTTP surface.
