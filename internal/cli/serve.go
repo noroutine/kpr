@@ -81,6 +81,10 @@ var serveCmd = &cobra.Command{
 		} else {
 			log.Printf("Sweeper dry-run: deletes only planned (arm with --no-dry-run or KPR_NO_DRY_RUN=true)")
 		}
+		// AirPlay preflight: macOS Receiver squats localhost:5000 with
+		// Server: AirTunes, and only a positive fingerprint warns —
+		// unreachable or remote peers stay silent.
+		warnIfAirPlaySquats(cfg)
 
 		var wg sync.WaitGroup
 		errors := make(chan error, 3)

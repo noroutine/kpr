@@ -92,6 +92,8 @@ services:
     ports:
       # Needs localhost:5000 free: macOS AirPlay Receiver squats it when
       # enabled (answers 403 with Server: AirTunes) — keep that off.
+      # `make up` probes the port and kpr serve sniffs the peer at boot;
+      # both warn when they see AirTunes.
       - "127.0.0.1:5000:5000"
       # Debug + prometheus (/metrics) from registry-config.yml's
       # http.debug block; scraped by the observability overlay.

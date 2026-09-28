@@ -502,10 +502,12 @@ docker-clean:
 
 # Start base dev stack locally (detached)
 up:
+    @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     docker compose up -d --build
 
 # Start full dev stack with observability overlay (detached)
 up-observability:
+    @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
 
 # Stop local stacks
