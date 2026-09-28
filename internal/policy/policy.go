@@ -73,7 +73,9 @@ func unitDur(u byte) time.Duration {
 // immediately — the opposite of a huge TTL's intent).
 func parseTTL(tag string) (ttl time.Duration, ok bool) {
 	m := ttlRe.FindStringSubmatch(tag)
-	if m == nil {
+	// A regex edit that drops a capture group must degrade to no-match
+	// (keep), never to an index panic mid-reap.
+	if len(m) != 3 {
 		return 0, false
 	}
 	n, err := strconv.ParseUint(m[1], 10, 64)

@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"regexp"
 	"testing"
 	"time"
 )
@@ -95,6 +96,18 @@ func TestEffectiveTTLHashDefault48h(t *testing.T) {
 		if ttl, ok := EffectiveTTL(tag); ok {
 			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
 		}
+	}
+}
+
+// A TTL regex edit that drops a capture group must degrade to no-match
+// (keep), never to an index panic mid-reap. If this fails, the next
+// person to touch ttlRe can crash every reap run.
+func TestParseTTLToleratesShortSubmatch(t *testing.T) {
+	old := ttlRe
+	ttlRe = regexp.MustCompile(`^(\d+)$`)
+	defer func() { ttlRe = old }()
+	if ttl, ok := parseTTL("123"); ok {
+		t.Errorf("parseTTL(123) = (%v, true) under a groupless regex, want (0, false)", ttl)
 	}
 }
 
