@@ -311,10 +311,42 @@ func TestIndexPageIsKeeperFront(t *testing.T) {
 			t.Errorf("front page lacks %q", want)
 		}
 	}
-	for _, gone := range []string{"api/hello", "api/data", "testHello", "<button", "<a ", "Quickwit"} {
+	for _, gone := range []string{"api/hello", "api/data", "testHello", "<button", "<a ", "Quickwit", "What kpr does"} {
 		if strings.Contains(body, gone) {
-			t.Errorf("front page still carries %q (mock or link)", gone)
+			t.Errorf("front page still carries %q (mock, link, or dropped section)", gone)
 		}
+	}
+}
+
+// The status ball is live, not paint: the page script re-reads /health
+// on a timer so a dead keeper turns the ball red without a reload. If
+// this fails, the ball is a one-shot snapshot again.
+func TestFrontPagePollsHealth(t *testing.T) {
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = s.Start(ctx) }()
+	base := "http://" + ln.Addr().String()
+	waitFor(t, base+"/health")
+
+	resp, err := testClient.Get(base + "/static/app.js") //nolint:gosec,noctx // test-only loopback
+	if err != nil {
+		t.Fatalf("GET /static/app.js: %v", err)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	drainAndClose(t, resp)
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	js := string(raw)
+	for _, want := range []string{"/health", "setInterval"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("page script lacks %q (no live ball)", want)
+		}
+	}
+	if strings.Contains(js, "api/hello") || strings.Contains(js, "api/data") {
+		t.Errorf("page script still calls the mock API")
 	}
 }
 

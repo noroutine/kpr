@@ -57,14 +57,33 @@ header h1 {
 
 .ball.ok {
     background: #89d185;
+    box-shadow: 0 0 8px #89d185;
+    animation: ball-pulse 3s ease-in-out infinite;
 }
 
 .ball.warn {
     background: #dcdcaa;
+    box-shadow: 0 0 8px #dcdcaa;
 }
 
 .ball.down {
     background: #f44747;
+    box-shadow: 0 0 8px #f44747;
+}
+
+@keyframes ball-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.55;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ball.ok {
+        animation: none;
+    }
 }
 
 main {
@@ -76,7 +95,7 @@ main {
 .hero h2 {
     font-size: 2.6em;
     line-height: 1.1;
-    margin-bottom: 14px;
+    margin-bottom: 22px;
     color: #d4d4d4;
 }
 
@@ -96,40 +115,6 @@ main {
     line-height: 1.7;
     color: #9cdcfe;
     overflow-x: auto;
-}
-
-.card {
-    background: #2d2d30;
-    border-radius: 6px;
-    padding: 20px 24px;
-}
-
-.card h2 {
-    color: #dcdcaa;
-    margin-bottom: 12px;
-    font-size: 1.2em;
-}
-
-.card p {
-    line-height: 1.6;
-    margin-bottom: 10px;
-    color: #d4d4d4;
-}
-
-code {
-    background: #1e1e1e;
-    padding: 2px 6px;
-    border-radius: 4px;
-    color: #9cdcfe;
-}
-
-ul {
-    list-style: none;
-}
-
-ul li {
-    margin-bottom: 10px;
-    line-height: 1.5;
 }
 
 footer {

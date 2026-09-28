@@ -17,24 +17,14 @@
 
         <main>
             <section class="hero">
-                <h2>Push. Pull.<br>Forget.</h2>
-                <p>Tag any image with a TTL and it expires on its own —
-                stale uploads and vanished tags get swept too. No
-                account, no cleanup cron. Your registry, your disk
-                back.</p>
+                <h2>Push. Pull. Forget.</h2>
+                <p>Just enough on top of your registry to stop your disk
+                — and your life — from bloating. Push with a TTL, pull
+                while it lasts, forget the rest. Your registry, your
+                disk back.</p>
                 <pre class="commands">$ docker tag my-app:build my-registry:5000/my-app:10m
 $ docker push my-registry:5000/my-app:10m
 # …10 minutes later, it's gone. Like magic.</pre>
-            </section>
-
-            <section class="card">
-                <h2>What kpr does</h2>
-                <ul>
-                    <li><code>receiver</code> tracks every push as a redis row</li>
-                    <li><code>reap</code> marks expired rows due, with a reason</li>
-                    <li><code>sweep</code> deletes marked manifests by digest</li>
-                    <li>offline <code>make gc</code> reclaims the orphaned blobs</li>
-                </ul>
             </section>
         </main>
 
