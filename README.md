@@ -63,10 +63,21 @@ in `internal/policy`, not in the main config.
 
 | Policy | Reason | Tuning | State |
 |---|---|---|---|
-| TTL tags (`10m`), CI commit builds (`abc1234-10m`: lowercase hex stem of 6+ + `-ttl`), and bare hashes (`abc1234`, default 48h) eligible after push + TTL | `ttl:10s elapsed` | `DefaultTTL` (off), `MaxTTL` 30d, `HashTTL` 48h | Done, proven live (human names like `myapp-10m` and all-digit tags like `20240115` never match; hex-spellable words like `facade-7d` inherently do) |
+| Bare TTL tags (`10m`), eligible after push + TTL | `ttl:10s elapsed` | `DefaultTTL` (off), `MaxTTL` 30d | Done, proven live |
+| CI commit builds (`abc1234-10m`): lowercase hex stem of 6+ plus `-ttl` | `ttl:10s elapsed` | `MaxTTL` 30d | Done, proven live |
+| Bare hashes (`abc1234`): no suffix, 48h default for next-day triage | `ttl:48h0m0s elapsed` | `HashTTL` 48h | Done, proven live |
 | Digest-less rows older than max age (push residue) | `partial:older than 24h` | `StaleUploadMaxAge` 24h | Wired; rarely fires (receiver records digests) |
 | Tag vanished from catalog past grace | `untagged:past grace 168h` | `UntaggedGrace` 168h | Wired; needs catalog reads |
 | All but N freshest tags per repo | `keep-n:exceeds 10` | `KeepN` 10, **fixed** | Selector tested and runs, but N and include/exclude are not exposed — not a usable policy surface yet (see plan status) |
+
+Hash forms never match (default keep):
+
+- human names with a TTL-shaped tail (`myapp-10m`, `release-7d`)
+- all-digit tags (`20240115`, `123456`) — a bare number is a build number
+- uppercase hashes (`ABC1234`) — git emits lowercase
+- short stems (`a-1h`, `face-7d`)
+
+One honest edge: hex-spellable words of 6+ (`facade-7d`) do match.
 
 The sweeper adds its own floor regardless of marks: a TTL row whose
 promise hasn't elapsed is never wiped by a stale mark.
