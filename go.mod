@@ -6,6 +6,7 @@ require (
 	github.com/google/go-containerregistry v0.20.6
 	github.com/prometheus/client_golang v1.24.1
 	github.com/redis/go-redis/v9 v9.12.1
+	github.com/regclient/regclient v0.11.6
 	github.com/spf13/cobra v1.10.2
 	github.com/testcontainers/testcontainers-go v0.39.0
 	go.opentelemetry.io/contrib/bridges/otelslog v0.20.1
@@ -19,6 +20,7 @@ require (
 	go.opentelemetry.io/otel/sdk/log v0.22.0
 	go.opentelemetry.io/otel/sdk/metric v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (
@@ -74,7 +76,6 @@ require (
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
-	github.com/regclient/regclient v0.11.6 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.6 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
@@ -88,7 +89,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/log v0.22.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect

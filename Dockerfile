@@ -1,5 +1,11 @@
 # syntax=docker/dockerfile:1
 
+# Stock registry image (same one the stack runs): `kpr gc` shells out
+# to its garbage-collect, so collector and store versions match by
+# construction. Keep in sync with the registry service in compose.
+ARG REGISTRY_IMAGE=registry:3
+FROM $REGISTRY_IMAGE AS registry-bin
+
 # Build stage
 FROM golang:1.27-alpine AS builder
 
@@ -42,6 +48,9 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /build/kpr /usr/local/bin/kpr
+
+# Stock registry binary for `kpr gc`, from the registry-bin stage above.
+COPY --from=registry-bin /bin/registry /bin/registry
 
 # Set ownership
 RUN chown -R kpr:kpr /app

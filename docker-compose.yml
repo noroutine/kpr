@@ -31,6 +31,12 @@ services:
 
       # Registry peer (sweeper deletes, reap reads catalog)
       - "KPR_REGISTRY_URL=http://registry:5000"
+      # The stock collector kpr gc shells out to reads the same file
+      # and honors the same override convention, so it needs the
+      # registry's redis password too: without it the blobdescriptor
+      # cache mis-marks and collection eats live layers. Must match
+      # REDIS_PASSWORD, like the registry service below.
+      - "REGISTRY_REDIS_PASSWORD=${REDIS_PASSWORD:-kpr-dev-only}"
       # Armed by default: the local stack really deletes. Comment the
       # line out (anything but exactly "true" keeps dry-run) to go back
       # to planning without touching anything.
@@ -45,6 +51,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    volumes:
+      # GC shares the registry's store: config read-only, blob data
+      # read-write. `kpr gc` runs the stock collector against these
+      # after the sentinel proves the registry readonly.
+      - ./registry-config.yml:/etc/distribution/config.yml:ro
+      - registry-data:/var/lib/registry
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9300/health"]
@@ -89,6 +101,10 @@ services:
   registry:
     image: registry:3
     container_name: kpr-registry
+    # Same uid as kpr (1000): the blob store is shared with the kpr
+    # container for `kpr gc`, so both writers must own it. One-time
+    # chown of the volume, then restarts are clean.
+    user: "1000:1000"
     ports:
       # Needs localhost:5000 free: macOS AirPlay Receiver squats it when
       # enabled (answers 403 with Server: AirTunes) — keep that off.

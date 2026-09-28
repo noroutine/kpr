@@ -91,14 +91,39 @@ promise hasn't elapsed is never wiped by a stale mark.
 kpr serve    # console :9300 + app :8080 + receiver + sweeper loop
 kpr status   # banner + counters as text
 kpr plan     # pending candidates (--json for piping)
-kpr reap     # evaluate policies, mark due (--no-dry-run to mark)
+kpr plan discard  # drop the whole plan (clear due marks, no dry-run)
+kpr reap     # evaluate policies, mark due (--no-dry-run to mark,
+             # repeat --exclude to spare keep-N for matching repo:tag)
 kpr sweep    # POST the sweep trigger, print the pass summary
+kpr gc       # garbage-collect the shared store (readonly probe first)
 kpr env      # resolved configuration
 ```
 
 The keeper CLI talks to redis directly, so it runs colocated with
 `serve` (same network: `docker exec kpr kpr …`). Detached operation
 is explicitly deferred.
+
+## Garbage collection
+
+Deletes drop the manifest reference only; blob bytes need the stock
+collector against the shared store:
+
+```bash
+# 1. Registry readonly (config file! the env override panics
+#    registry:3): storage.maintenance.readonly.enabled: true + restart.
+# 2. Collect from the kpr container (shared mounts, same binary):
+docker exec kpr kpr gc                 # refuses unless readonly
+docker exec kpr kpr gc --delete-untagged
+# 3. Flip readonly back off + restart.
+```
+
+`kpr gc` refuses rather than collects blind: no binary/config mounts,
+no filesystem store root, inconclusive sentinel, writable without
+`--force`, unproven shared store, unreachable blobdescriptor cache.
+It needs the registry's redis password as `REGISTRY_REDIS_PASSWORD`
+(same convention the registry uses) — without it the cache
+mis-marks and collection eats live layers. Flipping readonly stays
+with the operator; the command never rewrites registry config.
 
 ## Configuration
 

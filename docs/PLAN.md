@@ -360,7 +360,7 @@ reclaim (`--delete-untagged`, registry downtime accepted).
 
 ### Open, in no order
 
-- Finish keep-N as a policy surface (N + include/exclude exposure).
+- Finish keep-N as a policy surface (N still fixed at 10; `--exclude` shipped).
 - Backfill for pre-kpr tags; unknown-age rows default keep today.
 - Real partial-upload detection (bounded manifest reads).
 - Detached `reap`/`sweep` over the console HTTP surface.
@@ -368,4 +368,6 @@ reclaim (`--delete-untagged`, registry downtime accepted).
   deferred; the vocabulary and keys are the contract.
 - Online GC — a much-later registry conversation; soft-deleted blobs
   dedupe re-pushes until then.
+- Registry metrics as a GC-readiness signal (storage pressure before
+  collecting) — noted, not scheduled.
 - Tag-release flow (image push + Forgejo release) unverified.
