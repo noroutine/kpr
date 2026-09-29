@@ -207,28 +207,6 @@ func EvaluatePolicy(ctx context.Context, s store.Store, reg CatalogSource, now t
 // (registry stripped). Exported so the e2e scenarios (test/e2e) drive
 // the same evaluation the CLI marks from — one policy path, never a
 // copy.
-
-// Reap evaluates one policy (or all) and, when armed, marks the rows
-// due. Marks accumulate across calls until sweep or plan discard: a
-// second reap adds its rows, never wipes the first policy's. Unarmed
-// it only evaluates (the caller prints the plan): dry-run is implicit,
-// --no-dry-run explicit. excludes spares keep-N for matching repo:tag
-// names. It returns the evaluated rows either way, marked or not.
-func Reap(ctx context.Context, s store.Store, reg CatalogSource, now time.Time, keepNExclude []string, policyName string, armed bool) ([]policy.Row, error) {
-	marked, err := EvaluatePolicy(ctx, s, reg, now, keepNExclude, policyName)
-	if err != nil {
-		return nil, err
-	}
-	if !armed {
-		return marked, nil
-	}
-	for _, r := range marked {
-		if merr := s.MarkDue(ctx, r.Repo, r.Tag, r.Reason); merr != nil {
-			return nil, fmt.Errorf("redis unreachable: %w", merr)
-		}
-	}
-	return marked, nil
-}
 func EvaluatePolicies(ctx context.Context, s store.Store, reg CatalogSource, now time.Time, keepNExclude []string) ([]policy.Row, error) {
 	rows, err := s.All(ctx)
 	if err != nil {
@@ -257,4 +235,26 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg CatalogSource, now
 	}
 	sortMarks(out)
 	return out, nil
+}
+
+// Reap evaluates one policy (or all) and, when armed, marks the rows
+// due. Marks accumulate across calls until sweep or plan discard: a
+// second reap adds its rows, never wipes the first policy's. Unarmed
+// it only evaluates (the caller prints the plan): dry-run is implicit,
+// --no-dry-run explicit. excludes spares keep-N for matching repo:tag
+// names. It returns the evaluated rows either way, marked or not.
+func Reap(ctx context.Context, s store.Store, reg CatalogSource, now time.Time, keepNExclude []string, policyName string, armed bool) ([]policy.Row, error) {
+	marked, err := EvaluatePolicy(ctx, s, reg, now, keepNExclude, policyName)
+	if err != nil {
+		return nil, err
+	}
+	if !armed {
+		return marked, nil
+	}
+	for _, r := range marked {
+		if merr := s.MarkDue(ctx, r.Repo, r.Tag, r.Reason); merr != nil {
+			return nil, fmt.Errorf("redis unreachable: %w", merr)
+		}
+	}
+	return marked, nil
 }
