@@ -69,13 +69,26 @@ cmd/app                  the only wiring
   Plan (list/discard/add/remove). e2e imports `keeper`, never
   `cli`; `web` formats, `cli` prints. Topped up (review): direct
   `ListPlan` test, zero-branch messages, failing-store error paths.
-- [~] Step gc (was 4) — partial, started early on Oleksii's call:
-  gc-1 moved the write sentinel (`ProbeRegistry`, `Mode`,
-  `ProbeRepo`) with its tests; e2e drives it from `gc`. Remain:
-  same-store proofs, collector run, lock handling, then the
-  `Probe`/`Collector`/`Locker` ports as the orchestration moves.
-  Why early: biggest use-case-in-adapter left, and the port-design
-  lesson lives here.
+- [~] Step 4 — gc use case, partial, started early on Oleksii's
+  call (biggest use-case-in-adapter left, and the port-design
+  lesson lives here):
+  - [x] gc-1 sentinel: `ProbeRegistry`, `Mode`, `ProbeRepo` with
+    tests; `cli.runGC` and e2e drive it from `gc`.
+  - [ ] gc-2 proofs: `registryStoreRoot`, `storeLayout`,
+    `sameStoreUpload`, `sameStoreTagLink`, `firstDigestRow` (+
+    readiness gates) move with their tests. Pure groundwork, no
+    ports yet.
+  - [ ] gc-3 collector: `runCollector`, `GCEvent` stream,
+    `collectorCommand` seam move; `Collector` port cut
+    (production adapter shells the stock binary, tests keep the
+    shell stub).
+  - [ ] gc-4 orchestration: `runGC` + `GCOptions` move behind
+    `Probe` (sentinel) and `Locker` (named lock) ports; `cli`
+    keeps flags, wiring, and `renderGCEvent`.
+  - Later, on the gc path (not the hexagon): Oleksii's read-sentinel
+    same-store proof idea (`kpr-sentinel:latest`, API digest vs
+    link-file revision) — parked in `docs/BACKFILL.md`, lands here
+    when backfill unparks.
 - [ ] Step 3 — narrow store interfaces. Deferred: no consumer has
   abused the fat port yet, and the lock collapse already removed
   the clearest duplication. Waits for evidence.
