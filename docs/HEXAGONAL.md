@@ -100,7 +100,7 @@ cli.openDeps             the composition root
   `Run` keeps its own shape). Eight RunEs collapsed, fail-fast
   pinned by test. Not `cmd/app` injection — that would restructure
   every cobra var for no new substitution.
-- Extra (review-suggested, taken): named lock port over
+- [x] Extra (review-suggested, taken): named lock port over
   `LockKey`/`GCLockKey` — twin contract tests became one plus a
   cross-lock independence check. Taken because the duplication was
   exact (same shape, same tests twice), not speculative.
