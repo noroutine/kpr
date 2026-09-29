@@ -188,14 +188,15 @@ func TestDiscardPlanEmptyNoOp(t *testing.T) {
 
 // List returns due rows repo-major with reasons: the plan output
 // order contract, pinned at the use case instead of only through
-// the CLI's rendering.
+// the CLI's rendering. Tag order opposes repo order on purpose: a
+// comparator that falls through to tags must still sort by repo.
 func TestListPlanSortsRepoMajor(t *testing.T) {
 	s := store.NewMemStore()
 	c := context.Background()
-	_ = s.Record(c, policy.Row{Repo: "b-repo", Tag: "z", Digest: "sha256:1", PushedAt: keeperNow})
-	_ = s.Record(c, policy.Row{Repo: "a-repo", Tag: "a", Digest: "sha256:2", PushedAt: keeperNow})
-	_ = s.MarkDue(c, "b-repo", "z", "manual")
-	_ = s.MarkDue(c, "a-repo", "a", "manual")
+	_ = s.Record(c, policy.Row{Repo: "b-repo", Tag: "a", Digest: "sha256:1", PushedAt: keeperNow})
+	_ = s.Record(c, policy.Row{Repo: "a-repo", Tag: "z", Digest: "sha256:2", PushedAt: keeperNow})
+	_ = s.MarkDue(c, "b-repo", "a", "manual")
+	_ = s.MarkDue(c, "a-repo", "z", "manual")
 	due, err := ListPlan(c, s)
 	if err != nil {
 		t.Fatalf("list: %v", err)

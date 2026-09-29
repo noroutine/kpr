@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// Killing a never-started command is a silent no-op: the cancel path
+// calls it on whatever exists. If this fails, a failed spawn panics
+// the cleanup.
+func TestKillCollectorNilProcess(t *testing.T) {
+	killCollector(&exec.Cmd{})
+}
+
 // stubCollector replaces the command seam with a shell script: the
 // evented runner is exercised without a registry anywhere near.
 func stubCollector(script string) func(context.Context, string, []string) *exec.Cmd {

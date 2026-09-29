@@ -555,6 +555,8 @@ func TestSweeperFailedDeleteKeepsRowDue(t *testing.T) {
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted,
 		failFirst: true, err: errors.New("registry down")}
 	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sink := &recordSink{}
+	sw.Log = sink.log
 	sum := sw.RunPass(testCtx(), "test")
 	if sum.Performed != 1 || sum.Failed != 1 {
 		t.Errorf("summary = %+v, want 1 performed and 1 failed", sum)
@@ -565,6 +567,17 @@ func TestSweeperFailedDeleteKeepsRowDue(t *testing.T) {
 	due, _ := s.Due(testCtx())
 	if len(due) != 1 || due[0].Repo+"@"+due[0].Digest != stub.refs[0] {
 		t.Errorf("due = %v, want only the first-attempted ref %q", due, stub.refs[0])
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	for _, r := range sink.records {
+		if r.msg != "sweep pass" {
+			continue
+		}
+		fails, ok := r.attrs["failures"].([]string)
+		if !ok || len(fails) == 0 {
+			t.Errorf("pass log lacks failures: %v", r.attrs)
+		}
 	}
 }
 

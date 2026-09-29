@@ -69,6 +69,27 @@ func (f stubCatalog) Catalog(ctx context.Context, repo string) ([]string, error)
 	return f.tags[repo], nil
 }
 
+// Untagged marks sort repo-major across repos: two gone repos with
+// tag order opposing repo order, so a comparator falling through to
+// tags sorts deterministically wrong. If this fails, multi-repo
+// marks print in map order.
+func TestEvaluateUntaggedSortsRepoMajor(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "zebra", Tag: "a", Digest: "sha256:a",
+		PushedAt: keeperNow.Add(-200 * time.Hour)})
+	_ = s.Record(c, policy.Row{Repo: "apple", Tag: "z", Digest: "sha256:b",
+		PushedAt: keeperNow.Add(-200 * time.Hour)})
+	stub := stubCatalog{tags: map[string][]string{"zebra": {}, "apple": {}}}
+	marked, err := EvaluatePolicy(keeperCtx(), s, stub, keeperNow, nil, "untagged")
+	if err != nil {
+		t.Fatalf("EvaluatePolicy untagged: %v", err)
+	}
+	if len(marked) != 2 || marked[0].Repo != "apple" || marked[1].Repo != "zebra" {
+		t.Errorf("untagged = %v, want repo-major apple,zebra", marked)
+	}
+}
+
 // The untagged selector marks only tags absent from the live catalog
 // past grace: the stub lists v9 for kept and nothing for gone, so
 // gone:v1 marks and kept:v9 stays. If this fails, evaluation reads
@@ -143,6 +164,22 @@ func TestReapUnknownPolicyRefuses(t *testing.T) {
 type stubProber struct{ err error }
 
 func (f stubProber) Reachable(context.Context) error { return f.err }
+
+// The plan inside FetchStatus sorts repo-major: two due rows with
+// tag order opposing repo order pin the comparator's repo branch. If
+// this fails, the dashboard plan prints in map order.
+func TestFetchStatusPlanSortsRepoMajor(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "zebra", Tag: "a", Digest: "sha256:a",
+		PushedAt: keeperNow, Due: true, Reason: "manual"})
+	_ = s.Record(c, policy.Row{Repo: "apple", Tag: "z", Digest: "sha256:b",
+		PushedAt: keeperNow, Due: true, Reason: "manual"})
+	st := FetchStatus(keeperCtx(), s, stubProber{})
+	if len(st.Plan) != 2 || st.Plan[0].Repo != "apple" || st.Plan[1].Repo != "zebra" {
+		t.Errorf("plan = %+v, want repo-major apple,zebra", st.Plan)
+	}
+}
 
 // Status counts every outcome kind once, for both readers: the plan
 // sorts repo-major and every due row carries its reason. If this
