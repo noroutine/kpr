@@ -69,6 +69,9 @@ cmd/app                  the only wiring
   Plan (list/discard/add/remove). e2e imports `keeper`, never
   `cli`; `web` formats, `cli` prints. Topped up (review): direct
   `ListPlan` test, zero-branch messages, failing-store error paths.
+- [ ] Step 3 — narrow store interfaces. Deferred: no consumer has
+  abused the fat port yet, and the lock collapse already removed
+  the clearest duplication. Waits for evidence.
 - [~] Step 4 — gc use case, partial, started early on Oleksii's
   call (biggest use-case-in-adapter left, and the port-design
   lesson lives here):
@@ -89,9 +92,6 @@ cmd/app                  the only wiring
     same-store proof idea (`kpr-sentinel:latest`, API digest vs
     link-file revision) — parked in `docs/BACKFILL.md`, lands here
     when backfill unparks.
-- [ ] Step 3 — narrow store interfaces. Deferred: no consumer has
-  abused the fat port yet, and the lock collapse already removed
-  the clearest duplication. Waits for evidence.
 - [ ] Step 5 — single composition root. Deferred: janitorial, least
   learning per line; worth doing once, not now.
 - Extra (review-suggested, taken): named lock port over
