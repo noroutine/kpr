@@ -19,8 +19,9 @@ slice in the tree.
 From the repo root, uncommitted slice in the tree:
 
 ```
-claude -p "Review <slice> per docs/REVIEWER_CONTEXT_HEXAGONAL.md. \
-Reply with ordered findings only, file:line anchors."
+claude --model claude-sonnet-5 -p "Review <slice> per \
+docs/REVIEWER_CONTEXT_HEXAGONAL.md. Reply with ordered findings \
+only, file:line anchors."
 ```
 
 No file-passing: you read the repo yourself. No permission flag:
@@ -28,6 +29,16 @@ review is read-only, and the flagless call is proven.
 `--dangerously-skip-permissions` only if a review ever needs tools
 beyond reading. Muse commits only after findings are addressed or
 explicitly dismissed.
+
+## Division of labor
+
+You review, you don't run: no `go test`, no `go vet`, no builds on
+your side — your sandbox can't approve them anyway, and a review
+that half-runs code reports noise as findings. Read the diff
+against the repo, verify claims from the code, label test
+outcomes "unverified", and leave the running to Muse: every slice
+lands with build, vet, full unit suite, lint, and e2e
+compile-check observed green before commit.
 
 ## What kpr is
 
