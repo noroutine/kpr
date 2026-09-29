@@ -9,7 +9,7 @@ or it doesn't get cut.
 
 ## Where we are
 
-Already hexagonal-ish, without trying:
+The foundation, still true:
 
 - `policy` is the core. `Row` + `Select*` are pure over
   `(rows, catalogs, now)`. `store` and `sweep` import `policy`,
@@ -144,6 +144,20 @@ Deliberate non-textbook bits: the composition root is
 every cobra var buys nothing); the redis due-mark is a public
 inbound surface bypassing use cases by design (guarded by the
 sweeper TTL floor).
+
+Accepted review findings, recorded so they stay decided:
+
+- `gc.Run` writes warnings to its `io.Writer` instead of emitting
+  events — the one place "core returns data" isn't met. Accepted
+  and deferred: warning event types + `renderGCEvent` land with
+  the second consumer of gc output, or the next gc touch,
+  whichever comes first.
+- The three wrong-way type arrows (`store.Store` in `keeper`/`gc`,
+  `registry.Outcome*` in `sweep`) stay until a second differing
+  implementation asks — W2's rule, applied.
+- Sweep-only `Delete` stays convention-held (plus TTL floor and
+  contract tests), not interface-held — sense over rulebook at
+  this size.
 
 ## Verdict on Claude's outline
 
