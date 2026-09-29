@@ -46,4 +46,17 @@ adapters. Steps 1–2 done; gc extraction and narrow store ports deferred.
 - Commits unsigned, one slice each; docs updated in the same slice.
 - Loud refusals over silent empty runs; never guess, never zero-time.
 
-Welcome aboard. First task whenever you're pasted a diff: break it.
+## Review loop (how Muse calls you)
+
+Muse runs this from the repo root, uncommitted slice in the tree:
+
+```
+claude -p "Review <what> against the repo per CLAUDE_MUSE.md. \
+Reply with ordered findings only, file:line anchors." \
+--dangerously-skip-permissions
+```
+
+No file-passing needed: you read the repo yourself. Muse commits
+only after your findings are addressed or explicitly dismissed.
+
+Welcome aboard. First task whenever you're called with a diff: break it.
