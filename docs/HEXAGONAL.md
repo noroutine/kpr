@@ -17,7 +17,7 @@ Already hexagonal-ish, without trying:
 - Time needs no port. `now` arrives as an argument, `Sweeper.Now`
   is the seam. No `Clock` interface.
 
-## Where it leaks
+## Where it leaked (diagnosis at start; status in Work below)
 
 1. `registry` has no port. `sweep.Sweeper`, `cli.EvaluatePolicy(s)`,
    `fetchCatalogs`, `runStatus`, and `web.Server` all hold
@@ -47,82 +47,53 @@ sweeper TTL floor (never wipe before promise elapses) guards it, and
 
 ```
 policy/                  core (unchanged)
-keeper/  sweep-use?/ gc/  use cases (pure orchestration, ports in)
+keeper/ gc/             use cases (pure orchestration, ports in)
+sweep/                   pass loop (use case where it sits)
 store/ registry/ otel/    outbound adapters
 cli/ web/ app/            driving adapters (parse, call, render)
 cmd/app                  the only wiring
 ```
 
-Concrete moves, in order:
+## Work (status per step)
 
-1. `Registry` interface next to its consumers. `sweep` needs
-   `DeleteManifest`, reap needs `Catalog`, console needs `Reachable`.
-   ~10 lines, kills the HTTP server in sweep tests.
-2. `keeper` use cases out of `cli`/`web`: Reap, Plan
-   (add/remove/discard), Status. One counter implementation, e2e
-   stops importing `cli`.
-3. Narrow store interfaces per consumer (rows / run-state / locks).
-   Only when step 2 shows a consumer abusing the fat port.
-4. `gc` use case + ports (`Probe`, `Collector`, `Locker`) out of
-   `cli`. Only if `gc` keeps growing past backfill/sentinel work.
-5. Single composition root in `cmd/app`. Each `RunE` stops rewiring.
-
-## Progress
-
-- Step 1 done: `sweep.Registry` (delete port), `cli` cataloger +
-  prober (one method each — no consumer needed both), `web.Server`
-  reachability port. Stub tests per consumer, no new loopback
-  servers; the stubs also carry the failure paths (mid-pass error
-  keeps the row due, held untracks). Full unit suite green, e2e
-  compiles (docker run deferred to CI).
-- Known gap (review): `sweep` still imports `registry` for the
-  `Outcome*` delete vocabulary, and the stub tests reference it too —
-  the type is decoupled, the package arrow isn't. Moving the
-  vocabulary waits for a second backend or the gc extraction.
-- Step gc-1 done: `gc` package owns the write sentinel
-  (`ProbeRegistry`, `Mode`, `ProbeRepo`); `cli.runGC` and e2e drive
-  it from its new address. Proofs, collector run, and lock handling
-  stay in `cli` for the next slices.
-- Step 1b done (review): the mid-pass failure test fails the first
-  call whatever the ref (map-order independent); 12 sweep tests moved
-  off the loopback server onto the stub, the duplicated HTTP held
-  test deleted. One integration test
-  (`TestArmedPassDeletesAndResolves`) keeps the real client, so port
-  and adapter stay proven together.
-- Locks collapsed (review): one named-lock port
-  (`AcquireLock(ctx, name, ttl)` / `ReleaseLock(ctx, name)`) over the
-  existing `LockKey` / `GCLockKey`; the twin contract tests became one
-  (plus a cross-lock independence check), redis was already keyed
-  underneath.
-- Step 2a done: `keeper` package owns evaluation (`EvaluatePolicy(s)`
-  + `CatalogSource` port); `cli` calls it, e2e imports it instead of
-  `cli`, and the two pure-evaluation tests moved to the use case's
-  address. `cli/keeper.go` no longer imports `policy`.
-- Step 2b done: `keeper.Reap` (evaluate + mark-behind-`armed`);
-  `cli.runReap` is printing-only, e2e `ReapArmed` drives the use case
-  instead of its own mark loop, refusal + armed/unarmed pinned in
-  `keeper` tests.
-- Step 2c done: `keeper.FetchStatus` (one counting implementation +
-  `Prober` port); `cli.runStatus` fails on it, `web.keeperSnapshot`
-  formats it. The duplicated outcome switch is gone; `web/server.go`
-  no longer names a registry type.
-- Step 2d done: `keeper` owns the plan (`ListPlan`, `DiscardPlan`,
-  `AddPlan`, `RemovePlan` + `ManualReason`); `cli` renders counts and
-  the JSON view. Behavior tests moved to the use case, message tests
-  stayed in the adapter. `keeper.go`/`planedit.go` no longer import
-  `policy`; only the deferred `gc.go` still does (Row type).
-- Coverage top-up (review): direct `ListPlan` test (sort contract +
-  dead-store refusal), zero-branch message tests in `cli`, failing
-  fakes for `DiscardPlan`/`ListPlan` error paths. Extraction gaps
-  closed; redis/gc/root stay environmental and out of scope.
+- [x] Step 1 — registry ports. `sweep.Registry` (delete),
+  `keeper.CatalogSource` (was `cli.cataloger`), `keeper.Prober`
+  (was `cli.prober` + web's inline port). Split after review into
+  1-review: 12 sweep tests off the loopback server onto the stub,
+  mid-pass failure test made map-order independent, one HTTP
+  integration test kept. Gap left: `sweep` still imports `registry`
+  for `Outcome*` — type decoupled, package arrow isn't; moves with
+  a second backend or not at all.
+- [x] Step 2 — keeper use cases, split 2a–2d: evaluation, `Reap`
+  (mark-behind-armed), `FetchStatus` (one counter implementation),
+  Plan (list/discard/add/remove). e2e imports `keeper`, never
+  `cli`; `web` formats, `cli` prints. Topped up (review): direct
+  `ListPlan` test, zero-branch messages, failing-store error paths.
+- [~] Step gc (was 4) — partial, started early on Oleksii's call:
+  gc-1 moved the write sentinel (`ProbeRegistry`, `Mode`,
+  `ProbeRepo`) with its tests; e2e drives it from `gc`. Remain:
+  same-store proofs, collector run, lock handling, then the
+  `Probe`/`Collector`/`Locker` ports as the orchestration moves.
+  Why early: biggest use-case-in-adapter left, and the port-design
+  lesson lives here.
+- [ ] Step 3 — narrow store interfaces. Deferred: no consumer has
+  abused the fat port yet, and the lock collapse already removed
+  the clearest duplication. Waits for evidence.
+- [ ] Step 5 — single composition root. Deferred: janitorial, least
+  learning per line; worth doing once, not now.
+- Extra (review-suggested, taken): named lock port over
+  `LockKey`/`GCLockKey` — twin contract tests became one plus a
+  cross-lock independence check. Taken because the duplication was
+  exact (same shape, same tests twice), not speculative.
 
 ## Experiment rules
 
 - One slice at a time, TDD, pipeline green, coverage > 90%.
 - No `Clock` port, no policy engine, no gRPC/IDL, no framework.
 - `keeper` naming: `keeper` (repo vocabulary), not `usecase`/`service`.
-- Stop after step 2 unless 3+4 pull their weight. Measure: lines
-  deleted, fakes deleted, duplicated strings gone.
+- Steps 3+5 stay gated: each needs a "does it pay?" verdict, not
+  auto-approval. Measure: lines deleted, fakes deleted, duplicated
+  strings gone.
 
 ## Open questions
 
@@ -139,8 +110,8 @@ Concrete moves, in order:
 
 ## Verdict on Claude's outline
 
-70%-hexagonal claim holds against the code read so far (receiver,
-`cli/gc*.go`, config not re-read by Claude — verified above: gc is
-indeed ~720 lines of use case in `cli`). Steps 1+2 are the right
-first cut. Narrow store ports and gc extraction wait, as proposed.
-`Clock` correctly dropped.
+70%-hexagonal claim held against the code read at the time (gc was
+indeed ~720 lines of use case in `cli`). Steps 1+2 were the right
+first cut; gc extraction started early on evidence (biggest
+use-case-in-adapter left). Narrow store ports still wait, as
+proposed. `Clock` correctly dropped.
