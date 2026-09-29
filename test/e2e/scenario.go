@@ -256,14 +256,8 @@ func (s *Scenario) ReapArmed() {
 	s.t.Helper()
 	ctx, cancel := s.ctx()
 	defer cancel()
-	marked, err := keeper.EvaluatePolicies(ctx, s.store, s.reg, time.Now(), nil)
-	if err != nil {
-		s.t.Fatalf("evaluate policies: %v", err)
-	}
-	for _, r := range marked {
-		if err := s.store.MarkDue(ctx, r.Repo, r.Tag, r.Reason); err != nil {
-			s.t.Fatalf("mark e2e row due: %v", err)
-		}
+	if _, err := keeper.Reap(ctx, s.store, s.reg, time.Now(), nil, "all", true); err != nil {
+		s.t.Fatalf("reap policies: %v", err)
 	}
 }
 

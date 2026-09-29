@@ -83,3 +83,58 @@ func TestEvaluateUntaggedUsesStubCatalog(t *testing.T) {
 		t.Errorf("untagged = %v, want only gone:v1", marked)
 	}
 }
+
+// An armed reap marks the evaluated rows due; unarmed it evaluates
+// without marking. If this fails, dry-run marks or the armed run
+// evaluates something it never records.
+func TestReapArmedMarksUnarmedEvaluates(t *testing.T) {
+	stage := func() *store.MemStore {
+		s := store.NewMemStore()
+		c := context.Background()
+		_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
+			PushedAt: keeperNow.Add(-time.Hour)})
+		_ = s.Record(c, policy.Row{Repo: "app", Tag: "latest", Digest: "sha256:b",
+			PushedAt: keeperNow.Add(-time.Hour)})
+		return s
+	}
+	s := stage()
+	marked, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "all", true)
+	if err != nil {
+		t.Fatalf("armed reap: %v", err)
+	}
+	if len(marked) != 1 || marked[0].Tag != "10m" {
+		t.Fatalf("armed reap = %v, want only scratch:10m", marked)
+	}
+	if due, _ := s.Due(keeperCtx()); len(due) != 1 {
+		t.Errorf("armed reap left %d rows due, want 1 marked", len(due))
+	}
+	s = stage()
+	marked, err = Reap(keeperCtx(), s, nil, keeperNow, nil, "all", false)
+	if err != nil {
+		t.Fatalf("unarmed reap: %v", err)
+	}
+	if len(marked) != 1 {
+		t.Fatalf("unarmed reap = %v, want the evaluated row back", marked)
+	}
+	if due, _ := s.Due(keeperCtx()); len(due) != 0 {
+		t.Errorf("unarmed reap marked %v, want nothing", due)
+	}
+}
+
+// An unknown policy refuses and lists the valid ones, before anything
+// marks. If this fails, a typo reaps the world or errors cryptically.
+func TestReapUnknownPolicyRefuses(t *testing.T) {
+	s := untaggedStage()
+	_, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "bogus", true)
+	if err == nil {
+		t.Fatal("reap bogus succeeded, want refusal")
+	}
+	for _, name := range PolicyNames {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("refusal %q does not list policy %q", err, name)
+		}
+	}
+	if due, _ := s.Due(keeperCtx()); len(due) != 0 {
+		t.Errorf("refused reap marked %d rows, want nothing", len(due))
+	}
+}

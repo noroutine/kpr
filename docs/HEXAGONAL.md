@@ -94,6 +94,10 @@ Concrete moves, in order:
   + `CatalogSource` port); `cli` calls it, e2e imports it instead of
   `cli`, and the two pure-evaluation tests moved to the use case's
   address. `cli/keeper.go` no longer imports `policy`.
+- Step 2b done: `keeper.Reap` (evaluate + mark-behind-`armed`);
+  `cli.runReap` is printing-only, e2e `ReapArmed` drives the use case
+  instead of its own mark loop, refusal + armed/unarmed pinned in
+  `keeper` tests.
 
 ## Experiment rules
 

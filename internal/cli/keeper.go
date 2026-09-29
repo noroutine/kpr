@@ -113,14 +113,11 @@ func runPlan(ctx context.Context, w io.Writer, s store.Store, asJSON bool) error
 	return nil
 }
 
-// runReap evaluates one policy (or all) and, when armed, marks rows
-// due. Marks accumulate across calls until sweep or plan discard: a
-// second reap adds its rows, never wipes the first policy's. Unarmed
-// it only prints the plan (same source as plan will show once
-// marked): dry-run is implicit, --no-dry-run explicit. excludes spares
-// keep-N for matching repo:tag names.
+// runReap renders the reap verdict: the dry-run plan, or the marked
+// count once armed. Evaluation and marking live in keeper.Reap; this
+// stays printing-only.
 func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, armed bool, excludes []string, now time.Time, policyName string) error {
-	marked, err := keeper.EvaluatePolicy(ctx, s, reg, now, excludes, policyName)
+	marked, err := keeper.Reap(ctx, s, reg, now, excludes, policyName, armed)
 	if err != nil {
 		return err
 	}
@@ -136,11 +133,6 @@ func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.Catalog
 		}
 		_, err := io.WriteString(w, "(dry-run: nothing marked; re-run with --no-dry-run to mark)\n")
 		return err
-	}
-	for _, r := range marked {
-		if merr := s.MarkDue(ctx, r.Repo, r.Tag, r.Reason); merr != nil {
-			return fmt.Errorf("redis unreachable: %w", merr)
-		}
 	}
 	_, err = fmt.Fprintf(w, "marked %d rows due\n", len(marked))
 	return err
