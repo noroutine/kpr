@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -20,59 +21,25 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
 
-// prober is the outbound port the banner consumes: registry
-// reachability. *registry.Client is the production adapter; tests
-// bring a stub, never a loopback server. Catalogs live behind the
-// keeper use cases (keeper.CatalogSource), not here.
-type prober interface {
-	Reachable(ctx context.Context) error
-}
-
 // runStatus renders banner + counters as text, for scripts and ssh.
-// Redis down fails fast (every number would be a lie); a down registry
-// only reddens the banner.
-func runStatus(ctx context.Context, w io.Writer, s store.Store, reg prober, armed bool) error {
-	if err := s.Ping(ctx); err != nil {
-		return fmt.Errorf("redis unreachable: %w", err)
-	}
-	rows, err := s.All(ctx)
-	if err != nil {
-		return fmt.Errorf("redis unreachable: %w", err)
-	}
-	due := 0
-	for _, r := range rows {
-		if r.Due {
-			due++
-		}
-	}
-	acts, err := s.Activity(ctx)
-	if err != nil {
-		return fmt.Errorf("redis unreachable: %w", err)
-	}
-	var performed, planned, failed int
-	for _, a := range acts {
-		switch a.Outcome {
-		case "deleted":
-			performed++
-		case "planned":
-			planned++
-		case "failed":
-			failed++
-		}
+// The numbers come from keeper.FetchStatus — the same implementation
+// the console reads. Redis down fails fast (every number would be a
+// lie); a down registry only reddens the banner.
+func runStatus(ctx context.Context, w io.Writer, s store.Store, reg keeper.Prober, armed bool) error {
+	st := keeper.FetchStatus(ctx, s, reg)
+	if !st.StoreOK {
+		return errors.New("redis unreachable: no tracked state to report")
 	}
 	registryState := "unreachable"
-	if reg != nil {
-		if rerr := reg.Reachable(ctx); rerr == nil {
-			registryState = "reachable"
-		}
+	if st.RegistryOK {
+		registryState = "reachable"
 	}
 	arming := "dry-run"
 	if armed {
 		arming = "armed"
 	}
-	cur, _ := s.GetCurrent(ctx)
-	_, err = fmt.Fprintf(w, "registry: %s\nredis: reachable\nsweeper: %s\ntracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\npass: %s (%s)\n",
-		registryState, arming, len(rows), due, performed, planned, failed, cur.Stage, cur.Trigger)
+	_, err := fmt.Fprintf(w, "registry: %s\nredis: reachable\nsweeper: %s\ntracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\npass: %s (%s)\n",
+		registryState, arming, st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, st.Current.Stage, st.Current.Trigger)
 	return err
 }
 

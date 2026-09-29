@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"sort"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
 // probeTimeout bounds backend probes behind the dashboard: a down
@@ -44,61 +45,29 @@ type keeperActivityRow struct {
 	At      string
 }
 
-// keeperSnapshot reads the tracked state, degrading to red/empty when
-// a backend is absent or down.
+// keeperSnapshot renders the keeper use case for the dashboard. The
+// numbers come from keeper.FetchStatus — the same implementation
+// `status` reads; this stays formatting-only, degrading to red/empty
+// when a backend is absent or down.
 func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
-	var k keeperData
-	k.Armed = s.Armed
-	if s.Store != nil {
-		k.RedisOK = s.Store.Ping(ctx) == nil
+	st := keeper.FetchStatus(ctx, s.Store, s.Registry)
+	k := keeperData{
+		RedisOK: st.StoreOK, RegistryOK: st.RegistryOK, Armed: s.Armed,
+		Tracked: st.Tracked, Due: st.Due,
+		Performed: st.Performed, Planned: st.Planned,
+		Failed: st.Failed, Untracked: st.Untracked,
 	}
-	if s.Registry != nil {
-		k.RegistryOK = s.Registry.Reachable(ctx) == nil
-	}
-	if s.Store == nil || !k.RedisOK {
-		return k
-	}
-	rows, err := s.Store.All(ctx)
-	if err != nil {
-		k.RedisOK = false
-		return k
-	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].Repo != rows[j].Repo {
-			return rows[i].Repo < rows[j].Repo
-		}
-		return rows[i].Tag < rows[j].Tag
-	})
-	k.Tracked = len(rows)
-	for _, r := range rows {
-		if !r.Due {
-			continue
-		}
-		k.Due++
-		pushed := r.PushedAt.UTC().Format(time.RFC3339)
-		if r.PushedAt.IsZero() {
+	for _, p := range st.Plan {
+		pushed := p.PushedAt.UTC().Format(time.RFC3339)
+		if p.PushedAt.IsZero() {
 			pushed = "unknown"
 		}
-		k.Plan = append(k.Plan, keeperPlanRow{Repo: r.Repo, Tag: r.Tag, Reason: r.Reason, Pushed: pushed})
+		k.Plan = append(k.Plan, keeperPlanRow{Repo: p.Repo, Tag: p.Tag, Reason: p.Reason, Pushed: pushed})
 	}
-	acts, err := s.Store.Activity(ctx)
-	if err != nil {
-		return k
-	}
-	for _, a := range acts {
-		switch a.Outcome {
-		case "deleted":
-			k.Performed++
-		case "planned":
-			k.Planned++
-		case "failed":
-			k.Failed++
-		case "untracked":
-			k.Untracked++
-		}
+	for _, a := range st.Activity {
 		at := a.At.UTC().Format(time.RFC3339)
 		if a.At.IsZero() {
 			at = "unknown"

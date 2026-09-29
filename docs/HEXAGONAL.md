@@ -98,6 +98,10 @@ Concrete moves, in order:
   `cli.runReap` is printing-only, e2e `ReapArmed` drives the use case
   instead of its own mark loop, refusal + armed/unarmed pinned in
   `keeper` tests.
+- Step 2c done: `keeper.FetchStatus` (one counting implementation +
+  `Prober` port); `cli.runStatus` fails on it, `web.keeperSnapshot`
+  formats it. The duplicated outcome switch is gone; `web/server.go`
+  no longer names a registry type.
 
 ## Experiment rules
 

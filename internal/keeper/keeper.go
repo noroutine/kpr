@@ -22,6 +22,104 @@ type CatalogSource interface {
 	Catalog(ctx context.Context, repo string) ([]string, error)
 }
 
+// Prober is the outbound port status consumes: registry reachability
+// for the banner. Same production adapter, same stub rule.
+type Prober interface {
+	Reachable(ctx context.Context) error
+}
+
+// PlanEntry is one due row with its reason; ActivityEntry is one
+// resolved row. Times stay raw — adapters format for humans.
+type PlanEntry struct {
+	Repo     string
+	Tag      string
+	Reason   string
+	PushedAt time.Time
+}
+
+// ActivityEntry is one resolved row: what the pass did, and when.
+type ActivityEntry struct {
+	Repo    string
+	Tag     string
+	Reason  string
+	Outcome string
+	At      time.Time
+}
+
+// Status is everything the console and `status` show about what kpr
+// tracks: backend health, counters, plan, activity — never a registry
+// catalog. One counting implementation serves both.
+type Status struct {
+	StoreOK    bool
+	RegistryOK bool
+	Tracked    int
+	Due        int
+	Performed  int
+	Planned    int
+	Failed     int
+	Untracked  int
+	Plan       []PlanEntry
+	Activity   []ActivityEntry
+	Current    store.Current
+}
+
+// FetchStatus reads the tracked state, degrading to red/empty when a
+// backend is absent or down. Adapters own the policy: the CLI fails
+// on a down store, the console renders the red banner.
+func FetchStatus(ctx context.Context, s store.Store, reg Prober) Status {
+	var st Status
+	if s != nil {
+		st.StoreOK = s.Ping(ctx) == nil
+	}
+	if reg != nil {
+		st.RegistryOK = reg.Reachable(ctx) == nil
+	}
+	if s == nil || !st.StoreOK {
+		return st
+	}
+	rows, err := s.All(ctx)
+	if err != nil {
+		st.StoreOK = false
+		return st
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Repo != rows[j].Repo {
+			return rows[i].Repo < rows[j].Repo
+		}
+		return rows[i].Tag < rows[j].Tag
+	})
+	st.Tracked = len(rows)
+	for _, r := range rows {
+		if !r.Due {
+			continue
+		}
+		st.Due++
+		st.Plan = append(st.Plan, PlanEntry{Repo: r.Repo, Tag: r.Tag, Reason: r.Reason, PushedAt: r.PushedAt})
+	}
+	cur, _ := s.GetCurrent(ctx)
+	st.Current = cur
+	acts, err := s.Activity(ctx)
+	if err != nil {
+		return st
+	}
+	for _, a := range acts {
+		switch a.Outcome {
+		case "deleted":
+			st.Performed++
+		case "planned":
+			st.Planned++
+		case "failed":
+			st.Failed++
+		case "untracked":
+			st.Untracked++
+		}
+		st.Activity = append(st.Activity, ActivityEntry{
+			Repo: a.Repo, Tag: a.Tag, Reason: a.Reason, Outcome: a.Outcome, At: a.At,
+		})
+	}
+	return st
+}
+
 // PolicyNames are the reap selectors: every live policy plus all.
 // expired takes elapsed TTL tags, partial takes digest-less stale
 // uploads, untagged takes tags gone from the catalog past grace,

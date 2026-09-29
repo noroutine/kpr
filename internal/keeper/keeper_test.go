@@ -138,3 +138,54 @@ func TestReapUnknownPolicyRefuses(t *testing.T) {
 		t.Errorf("refused reap marked %d rows, want nothing", len(due))
 	}
 }
+
+// stubProber answers the banner probe without HTTP.
+type stubProber struct{ err error }
+
+func (f stubProber) Reachable(context.Context) error { return f.err }
+
+// Status counts every outcome kind once, for both readers: the plan
+// sorts repo-major and every due row carries its reason. If this
+// fails, `status` and the console diverge — or one of them miscounts.
+func TestFetchStatusCountsOnceForBothReaders(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "b-repo", Tag: "z", Digest: "sha256:1",
+		PushedAt: keeperNow, Due: true, Reason: "ttl elapsed"})
+	_ = s.Record(c, policy.Row{Repo: "a-repo", Tag: "a", Digest: "sha256:2",
+		PushedAt: keeperNow})
+	for _, o := range []string{"deleted", "planned", "failed", "untracked"} {
+		_ = s.PushActivity(c, store.Outcome{Repo: "r", Tag: "t",
+			Reason: "x", Outcome: o, At: keeperNow})
+	}
+	st := FetchStatus(keeperCtx(), s, stubProber{})
+	if !st.StoreOK || !st.RegistryOK {
+		t.Fatalf("status = %+v, want both backends ok", st)
+	}
+	if st.Tracked != 2 || st.Due != 1 {
+		t.Errorf("tracked/due = %d/%d, want 2/1", st.Tracked, st.Due)
+	}
+	if st.Performed != 1 || st.Planned != 1 || st.Failed != 1 || st.Untracked != 1 {
+		t.Errorf("outcomes = %+v, want one of each kind", st)
+	}
+	if len(st.Plan) != 1 || st.Plan[0].Repo != "b-repo" {
+		t.Errorf("plan = %+v, want the one due row", st.Plan)
+	}
+	if len(st.Activity) != 4 {
+		t.Errorf("activity = %d entries, want 4", len(st.Activity))
+	}
+}
+
+// Absent or down backends degrade to red/empty, never to invented
+// numbers: the CLI fails on this, the console renders it. If this
+// fails, a reader reports healthy state from nothing.
+func TestFetchStatusDegradesWithoutBackends(t *testing.T) {
+	st := FetchStatus(keeperCtx(), nil, nil)
+	if st.StoreOK || st.RegistryOK || st.Tracked != 0 || st.Due != 0 {
+		t.Errorf("nil status = %+v, want red and empty", st)
+	}
+	st = FetchStatus(keeperCtx(), store.NewMemStore(), stubProber{err: context.DeadlineExceeded})
+	if !st.StoreOK || st.RegistryOK {
+		t.Errorf("prober-down status = %+v, want store ok and registry red", st)
+	}
+}
