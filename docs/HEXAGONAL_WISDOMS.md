@@ -1,9 +1,11 @@
 # Hexagonal wisdoms
 
 Lessons from the experiment, each pinned to the commit that taught
-it. Read as: the rule, then the receipt.
+it. Read as: the rule, then the receipt. Entries cross-reference
+in parentheses ("(Companion: W3)"); W1–W3 are the megawisdoms, W17
+is the rule everything cashes out to.
 
-## Megawisdom: ports hide partners, not steps
+## W1 — Megawisdom: ports hide partners, not steps
 
 Two abstractions share one mechanism (the interface), and Go never
 labels which you wrote. Procedural abstraction hides *steps*: many
@@ -14,9 +16,9 @@ case no longer knows about HTTP, URLs, or auth. Same complexity,
 gone coupling. The trap: reaching for the port mechanism to do a
 procedural job compresses steps while smuggling the decisions out
 of the core. Procedural abstraction hides steps; ports hide
-partners.
+partners. (Companion: W3, where the wrong kind got proposed.)
 
-## Megawisdom: facades bundle, ports decline
+## W2 — Megawisdom: facades bundle, ports decline
 
 "I am the Store, here is my interface" (provider's promise — swap
 implementations behind the contract) vs "I need Locks from the
@@ -29,9 +31,10 @@ declined. Same method, two different statements — only the
 placement tells them apart (interface in `store` = promise,
 interface in `gc` = demand). Meaning stays where the shaping
 happens: bundles accumulate decisions, ports leave them in the
-core where tests reach them.
+core where tests reach them. (See W19 for the store-shaped
+version of the same split.)
 
-## Megawisdom: a port that orchestrates is a use case in costume
+## W3 — Megawisdom: a port that orchestrates is a use case in costume
 
 Not everything that looks like a port should be one. The test:
 follow the *decisions*. kpr's deletion means five things
@@ -61,7 +64,7 @@ they were meant to document already lives in the per-method docs
 to its own rule is the rule working: step 3 closed whole, output
 being this paragraph.
 
-## Ports sit with their consumers
+## W4 — Ports sit with their consumers
 
 The interface belongs next to the code that uses it, one method at
 a time — `sweep.Registry` (delete), `cataloger` + `prober` (never
@@ -70,18 +73,18 @@ each consumer needs; nothing more.
 
 — [1b1d33a](https://nrtn.dev/catalyst/kpr/commit/1b1d33ab70d5d22d49770786d572684b5b115e40), [c8cdf03](https://nrtn.dev/catalyst/kpr/commit/c8cdf03073cb06301aaa676e08b07fcf7629c66f)
 
-## Two decouplings, different prices
+## W5 — Two decouplings, different prices
 
 Decoupling from the *type* (a stub can stand in) buys testability
 today. Decoupling from the *package* (the arrow points adapter →
 core) pays only with a second implementation. Most day-to-day value
 is the first; don't chase the second on principle. (`sweep` still
 imports `registry` for `Outcome*`, honestly noted, deliberately
-waiting.)
+waiting. The second decoupling is W17's currency.)
 
 — [c8cdf03](https://nrtn.dev/catalyst/kpr/commit/c8cdf03073cb06301aaa676e08b07fcf7629c66f)
 
-## Stubs earn their keep on failure paths
+## W6 — Stubs earn their keep on failure paths
 
 A stub that only replays the happy path proves nothing a fake
 server couldn't. The payoff is failures that are awkward over HTTP
@@ -91,7 +94,7 @@ ports are decoration.
 
 — [c8cdf03](https://nrtn.dev/catalyst/kpr/commit/c8cdf03073cb06301aaa676e08b07fcf7629c66f)
 
-## Tests must not assume store order
+## W7 — Tests must not assume store order
 
 `MemStore.Due` ranges over a map. A test asserting "row A failed,
 row B performed" passes either way today — and would read as flaky,
@@ -102,7 +105,7 @@ claims to pin.
 
 — [d6d65d3](https://nrtn.dev/catalyst/kpr/commit/d6d65d3c498ba0901366a38f3431a161aeaa7f8c)
 
-## Measures must come out honest
+## W8 — Measures must come out honest
 
 "Kill the HTTP server in sweep tests" meant killing them, not
 adding stubs beside them: 12 tests moved, the duplicated held test
@@ -111,7 +114,7 @@ coverage that duplicates existing coverage is motion, not progress.
 
 — [d6d65d3](https://nrtn.dev/catalyst/kpr/commit/d6d65d3c498ba0901366a38f3431a161aeaa7f8c)
 
-## Same shape twice is one port
+## W9 — Same shape twice is one port
 
 Two method pairs, two near-identical contract tests, duplicate
 bodies in both adapters (`AcquireLock`/`AcquireGCLock`) collapsed
@@ -121,7 +124,7 @@ Taken because the duplication was exact, not speculative.
 
 — [ac19e97](https://nrtn.dev/catalyst/kpr/commit/ac19e97d7368b08fa72366d6eeb85c3cd9a536ff)
 
-## A use case with no address shows in its importers
+## W10 — A use case with no address shows in its importers
 
 When even the tests reach behavior only through a driving adapter
 (e2e importing `cli` for `EvaluatePolicies`), the use case has no
@@ -131,7 +134,7 @@ behavior, and rightly step-5 territory (composition root).
 
 — [88b6ea2](https://nrtn.dev/catalyst/kpr/commit/88b6ea2ccce045376de379c4f88ca2324f4c761e)
 
-## Adapters parse, call, render — nothing else
+## W11 — Adapters parse, call, render — nothing else
 
 `runReap` rendering the plan, `keeperSnapshot` counting outcomes:
 both were implementations wearing adapter clothes. After the move,
@@ -141,7 +144,7 @@ confirmation is in the imports: `cli/keeper.go` no longer names
 
 — [d0aa8fd](https://nrtn.dev/catalyst/kpr/commit/d0aa8fd4d9c3a49749c4c15fc7b90f8782129521), [3394e1a](https://nrtn.dev/catalyst/kpr/commit/3394e1a1e1c290fc365278706c70274aadcf1ad9), [d490f2f](https://nrtn.dev/catalyst/kpr/commit/d490f2fcfe942275c84ab0da7a15e190fcd401b1)
 
-## One counting implementation, two failure policies
+## W12 — One counting implementation, two failure policies
 
 `FetchStatus` returns raw data and degrades to red/empty; the CLI
 fails on it, the console renders it. Shared logic, opposite
@@ -151,7 +154,7 @@ the readers.
 
 — [3394e1a](https://nrtn.dev/catalyst/kpr/commit/3394e1a1e1c290fc365278706c70274aadcf1ad9)
 
-## Behavior tests move with the behavior
+## W13 — Behavior tests move with the behavior
 
 Extraction splits tests by kind: behavior (counts, store state,
 refusals) moves to the use case's address; message rendering stays
@@ -160,7 +163,7 @@ move you can't prove.
 
 — [d490f2f](https://nrtn.dev/catalyst/kpr/commit/d490f2fcfe942275c84ab0da7a15e190fcd401b1), [88b6ea2](https://nrtn.dev/catalyst/kpr/commit/88b6ea2ccce045376de379c4f88ca2324f4c761e)
 
-## Moves, not renames — except graduations
+## W14 — Moves, not renames — except graduations
 
 Bodies travel untouched; only a port graduating from private seam
 to public dependency earns a new name (`cataloger` →
@@ -169,7 +172,7 @@ who used it. Rename for ownership change, never for style.
 
 — [88b6ea2](https://nrtn.dev/catalyst/kpr/commit/88b6ea2ccce045376de379c4f88ca2324f4c761e)
 
-## Re-read the receiving file after a move
+## W15 — Re-read the receiving file after a move
 
 Diffs don't show floating comments: `Reap` landed between
 `EvaluatePolicies`'s doc and its function, and no tool cared.
@@ -178,7 +181,7 @@ check every doc sits on its own function.
 
 — [61c91f7](https://nrtn.dev/catalyst/kpr/commit/61c91f7e4751066aa5a6ebdb4ecb4fdf7b283b21)
 
-## Coverage gaps: name them, don't hide them
+## W16 — Coverage gaps: name them, don't hide them
 
 Extraction-attributable gaps get topped up (direct `ListPlan`
 test, zero-branch messages, failing-store fakes). Environmental
@@ -189,18 +192,23 @@ corrected in the open ([caa6c8a](https://nrtn.dev/catalyst/kpr/commit/caa6c8afae
 
 — [8650e5c](https://nrtn.dev/catalyst/kpr/commit/8650e5c6d77ad8cad721414fb79ee450b816c682), [caa6c8a](https://nrtn.dev/catalyst/kpr/commit/caa6c8afae6f9304404094a4dfe0e2a41ee5c8a5)
 
-## Never cut a port before its second user
+## W17 — Second implementation, not second caller
 
-`Collector` cut a slice early earned a YAGNI flag — answered by
-the next slice consuming it. Vocabulary first (gc-1 nouns),
-groundwork without ports (gc-2 position), the port where a stub
-already exists (gc-3), consumption by orchestration (gc-4). The
-line between design and cargo cult: cut where a second
-implementation already stands, never in anticipation of one.
+The rule started life as "never cut a port before its second
+user" — and Oleksii's question broke it open: `MarkDue` has two
+keeper callers (`Reap`, `AddPlan`) and still earned no port. So:
+callers don't count, implementations do. `Collector` got its port
+because the shell stub — a second implementation — already stood
+behind the seam; `Marker` got nothing because one redis implements
+and MemStore tests already prove more than any stub could. Count
+backs of the substitute, never mouths of the caller. (Companion:
+W3's exhibits, W18, W19, and W20's mirror image — a seam *is*
+promoted by a second consumer, because a seam's whole job is being
+used; a port's job is being implemented.)
 
 — [3cf31a8](https://nrtn.dev/catalyst/kpr/commit/3cf31a8e4e0472bd61daae9ae7fbba9bfb4f35c6), [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
 
-## Deletion is already owned — don't re-own it cheaply
+## W18 — Deletion is already owned — don't re-own it cheaply
 
 Splitting `Store.Delete` into its own one-method interface buys a
 name, not a seam: one method, one consumer, zero new tests. The
@@ -211,8 +219,9 @@ vocabulary. That shape is either the sweeper's true boundary or a
 god-port; the tiebreaker is the same as ever — a second
 implementation asking for it. Until then, sweep-only plus the TTL
 floor *is* the boundary, held by convention and contract tests.
+(The tiebreaker is W17.)
 
-## Cluster, don't split, a store with one backend
+## W19 — Cluster, don't split, a store with one backend
 
 `Store` has fifteen methods and one redis behind it — no second
 implementation is coming, so implementation-splitting is ceremony.
@@ -220,9 +229,10 @@ What pays is clustering by caller: marks are keeper-only, run-state
 reads serve one use case, locks already collapsed, `Delete` is
 sweep-only. Declare ports where a single consumer owns the cluster;
 leave `Record`/`All`/`Due`/`Ping` on the shared surface. Narrow by
-ownership, never by imagination.
+ownership, never by imagination. (Provider/demand split: W2; the
+rule that closed the step: W17.)
 
-## Seams prototype ports
+## W20 — Seams prototype ports
 
 `collectorCommand` (package var, swapped in tests) is a seam:
 invisible, global, test-only. `Collector` is the same need made
@@ -230,6 +240,8 @@ public: in the signature, usable by any caller, production passing
 the real thing explicitly. Ports don't eliminate seams — they push
 them to the boundary (`RunCollector` still bottoms out in the
 seam, because something must finally call `exec`). A seam used in
-one test file stays a seam; the second consumer promotes it.
+one test file stays a seam; the second consumer promotes it —
+note the mirror of W17: seams are promoted by consumers, ports by
+implementations.
 
 — [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
