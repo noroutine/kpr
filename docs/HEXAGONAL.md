@@ -77,10 +77,9 @@ cmd/app                  the only wiring
   lesson lives here):
   - [x] gc-1 sentinel: `ProbeRegistry`, `Mode`, `ProbeRepo` with
     tests; `cli.runGC` and e2e drive it from `gc`.
-  - [ ] gc-2 proofs: `registryStoreRoot`, `storeLayout`,
-    `sameStoreUpload`, `sameStoreTagLink`, `firstDigestRow` (+
-    readiness gates) move with their tests. Pure groundwork, no
-    ports yet.
+  - [x] gc-2 proofs: `StoreRoot`, `SameStoreUpload`,
+    `SameStoreTagLink`, `FirstDigestRow` (+ readiness gates)
+    moved with their tests. Pure groundwork, no ports yet.
   - [ ] gc-3 collector: `runCollector`, `GCEvent` stream,
     `collectorCommand` seam move; `Collector` port cut
     (production adapter shells the stock binary, tests keep the
