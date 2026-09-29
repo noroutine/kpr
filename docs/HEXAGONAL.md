@@ -79,6 +79,10 @@ Concrete moves, in order:
   `Outcome*` delete vocabulary, and the stub tests reference it too —
   the type is decoupled, the package arrow isn't. Moving the
   vocabulary waits for a second backend or the gc extraction.
+- Step gc-1 done: `gc` package owns the write sentinel
+  (`ProbeRegistry`, `Mode`, `ProbeRepo`); `cli.runGC` and e2e drive
+  it from its new address. Proofs, collector run, and lock handling
+  stay in `cli` for the next slices.
 - Step 1b done (review): the mid-pass failure test fails the first
   call whatever the ref (map-order independent); 12 sweep tests moved
   off the loopback server onto the stub, the duplicated HTTP held
@@ -129,7 +133,9 @@ Concrete moves, in order:
   site (`keeper` defines what it needs) vs splitting `Store`.
   Lean: former, `Store` stays the implementation.
 - `gc` ports: `Probe`/`Collector`/`Locker` as three tiny interfaces
-  in the `gc` package, adapters in `cli` today. Defer until step 4.
+  in the `gc` package, adapters in `cli` today. Extraction started
+  early (sentinel first, gc-1); ports land as the orchestration
+  moves.
 
 ## Verdict on Claude's outline
 

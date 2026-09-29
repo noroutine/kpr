@@ -11,7 +11,7 @@ import (
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"nrtn.dev/catalyst/kpr/internal/cli"
+	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 )
 
@@ -24,7 +24,7 @@ func TestSentinelProbeModes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if mode, err := cli.ProbeRegistryMode(ctx, fx.RegistryURL()); err != nil || mode != "writable" {
+	if mode, err := gc.ProbeRegistryMode(ctx, fx.RegistryURL()); err != nil || mode != "writable" {
 		t.Fatalf("sentinel on fixture registry = (%q, %v), want (writable, nil)", mode, err)
 	}
 	// No residue: the probe repo must not exist after the cancelled
@@ -34,7 +34,7 @@ func TestSentinelProbeModes(t *testing.T) {
 	}
 
 	roURL := startReadonlyRegistry(t)
-	if mode, err := cli.ProbeRegistryMode(ctx, roURL); err != nil || mode != "readonly" {
+	if mode, err := gc.ProbeRegistryMode(ctx, roURL); err != nil || mode != "readonly" {
 		t.Fatalf("sentinel on readonly registry = (%q, %v), want (readonly, nil)", mode, err)
 	}
 }

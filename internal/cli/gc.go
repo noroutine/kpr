@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,92 +14,15 @@ import (
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/store"
-)
-
-// probeRepo is the throwaway repo the gc sentinel uploads under. A
-// cancelled initiate leaves no blob, no manifest, no residue.
-const probeRepo = "kpr-gc-probe"
-
-// gcProbe is what the write sentinel found: the registry takes writes,
-// refuses them (v3 maintenance readonly), or answered something the
-// probe cannot classify.
-type gcProbe int
-
-const (
-	probeUnknown gcProbe = iota
-	probeWritable
-	probeReadonly
 )
 
 // registryBinPath is the stock registry binary gc shells out to. The
 // image COPYs it from the same registry:3 the stack runs, so collector
 // and store versions match by construction.
 var registryBinPath = "/bin/registry"
-
-// ProbeRegistryMode reports the sentinel verdict for baseURL as
-// writable, readonly, or unknown (with the error). Exported so the e2e
-// suite drives the same probe the CLI collects from — one path, never
-// a copy.
-func ProbeRegistryMode(ctx context.Context, baseURL string) (string, error) {
-	mode, _, err := probeRegistry(ctx, baseURL)
-	if err != nil {
-		return "unknown", err
-	}
-	switch mode {
-	case probeWritable:
-		return "writable", nil
-	case probeReadonly:
-		return "readonly", nil
-	default:
-		return "unknown", fmt.Errorf("sentinel inconclusive for %s", baseURL)
-	}
-}
-
-// probeRegistry initiates a blob upload under the probe repo: 202
-// means writable (the upload is cancelled at once, leaving nothing),
-// 405 means maintenance readonly. Anything else is inconclusive and
-// an error — gc fails closed rather than collecting blind. The upload
-// id returns with the writable verdict for the same-store proof.
-func probeRegistry(ctx context.Context, baseURL string) (gcProbe, string, error) {
-	endpoint := strings.TrimSuffix(baseURL, "/") + "/v2/" + probeRepo + "/blobs/uploads/"
-	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
-	if err != nil {
-		return probeUnknown, "", err
-	}
-	resp, err := client.Do(req) //nolint:gosec // operator-configured registry peer, no body
-	if err != nil {
-		return probeUnknown, "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	switch resp.StatusCode {
-	case http.StatusAccepted:
-		// Best effort: the upload never held content, and abandoned
-		// uploads purge server-side — but cancel it anyway. Location
-		// is usually absolute; resolve a relative one (tests, some
-		// frontings) against the peer.
-		uuid := uploadUUID(resp.Header.Get("Location"))
-		if loc := resp.Header.Get("Location"); loc != "" {
-			if !strings.HasPrefix(loc, "http://") && !strings.HasPrefix(loc, "https://") {
-				loc = strings.TrimSuffix(baseURL, "/") + "/" + strings.TrimPrefix(loc, "/")
-			}
-			del, derr := http.NewRequestWithContext(ctx, http.MethodDelete, loc, nil)
-			if derr == nil {
-				dresp, derr := client.Do(del) //nolint:gosec // cancel of our own probe upload
-				if derr == nil {
-					_ = dresp.Body.Close()
-				}
-			}
-		}
-		return probeWritable, uuid, nil
-	case http.StatusMethodNotAllowed:
-		return probeReadonly, "", nil
-	default:
-		return probeUnknown, "", fmt.Errorf("sentinel POST %s: status %d, want 202 (writable) or 405 (readonly)", endpoint, resp.StatusCode)
-	}
-}
 
 // gcArgs builds the stock collector invocation: the operator's flags,
 // nothing invented. dryRun previews (the default); only an explicit
@@ -213,26 +134,6 @@ func registryStoreRoot(configPath string) (string, error) {
 	return cfg.Storage.Filesystem.RootDirectory, nil
 }
 
-// uploadUUID extracts the upload id from a blobs/uploads Location
-// (absolute or relative, query stripped): the handle the same-store
-// proof keys on. Unparseable locations prove nothing.
-func uploadUUID(loc string) string {
-	if loc == "" {
-		return ""
-	}
-	u, err := url.Parse(loc)
-	if err != nil {
-		return ""
-	}
-	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
-	for i, s := range segs {
-		if s == "uploads" && i+1 < len(segs) {
-			return segs[i+1]
-		}
-	}
-	return ""
-}
-
 // storeLayout joins the distribution filesystem layout below root.
 func storeLayout(root string, elems ...string) string {
 	return filepath.Join(append([]string{root, "docker", "registry", "v2"}, elems...)...)
@@ -246,7 +147,7 @@ func sameStoreUpload(root, uuid string) bool {
 	if uuid == "" {
 		return false
 	}
-	dir := storeLayout(root, "repositories", probeRepo, "_uploads", uuid)
+	dir := storeLayout(root, "repositories", gc.ProbeRepo, "_uploads", uuid)
 	for i := 0; i < 5; i++ {
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
 			return true
@@ -324,15 +225,15 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 			_, _ = fmt.Fprintf(w, "Warning: gc lock release failed (%v); expires in %v\n", rerr, gcLockTTL)
 		}
 	}()
-	mode, uuid, err := probeRegistry(ctx, registryURL)
+	mode, uuid, err := gc.ProbeRegistry(ctx, registryURL)
 	if err != nil {
 		return err
 	}
 	pre := timedGCEvent(GCStagePreProbe, gcStarted)
-	pre.Message = modeName(mode)
+	pre.Message = gc.ModeName(mode)
 	emitGC(opts.Report, pre)
 	switch mode {
-	case probeWritable:
+	case gc.ModeWritable:
 		if !sameStoreUpload(root, uuid) {
 			return fmt.Errorf("sentinel upload %s not visible under %s: kpr does not share this registry's store", uuid, root)
 		}
@@ -348,7 +249,7 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 				return err
 			}
 		}
-	case probeReadonly:
+	case gc.ModeReadonly:
 		row, ok := firstDigestRow(ctx, s)
 		if !ok {
 			return errors.New("cannot prove shared store: no tracked digests; push or reap something first, or --force")
@@ -365,38 +266,26 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 	if err := runCollector(ctx, w, registryBinPath, gcArgs(configPath, opts.DeleteUntagged, opts.DryRun), opts.Report); err != nil {
 		return err
 	}
-	post, _, perr := probeRegistry(ctx, registryURL)
+	post, _, perr := gc.ProbeRegistry(ctx, registryURL)
 	if perr != nil {
-		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, modeName(mode))
+		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, gc.ModeName(mode))
 		return nil
 	}
 	pev := timedGCEvent(GCStagePostProbe, gcStarted)
-	pev.Message = modeName(post)
+	pev.Message = gc.ModeName(post)
 	emitGC(opts.Report, pev)
 	if post != mode {
 		flip := timedGCEvent(GCStageModeFlip, gcStarted)
-		flip.Message = modeName(mode) + "→" + modeName(post)
+		flip.Message = gc.ModeName(mode) + "→" + gc.ModeName(post)
 		emitGC(opts.Report, flip)
-		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", modeName(mode), modeName(post)); werr != nil {
+		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", gc.ModeName(mode), gc.ModeName(post)); werr != nil {
 			return werr
 		}
 		if !opts.Force {
-			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run", modeName(mode), modeName(post))
+			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run", gc.ModeName(mode), gc.ModeName(post))
 		}
 	}
 	return nil
-}
-
-// modeName renders the sentinel verdict for messages.
-func modeName(mode gcProbe) string {
-	switch mode {
-	case probeWritable:
-		return "writable"
-	case probeReadonly:
-		return "readonly"
-	default:
-		return "unknown"
-	}
 }
 
 // firstDigestRow returns any tracked row carrying a manifest digest.

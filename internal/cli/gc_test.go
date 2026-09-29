@@ -11,57 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
-
-// The gc sentinel initiates a blob upload under a probe repo: 202
-// means the registry takes writes (the upload is cancelled right away,
-// so no residue stays), 405 means v3 maintenance readonly, anything
-// else is inconclusive. If this fails, kpr gc either collects from a
-// writable registry blind or refuses a ready one.
-func TestProbeRegistryModes(t *testing.T) {
-	var sawDelete bool
-	writable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
-			w.WriteHeader(http.StatusAccepted)
-		case http.MethodDelete:
-			sawDelete = true
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			w.WriteHeader(http.StatusMethodNotAllowed)
-		}
-	}))
-	defer writable.Close()
-	readonly := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}))
-	defer readonly.Close()
-	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer broken.Close()
-
-	if mode, uuid, err := probeRegistry(context.Background(), writable.URL); err != nil || mode != probeWritable {
-		t.Errorf("writable probe = (%v, %v), want (writable, nil)", mode, err)
-	} else if uuid != "uuid" {
-		t.Errorf("writable probe uuid = %q, want the Location tail", uuid)
-	}
-	if !sawDelete {
-		t.Error("writable probe left the upload behind: no cancel DELETE seen")
-	}
-	if mode, _, err := probeRegistry(context.Background(), readonly.URL); err != nil || mode != probeReadonly {
-		t.Errorf("readonly probe = (%v, %v), want (readonly, nil)", mode, err)
-	}
-	if mode, _, err := probeRegistry(context.Background(), broken.URL); err == nil || mode != probeUnknown {
-		t.Errorf("broken probe = (%v, %v), want (unknown, error)", mode, err)
-	}
-	if mode, _, err := probeRegistry(context.Background(), "http://127.0.0.1:1"); err == nil || mode != probeUnknown {
-		t.Errorf("down probe = (%v, %v), want (unknown, error)", mode, err)
-	}
-}
 
 // stageGCStore writes a registry config pointing at root and returns
 // the config path: every runGC test collects against staged ground,
@@ -81,7 +34,7 @@ func stageGCStore(t *testing.T, root string) string {
 // stageUploadDir plants the uuid dir a writable probe must find.
 func stageUploadDir(t *testing.T, root, uuid string) {
 	t.Helper()
-	dir := filepath.Join(root, "docker", "registry", "v2", "repositories", probeRepo, "_uploads", uuid)
+	dir := filepath.Join(root, "docker", "registry", "v2", "repositories", gc.ProbeRepo, "_uploads", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("stage upload dir: %v", err)
 	}
@@ -96,34 +49,6 @@ func stageTagLink(t *testing.T, root, repo, tag, digest string) {
 	}
 	if err := os.WriteFile(link, []byte(digest+"\n"), 0o644); err != nil {
 		t.Fatalf("stage link: %v", err)
-	}
-}
-
-// An upload id comes from the path segment after "uploads" —
-// nothing else. A Location with no id (or no uploads leg at all)
-// proves nothing, and must not panic the proof. If this fails, a
-// registry answering odd Locations either crashes gc or mints
-// evidence from thin air.
-func TestUploadUUIDEdges(t *testing.T) {
-	if got := uploadUUID("http://reg:5000/v2/kpr-gc-probe/blobs/uploads/abc123"); got != "abc123" {
-		t.Errorf("uploadUUID = %q, want abc123", got)
-	}
-	for _, loc := range []string{
-		"",
-		"http://reg:5000/v2/kpr-gc-probe/blobs/uploads/",
-		"http://reg:5000/v2/kpr-gc-probe/blobs/uploads",
-		"http://reg:5000/v2/repositories",
-		"http://reg:5000/v2/kpr-gc-probe/blobs/uploads/abc?digest=sha256:x",
-	} {
-		if loc == "http://reg:5000/v2/kpr-gc-probe/blobs/uploads/abc?digest=sha256:x" {
-			if got := uploadUUID(loc); got != "abc" {
-				t.Errorf("uploadUUID(%q) = %q, want abc (query stripped)", loc, got)
-			}
-			continue
-		}
-		if got := uploadUUID(loc); got != "" {
-			t.Errorf("uploadUUID(%q) = %q, want empty (proves nothing)", loc, got)
-		}
 	}
 }
 
@@ -200,55 +125,6 @@ func TestRunGCForceWarnWriteError(t *testing.T) {
 	}
 }
 
-// A Location the URL parser chokes on skips the cancel, cleanly:
-// the probe still reports writable with no id, and nothing panics
-// on a nil request. If this fails, one odd registry fronting takes
-// down the probe.
-func TestProbeBadLocationSkipsCancel(t *testing.T) {
-	var sawDelete bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			w.Header().Set("Location", "http://::invalid")
-			w.WriteHeader(http.StatusAccepted)
-		case http.MethodDelete:
-			sawDelete = true
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			w.WriteHeader(http.StatusMethodNotAllowed)
-		}
-	}))
-	defer srv.Close()
-	mode, uuid, err := probeRegistry(context.Background(), srv.URL)
-	if err != nil || mode != probeWritable {
-		t.Fatalf("bad-location probe = (%v, %q, %v), want (writable, \"\", nil)", mode, uuid, err)
-	}
-	if uuid != "" {
-		t.Errorf("bad-location probe uuid = %q, want empty (proves nothing)", uuid)
-	}
-	if sawDelete {
-		t.Error("bad-location probe attempted a cancel DELETE, want it skipped")
-	}
-}
-
-// A failed cancel DELETE skips the close, cleanly: there is no
-// body on an errored request. If this fails, a registry that takes
-// the probe but refuses the cancel panics the probe on a nil body.
-func TestProbeDeleteFailureSkipsClose(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", "http://127.0.0.1:1/v2/kpr-gc-probe/blobs/uploads/u1")
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer srv.Close()
-	mode, uuid, err := probeRegistry(context.Background(), srv.URL)
-	if err != nil || mode != probeWritable {
-		t.Fatalf("refused-cancel probe = (%v, %q, %v), want (writable, u1, nil)", mode, uuid, err)
-	}
-	if uuid != "u1" {
-		t.Errorf("refused-cancel probe uuid = %q, want u1", uuid)
-	}
-}
-
 // stageBin writes an executable shell stub as the collector binary.
 func stageBin(t *testing.T, body string) string {
 	t.Helper()
@@ -304,22 +180,6 @@ func TestRegistryStoreRootParsesConfig(t *testing.T) {
 	}
 }
 
-// The upload id is the path tail after "uploads" (query stripped): the
-// handle both same-store proofs key on. If this fails, the proof looks
-// for directories the registry never created.
-func TestUploadUUIDParsesLocations(t *testing.T) {
-	for loc, want := range map[string]string{
-		"http://reg:5000/v2/probe/blobs/uploads/01a-2b?_state=x": "01a-2b",
-		"/v2/probe/blobs/uploads/01a-2b":                         "01a-2b",
-		"http://reg:5000/v2/_catalog":                            "",
-		"":                                                       "",
-	} {
-		if got := uploadUUID(loc); got != want {
-			t.Errorf("uploadUUID(%q) = %q, want %q", loc, got, want)
-		}
-	}
-}
-
 // A writable probe is only authoritative when its fresh upload dir is
 // visible under the configured root: same bytes the registry just
 // wrote, seen locally. If this fails, gc collects a stranger's store
@@ -330,7 +190,7 @@ func TestSameStoreUploadNeedsFreshDir(t *testing.T) {
 	if sameStoreUpload(root, uuid) {
 		t.Error("absent upload dir proved same store, want false")
 	}
-	dir := filepath.Join(root, "docker", "registry", "v2", "repositories", probeRepo, "_uploads", uuid)
+	dir := filepath.Join(root, "docker", "registry", "v2", "repositories", gc.ProbeRepo, "_uploads", uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("stage upload dir: %v", err)
 	}
