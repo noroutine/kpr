@@ -44,6 +44,31 @@ func TestPlanRemoveReportsCount(t *testing.T) {
 	}
 }
 
+// Adding what matches nothing says so plainly instead of reporting
+// zero marked: silence would leave the operator guessing whether the
+// pattern worked.
+func TestPlanAddNoMatchReportsEmpty(t *testing.T) {
+	var out bytes.Buffer
+	if err := runPlanAdd(cliCtx(), &out, reportStage(), []string{"nomatch:*"}); err != nil {
+		t.Fatalf("plan add: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "no tracked rows matched") {
+		t.Errorf("add reported %q, want no-match", got)
+	}
+}
+
+// Removing from an empty plan says so plainly instead of reporting
+// zero removed: remove composes with reaps that may not have marked.
+func TestPlanRemoveEmptyReportsNothingRemoved(t *testing.T) {
+	var out bytes.Buffer
+	if err := runPlanRemove(cliCtx(), &out, reportStage(), []string{"scratch:*"}); err != nil {
+		t.Fatalf("plan remove: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "nothing removed") {
+		t.Errorf("remove reported %q, want nothing-removed", got)
+	}
+}
+
 // discard reports what went, or plainly that nothing was due. If
 // this fails, empty and cleared read the same — or different.
 func TestPlanDiscardReportsCount(t *testing.T) {

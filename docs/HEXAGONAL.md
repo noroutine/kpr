@@ -107,6 +107,10 @@ Concrete moves, in order:
   the JSON view. Behavior tests moved to the use case, message tests
   stayed in the adapter. `keeper.go`/`planedit.go` no longer import
   `policy`; only the deferred `gc.go` still does (Row type).
+- Coverage top-up (review): direct `ListPlan` test (sort contract +
+  dead-store refusal), zero-branch message tests in `cli`, failing
+  fakes for `DiscardPlan`/`ListPlan` error paths. Extraction gaps
+  closed; redis/gc/root stay environmental and out of scope.
 
 ## Experiment rules
 

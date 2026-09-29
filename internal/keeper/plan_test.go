@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
+
+var errTestDown = errors.New("redis down")
 
 // planStage tracks two scratch rows and one app row, none due:
 // add must mark by pattern, remove must unmark by pattern.
@@ -180,5 +183,63 @@ func TestDiscardPlanEmptyNoOp(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("discard = %d, want 0", n)
+	}
+}
+
+// List returns due rows repo-major with reasons: the plan output
+// order contract, pinned at the use case instead of only through
+// the CLI's rendering.
+func TestListPlanSortsRepoMajor(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "b-repo", Tag: "z", Digest: "sha256:1", PushedAt: keeperNow})
+	_ = s.Record(c, policy.Row{Repo: "a-repo", Tag: "a", Digest: "sha256:2", PushedAt: keeperNow})
+	_ = s.MarkDue(c, "b-repo", "z", "manual")
+	_ = s.MarkDue(c, "a-repo", "a", "manual")
+	due, err := ListPlan(c, s)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(due) != 2 || due[0].Repo != "a-repo" || due[1].Repo != "b-repo" {
+		t.Errorf("plan = %v, want repo-major order", dueNames(t, s))
+	}
+	if due[0].Reason != "manual" {
+		t.Errorf("reason = %q, want manual", due[0].Reason)
+	}
+}
+
+// clearFailStore loses the mark table mid-discard: redis down after
+// the read, the write failing.
+type clearFailStore struct {
+	*store.MemStore
+}
+
+func (clearFailStore) ClearDue(context.Context) (int, error) {
+	return 0, errTestDown
+}
+
+// dueFailStore loses the mark table on read: listing against dead
+// state must fail, never print an empty plan.
+type dueFailStore struct {
+	*store.MemStore
+}
+
+func (dueFailStore) Due(context.Context) ([]policy.Row, error) {
+	return nil, errTestDown
+}
+
+// A dead store fails the discard instead of reporting zero: zero
+// must mean empty, never unreadable.
+func TestDiscardPlanOnDeadStoreFails(t *testing.T) {
+	if _, err := DiscardPlan(context.Background(), &clearFailStore{store.NewMemStore()}); err == nil {
+		t.Error("discard on dead store succeeded, want an error")
+	}
+}
+
+// Listing against dead state fails naming redis instead of printing
+// an empty plan: "nothing due" must mean empty, never unreadable.
+func TestListPlanOnDeadStoreFails(t *testing.T) {
+	if _, err := ListPlan(context.Background(), &dueFailStore{store.NewMemStore()}); err == nil {
+		t.Error("list on dead store succeeded, want an error")
 	}
 }
