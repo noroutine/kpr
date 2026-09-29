@@ -9,7 +9,6 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
-	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 
@@ -25,7 +24,11 @@ type Server struct {
 	// activity). Nil renders them degraded (red/empty), never 500.
 	Store store.Store
 	// Registry is probed for the banner. Nil renders unreachable.
-	Registry *registry.Client
+	// It is the outbound port the console consumes, not the concrete
+	// client: production passes *registry.Client, tests a stub.
+	Registry interface {
+		Reachable(ctx context.Context) error
+	}
 	// Sweeper serves POST /api/sweep. Nil answers 503.
 	Sweeper *sweep.Sweeper
 	// Armed renders "armed" instead of "dry-run" in the banner.

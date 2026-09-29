@@ -203,3 +203,18 @@ func TestSweepEndpointTriggersPass(t *testing.T) {
 		t.Errorf("sweeper-less status = %d, want 503", brr.Code)
 	}
 }
+
+// stubProbe answers the banner probe without HTTP: the console must
+// consume the registry through a small port, not a concrete client.
+// If this fails, the dashboard is still coupled to the transport.
+type stubProbe struct{ err error }
+
+func (f stubProbe) Reachable(ctx context.Context) error { return f.err }
+
+func TestKeeperBannerGreenWithStubRegistry(t *testing.T) {
+	testConfig(t)
+	s := &Server{Store: keeperStore(t), Registry: stubProbe{}}
+	if d := s.keeperSnapshot(context.Background()); !d.RegistryOK {
+		t.Error("stub-reachable registry renders red, want green")
+	}
+}

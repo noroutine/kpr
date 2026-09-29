@@ -742,3 +742,37 @@ func TestSweeperLoopStartupAndTick(t *testing.T) {
 		t.Error("loop ran no passes, want startup + ticks recorded")
 	}
 }
+
+// stubCatalog answers the catalog probe without HTTP: reap must
+// consume the registry through a small port, not a concrete client.
+// If this fails, evaluation is still coupled to the transport.
+type stubCatalog struct {
+	tags map[string][]string
+	err  error
+}
+
+func (f stubCatalog) Catalog(ctx context.Context, repo string) ([]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.tags[repo], nil
+}
+
+func (f stubCatalog) Reachable(ctx context.Context) error { return nil }
+
+func TestReapUntaggedUsesStubCatalog(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
+		PushedAt: cliNow.Add(-200 * time.Hour)})
+	_ = s.Record(c, policy.Row{Repo: "kept", Tag: "v9", Digest: "sha256:b",
+		PushedAt: cliNow.Add(-200 * time.Hour)})
+	stub := stubCatalog{tags: map[string][]string{"gone": {}, "kept": {"v9"}}}
+	marked, err := EvaluatePolicy(cliCtx(), s, stub, cliNow, nil, "untagged")
+	if err != nil {
+		t.Fatalf("EvaluatePolicy untagged: %v", err)
+	}
+	if len(marked) != 1 || marked[0].Repo != "gone" {
+		t.Errorf("untagged = %v, want only gone:v1", dueTags(marked))
+	}
+}

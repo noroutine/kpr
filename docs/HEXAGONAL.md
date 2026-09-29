@@ -67,6 +67,13 @@ Concrete moves, in order:
    `cli`. Only if `gc` keeps growing past backfill/sentinel work.
 5. Single composition root in `cmd/app`. Each `RunE` stops rewiring.
 
+## Progress
+
+- Step 1 done: `sweep.Registry` (delete port), `cli.registryAPI`
+  (catalog + reachable port), `web.Server.Registry` (reachable port).
+  One stub test per consumer, no new loopback servers. Full unit
+  suite green, e2e compiles (docker run deferred to CI).
+
 ## Experiment rules
 
 - One slice at a time, TDD, pipeline green, coverage > 90%.

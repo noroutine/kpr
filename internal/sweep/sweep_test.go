@@ -75,6 +75,42 @@ func newSweeper(s store.Store, url string, dryRun bool) *Sweeper {
 	}
 }
 
+// stubRegistry answers DeleteManifest without HTTP: the sweeper must
+// consume the registry through a small port, not a concrete client.
+// If this fails, the sweep use case is still coupled to the transport.
+type stubRegistry struct {
+	mu      sync.Mutex
+	refs    []string
+	outcome string
+	err     error
+}
+
+func (f *stubRegistry) DeleteManifest(ctx context.Context, repo, ref string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refs = append(f.refs, repo+"@"+ref)
+	return f.outcome, f.err
+}
+
+func TestSweeperDeletesViaStubRegistry(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sum := sw.RunPass(testCtx(), "test")
+	if sum.Performed != 1 {
+		t.Errorf("summary = %+v, want 1 performed", sum)
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.refs) != 1 || stub.refs[0] != "app@sha256:abc" {
+		t.Errorf("deleted refs = %v, want [app@sha256:abc]", stub.refs)
+	}
+	if all, _ := s.All(testCtx()); len(all) != 0 {
+		t.Errorf("%d rows survived a confirmed delete, want 0", len(all))
+	}
+}
+
 // Dry-run is implicit safety: the pass plans every due row, calls the
 // registry zero times, and leaves rows marked for the armed run. If
 // this fails, "safe by default" deletes — or plans something the armed

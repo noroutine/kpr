@@ -48,11 +48,18 @@ type Summary struct {
 	Failures  []string
 }
 
+// Registry is the outbound port the sweep use case consumes: delete
+// by repo and reference. *registry.Client is the production adapter;
+// tests bring a stub, never a loopback server.
+type Registry interface {
+	DeleteManifest(ctx context.Context, repo, ref string) (string, error)
+}
+
 // Sweeper deletes due rows. DryRun plans without touching the registry
 // (implicit dry-run: nothing changes unless explicitly armed).
 type Sweeper struct {
 	Store    store.Store
-	Registry *registry.Client
+	Registry Registry
 	DryRun   bool
 	// Now is a seam for tests; production leaves it nil (wall clock).
 	Now func() time.Time
