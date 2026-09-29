@@ -85,6 +85,11 @@ Concrete moves, in order:
   test deleted. One integration test
   (`TestArmedPassDeletesAndResolves`) keeps the real client, so port
   and adapter stay proven together.
+- Locks collapsed (review): one named-lock port
+  (`AcquireLock(ctx, name, ttl)` / `ReleaseLock(ctx, name)`) over the
+  existing `LockKey` / `GCLockKey`; the twin contract tests became one
+  (plus a cross-lock independence check), redis was already keyed
+  underneath.
 
 ## Experiment rules
 

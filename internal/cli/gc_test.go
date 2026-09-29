@@ -169,7 +169,7 @@ type releaseFailStore struct {
 	*store.MemStore
 }
 
-func (releaseFailStore) ReleaseGCLock(context.Context) error { return errRelease }
+func (releaseFailStore) ReleaseLock(context.Context, string) error { return errRelease }
 
 var errRelease = errors.New("release failed")
 
@@ -485,7 +485,7 @@ func TestRunGCLockContention(t *testing.T) {
 	registryBinPath = stageBin(t, "exit 0")
 	defer func() { registryBinPath = oldBin }()
 
-	if ok, err := s.AcquireGCLock(ctx, time.Minute); err != nil || !ok {
+	if ok, err := s.AcquireLock(ctx, store.GCLockKey, time.Minute); err != nil || !ok {
 		t.Fatalf("pre-acquire = (%v, %v), want (true, nil)", ok, err)
 	}
 	var out strings.Builder
@@ -494,17 +494,17 @@ func TestRunGCLockContention(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "another gc") {
 		t.Errorf("refusal names no cause: %v", err)
 	}
-	if err := s.ReleaseGCLock(ctx); err != nil {
+	if err := s.ReleaseLock(ctx, store.GCLockKey); err != nil {
 		t.Fatalf("release: %v", err)
 	}
 	out.Reset()
 	if err := runGC(ctx, &out, s, deny.URL, cfg, GCOptions{}); err != nil {
 		t.Fatalf("gc after release = %v, want nil", err)
 	}
-	if ok, _ := s.AcquireGCLock(ctx, time.Minute); !ok {
+	if ok, _ := s.AcquireLock(ctx, store.GCLockKey, time.Minute); !ok {
 		t.Error("lock still held after successful gc, want released")
 	}
-	_ = s.ReleaseGCLock(ctx)
+	_ = s.ReleaseLock(ctx, store.GCLockKey)
 }
 
 // The post-run probe detects a mode flip mid-collect (readonly went

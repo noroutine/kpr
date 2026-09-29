@@ -207,18 +207,10 @@ func (s *RedisStore) release(ctx context.Context, key string) error {
 	return s.rdb.Del(ctx, key).Err()
 }
 
-func (s *RedisStore) AcquireLock(ctx context.Context, ttl time.Duration) (bool, error) {
-	return s.acquire(ctx, LockKey, ttl)
+func (s *RedisStore) AcquireLock(ctx context.Context, name string, ttl time.Duration) (bool, error) {
+	return s.acquire(ctx, name, ttl)
 }
 
-func (s *RedisStore) ReleaseLock(ctx context.Context) error {
-	return s.release(ctx, LockKey)
-}
-
-func (s *RedisStore) AcquireGCLock(ctx context.Context, ttl time.Duration) (bool, error) {
-	return s.acquire(ctx, GCLockKey, ttl)
-}
-
-func (s *RedisStore) ReleaseGCLock(ctx context.Context) error {
-	return s.release(ctx, GCLockKey)
+func (s *RedisStore) ReleaseLock(ctx context.Context, name string) error {
+	return s.release(ctx, name)
 }

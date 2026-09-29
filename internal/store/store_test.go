@@ -62,10 +62,10 @@ func TestRedisStoreDeadServer(t *testing.T) {
 	if _, err := s.Activity(ctx); err == nil {
 		t.Error("Activity = nil, want connection error")
 	}
-	if ok, err := s.AcquireLock(ctx, time.Minute); err == nil || ok {
+	if ok, err := s.AcquireLock(ctx, store.LockKey, time.Minute); err == nil || ok {
 		t.Errorf("AcquireLock = %v/%v, want false with connection error", ok, err)
 	}
-	if err := s.ReleaseLock(ctx); err == nil {
+	if err := s.ReleaseLock(ctx, store.LockKey); err == nil {
 		t.Error("ReleaseLock = nil, want connection error")
 	}
 }

@@ -15,13 +15,12 @@ type MemStore struct {
 	rows     map[string]policy.Row
 	current  Current
 	activity []Outcome
-	locked   bool
-	gcLocked bool
+	locks    map[string]bool
 }
 
 // NewMemStore builds an empty MemStore.
 func NewMemStore() *MemStore {
-	return &MemStore{rows: map[string]policy.Row{}}
+	return &MemStore{rows: map[string]policy.Row{}, locks: map[string]bool{}}
 }
 
 func key(repo, tag string) string { return repo + "\x00" + tag }
@@ -133,36 +132,19 @@ func (m *MemStore) Activity(context.Context) ([]Outcome, error) {
 	return append([]Outcome(nil), m.activity...), nil
 }
 
-func (m *MemStore) AcquireLock(_ context.Context, _ time.Duration) (bool, error) {
+func (m *MemStore) AcquireLock(_ context.Context, name string, _ time.Duration) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.locked {
+	if m.locks[name] {
 		return false, nil
 	}
-	m.locked = true
+	m.locks[name] = true
 	return true, nil
 }
 
-func (m *MemStore) AcquireGCLock(_ context.Context, _ time.Duration) (bool, error) {
+func (m *MemStore) ReleaseLock(_ context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.gcLocked {
-		return false, nil
-	}
-	m.gcLocked = true
-	return true, nil
-}
-
-func (m *MemStore) ReleaseLock(context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.locked = false
-	return nil
-}
-
-func (m *MemStore) ReleaseGCLock(context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.gcLocked = false
+	delete(m.locks, name)
 	return nil
 }

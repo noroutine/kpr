@@ -82,12 +82,10 @@ type Store interface {
 	PushActivity(ctx context.Context, o Outcome) error
 	// Activity reads the ring, newest first.
 	Activity(ctx context.Context) ([]Outcome, error)
-	// AcquireLock takes the single-flight lock (false = held, skip).
-	AcquireLock(ctx context.Context, ttl time.Duration) (bool, error)
-	// ReleaseLock drops the lock after a pass.
-	ReleaseLock(ctx context.Context) error
-	// AcquireGCLock takes the collector lock (false = held, refuse).
-	AcquireGCLock(ctx context.Context, ttl time.Duration) (bool, error)
-	// ReleaseGCLock drops the collector lock after a run.
-	ReleaseGCLock(ctx context.Context) error
+	// AcquireLock takes one named single-flight lock (false = held:
+	// the sweep pass skips, the collector run refuses). Name selects
+	// the lock: LockKey for sweeps, GCLockKey for collectors.
+	AcquireLock(ctx context.Context, name string, ttl time.Duration) (bool, error)
+	// ReleaseLock drops the named lock after the run.
+	ReleaseLock(ctx context.Context, name string) error
 }

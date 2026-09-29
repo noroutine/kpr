@@ -29,8 +29,7 @@ func RunContract(t *testing.T, setup func(t *testing.T) store.Store) {
 	t.Run("delete", func(t *testing.T) { testDeleteRemovesRow(t, setup(t)) })
 	t.Run("current", func(t *testing.T) { testCurrentRoundTrip(t, setup(t)) })
 	t.Run("activity", func(t *testing.T) { testActivityRingCapped(t, setup(t)) })
-	t.Run("lock", func(t *testing.T) { testLockSingleFlight(t, setup(t)) })
-	t.Run("gc-lock", func(t *testing.T) { testGCLockSingleFlight(t, setup(t)) })
+	t.Run("lock", func(t *testing.T) { testNamedLockSingleFlight(t, setup(t)) })
 }
 
 var storeNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
@@ -247,48 +246,38 @@ func testActivityRingCapped(t *testing.T, s store.Store) {
 	}
 }
 
-// The collector lock is single-flight like the sweep lock but on its
-// own key: a second collector refuses while one runs, and releasing
-// re-arms. If this fails, gc runs race each other on one store.
-func testGCLockSingleFlight(t *testing.T, s store.Store) {
+// Named locks are single-flight per key with expiry: a second holder
+// of the same lock refuses while one runs, releasing re-arms, and one
+// lock never blocks another. If this fails, two passes (or two
+// collectors) race one store, one run wedges the rest, or a sweep
+// deadlocks a collection it never touches.
+func testNamedLockSingleFlight(t *testing.T, s store.Store) {
 	c := ctx()
-	ok, err := s.AcquireGCLock(c, time.Minute)
+	for _, name := range []string{store.LockKey, store.GCLockKey} {
+		ok, err := s.AcquireLock(c, name, time.Minute)
+		if err != nil || !ok {
+			t.Fatalf("%s: first acquire = (%v, %v), want (true, nil)", name, ok, err)
+		}
+		ok, err = s.AcquireLock(c, name, time.Minute)
+		if err != nil || ok {
+			t.Fatalf("%s: second acquire = (%v, %v), want (false, nil)", name, ok, err)
+		}
+		if err := s.ReleaseLock(c, name); err != nil {
+			t.Fatalf("%s: release: %v", name, err)
+		}
+		ok, err = s.AcquireLock(c, name, time.Minute)
+		if err != nil || !ok {
+			t.Fatalf("%s: post-release acquire = (%v, %v), want (true, nil)", name, ok, err)
+		}
+		_ = s.ReleaseLock(c, name)
+	}
+	ok, err := s.AcquireLock(c, store.LockKey, time.Minute)
 	if err != nil || !ok {
-		t.Fatalf("first AcquireGCLock = (%v, %v), want (true, nil)", ok, err)
+		t.Fatalf("sweep acquire = (%v, %v), want (true, nil)", ok, err)
 	}
-	ok, err = s.AcquireGCLock(c, time.Minute)
-	if err != nil || ok {
-		t.Fatalf("second AcquireGCLock = (%v, %v), want (false, nil)", ok, err)
+	if ok, err := s.AcquireLock(c, store.GCLockKey, time.Minute); err != nil || !ok {
+		t.Fatalf("gc acquire under held sweep lock = (%v, %v), want (true, nil)", ok, err)
 	}
-	if err := s.ReleaseGCLock(c); err != nil {
-		t.Fatalf("ReleaseGCLock: %v", err)
-	}
-	ok, err = s.AcquireGCLock(c, time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("post-release AcquireGCLock = (%v, %v), want (true, nil)", ok, err)
-	}
-	_ = s.ReleaseGCLock(c)
-}
-
-// The sweep lock is single-flight with expiry: a second trigger skips
-// instead of stacking, and release re-arms. If this fails, two passes
-// delete concurrently or a crashed sweeper holds the lock forever.
-func testLockSingleFlight(t *testing.T, s store.Store) {
-	c := ctx()
-	ok, err := s.AcquireLock(c, time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("first AcquireLock = (%v, %v), want (true, nil)", ok, err)
-	}
-	ok, err = s.AcquireLock(c, time.Minute)
-	if err != nil || ok {
-		t.Fatalf("second AcquireLock = (%v, %v), want (false, nil)", ok, err)
-	}
-	if err := s.ReleaseLock(c); err != nil {
-		t.Fatalf("ReleaseLock: %v", err)
-	}
-	ok, err = s.AcquireLock(c, time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("post-release AcquireLock = (%v, %v), want (true, nil)", ok, err)
-	}
-	_ = s.ReleaseLock(c)
+	_ = s.ReleaseLock(c, store.LockKey)
+	_ = s.ReleaseLock(c, store.GCLockKey)
 }

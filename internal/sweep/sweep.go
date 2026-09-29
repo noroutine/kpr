@@ -125,7 +125,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 		s.emit(ctx, "sweep row", args...)
 	}
 
-	held, err := s.Store.AcquireLock(ctx, LockTTL)
+	held, err := s.Store.AcquireLock(ctx, store.LockKey, LockTTL)
 	if err != nil {
 		setStage(StageFailure, 0, 0)
 		sum.Failures = append(sum.Failures, fmt.Sprintf("lock: %v", err))
@@ -137,7 +137,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 		return sum
 	}
 	defer func() {
-		if err := s.Store.ReleaseLock(ctx); err != nil {
+		if err := s.Store.ReleaseLock(ctx, store.LockKey); err != nil {
 			log.Printf("sweeper: lock release failed: %v", err)
 		}
 	}()

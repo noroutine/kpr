@@ -274,11 +274,11 @@ func TestRegistryFailureKeepsRowForRetry(t *testing.T) {
 func TestLockedTriggerSkips(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
-	held, _ := s.AcquireLock(testCtx(), time.Minute)
+	held, _ := s.AcquireLock(testCtx(), store.LockKey, time.Minute)
 	if !held {
 		t.Fatal("could not pre-hold the lock")
 	}
-	defer func() { _ = s.ReleaseLock(testCtx()) }()
+	defer func() { _ = s.ReleaseLock(testCtx(), store.LockKey) }()
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 
@@ -470,7 +470,7 @@ func (errCurrentStore) PushActivity(context.Context, store.Outcome) error {
 	return errEventPath
 }
 
-func (errCurrentStore) ReleaseLock(context.Context) error {
+func (errCurrentStore) ReleaseLock(context.Context, string) error {
 	return errEventPath
 }
 

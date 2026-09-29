@@ -312,7 +312,7 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 	if err := gcCacheReady(ctx, configPath); err != nil {
 		return err
 	}
-	held, err := s.AcquireGCLock(ctx, gcLockTTL)
+	held, err := s.AcquireLock(ctx, store.GCLockKey, gcLockTTL)
 	if err != nil {
 		return fmt.Errorf("redis unreachable: %w", err)
 	}
@@ -320,7 +320,7 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 		return errors.New("another gc run holds the lock (kpr gc or make gc); wait it out or DEL kpr:gc:lock on the kpr redis DB if stale")
 	}
 	defer func() {
-		if rerr := s.ReleaseGCLock(ctx); rerr != nil {
+		if rerr := s.ReleaseLock(ctx, store.GCLockKey); rerr != nil {
 			_, _ = fmt.Fprintf(w, "Warning: gc lock release failed (%v); expires in %v\n", rerr, gcLockTTL)
 		}
 	}()
