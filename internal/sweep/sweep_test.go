@@ -83,18 +83,19 @@ type stubRegistry struct {
 	mu      sync.Mutex
 	refs    []string
 	outcome string
-	// failRef, when set, fails only that repo@ref with err: a mid-pass
-	// failure beside a success in one pass, no stateful server needed.
-	failRef string
-	err     error
+	// failFirst fails the first DeleteManifest call with err and
+	// succeeds the rest, whichever ref arrives first: a mid-pass
+	// failure beside a success in one pass, independent of store
+	// order, no stateful server needed.
+	failFirst bool
+	err       error
 }
 
 func (f *stubRegistry) DeleteManifest(ctx context.Context, repo, ref string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	key := repo + "@" + ref
-	f.refs = append(f.refs, key)
-	if f.failRef != "" && key == f.failRef {
+	f.refs = append(f.refs, repo+"@"+ref)
+	if f.failFirst && len(f.refs) == 1 {
 		return "", f.err
 	}
 	return f.outcome, nil
@@ -128,17 +129,16 @@ func TestSweeperDeletesViaStubRegistry(t *testing.T) {
 // this fails, "safe by default" deletes — or plans something the armed
 // run would not do.
 func TestDryRunPlansWithoutDeleting(t *testing.T) {
-	f := newFake(http.StatusAccepted, "")
-	defer f.close()
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
-	sw := newSweeper(s, f.srv.URL, true)
+	sw := &Sweeper{Store: s, Registry: stub, DryRun: true, Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "POST")
 	if sum.Planned != 1 || sum.Performed != 0 || sum.Failed != 0 {
 		t.Errorf("summary = %+v, want {Planned:1}", sum)
 	}
-	if n := f.calls.Load(); n != 0 {
+	if n := len(stub.refs); n != 0 {
 		t.Errorf("registry DELETEs = %d, want 0 in dry-run", n)
 	}
 	if due, _ := s.Due(testCtx()); len(due) != 1 {
@@ -162,16 +162,15 @@ func TestDryRunPlansWithoutDeleting(t *testing.T) {
 // stays due). If this fails, every armed pass 405s on modern
 // registries and nothing is ever collected.
 func TestArmedPassDeletesByDigest(t *testing.T) {
-	f := newFake(http.StatusAccepted, "")
-	defer f.close()
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
-	sw := newSweeper(s, f.srv.URL, false)
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 
 	if sum := sw.RunPass(testCtx(), "tick"); sum.Performed != 1 {
 		t.Fatalf("summary = %+v, want Performed 1", sum)
 	}
-	if ref := f.lastRef(); !strings.HasSuffix(ref, "sha256:abc") {
+	if ref := stub.refs[len(stub.refs)-1]; !strings.HasSuffix(ref, "sha256:abc") {
 		t.Errorf("deleted ref = %q, want the row digest", ref)
 	}
 
@@ -181,14 +180,17 @@ func TestArmedPassDeletesByDigest(t *testing.T) {
 	if sum := sw.RunPass(testCtx(), "tick"); sum.Performed != 1 {
 		t.Fatalf("summary = %+v, want the digest-less row attempted too", sum)
 	}
-	if ref := f.lastRef(); !strings.HasSuffix(ref, "v9") {
+	if ref := stub.refs[len(stub.refs)-1]; !strings.HasSuffix(ref, "v9") {
 		t.Errorf("deleted ref = %q, want tag fallback for digest-less rows", ref)
 	}
 }
 
-// The armed pass deletes due rows, resolves them from the store only
-// on confirmation, and reports performed. If this fails, real deletes
-// either don't happen or rows are dropped without confirmation.
+// The armed pass deletes due rows end to end through the real client:
+// this is the one integration test that keeps a loopback registry, so
+// the port and the adapter stay proven together. Rows resolve from
+// the store only on confirmation, and the pass reports performed. If
+// this fails, real deletes either don't happen or rows are dropped
+// without confirmation.
 func TestArmedPassDeletesAndResolves(t *testing.T) {
 	f := newFake(http.StatusAccepted, "")
 	defer f.close()
@@ -216,19 +218,18 @@ func TestArmedPassDeletesAndResolves(t *testing.T) {
 // due-marked row whose promise hasn't elapsed is skipped, never
 // deleted. If this fails, a stale mark wipes a fresh push.
 func TestFloorHoldsEarlyTTLMark(t *testing.T) {
-	f := newFake(http.StatusAccepted, "")
-	defer f.close()
 	s := store.NewMemStore()
 	r := duerow("scratch", "10m", 9*time.Minute)
 	r.Reason = "ttl:10m elapsed"
 	_ = s.Record(testCtx(), r)
-	sw := newSweeper(s, f.srv.URL, false)
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "tick")
 	if sum.Performed != 0 || sum.Failed != 0 {
 		t.Errorf("summary = %+v, want no deletes before the promise", sum)
 	}
-	if n := f.calls.Load(); n != 0 {
+	if n := len(stub.refs); n != 0 {
 		t.Errorf("registry DELETEs = %d, want 0 (floor holds)", n)
 	}
 	if due, _ := s.Due(testCtx()); len(due) != 1 {
@@ -245,11 +246,11 @@ func TestFloorHoldsEarlyTTLMark(t *testing.T) {
 // the failure where `sweep`'s watch surfaces it. If this fails,
 // failures are swallowed (row silently resolved) or crash the pass.
 func TestRegistryFailureKeepsRowForRetry(t *testing.T) {
-	f := newFake(http.StatusInternalServerError, "boom")
-	defer f.close()
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
-	sw := newSweeper(s, f.srv.URL, false)
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted,
+		failFirst: true, err: errors.New("delete app/v1: registry status 500")}
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "tick")
 	if sum.Failed != 1 || sum.Performed != 0 {
@@ -267,30 +268,10 @@ func TestRegistryFailureKeepsRowForRetry(t *testing.T) {
 	}
 }
 
-// An index-held manifest is untracked (row dropped, registry owns the
-// child), never retried. If this fails, the sweeper hammers it forever.
-func TestHeldManifestUntracks(t *testing.T) {
-	f := newFake(http.StatusMethodNotAllowed, `{"errors":[{"code":"DENIED"}]}`)
-	defer f.close()
-	s := store.NewMemStore()
-	_ = s.Record(testCtx(), duerow("app", "child", 200*24*time.Hour))
-	sw := newSweeper(s, f.srv.URL, false)
-
-	sum := sw.RunPass(testCtx(), "tick")
-	if sum.Untracked != 1 {
-		t.Errorf("summary = %+v, want {Untracked:1}", sum)
-	}
-	if all, _ := s.All(testCtx()); len(all) != 0 {
-		t.Errorf("%d rows left after untrack, want 0", len(all))
-	}
-}
-
 // A trigger that finds the lock emits skip and stacks nothing: no
 // deletes, no per-row outcomes, current stage reads skip. If this
 // fails, concurrent passes delete together or a skip looks like work.
 func TestLockedTriggerSkips(t *testing.T) {
-	f := newFake(http.StatusAccepted, "")
-	defer f.close()
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
 	held, _ := s.AcquireLock(testCtx(), time.Minute)
@@ -298,13 +279,14 @@ func TestLockedTriggerSkips(t *testing.T) {
 		t.Fatal("could not pre-hold the lock")
 	}
 	defer func() { _ = s.ReleaseLock(testCtx()) }()
-	sw := newSweeper(s, f.srv.URL, false)
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "POST")
 	if !sum.Skipped {
 		t.Errorf("summary = %+v, want Skipped", sum)
 	}
-	if n := f.calls.Load(); n != 0 {
+	if n := len(stub.refs); n != 0 {
 		t.Errorf("registry DELETEs = %d during skip, want 0", n)
 	}
 	cur, _ := s.GetCurrent(testCtx())
@@ -317,10 +299,9 @@ func TestLockedTriggerSkips(t *testing.T) {
 // watcher can tell "ran, nothing to do" from "never ran". If this
 // fails, idle ticks masquerade as work (or leave no trace).
 func TestEmptyDueSkips(t *testing.T) {
-	f := newFake(http.StatusAccepted, "")
-	defer f.close()
 	s := store.NewMemStore()
-	sw := newSweeper(s, f.srv.URL, false)
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "tick")
 	if !sum.Skipped {
@@ -378,11 +359,10 @@ func (r *recordSink) byMsg(msg string) []logRecord {
 // indexes — if this fails, the console knows but observability is
 // blind.
 func TestPassEmitsActivityLogRecords(t *testing.T) {
-	f := newFake(http.StatusAccepted, "")
-	defer f.close()
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
-	sw := newSweeper(s, f.srv.URL, false)
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 	sink := &recordSink{}
 	sw.Log = sink.log
 
@@ -425,9 +405,8 @@ func TestPassEmitsActivityLogRecords(t *testing.T) {
 // Quickwit, ticks with nothing due must be distinguishable from a
 // sweeper that stopped ticking.
 func TestSkippedPassLogsSummary(t *testing.T) {
-	f := newFake(http.StatusAccepted, "")
-	defer f.close()
-	sw := newSweeper(store.NewMemStore(), f.srv.URL, false)
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: store.NewMemStore(), Registry: stub, Now: func() time.Time { return sweepNow }}
 	sink := &recordSink{}
 	sw.Log = sink.log
 
@@ -447,11 +426,11 @@ func TestSkippedPassLogsSummary(t *testing.T) {
 // A failed row carries its error on the record: counts alone don't
 // tell the operator why a digest delete 405d.
 func TestFailedRowLogsError(t *testing.T) {
-	f := newFake(http.StatusInternalServerError, "boom")
-	defer f.close()
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
-	sw := newSweeper(s, f.srv.URL, false)
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted,
+		failFirst: true, err: errors.New("delete app/v1: registry status 500")}
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 	sink := &recordSink{}
 	sw.Log = sink.log
 
@@ -541,18 +520,14 @@ func TestPassSurvivesEventWriteFailure(t *testing.T) {
 // registry did the work, only the bookkeeping missed. If this fails, a
 // store hiccup either drops unconfirmed rows or undercounts the pass.
 func TestConfirmedDeleteWithFailedResolution(t *testing.T) {
-	for name, status := range map[string]struct {
-		code int
-		body string
-	}{
-		"deleted":   {http.StatusAccepted, ""},
-		"untracked": {http.StatusMethodNotAllowed, `{"errors":[{"code":"DENIED"}]}`},
+	for name, outcome := range map[string]string{
+		"deleted":   registry.OutcomeDeleted,
+		"untracked": registry.OutcomeHeld,
 	} {
-		f := newFake(status.code, status.body)
-		defer f.close()
 		s := &errDeleteStore{MemStore: store.NewMemStore()}
 		_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
-		sw := newSweeper(s, f.srv.URL, false)
+		stub := &stubRegistry{outcome: outcome}
+		sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 
 		var buf bytes.Buffer
 		old := log.Writer()
@@ -572,27 +547,33 @@ func TestConfirmedDeleteWithFailedResolution(t *testing.T) {
 	}
 }
 
-// A delete that fails keeps its row due while the pass moves on: one
-// row failed, one performed, the failed row still marked for the next
-// tick. If this fails, the sweeper drops work it never confirmed.
+// A delete that fails keeps its row due while the pass moves on: the
+// first attempted row fails, the second still performs. The failed
+// ref is whichever the stub recorded first — MemStore.Due ranges
+// over a map, so the test must not assume row order. If this fails
+// (deterministically, not flakily), the sweeper drops work it never
+// confirmed or stops the pass at the first failure.
 func TestSweeperFailedDeleteKeepsRowDue(t *testing.T) {
 	s := store.NewMemStore()
 	mkrow := func(tag, digest string) policy.Row {
 		return policy.Row{Repo: "app", Tag: tag, Digest: digest,
 			PushedAt: sweepNow.Add(-time.Hour), Due: true, Reason: "test"}
 	}
-	_ = s.Record(testCtx(), mkrow("v1", "sha256:bad"))
-	_ = s.Record(testCtx(), mkrow("v2", "sha256:good"))
+	_ = s.Record(testCtx(), mkrow("v1", "sha256:aaa"))
+	_ = s.Record(testCtx(), mkrow("v2", "sha256:bbb"))
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted,
-		failRef: "app@sha256:bad", err: errors.New("registry down")}
+		failFirst: true, err: errors.New("registry down")}
 	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
 	sum := sw.RunPass(testCtx(), "test")
 	if sum.Performed != 1 || sum.Failed != 1 {
 		t.Errorf("summary = %+v, want 1 performed and 1 failed", sum)
 	}
+	if len(stub.refs) != 2 {
+		t.Fatalf("deleted refs = %v, want both rows attempted", stub.refs)
+	}
 	due, _ := s.Due(testCtx())
-	if len(due) != 1 || due[0].Tag != "v1" {
-		t.Errorf("due = %v, want only the failed app:v1", due)
+	if len(due) != 1 || due[0].Repo+"@"+due[0].Digest != stub.refs[0] {
+		t.Errorf("due = %v, want only the first-attempted ref %q", due, stub.refs[0])
 	}
 }
 

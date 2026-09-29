@@ -79,6 +79,12 @@ Concrete moves, in order:
   `Outcome*` delete vocabulary, and the stub tests reference it too —
   the type is decoupled, the package arrow isn't. Moving the
   vocabulary waits for a second backend or the gc extraction.
+- Step 1b done (review): the mid-pass failure test fails the first
+  call whatever the ref (map-order independent); 12 sweep tests moved
+  off the loopback server onto the stub, the duplicated HTTP held
+  test deleted. One integration test
+  (`TestArmedPassDeletesAndResolves`) keeps the real client, so port
+  and adapter stay proven together.
 
 ## Experiment rules
 
