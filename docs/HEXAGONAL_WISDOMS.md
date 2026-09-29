@@ -195,6 +195,8 @@ corrected in the open ([caa6c8a](https://nrtn.dev/catalyst/kpr/commit/caa6c8afae
 
 ## W17 — Megawisdom: second *differing* implementation, not second caller
 
+A port needs a second implementation that differs in a way someone uses.
+
 The rule started life as "never cut a port before its second
 user" — and Oleksii's question broke it open twice. First:
 `MarkDue` has two keeper callers (`Reap`, `AddPlan`) and still
