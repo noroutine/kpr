@@ -81,10 +81,11 @@ cmd/app                  the only wiring
     stay shared with the sweeper.
   - [ ] 3c locks: `gc.Locker` exists; sweep declares its own twin
     (same shape, its own name) or reuses — micro-slice, optional.
-  - [ ] 3d deletion ownership: `Delete` is already sweep-only; the
-    open question is whether the sweeper owns the whole deletion
-    (registry manifest + store row) behind one port — undecided,
-    opinion recorded in `docs/HEXAGONAL_WISDOMS.md`.
+  - [x] 3d deletion ownership: closed by not doing it. A combined
+    deletion port would either drag the outcome matrix into the
+    adapter or reinvent `DeleteManifest` with indirection —
+    megawisdom in `docs/HEXAGONAL_WISDOMS.md`. Sweep-only plus the
+    TTL floor stays the boundary.
   - Shared and staying: `Record`/`All`/`Due`/`Ping` — genuinely
     common store surface, no port pays for itself there.
 - [ ] Step 4 — gc use case, partial, started early on Oleksii's
