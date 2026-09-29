@@ -105,7 +105,8 @@ Concrete moves, in order:
 - Step 2d done: `keeper` owns the plan (`ListPlan`, `DiscardPlan`,
   `AddPlan`, `RemovePlan` + `ManualReason`); `cli` renders counts and
   the JSON view. Behavior tests moved to the use case, message tests
-  stayed in the adapter. `cli` no longer imports `policy` anywhere.
+  stayed in the adapter. `keeper.go`/`planedit.go` no longer import
+  `policy`; only the deferred `gc.go` still does (Row type).
 
 ## Experiment rules
 
