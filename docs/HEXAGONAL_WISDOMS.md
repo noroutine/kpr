@@ -17,6 +17,7 @@ it. The rule, then the receipt. Two megawisdoms up top, then the checklist.
 - [W10: Moves, not renames — except graduations](#w10-moves-not-renames--except-graduations)
 - [W11: Re-read the receiving file after a move](#w11-re-read-the-receiving-file-after-a-move)
 - [W12: Coverage gaps: name them, don't hide them](#w12-coverage-gaps-name-them-dont-hide-them)
+- [W13: Seams are proto-ports](#w13-seams-are-proto-ports)
 
 ## W1: Ports hide partners, not steps
 
@@ -209,3 +210,17 @@ shortfalls need sentences, not heroics. And wrong doc claims get
 corrected in the open ([caa6c8a](https://nrtn.dev/catalyst/kpr/commit/caa6c8afae6f9304404094a4dfe0e2a41ee5c8a5)), not amended into silence.
 
 — [8650e5c](https://nrtn.dev/catalyst/kpr/commit/8650e5c6d77ad8cad721414fb79ee450b816c682), [caa6c8a](https://nrtn.dev/catalyst/kpr/commit/caa6c8afae6f9304404094a4dfe0e2a41ee5c8a5)
+
+## W13: Seams are proto-ports
+
+`collectorCommand` (package var, swapped in tests) is a seam:
+invisible, global, test-only. `Collector` is the same need grown
+up: in the signature, usable by any caller, production passing the
+real thing explicitly. Start with the seam — it's one line and it
+proves the substitution matters. Promote to a port when the second
+consumer arrives (gc-4's orchestration consuming it); a seam used
+in one test file stays a seam. Ports don't eliminate seams, they
+push them to the boundary: `RunCollector` still bottoms out in the
+seam, because something must finally call `exec`.
+
+— [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
