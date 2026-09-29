@@ -20,19 +20,23 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
 
-// registryAPI is the outbound port the keeper use cases consume:
-// live catalogs for the selectors, reachability for the banner.
-// *registry.Client is the production adapter; tests bring a stub,
-// never a loopback server.
-type registryAPI interface {
+// cataloger is the outbound port the selectors consume: the live tag
+// list per repo. prober is the port the banner consumes: registry
+// reachability. *registry.Client is the production adapter for both;
+// tests bring a stub, never a loopback server. One method each on
+// purpose — no consumer needs both, so no port carries both.
+type cataloger interface {
 	Catalog(ctx context.Context, repo string) ([]string, error)
+}
+
+type prober interface {
 	Reachable(ctx context.Context) error
 }
 
 // runStatus renders banner + counters as text, for scripts and ssh.
 // Redis down fails fast (every number would be a lie); a down registry
 // only reddens the banner.
-func runStatus(ctx context.Context, w io.Writer, s store.Store, reg registryAPI, armed bool) error {
+func runStatus(ctx context.Context, w io.Writer, s store.Store, reg prober, armed bool) error {
 	if err := s.Ping(ctx); err != nil {
 		return fmt.Errorf("redis unreachable: %w", err)
 	}
@@ -123,7 +127,7 @@ var PolicyNames = []string{"all", "expired", "partial", "untagged", "keep-n"}
 // fetchCatalogs reads the live tag list per tracked repo. A repo
 // whose fetch fails stays out of the map, and catalog-dependent
 // selectors treat absent as unknown (skip), never as empty.
-func fetchCatalogs(ctx context.Context, reg registryAPI, rows []policy.Row) map[string][]string {
+func fetchCatalogs(ctx context.Context, reg cataloger, rows []policy.Row) map[string][]string {
 	catalogs := map[string][]string{}
 	if reg == nil {
 		return catalogs
@@ -174,7 +178,7 @@ func sortMarks(out []policy.Row) {
 // plus live catalogs. keepNExclude spares keep-N for rows whose
 // repo:tag matches (registry stripped). Exported alongside
 // EvaluatePolicies so scripts drive one policy path, never a copy.
-func EvaluatePolicy(ctx context.Context, s store.Store, reg registryAPI, now time.Time, keepNExclude []string, name string) ([]policy.Row, error) {
+func EvaluatePolicy(ctx context.Context, s store.Store, reg cataloger, now time.Time, keepNExclude []string, name string) ([]policy.Row, error) {
 	if name == "all" {
 		return EvaluatePolicies(ctx, s, reg, now, keepNExclude)
 	}
@@ -201,7 +205,7 @@ func EvaluatePolicy(ctx context.Context, s store.Store, reg registryAPI, now tim
 // (registry stripped). Exported so the e2e scenarios (test/e2e) drive
 // the same evaluation the CLI marks from — one policy path, never a
 // copy.
-func EvaluatePolicies(ctx context.Context, s store.Store, reg registryAPI, now time.Time, keepNExclude []string) ([]policy.Row, error) {
+func EvaluatePolicies(ctx context.Context, s store.Store, reg cataloger, now time.Time, keepNExclude []string) ([]policy.Row, error) {
 	rows, err := s.All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("redis unreachable: %w", err)
@@ -237,7 +241,7 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg registryAPI, now t
 // it only prints the plan (same source as plan will show once
 // marked): dry-run is implicit, --no-dry-run explicit. excludes spares
 // keep-N for matching repo:tag names.
-func runReap(ctx context.Context, w io.Writer, s store.Store, reg registryAPI, armed bool, excludes []string, now time.Time, policyName string) error {
+func runReap(ctx context.Context, w io.Writer, s store.Store, reg cataloger, armed bool, excludes []string, now time.Time, policyName string) error {
 	marked, err := EvaluatePolicy(ctx, s, reg, now, excludes, policyName)
 	if err != nil {
 		return err

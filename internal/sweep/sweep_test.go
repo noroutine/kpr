@@ -3,6 +3,7 @@ package sweep
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -82,14 +83,21 @@ type stubRegistry struct {
 	mu      sync.Mutex
 	refs    []string
 	outcome string
+	// failRef, when set, fails only that repo@ref with err: a mid-pass
+	// failure beside a success in one pass, no stateful server needed.
+	failRef string
 	err     error
 }
 
 func (f *stubRegistry) DeleteManifest(ctx context.Context, repo, ref string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.refs = append(f.refs, repo+"@"+ref)
-	return f.outcome, f.err
+	key := repo + "@" + ref
+	f.refs = append(f.refs, key)
+	if f.failRef != "" && key == f.failRef {
+		return "", f.err
+	}
+	return f.outcome, nil
 }
 
 // An armed pass deletes through the Registry port: the stub records
@@ -561,5 +569,46 @@ func TestConfirmedDeleteWithFailedResolution(t *testing.T) {
 		if !strings.Contains(buf.String(), "row delete failed") {
 			t.Errorf("%s: log missing the visible resolution failure", name)
 		}
+	}
+}
+
+// A delete that fails keeps its row due while the pass moves on: one
+// row failed, one performed, the failed row still marked for the next
+// tick. If this fails, the sweeper drops work it never confirmed.
+func TestSweeperFailedDeleteKeepsRowDue(t *testing.T) {
+	s := store.NewMemStore()
+	mkrow := func(tag, digest string) policy.Row {
+		return policy.Row{Repo: "app", Tag: tag, Digest: digest,
+			PushedAt: sweepNow.Add(-time.Hour), Due: true, Reason: "test"}
+	}
+	_ = s.Record(testCtx(), mkrow("v1", "sha256:bad"))
+	_ = s.Record(testCtx(), mkrow("v2", "sha256:good"))
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted,
+		failRef: "app@sha256:bad", err: errors.New("registry down")}
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sum := sw.RunPass(testCtx(), "test")
+	if sum.Performed != 1 || sum.Failed != 1 {
+		t.Errorf("summary = %+v, want 1 performed and 1 failed", sum)
+	}
+	due, _ := s.Due(testCtx())
+	if len(due) != 1 || due[0].Tag != "v1" {
+		t.Errorf("due = %v, want only the failed app:v1", due)
+	}
+}
+
+// A held manifest (owned by an index) untracks instead of retrying:
+// the row leaves the store and the pass counts it untracked. If this
+// fails, held rows either pile up due forever or count as performed.
+func TestSweeperHeldDeleteUntracksRow(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
+	stub := &stubRegistry{outcome: registry.OutcomeHeld}
+	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sum := sw.RunPass(testCtx(), "test")
+	if sum.Untracked != 1 {
+		t.Errorf("summary = %+v, want 1 untracked", sum)
+	}
+	if all, _ := s.All(testCtx()); len(all) != 0 {
+		t.Errorf("%d rows survived a held delete, want 0", len(all))
 	}
 }

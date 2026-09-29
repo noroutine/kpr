@@ -69,10 +69,16 @@ Concrete moves, in order:
 
 ## Progress
 
-- Step 1 done: `sweep.Registry` (delete port), `cli.registryAPI`
-  (catalog + reachable port), `web.Server.Registry` (reachable port).
-  One stub test per consumer, no new loopback servers. Full unit
-  suite green, e2e compiles (docker run deferred to CI).
+- Step 1 done: `sweep.Registry` (delete port), `cli` cataloger +
+  prober (one method each — no consumer needed both), `web.Server`
+  reachability port. Stub tests per consumer, no new loopback
+  servers; the stubs also carry the failure paths (mid-pass error
+  keeps the row due, held untracks). Full unit suite green, e2e
+  compiles (docker run deferred to CI).
+- Known gap (review): `sweep` still imports `registry` for the
+  `Outcome*` delete vocabulary, and the stub tests reference it too —
+  the type is decoupled, the package arrow isn't. Moving the
+  vocabulary waits for a second backend or the gc extraction.
 
 ## Experiment rules
 

@@ -758,8 +758,6 @@ func (f stubCatalog) Catalog(ctx context.Context, repo string) ([]string, error)
 	return f.tags[repo], nil
 }
 
-func (f stubCatalog) Reachable(ctx context.Context) error { return nil }
-
 // The untagged selector marks only tags absent from the live catalog
 // past grace: the stub lists v9 for kept and nothing for gone, so
 // gone:v1 marks and kept:v9 stays. If this fails, evaluation reads
