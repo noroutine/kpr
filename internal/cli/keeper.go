@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -44,18 +43,13 @@ func runStatus(ctx context.Context, w io.Writer, s store.Store, reg keeper.Probe
 }
 
 // runPlan prints pending candidates with reasons; asJSON renders them
-// for piping instead.
+// for piping instead. The candidates come from keeper.ListPlan; this
+// stays rendering-only.
 func runPlan(ctx context.Context, w io.Writer, s store.Store, asJSON bool) error {
-	due, err := s.Due(ctx)
+	due, err := keeper.ListPlan(ctx, s)
 	if err != nil {
-		return fmt.Errorf("redis unreachable: %w", err)
+		return err
 	}
-	sort.Slice(due, func(i, j int) bool {
-		if due[i].Repo != due[j].Repo {
-			return due[i].Repo < due[j].Repo
-		}
-		return due[i].Tag < due[j].Tag
-	})
 	if asJSON {
 		type candidate struct {
 			Repo   string `json:"repo"`
@@ -203,13 +197,13 @@ var planCmd = &cobra.Command{
 	},
 }
 
-// runDiscardPlan drops every due mark and reports the count. No
-// dry-run: discarding previews nothing — plan already showed the rows,
-// this reports what went.
+// runDiscardPlan reports the discard count. No dry-run: discarding
+// previews nothing — plan already showed the rows. The marks drop in
+// keeper.DiscardPlan; this stays reporting-only.
 func runDiscardPlan(ctx context.Context, w io.Writer, s store.Store) error {
-	n, err := s.ClearDue(ctx)
+	n, err := keeper.DiscardPlan(ctx, s)
 	if err != nil {
-		return fmt.Errorf("redis unreachable: %w", err)
+		return err
 	}
 	if n == 0 {
 		_, err := io.WriteString(w, "nothing due\n")

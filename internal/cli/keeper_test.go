@@ -306,38 +306,6 @@ func TestReapUnknownPolicyRefuses(t *testing.T) {
 	}
 }
 
-func TestPlanDiscardClearsMarks(t *testing.T) {
-	s := store.NewMemStore()
-	c := context.Background()
-	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m",
-		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
-	_ = s.MarkDue(c, "scratch", "10m", "ttl:10m elapsed")
-	_ = s.MarkDue(c, "scratch", "v9", "keep-n:exceeds 10")
-	var out bytes.Buffer
-	if err := runDiscardPlan(cliCtx(), &out, s); err != nil {
-		t.Fatalf("runDiscardPlan: %v", err)
-	}
-	if due, _ := s.Due(c); len(due) != 0 {
-		t.Errorf("%d marks survived discard, want 0", len(due))
-	}
-	if got := out.String(); !strings.Contains(got, "discarded 2 due marks") {
-		t.Errorf("discard reported %q, want the count", got)
-	}
-}
-
-// Discarding an empty plan is a no-op with a plain answer, not an
-// error. If this fails, the operator can't tell empty from broken.
-func TestPlanDiscardEmptyPlanNoOp(t *testing.T) {
-	s := store.NewMemStore()
-	var out bytes.Buffer
-	if err := runDiscardPlan(cliCtx(), &out, s); err != nil {
-		t.Fatalf("runDiscardPlan: %v", err)
-	}
-	if got := out.String(); !strings.Contains(got, "nothing due") {
-		t.Errorf("empty discard reported %q, want nothing-due", got)
-	}
-}
-
 // Armed reap with several selected rows marks all of them, sorted: the
 // evaluate order contract must hold past a single row. If this fails,
 // multi-mark passes scramble or drop candidates.

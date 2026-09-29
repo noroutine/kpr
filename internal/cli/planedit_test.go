@@ -9,131 +9,58 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// editStage tracks two scratch rows and one app row, none due:
-// plan add must mark by pattern, plan remove must unmark by
-// pattern, reap add must take exact images only.
-func editStage() *store.MemStore {
+// reportStage tracks one scratch row: just enough to render a count
+// against. Behavior lives in keeper; here only the messages.
+func reportStage() *store.MemStore {
 	s := store.NewMemStore()
-	c := cliCtx()
-	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a", PushedAt: cliNow})
-	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10s", Digest: "sha256:b", PushedAt: cliNow})
-	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:c", PushedAt: cliNow})
+	_ = s.Record(cliCtx(), policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a", PushedAt: cliNow})
 	return s
 }
 
-// plan add marks tracked rows matching a Kyverno-style glob with a
-// manual reason and leaves the rest alone. If this fails, operators
-// cannot hand-pick the plan.
-func TestPlanAddMarksMatching(t *testing.T) {
-	s := editStage()
+// plan add reports the marked count with the manual reason stamped
+// on. If this fails, the operator sees a count with no provenance.
+func TestPlanAddReportsCount(t *testing.T) {
+	s := reportStage()
 	var out bytes.Buffer
 	if err := runPlanAdd(cliCtx(), &out, s, []string{"scratch:*"}); err != nil {
 		t.Fatalf("plan add: %v", err)
 	}
-	due, _ := s.Due(cliCtx())
-	if len(due) != 2 {
-		t.Fatalf("due = %v, want the 2 scratch rows", dueTags(due))
-	}
-	if !strings.Contains(out.String(), "marked 2 rows") {
-		t.Errorf("add reported %q, want the count", out.String())
-	}
-	for _, r := range due {
-		if r.Reason != "manual" {
-			t.Errorf("due reason = %q, want manual", r.Reason)
-		}
+	if got := out.String(); !strings.Contains(got, "marked 1 rows due (manual)") {
+		t.Errorf("add reported %q, want the count with reason", got)
 	}
 }
 
-// Adding what matches nothing says so and marks nothing: silence
-// would leave the operator guessing whether the pattern worked.
-func TestPlanAddNoMatch(t *testing.T) {
-	s := editStage()
-	var out bytes.Buffer
-	if err := runPlanAdd(cliCtx(), &out, s, []string{"nomatch:*"}); err != nil {
-		t.Fatalf("plan add: %v", err)
-	}
-	if !strings.Contains(out.String(), "no tracked rows matched") {
-		t.Errorf("add reported %q, want no-match", out.String())
-	}
-	if due, _ := s.Due(cliCtx()); len(due) != 0 {
-		t.Errorf("no-match add marked %v, want nothing", dueTags(due))
-	}
-}
-
-// plan add with several patterns unions the matches; regex: opts
-// into regex like reap --exclude.
-func TestPlanAddUnionsPatterns(t *testing.T) {
-	s := editStage()
-	var out bytes.Buffer
-	if err := runPlanAdd(cliCtx(), &out, s, []string{"scratch:10m", "regex::v1$"}); err != nil {
-		t.Fatalf("plan add: %v", err)
-	}
-	if due, _ := s.Due(cliCtx()); len(due) != 2 {
-		t.Errorf("due = %v, want scratch:10m + app:v1", dueTags(due))
-	}
-}
-
-// A bad pattern refuses before anything marks: half a plan from a
-// typoed glob is worse than no plan.
-func TestPlanAddBadPatternMarksNothing(t *testing.T) {
-	s := editStage()
-	var out bytes.Buffer
-	if err := runPlanAdd(cliCtx(), &out, s, []string{"scratch:*", "regex:([ink"}); err == nil {
-		t.Fatal("plan add with invalid regex succeeded, want refusal")
-	}
-	if due, _ := s.Due(cliCtx()); len(due) != 0 {
-		t.Errorf("refused add marked %v, want nothing", dueTags(due))
-	}
-}
-
-// plan remove drops due marks matching glob/regex/exact and keeps
-// the rest due. If this fails, pruning the plan needs a full
-// discard plus a fresh reap.
-func TestPlanRemoveUnmarksMatching(t *testing.T) {
-	s := editStage()
-	c := cliCtx()
-	_ = s.MarkDue(c, "scratch", "10m", "ttl:10m elapsed")
-	_ = s.MarkDue(c, "app", "v1", "keep-n:exceeds 10")
-	var out bytes.Buffer
-	if err := runPlanRemove(cliCtx(), &out, s, []string{"scratch:10m"}); err != nil {
-		t.Fatalf("plan remove: %v", err)
-	}
-	due, _ := s.Due(cliCtx())
-	if len(due) != 1 || due[0].Repo != "app" {
-		t.Errorf("due = %v, want only app:v1", dueTags(due))
-	}
-	if !strings.Contains(out.String(), "removed 1 due marks") {
-		t.Errorf("remove reported %q, want the count", out.String())
-	}
-}
-
-// Removing what is not due is a no-op, not an error: remove composes
-// with reaps that may not have marked the row.
-func TestPlanRemoveNoMatchNoOp(t *testing.T) {
-	s := editStage()
+// plan remove reports the removed count. If this fails, pruning
+// prints a wrong number while the marks went elsewhere.
+func TestPlanRemoveReportsCount(t *testing.T) {
+	s := reportStage()
+	_ = s.MarkDue(cliCtx(), "scratch", "10m", "ttl:10m elapsed")
 	var out bytes.Buffer
 	if err := runPlanRemove(cliCtx(), &out, s, []string{"scratch:*"}); err != nil {
-		t.Fatalf("plan remove on empty plan: %v", err)
+		t.Fatalf("plan remove: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "removed 1 due marks") {
+		t.Errorf("remove reported %q, want the count", got)
 	}
 }
 
-// An exact name that matches no tracked row refuses, naming it:
-// a typoed image must not slip into (or past) the plan. Globs stay
-// lenient (see TestPlanAddNoMatch) — only exact spellings are
-// typo-proof. Nothing marks unless everything validates.
-func TestPlanAddExactMissRefuses(t *testing.T) {
-	for _, patterns := range [][]string{{"ghost:v1"}, {"scratch:10m", "ghost:v1"}} {
-		s := editStage()
-		var out bytes.Buffer
-		err := runPlanAdd(cliCtx(), &out, s, patterns)
-		if err == nil {
-			t.Fatalf("plan add %v succeeded, want refusal", patterns)
-		}
-		if !strings.Contains(err.Error(), "ghost:v1") {
-			t.Errorf("refusal %q does not name ghost:v1", err)
-		}
-		if due, _ := s.Due(cliCtx()); len(due) != 0 {
-			t.Errorf("refused add marked %v, want nothing", dueTags(due))
-		}
+// discard reports what went, or plainly that nothing was due. If
+// this fails, empty and cleared read the same — or different.
+func TestPlanDiscardReportsCount(t *testing.T) {
+	s := reportStage()
+	_ = s.MarkDue(cliCtx(), "scratch", "10m", "ttl:10m elapsed")
+	var out bytes.Buffer
+	if err := runDiscardPlan(cliCtx(), &out, s); err != nil {
+		t.Fatalf("discard: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "discarded 1 due marks") {
+		t.Errorf("discard reported %q, want the count", got)
+	}
+	out.Reset()
+	if err := runDiscardPlan(cliCtx(), &out, store.NewMemStore()); err != nil {
+		t.Fatalf("empty discard: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "nothing due") {
+		t.Errorf("empty discard reported %q, want nothing-due", got)
 	}
 }

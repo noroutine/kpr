@@ -102,6 +102,10 @@ Concrete moves, in order:
   `Prober` port); `cli.runStatus` fails on it, `web.keeperSnapshot`
   formats it. The duplicated outcome switch is gone; `web/server.go`
   no longer names a registry type.
+- Step 2d done: `keeper` owns the plan (`ListPlan`, `DiscardPlan`,
+  `AddPlan`, `RemovePlan` + `ManualReason`); `cli` renders counts and
+  the JSON view. Behavior tests moved to the use case, message tests
+  stayed in the adapter. `cli` no longer imports `policy` anywhere.
 
 ## Experiment rules
 
