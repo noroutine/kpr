@@ -3,6 +3,23 @@
 Lessons from the experiment, each pinned to the commit that taught
 it. Read as: the rule, then the receipt.
 
+## Megawisdom: a port that orchestrates is a use case in costume
+
+Not everything that looks like a port should be one. The test:
+follow the *decisions*. kpr's deletion means five things
+(resolve on deleted/gone, untrack on held, retry on error, never
+touch the unelapsed) — that matrix is the business, and it must
+live in the use case. A combined `TagDeleter` port either drags
+the matrix into the adapter (decisions in externals, untestable
+without backends) or reports the outcome back up (reinvented
+`DeleteManifest`, plus indirection). Either way the stub proves
+less than the two narrow seams it replaced. Ports abstract
+externals; they must never contain decisions. The only honest
+version is a Strategy — and with one deletion strategy, there is
+nothing to select between. Cut where the second implementation
+stands; "orchestrates two steps" is the use case's job
+description, not a port's.
+
 ## Ports sit with their consumers
 
 The interface belongs next to the code that uses it, one method at
