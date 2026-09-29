@@ -2,8 +2,9 @@
 
 Lessons from the experiment, each pinned to the commit that taught
 it. Read as: the rule, then the receipt. Entries cross-reference
-in parentheses ("(Companion: W3)"); W1–W3 are the megawisdoms, W17
-is the rule everything cashes out to.
+in parentheses ("(Companion: W3)"). W1–W3 and W17 are the
+megawisdoms: the first three say what a port is, W17 says when to
+cut one — everything else cashes out to it.
 
 ## W1 — Megawisdom: ports hide partners, not steps
 
@@ -192,15 +193,23 @@ corrected in the open ([caa6c8a](https://nrtn.dev/catalyst/kpr/commit/caa6c8afae
 
 — [8650e5c](https://nrtn.dev/catalyst/kpr/commit/8650e5c6d77ad8cad721414fb79ee450b816c682), [caa6c8a](https://nrtn.dev/catalyst/kpr/commit/caa6c8afae6f9304404094a4dfe0e2a41ee5c8a5)
 
-## W17 — Second implementation, not second caller
+## W17 — Megawisdom: second *differing* implementation, not second caller
 
 The rule started life as "never cut a port before its second
-user" — and Oleksii's question broke it open: `MarkDue` has two
-keeper callers (`Reap`, `AddPlan`) and still earned no port. So:
-callers don't count, implementations do. `Collector` got its port
-because the shell stub — a second implementation — already stood
-behind the seam; `Marker` got nothing because one redis implements
-and MemStore tests already prove more than any stub could. Count
+user" — and Oleksii's question broke it open twice. First:
+`MarkDue` has two keeper callers (`Reap`, `AddPlan`) and still
+earned no port — so callers don't count, implementations do.
+Second, harder: `Store` *has* two implementations, and so would
+every sub-port carved from it, structurally, for free — yet the
+split is still ceremony. So the surviving form: a port needs a
+second implementation *that differs in a way someone uses* —
+different behavior (a stub that fails where the real succeeds),
+different trust (a sandboxed caller denied the mark surface),
+different backend (marks in a stream, rows in redis). Structural
+satisfaction doesn't count; somebody has to want the swap.
+`Collector` earned its port (shell stub behind the seam, then the
+orchestration consuming it); `Marker` earned nothing (one redis,
+MemStore tests already proving more than any stub could). Count
 backs of the substitute, never mouths of the caller. (Companion:
 W3's exhibits, W18, W19, and W20's mirror image — a seam *is*
 promoted by a second consumer, because a seam's whole job is being
