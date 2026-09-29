@@ -48,6 +48,19 @@ nothing to select between. Cut where the second implementation
 stands; "orchestrates two steps" is the use case's job
 description, not a port's.
 
+Exhibits, all from step 3's autopsy: a `keeper.Marker` port
+(Mark/Clear/Unmark are keeper-only) has one package of callers
+but a single implementation — and the MemStore tests already prove
+more than any marker stub could, so the port would test *less*.
+Same for a run-state-read port (`GetCurrent`/`Activity` serve one
+use case, one redis behind it). Same for a sweep-side `Locker`
+twin (`gc.Locker` already has its consumer; a second twin has
+none). Three more ports nobody stands behind — and the clustering
+they were meant to document already lives in the per-method docs
+("the reap interface", "the plan-discard interface"). A plan dying
+to its own rule is the rule working: step 3 closed whole, output
+being this paragraph.
+
 ## Ports sit with their consumers
 
 The interface belongs next to the code that uses it, one method at

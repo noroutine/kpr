@@ -71,23 +71,14 @@ cmd/app                  the only wiring
   territory). `web` formats, `cli` prints. Topped up (review):
   direct `ListPlan` test, zero-branch messages, failing-store
   error paths.
-- [ ] Step 3 — narrow store interfaces, partial evaluation (store
-  stays a store — one redis, no second backend coming; segregate by
-  call cluster, not by implementation):
-  - [ ] 3a marks: `MarkDue`/`ClearDue`/`UnmarkDue` are keeper-only —
-    declare the port at the use case, zero risk.
-  - [ ] 3b run-state read: `GetCurrent`/`Activity` serve
-    `FetchStatus` alone; writers (`SetCurrent`/`PushActivity`)
-    stay shared with the sweeper.
-  - [ ] 3c locks: `gc.Locker` exists; sweep declares its own twin
-    (same shape, its own name) or reuses — micro-slice, optional.
-  - [x] 3d deletion ownership: closed by not doing it. A combined
-    deletion port would either drag the outcome matrix into the
-    adapter or reinvent `DeleteManifest` with indirection —
-    megawisdom in `docs/HEXAGONAL_WISDOMS.md`. Sweep-only plus the
-    TTL floor stays the boundary.
-  - Shared and staying: `Record`/`All`/`Due`/`Ping` — genuinely
-    common store surface, no port pays for itself there.
+- [x] Step 3 — narrow store interfaces: closed whole, by its own
+  rule. 3a (marks) and 3b (run-state read) each have one package of
+  callers but a single implementation — and MemStore tests already
+  prove more than their stubs could. 3c (sweep `Locker` twin) has
+  no consumer; `gc.Locker` keeps its own. 3d closed earlier. The
+  clustering survives where it already lived: the per-method docs
+  ("the reap interface", "the plan-discard interface"). Step output
+  is megawisdom exhibits, not interfaces.
 - [ ] Step 4 — gc use case, partial, started early on Oleksii's
   call (biggest use-case-in-adapter left, and the port-design
   lesson lives here):
