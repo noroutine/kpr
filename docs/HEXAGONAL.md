@@ -166,3 +166,30 @@ indeed ~720 lines of use case in `cli`). Steps 1+2 were the right
 first cut; gc extraction started early on evidence (biggest
 use-case-in-adapter left). Narrow store ports were declined by
 their own rule (step 3). `Clock` correctly dropped.
+
+## Future attacks
+
+Ports are done. The rest of the hexagon, in kpr terms:
+
+- Driving side: only outbound ports cut so far. Shared use cases
+  with opposite driver failure policies (W8) get a third driver
+  when the detached API lands — that's where inbound design stops
+  being theory.
+- Functional core vs shell: practiced (`policy` pure, time as an
+  argument, no `Clock`), never named. The reason the core needs
+  no ports at all.
+- Events as a boundary: stages, activity ring, gc event stream —
+  vocabulary and keys are the contract, wire deferred. Open
+  whether emission itself wants a port; today use cases write
+  run-state straight to the store.
+- Error translation at the boundary: the Outcome matrix and
+  gc's refuse-with-remedy style are adapter-error → use-case-
+  meaning translation, currently nameless, split across sweep
+  and gc.
+- Composition root discipline: `openDeps` won by cost, but where
+  adapters get built and who owns lifetimes (serve's long-lived
+  Run vs one-shot commands) was resolved by feel.
+- The designed violation: the redis due-mark bypassing use cases
+  is a published language, guarded by the TTL floor. The most
+  interesting architectural fact here — understanding why it's
+  fine teaches more than any clean port.
