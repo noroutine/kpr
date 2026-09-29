@@ -56,15 +56,6 @@ func newFake(status int, body string) *fakeRegistry {
 	return f
 }
 
-func (f *fakeRegistry) lastRef() string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.refs) == 0 {
-		return ""
-	}
-	return f.refs[len(f.refs)-1]
-}
-
 func (f *fakeRegistry) close() { f.srv.Close() }
 
 func newSweeper(s store.Store, url string, dryRun bool) *Sweeper {
