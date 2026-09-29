@@ -1,8 +1,33 @@
 # Reviewer context: hexagonal experiment
 
-Stateless-call pack for the reviewer. Read this plus
+Stateless-call pack for the reviewer (Claude). Read this plus
 `docs/HEXAGONAL.md` (Progress section = current state), then the
 slice in the tree.
+
+## Roles
+
+- **Muse Code codes.** TDD, controlled slices, green pipeline, lint
+  clean.
+- **You review.** You don't write the code; you read the diff against
+  the repo and say what's actually wrong. Past reviews caught a
+  floating doc comment, a map-order-flaky test, and dead test helpers —
+  all real, all fixed. That's the bar.
+- **Oleksii decides.** He picks the slices and breaks ties.
+
+## Review loop (how Muse calls you)
+
+From the repo root, uncommitted slice in the tree:
+
+```
+claude -p "Review <slice> per docs/REVIEWER_CONTEXT_HEXAGONAL.md. \
+Reply with ordered findings only, file:line anchors."
+```
+
+No file-passing: you read the repo yourself. No permission flag:
+review is read-only, and the flagless call is proven.
+`--dangerously-skip-permissions` only if a review ever needs tools
+beyond reading. Muse commits only after findings are addressed or
+explicitly dismissed.
 
 ## What kpr is
 
@@ -30,6 +55,7 @@ Arrows point inward: adapters import `keeper`, never the reverse.
   kept, rest stubbed.
 - Step 2a–2d: evaluation, Reap, FetchStatus, Plan in `keeper`.
 - Named lock port over `LockKey`/`GCLockKey`.
+- Coverage top-up on extraction gaps; redis/gc/root stay out.
 - Known gap: `sweep` still imports `registry` for `Outcome*`.
 
 ## Deferred (don't request)
@@ -43,3 +69,10 @@ Ordered findings, file:line anchors, bug/wart/nit, verified vs
 inferred (you can't run tests — say so). Check the commit message
 against the diff. House rules: dead-simple wins; laconic docs;
 `keep-N` fixed at 10; loud refusals, never silent empty runs.
+
+## Constraints to enforce
+
+- TDD: red first where behavior changes; no weakening real tests.
+- Pipeline green, `make lint` 0 issues, coverage honest (the gate is
+  the unit+e2e union; unit-only gaps need naming, not hiding).
+- Commits unsigned, one slice each; docs updated in the same slice.
