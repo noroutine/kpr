@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -284,34 +285,6 @@ func TestReapAccumulatesAcrossPolicies(t *testing.T) {
 	}
 }
 
-// The untagged policy reads the live catalog: a tracked tag gone
-// from the registry past the grace period marks, a listed tag does
-// not. If this fails, reap untagged reasons about rows alone and
-// either never fires or fires on fetch failures.
-func TestReapUntaggedUsesCatalog(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tags := []string{}
-		if strings.Contains(r.URL.Path, "/kept/") {
-			tags = []string{"v9"}
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"tags": tags})
-	}))
-	defer srv.Close()
-	s := store.NewMemStore()
-	c := context.Background()
-	_ = s.Record(c, policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
-		PushedAt: cliNow.Add(-200 * time.Hour)})
-	_ = s.Record(c, policy.Row{Repo: "kept", Tag: "v9", Digest: "sha256:b",
-		PushedAt: cliNow.Add(-200 * time.Hour)})
-	marked, err := EvaluatePolicy(cliCtx(), s, registry.NewClient(srv.URL), cliNow, nil, "untagged")
-	if err != nil {
-		t.Fatalf("EvaluatePolicy untagged: %v", err)
-	}
-	if len(marked) != 1 || marked[0].Repo != "gone" {
-		t.Errorf("untagged = %v, want only gone:v1", dueTags(marked))
-	}
-}
-
 // An unknown policy name refuses and lists the valid ones, so a
 // typo never silently reaps everything. If this fails, `reap bogus`
 // either panics or reaps the world.
@@ -390,7 +363,7 @@ func TestReapArmedMarksAllSorted(t *testing.T) {
 		t.Errorf("due = %+v, want {apple:10m zebra:10m}", due)
 	}
 	// evaluate itself sorts: the order contract lives there, not in Due.
-	marked, err := EvaluatePolicies(cliCtx(), s, nil, cliNow, nil)
+	marked, err := keeper.EvaluatePolicies(cliCtx(), s, nil, cliNow, nil)
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
@@ -740,41 +713,5 @@ func TestSweeperLoopStartupAndTick(t *testing.T) {
 	acts, _ := s.Activity(context.Background())
 	if len(acts) == 0 {
 		t.Error("loop ran no passes, want startup + ticks recorded")
-	}
-}
-
-// stubCatalog answers the catalog probe without HTTP: reap must
-// consume the registry through a small port, not a concrete client.
-// If this fails, evaluation is still coupled to the transport.
-type stubCatalog struct {
-	tags map[string][]string
-	err  error
-}
-
-func (f stubCatalog) Catalog(ctx context.Context, repo string) ([]string, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.tags[repo], nil
-}
-
-// The untagged selector marks only tags absent from the live catalog
-// past grace: the stub lists v9 for kept and nothing for gone, so
-// gone:v1 marks and kept:v9 stays. If this fails, evaluation reads
-// the transport instead of its port — or the selector misfires.
-func TestReapUntaggedUsesStubCatalog(t *testing.T) {
-	s := store.NewMemStore()
-	c := context.Background()
-	_ = s.Record(c, policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
-		PushedAt: cliNow.Add(-200 * time.Hour)})
-	_ = s.Record(c, policy.Row{Repo: "kept", Tag: "v9", Digest: "sha256:b",
-		PushedAt: cliNow.Add(-200 * time.Hour)})
-	stub := stubCatalog{tags: map[string][]string{"gone": {}, "kept": {"v9"}}}
-	marked, err := EvaluatePolicy(cliCtx(), s, stub, cliNow, nil, "untagged")
-	if err != nil {
-		t.Fatalf("EvaluatePolicy untagged: %v", err)
-	}
-	if len(marked) != 1 || marked[0].Repo != "gone" {
-		t.Errorf("untagged = %v, want only gone:v1", dueTags(marked))
 	}
 }

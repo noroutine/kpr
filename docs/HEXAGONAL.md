@@ -90,6 +90,10 @@ Concrete moves, in order:
   existing `LockKey` / `GCLockKey`; the twin contract tests became one
   (plus a cross-lock independence check), redis was already keyed
   underneath.
+- Step 2a done: `keeper` package owns evaluation (`EvaluatePolicy(s)`
+  + `CatalogSource` port); `cli` calls it, e2e imports it instead of
+  `cli`, and the two pure-evaluation tests moved to the use case's
+  address. `cli/keeper.go` no longer imports `policy`.
 
 ## Experiment rules
 

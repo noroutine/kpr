@@ -17,7 +17,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"nrtn.dev/catalyst/kpr/internal/cli"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -250,13 +250,13 @@ func (s *Scenario) ExpectManifestFetchable(repo, digest string) {
 	}
 }
 
-// ReapArmed evaluates the CLI's own policies and marks every due row —
+// ReapArmed evaluates the keeper policies and marks every due row —
 // the armed `reap` branch, minus its printed report.
 func (s *Scenario) ReapArmed() {
 	s.t.Helper()
 	ctx, cancel := s.ctx()
 	defer cancel()
-	marked, err := cli.EvaluatePolicies(ctx, s.store, s.reg, time.Now(), nil)
+	marked, err := keeper.EvaluatePolicies(ctx, s.store, s.reg, time.Now(), nil)
 	if err != nil {
 		s.t.Fatalf("evaluate policies: %v", err)
 	}
