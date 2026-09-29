@@ -92,6 +92,10 @@ func (f *stubRegistry) DeleteManifest(ctx context.Context, repo, ref string) (st
 	return f.outcome, f.err
 }
 
+// An armed pass deletes through the Registry port: the stub records
+// the digest reference and the confirmed row leaves the store. If
+// this fails, the sweep use case bypasses its port or deletes by tag
+// instead of digest.
 func TestSweeperDeletesViaStubRegistry(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))

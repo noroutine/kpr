@@ -211,6 +211,9 @@ type stubProbe struct{ err error }
 
 func (f stubProbe) Reachable(ctx context.Context) error { return f.err }
 
+// A reachable registry greens the banner through the port alone: the
+// stub never dials, so no loopback server is bound. If this fails,
+// the console probes the concrete client instead of its port.
 func TestKeeperBannerGreenWithStubRegistry(t *testing.T) {
 	testConfig(t)
 	s := &Server{Store: keeperStore(t), Registry: stubProbe{}}
