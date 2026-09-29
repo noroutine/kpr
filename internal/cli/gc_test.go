@@ -17,7 +17,7 @@ import (
 )
 
 // stageGCStore writes a registry config pointing at root and returns
-// the config path: every runGC test collects against staged ground,
+// the config path: every gc run test collects against staged ground,
 // never the host's.
 func stageGCStore(t *testing.T, root string) string {
 	t.Helper()
@@ -73,7 +73,7 @@ func TestRunGCReleaseFailureWarns(t *testing.T) {
 	defer func() { registryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := runGC(context.Background(), &out, s, deny.URL, cfg, GCOptions{}); err != nil {
+	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err != nil {
 		t.Fatalf("gc with failing release = %v, want nil (warn only)", err)
 	}
 	if !strings.Contains(out.String(), "lock release failed") {
@@ -111,7 +111,8 @@ func TestRunGCForceWarnWriteError(t *testing.T) {
 	registryBinPath = stageBin(t, "exit 0")
 	defer func() { registryBinPath = oldBin }()
 
-	if err := runGC(context.Background(), errWriter{}, store.NewMemStore(), accept.URL, cfg, GCOptions{Force: true}); err == nil {
+	s := store.NewMemStore()
+	if err := gc.Run(context.Background(), errWriter{}, s, gc.ProbeRegistry, s, gc.RunCollector, accept.URL, cfg, registryBinPath, gc.Options{Force: true}); err == nil {
 		t.Error("forced gc with broken output succeeded, want the write error")
 	}
 }
@@ -153,7 +154,7 @@ func TestRunGCRefusesWritableWithoutForce(t *testing.T) {
 	defer func() { registryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := runGC(context.Background(), &out, s, accept.URL, cfg, GCOptions{}); err == nil {
+	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, accept.URL, cfg, registryBinPath, gc.Options{}); err == nil {
 		t.Fatal("gc on writable registry succeeded without --force, want refusal")
 	} else if !strings.Contains(err.Error(), "readonly") {
 		t.Errorf("refusal names no remedy: %v", err)
@@ -161,7 +162,7 @@ func TestRunGCRefusesWritableWithoutForce(t *testing.T) {
 
 	registryBinPath = stageBin(t, "exit 0")
 	out.Reset()
-	if err := runGC(context.Background(), &out, s, accept.URL, cfg, GCOptions{Force: true}); err != nil {
+	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, accept.URL, cfg, registryBinPath, gc.Options{Force: true}); err != nil {
 		t.Fatalf("forced gc = %v, want nil", err)
 	}
 	if !strings.Contains(out.String(), "Warning") {
@@ -192,7 +193,7 @@ func TestRunGCDifferentStoreRefuses(t *testing.T) {
 	defer func() { registryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := runGC(context.Background(), &out, s, accept.URL, cfg, GCOptions{Force: true}); err == nil {
+	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, accept.URL, cfg, registryBinPath, gc.Options{Force: true}); err == nil {
 		t.Fatal("gc on a stranger's store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -224,7 +225,7 @@ func TestRunGCLockContention(t *testing.T) {
 		t.Fatalf("pre-acquire = (%v, %v), want (true, nil)", ok, err)
 	}
 	var out strings.Builder
-	if err := runGC(ctx, &out, s, deny.URL, cfg, GCOptions{}); err == nil {
+	if err := gc.Run(ctx, &out, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err == nil {
 		t.Fatal("gc under held lock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "another gc") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -233,7 +234,7 @@ func TestRunGCLockContention(t *testing.T) {
 		t.Fatalf("release: %v", err)
 	}
 	out.Reset()
-	if err := runGC(ctx, &out, s, deny.URL, cfg, GCOptions{}); err != nil {
+	if err := gc.Run(ctx, &out, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err != nil {
 		t.Fatalf("gc after release = %v, want nil", err)
 	}
 	if ok, _ := s.AcquireLock(ctx, store.GCLockKey, time.Minute); !ok {
@@ -268,7 +269,7 @@ func TestRunGCPostProbeFlip(t *testing.T) {
 
 	cfg, s, _ := staged(t)
 	var out strings.Builder
-	if err := runGC(context.Background(), &out, s, flap.URL, cfg, GCOptions{}); err == nil {
+	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, flap.URL, cfg, registryBinPath, gc.Options{}); err == nil {
 		t.Fatal("gc across a readonly→writable flip succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "changed during collection") {
 		t.Errorf("failure names no cause: %v", err)
@@ -276,7 +277,7 @@ func TestRunGCPostProbeFlip(t *testing.T) {
 
 	cfg2, s2, _ := staged(t)
 	out.Reset()
-	if err := runGC(context.Background(), &out, s2, down.URL, cfg2, GCOptions{}); err != nil {
+	if err := gc.Run(context.Background(), &out, s2, gc.ProbeRegistry, s2, gc.RunCollector, down.URL, cfg2, registryBinPath, gc.Options{}); err != nil {
 		t.Fatalf("gc with dead post-probe = %v, want nil (warn only)", err)
 	}
 	if !strings.Contains(out.String(), "post-run probe") {
@@ -322,7 +323,7 @@ func TestRunGCReadonlyRunsBinary(t *testing.T) {
 	defer func() { registryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := runGC(context.Background(), &out, s, deny.URL, cfg, GCOptions{DeleteUntagged: true}); err != nil {
+	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{DeleteUntagged: true}); err != nil {
 		t.Fatalf("readonly gc = %v, want nil", err)
 	}
 	for _, want := range []string{"garbage-collect", "--delete-untagged", "config.yml", "shared store proven via app:v1"} {
@@ -333,13 +334,13 @@ func TestRunGCReadonlyRunsBinary(t *testing.T) {
 
 	registryBinPath = stageBin(t, "exit 3")
 	var fail strings.Builder
-	if err := runGC(context.Background(), &fail, s, deny.URL, cfg, GCOptions{}); err == nil {
+	if err := gc.Run(context.Background(), &fail, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err == nil {
 		t.Error("failing collector returned nil, want the exit surfaced")
 	}
 
 	empty := store.NewMemStore()
 	var norows strings.Builder
-	if err := runGC(context.Background(), &norows, empty, deny.URL, cfg, GCOptions{}); err == nil {
+	if err := gc.Run(context.Background(), &norows, empty, gc.ProbeRegistry, empty, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err == nil {
 		t.Error("readonly gc with no tracked rows succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "no tracked digests") {
 		t.Errorf("refusal names no cause: %v", err)

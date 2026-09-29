@@ -84,9 +84,10 @@ cmd/app                  the only wiring
     `collectorCommand` seam moved; `Collector` port cut
     (production shells the stock binary, tests keep the shell
     stub; consumed by the orchestration in gc-4).
-  - [ ] gc-4 orchestration: `runGC` + `GCOptions` move behind
-    `Probe` (sentinel) and `Locker` (named lock) ports; `cli`
-    keeps flags, wiring, and `renderGCEvent`.
+  - [x] gc-4 orchestration: `Run` + `Options` moved behind
+    `Probe` (sentinel), `Collector`, and `Locker` (named lock)
+    ports; `cli` keeps flags, wiring, and `renderGCEvent`. A
+    stub-port test drives the full pass with no network or binary.
   - Later, on the gc path (not the hexagon): Oleksii's read-sentinel
     same-store proof idea (`kpr-sentinel:latest`, API digest vs
     link-file revision) — parked in `docs/BACKFILL.md`, lands here

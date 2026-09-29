@@ -1,9 +1,8 @@
-// Package gc is becoming the garbage-collection use case: today it
-// owns the write sentinel (probe the registry writable/readonly),
-// the same-store proofs (the local mount is the registry's own
-// store), and the collector run (stock binary, event stream); the
-// run orchestration and lock handling follow in the last slice.
-// Driving adapters (cli) parse flags, call in, and render.
+// Package gc holds the garbage-collection use case: the write
+// sentinel, the same-store proofs, the collector run, and the run
+// orchestration behind Probe, Collector, and Locker ports. Driving
+// adapters (cli) parse flags, pass the production adapters in, and
+// render the event stream.
 package gc
 
 import (

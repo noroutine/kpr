@@ -67,16 +67,16 @@ Arrows point inward: adapters import `keeper`, never the reverse.
 - Step 1: registry ports at sweep/cli/web; one HTTP integration test
   kept, rest stubbed.
 - Step 2a–2d: evaluation, Reap, FetchStatus, Plan in `keeper`.
-- Step gc-1: write sentinel in `gc`; proofs, collector, lock follow.
+- Step 4 done: sentinel, proofs, collector, orchestration in `gc`
+  behind Probe/Collector/Locker ports; `cli` keeps flags/rendering.
 - Named lock port over `LockKey`/`GCLockKey`.
 - Coverage top-up on extraction gaps; redis/gc/root stay out.
 - Known gap: `sweep` still imports `registry` for `Outcome*`.
 
 ## Deferred (don't request)
 
-gc extraction remainder (proofs, collector, lock), narrow store
-ports, single composition root, Clock port, backfill implementation.
-Flagged in `docs/HEXAGONAL.md`.
+narrow store ports, single composition root, Clock port, backfill
+implementation. Flagged in `docs/HEXAGONAL.md`.
 
 ## Review contract
 
