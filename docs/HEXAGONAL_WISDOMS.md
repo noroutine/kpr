@@ -142,6 +142,28 @@ implementation already stands, never in anticipation of one.
 
 — [3cf31a8](https://nrtn.dev/catalyst/kpr/commit/3cf31a8e4e0472bd61daae9ae7fbba9bfb4f35c6), [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
 
+## Deletion is already owned — don't re-own it cheaply
+
+Splitting `Store.Delete` into its own one-method interface buys a
+name, not a seam: one method, one consumer, zero new tests. The
+tempting version — one port owning registry-manifest + store-row
+deletion together — is a bigger claim: it merges two externals
+behind one seam and would finally house the orphaned `Outcome*`
+vocabulary. That shape is either the sweeper's true boundary or a
+god-port; the tiebreaker is the same as ever — a second
+implementation asking for it. Until then, sweep-only plus the TTL
+floor *is* the boundary, held by convention and contract tests.
+
+## Cluster, don't split, a store with one backend
+
+`Store` has fifteen methods and one redis behind it — no second
+implementation is coming, so implementation-splitting is ceremony.
+What pays is clustering by caller: marks are keeper-only, run-state
+reads serve one use case, locks already collapsed, `Delete` is
+sweep-only. Declare ports where a single consumer owns the cluster;
+leave `Record`/`All`/`Due`/`Ping` on the shared surface. Narrow by
+ownership, never by imagination.
+
 ## Seams prototype ports
 
 `collectorCommand` (package var, swapped in tests) is a seam:

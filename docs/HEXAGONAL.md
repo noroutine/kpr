@@ -66,12 +66,27 @@ cmd/app                  the only wiring
   a second backend or not at all.
 - [x] Step 2 — keeper use cases, split 2a–2d: evaluation, `Reap`
   (mark-behind-armed), `FetchStatus` (one counter implementation),
-  Plan (list/discard/add/remove). e2e imports `keeper`, never
-  `cli`; `web` formats, `cli` prints. Topped up (review): direct
-  `ListPlan` test, zero-branch messages, failing-store error paths.
-- [ ] Step 3 — narrow store interfaces. Deferred: no consumer has
-  abused the fat port yet, and the lock collapse already removed
-  the clearest duplication. Waits for evidence.
+  Plan (list/discard/add/remove). Behavior comes from `keeper`;
+  only `OpenStore` wiring still comes from `cli` (step-5
+  territory). `web` formats, `cli` prints. Topped up (review):
+  direct `ListPlan` test, zero-branch messages, failing-store
+  error paths.
+- [ ] Step 3 — narrow store interfaces, partial evaluation (store
+  stays a store — one redis, no second backend coming; segregate by
+  call cluster, not by implementation):
+  - [ ] 3a marks: `MarkDue`/`ClearDue`/`UnmarkDue` are keeper-only —
+    declare the port at the use case, zero risk.
+  - [ ] 3b run-state read: `GetCurrent`/`Activity` serve
+    `FetchStatus` alone; writers (`SetCurrent`/`PushActivity`)
+    stay shared with the sweeper.
+  - [ ] 3c locks: `gc.Locker` exists; sweep declares its own twin
+    (same shape, its own name) or reuses — micro-slice, optional.
+  - [ ] 3d deletion ownership: `Delete` is already sweep-only; the
+    open question is whether the sweeper owns the whole deletion
+    (registry manifest + store row) behind one port — undecided,
+    opinion recorded in `docs/HEXAGONAL_WISDOMS.md`.
+  - Shared and staying: `Record`/`All`/`Due`/`Ping` — genuinely
+    common store surface, no port pays for itself there.
 - [ ] Step 4 — gc use case, partial, started early on Oleksii's
   call (biggest use-case-in-adapter left, and the port-design
   lesson lives here):
@@ -88,10 +103,6 @@ cmd/app                  the only wiring
     `Probe` (sentinel), `Collector`, and `Locker` (named lock)
     ports; `cli` keeps flags, wiring, and `renderGCEvent`. A
     stub-port test drives the full pass with no network or binary.
-  - Later, on the gc path (not the hexagon): Oleksii's read-sentinel
-    same-store proof idea (`kpr-sentinel:latest`, API digest vs
-    link-file revision) — parked in `docs/BACKFILL.md`, lands here
-    when backfill unparks.
 - [ ] Step 5 — single composition root. Deferred: janitorial, least
   learning per line; worth doing once, not now.
 - Extra (review-suggested, taken): named lock port over
