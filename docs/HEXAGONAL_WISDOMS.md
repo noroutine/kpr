@@ -3,6 +3,34 @@
 Lessons from the experiment, each pinned to the commit that taught
 it. Read as: the rule, then the receipt.
 
+## Megawisdom: ports hide partners, not steps
+
+Two abstractions share one mechanism (the interface), and Go never
+labels which you wrote. Procedural abstraction hides *steps*: many
+calls → one verb, less visible work (`TagDeleter` bundling the
+deletion). A port hides *who*: the capability is exactly as complex
+as before — the stub still models all five outcomes — but the use
+case no longer knows about HTTP, URLs, or auth. Same complexity,
+gone coupling. The trap: reaching for the port mechanism to do a
+procedural job compresses steps while smuggling the decisions out
+of the core. Procedural abstraction hides steps; ports hide
+partners.
+
+## Megawisdom: facades bundle, ports decline
+
+"I am the Store, here is my interface" (provider's promise — swap
+implementations behind the contract) vs "I need Locks from the
+Store, here is what I need it to look like" (consumer's demand —
+only what I use, named for my intent). The facade lets you depend
+on *more* while seeing less: convenient, but every consumer
+couples to the whole world behind it. The port lets you depend on
+*less* while seeing all of it: the complexity isn't hidden, it's
+declined. Same method, two different statements — only the
+placement tells them apart (interface in `store` = promise,
+interface in `gc` = demand). Meaning stays where the shaping
+happens: bundles accumulate decisions, ports leave them in the
+core where tests reach them.
+
 ## Megawisdom: a port that orchestrates is a use case in costume
 
 Not everything that looks like a port should be one. The test:
