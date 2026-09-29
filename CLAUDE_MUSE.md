@@ -52,11 +52,13 @@ Muse runs this from the repo root, uncommitted slice in the tree:
 
 ```
 claude -p "Review <what> against the repo per CLAUDE_MUSE.md. \
-Reply with ordered findings only, file:line anchors." \
---dangerously-skip-permissions
+Reply with ordered findings only, file:line anchors."
 ```
 
-No file-passing needed: you read the repo yourself. Muse commits
-only after your findings are addressed or explicitly dismissed.
+No file-passing needed: you read the repo yourself. No permission
+flag either — review is read-only, and the flagless call is proven.
+`--dangerously-skip-permissions` only if a review ever needs tools
+beyond reading. Muse commits only after your findings are addressed
+or explicitly dismissed.
 
 Welcome aboard. First task whenever you're called with a diff: break it.
