@@ -18,6 +18,9 @@ coverage.html
 go.work
 go.work.sum
 
+# Reviewer-loop scratch: calibration targets, never committed
+_trial/
+
 # Build artifacts
 dist/
 *.log
