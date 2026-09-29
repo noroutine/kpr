@@ -157,6 +157,14 @@ Colocation constraint: the CLI talks to redis directly, so it runs in
 the same environment as `serve` (same network, same redis auth). An
 API head for detached operation is explicitly deferred.
 
+Registry auth scope: kpr's registry client speaks anonymous or basic
+(one user+password pair, env-supplied) — that covers open and htpasswd
+registries, which is all kpr claims today. Token-issuing registries
+(JWT bearer) are future work: same pair, exchanged at the issuer per
+scope (see `docs/GC.md` and the backfill plan). The `auth` in
+Deliberately-out below is unrelated — kpr will never be an
+auth provider, only a client of the registry's.
+
 ## Failure modes
 
 - **Redis down**: receiver can't record (logs, banner goes red;
