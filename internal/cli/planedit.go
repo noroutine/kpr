@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -51,12 +50,12 @@ matches union. An exact repo:tag spelling is typo-proof: matching
 no tracked row refuses. A direct plan edit: no dry-run.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := OpenStore(cfg)
+		d, err := openDeps()
 		if err != nil {
 			return err
 		}
-		defer func() { _ = s.Close() }()
+		defer d.close()
+		s := d.store
 		return runPlanAdd(cmd.Context(), cmd.OutOrStdout(), s, args)
 	},
 }
@@ -69,12 +68,12 @@ pattern: glob, regex:, or exact image, one matcher takes all three.
 Rows survive; only marks go. A direct plan edit: no dry-run.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := OpenStore(cfg)
+		d, err := openDeps()
 		if err != nil {
 			return err
 		}
-		defer func() { _ = s.Close() }()
+		defer d.close()
+		s := d.store
 		return runPlanRemove(cmd.Context(), cmd.OutOrStdout(), s, args)
 	},
 }

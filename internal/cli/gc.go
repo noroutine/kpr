@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 )
 
@@ -67,12 +66,12 @@ never a panic — it fails the run unless --force (which presumes you
 know). Flipping readonly stays with the operator — this command
 never rewrites registry config.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := OpenStore(cfg)
+		d, err := openDeps()
 		if err != nil {
 			return err
 		}
-		defer func() { _ = s.Close() }()
+		defer d.close()
+		cfg, s := d.cfg, d.store
 		out := cmd.OutOrStdout()
 		dryRun := !gcNoDryRun && !cfg.NoDryRun
 		return gc.Run(cmd.Context(), out, s, gc.ProbeRegistry, s, gc.RunCollector, cfg.RegistryURL, gcConfigPath, registryBinPath, gc.Options{

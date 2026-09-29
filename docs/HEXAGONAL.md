@@ -95,8 +95,11 @@ cmd/app                  the only wiring
     `Probe` (sentinel), `Collector`, and `Locker` (named lock)
     ports; `cli` keeps flags, wiring, and `renderGCEvent`. A
     stub-port test drives the full pass with no network or binary.
-- [ ] Step 5 — single composition root. Deferred: janitorial, least
-  learning per line; worth doing once, not now.
+- [x] Step 5 — single wiring point: `cli.openDeps` builds config,
+  store, and registry client once per command (serve's long-lived
+  `Run` keeps its own shape). Eight RunEs collapsed, fail-fast
+  pinned by test. Not `cmd/app` injection — that would restructure
+  every cobra var for no new substitution.
 - Extra (review-suggested, taken): named lock port over
   `LockKey`/`GCLockKey` — twin contract tests became one plus a
   cross-lock independence check. Taken because the duplication was

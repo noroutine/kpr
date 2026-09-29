@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
-	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
@@ -170,13 +169,13 @@ var statusCmd = &cobra.Command{
 	Short: "Show keeper banner and counters as text",
 	Long:  `Banner plus counters from tracked state, for scripts and ssh. Needs redis; fails fast without it.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := OpenStore(cfg)
+		d, err := openDeps()
 		if err != nil {
 			return err
 		}
-		defer func() { _ = s.Close() }()
-		return runStatus(cmd.Context(), cmd.OutOrStdout(), s, registry.NewClient(cfg.RegistryURL), cfg.NoDryRun)
+		defer d.close()
+		cfg, s := d.cfg, d.store
+		return runStatus(cmd.Context(), cmd.OutOrStdout(), s, d.reg, cfg.NoDryRun)
 	},
 }
 
@@ -187,12 +186,12 @@ var planCmd = &cobra.Command{
 	Short: "Show pending sweep candidates with reasons",
 	Long:  `Pending candidates (rows marked due) with reasons. --json renders them for piping.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := OpenStore(cfg)
+		d, err := openDeps()
 		if err != nil {
 			return err
 		}
-		defer func() { _ = s.Close() }()
+		defer d.close()
+		s := d.store
 		return runPlan(cmd.Context(), cmd.OutOrStdout(), s, planJSON)
 	},
 }
@@ -230,19 +229,19 @@ only prints the plan. Repeat --exclude to spare keep-N for rows
 whose repo:tag matches (registry stripped).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := OpenStore(cfg)
+		d, err := openDeps()
 		if err != nil {
 			return err
 		}
-		defer func() { _ = s.Close() }()
+		defer d.close()
+		cfg, s := d.cfg, d.store
 		armed := reapNoDryRun || cfg.NoDryRun
 		name := "all"
 		if len(args) == 1 {
 			name = args[0]
 		}
 		return runReap(cmd.Context(), cmd.OutOrStdout(), s,
-			registry.NewClient(cfg.RegistryURL), armed, reapExclude, time.Now().UTC(), name)
+			d.reg, armed, reapExclude, time.Now().UTC(), name)
 	},
 }
 
@@ -252,12 +251,12 @@ var planDiscardCmd = &cobra.Command{
 	Long: `Clear every due mark. Rows survive; only marks go, so the next
 sweep finds nothing until a fresh reap marks again.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := OpenStore(cfg)
+		d, err := openDeps()
 		if err != nil {
 			return err
 		}
-		defer func() { _ = s.Close() }()
+		defer d.close()
+		s := d.store
 		return runDiscardPlan(cmd.Context(), cmd.OutOrStdout(), s)
 	},
 }
@@ -269,12 +268,12 @@ var sweepCmd = &cobra.Command{
 No opinions, no marks: only rows already marked due are processed.
 An unreachable console degrades to the tick backstop.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := OpenStore(cfg)
+		d, err := openDeps()
 		if err != nil {
 			return err
 		}
-		defer func() { _ = s.Close() }()
+		defer d.close()
+		cfg, s := d.cfg, d.store
 		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, consoleURL(cfg))
 	},
 }
