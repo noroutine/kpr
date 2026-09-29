@@ -1,9 +1,11 @@
-# Hexagonal experiment
+# Hexagonal architecture
 
-Goal: test whether hexagonal layering makes kpr simpler to change,
-without adding ceremony. Dead-simple rule wins: if a step does not
-remove a fake HTTP server, a duplicated counter, or a scattered
-wiring block, we skip it.
+kpr is hexagonal: `policy` core, `keeper`/`gc` use cases,
+`store`/`registry` outbound adapters, `cli`/`web` driving adapters.
+It got there one paying slice at a time — the experiment concluded,
+this is the shape now. Dead-simple rule still wins: any new port
+has to remove a fake, a duplication, or a scattered wiring block,
+or it doesn't get cut.
 
 ## Where we are
 
@@ -17,41 +19,39 @@ Already hexagonal-ish, without trying:
 - Time needs no port. `now` arrives as an argument, `Sweeper.Now`
   is the seam. No `Clock` interface.
 
-## Where it leaked (diagnosis at start; status in Work below)
+## What leaked (all five closed)
 
-1. `registry` has no port. `sweep.Sweeper`, `cli.EvaluatePolicy(s)`,
-   `fetchCatalogs`, `runStatus`, and `web.Server` all hold
-   `*registry.Client` concretely. Sweep tests need an HTTP server
-   to fake the registry.
-2. Use cases live inside driving adapters. `cli` owns `runReap`,
-   `runPlan`, `runStatus`, `EvaluatePolicy(s)`; `web.keeperSnapshot`
-   recomputes the same outcome counters as `cli.runStatus` with bare
-   `"deleted"` / `"planned"` strings in both places. E2E imports
-   `cli` to reach the use case.
-3. `Store` is four ports in one: rows, run state (`Current` + activity
-   ring), sweep lock, GC lock. One fat interface, every consumer
-   sees everything.
-4. `gc` (~720 lines across `cli/gc.go` + `cli/gc_run.go`) is a use case
-   hiding in `cli`: sentinel probe + subprocess runner + lock
-   orchestration, wired inline in cobra `RunE`.
-5. Composition root is scattered. Every cobra `RunE` rebuilds config,
-   `OpenStore`, `registry.NewClient` itself. `cmd/app` does not own
-   the wiring.
+1. `registry` had no port — `sweep.Sweeper`, `cli`, and `web` all
+   held `*registry.Client` concretely, and sweep tests needed an
+   HTTP server to fake the registry. Now `sweep.Registry`,
+   `keeper.CatalogSource`, `keeper.Prober`; sweep tests run on a
+   stub, one HTTP integration test kept.
+2. Use cases lived inside driving adapters — `cli` owned reap, plan,
+   status, evaluation, and `web` recomputed the same counters with
+   duplicated strings. All moved to `keeper`; `web` formats,
+   `cli` prints.
+3. `Store` is four ports in one — kept fat deliberately (step 3:
+   one package of callers per cluster, single implementation;
+   narrowing would be ceremony). Clustering documented per-method.
+4. `gc` (~720 lines) hid in `cli` — extracted to the `gc` package
+   behind `Probe`/`Collector`/`Locker` (gc-1–gc-4).
+5. Wiring was scattered across every cobra `RunE` — collapsed onto
+   `cli.openDeps` (step 5).
 
 Inbound bypass (stays): the mark is the interface. The redis hash is
 a public inbound surface that bypasses use cases by design; the
 sweeper TTL floor (never wipe before promise elapses) guards it, and
 `storetest/contract.go` pins the key layout.
 
-## Target (only if each step pays)
+## Shape (each step paid, so all of it landed)
 
 ```
 policy/                  core (unchanged)
 keeper/ gc/             use cases (pure orchestration, ports in)
 sweep/                   pass loop (use case where it sits)
 store/ registry/ otel/    outbound adapters
-cli/ web/ app/            driving adapters (parse, call, render)
-cmd/app                  the only wiring
+cli/ web/                driving adapters (parse, call, render)
+cli.openDeps             the composition root
 ```
 
 ## Work (status per step)
@@ -79,8 +79,8 @@ cmd/app                  the only wiring
   clustering survives where it already lived: the per-method docs
   ("the reap interface", "the plan-discard interface"). Step output
   is megawisdom exhibits, not interfaces.
-- [ ] Step 4 — gc use case, partial, started early on Oleksii's
-  call (biggest use-case-in-adapter left, and the port-design
+- [x] Step 4 — gc use case, done (started early on Oleksii's
+  call: biggest use-case-in-adapter left, and the port-design
   lesson lives here):
   - [x] gc-1 sentinel: `ProbeRegistry`, `Mode`, `ProbeRepo` with
     tests; `cli.runGC` and e2e drive it from `gc`.
@@ -105,32 +105,50 @@ cmd/app                  the only wiring
   cross-lock independence check. Taken because the duplication was
   exact (same shape, same tests twice), not speculative.
 
-## Experiment rules
+## Standing rules
 
 - One slice at a time, TDD, pipeline green, coverage > 90%.
 - No `Clock` port, no policy engine, no gRPC/IDL, no framework.
 - `keeper` naming: `keeper` (repo vocabulary), not `usecase`/`service`.
-- Steps 3+5 stay gated: each needs a "does it pay?" verdict, not
+- New ports stay gated: each needs a "does it pay?" verdict, not
   auto-approval. Measure: lines deleted, fakes deleted, duplicated
-  strings gone.
+  strings gone. Steps 3+5 passed through this gate and closed.
 
-## Open questions
+## Settled questions
 
-- Does `sweep` stay a use case package itself, or does the sweeper
-  move under `keeper/` too? Lean: `sweep` keeps the pass loop,
-  consumes the `Registry` port, no move.
-- Per-consumer store interfaces: small interfaces at the use-case
-  site (`keeper` defines what it needs) vs splitting `Store`.
-  Lean: former, `Store` stays the implementation.
-- `gc` ports: `Probe`/`Collector`/`Locker` as three tiny interfaces
-  in the `gc` package, adapters in `cli` today. Extraction started
-  early (sentinel first, gc-1); ports land as the orchestration
-  moves.
+- `sweep` stays a use case package itself: it keeps the pass loop
+  and consumes the `Registry` port, no move under `keeper/`.
+- Per-consumer store interfaces declined: `Store` stays the
+  implementation, clustering documented per-method (step 3).
+- `gc` ports landed as three tiny interfaces in the `gc` package
+  (`Probe`/`Collector`/`Locker`), adapters in `cli` (gc-1–gc-4).
+
+## How hexagonal is it
+
+Behaviorally, fully: every outbound effect in the use cases goes
+through a substitutable port (`sweep.Registry`,
+`keeper.CatalogSource`/`Prober`, `gc.Probe`/`Collector`/`Locker`,
+`store.Store` under a contract both adapters honor), and unit
+tests prove it — no HTTP server, no binary, no redis needed.
+
+Package-graph purists would find three arrows pointing the "wrong"
+way: use-case signatures still name adapter packages for types —
+`store.Store` + `store.GCLockKey` in `keeper`/`gc`, `registry.Outcome*`
+in `sweep`. Those close with a second *differing* implementation
+or not at all (megawisdom: a port needs a second implementation
+that differs in a way someone uses). Until then, narrowing them
+is ceremony with zero substitution payoff.
+
+Deliberate non-textbook bits: the composition root is
+`cli.openDeps`, not `cmd/app` injection (step 5 — restructuring
+every cobra var buys nothing); the redis due-mark is a public
+inbound surface bypassing use cases by design (guarded by the
+sweeper TTL floor).
 
 ## Verdict on Claude's outline
 
 70%-hexagonal claim held against the code read at the time (gc was
 indeed ~720 lines of use case in `cli`). Steps 1+2 were the right
 first cut; gc extraction started early on evidence (biggest
-use-case-in-adapter left). Narrow store ports still wait, as
-proposed. `Clock` correctly dropped.
+use-case-in-adapter left). Narrow store ports were declined by
+their own rule (step 3). `Clock` correctly dropped.

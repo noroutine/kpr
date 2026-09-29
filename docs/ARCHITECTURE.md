@@ -54,6 +54,29 @@ accelerator, not a dependency. `status`/`plan` stay pure redis reads.
 No gRPC, no IDL — one small HTTP trigger on the server that already
 exists.
 
+## Layering
+
+Hexagonal, taken to heart: behaviors live in use cases behind
+ports, adapters only translate. The full story is in
+`docs/HEXAGONAL.md` (how it got there, slice by slice) and
+`docs/HEXAGONAL_WISDOMS.md` (the port-cutting rules learned along
+the way).
+
+- **Core**: `policy` — pure over `(rows, catalogs, now)`. No ports
+  needed; time arrives as an argument.
+- **Use cases**: `keeper` (evaluate, reap, status, plan),
+  `gc` (`Run` behind `Probe`/`Collector`/`Locker`), `sweep`
+  (pass loop behind `Registry`). Pure orchestration, substitutable
+  in tests with no HTTP server, binary, or redis.
+- **Outbound adapters**: `store` (redis + mem behind one pinned
+  contract), `registry`, `otel`.
+- **Driving adapters**: `cli`, `web` — parse, call, render.
+  `cli.openDeps` is the composition root.
+- **Inbound bypass, by design**: the redis due-mark is a public
+  surface — anything that can write the mark decides how and when
+  to clean what. The sweeper TTL floor (never wipe before the
+  promise elapses) guards it.
+
 ## Behaviors
 
 All four policies are live behind `reap [policy]` (bare `reap` means
