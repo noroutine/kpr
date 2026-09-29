@@ -31,84 +31,61 @@ gone coupling. The trap: reaching for the port mechanism to do a
 procedural job compresses steps while smuggling the decisions out
 of the core.
 
-Three corollaries from the same slices. Promise vs demand
-(facades bundle, ports decline): "I am the Store, here is my
-interface" (provider's promise — swap implementations behind the
-contract) vs "I need Locks from the Store, here is what I need it
-to look like" (consumer's demand — only what I use, named for my
-intent). The facade lets you depend on *more* while seeing less;
-the port lets you depend on *less* while seeing all of it.
-Placement tells them apart: interface in `store` = promise,
-interface in `gc` = demand. A port that orchestrates is a use case
-in costume: kpr's deletion means five things (resolve on
-deleted/gone, untrack on held, retry on error, never touch the
-unelapsed) — that matrix is the business, and it must live in the
-use case. A combined `TagDeleter` either drags the matrix into the
-adapter (decisions in externals, untestable without backends) or
+Corollaries, kept because we discovered them. Promise vs
+demand: "I am the Store, here is my interface" (provider's
+promise) vs "I need Locks from the Store, here is what I need"
+(consumer's demand). The facade lets you depend on *more* while
+seeing less; the port on *less* while seeing all of it —
+interface in `store` = promise, in `gc` = demand. A port that
+orchestrates is a use case in costume: kpr's deletion means five
+things (resolve on deleted/gone, untrack on held, retry on error,
+never touch the unelapsed), and that matrix must live in the use
+case. A combined `TagDeleter` either drags it into the adapter or
 reports the outcome back up (reinvented `DeleteManifest`, plus
-indirection). Ports abstract externals; they must never contain
-decisions. And placement: interfaces sit with their consumers, one
+indirection). Ports abstract externals; they never contain
+decisions. Placement: interfaces sit with their consumers, one
 method at a time — `sweep.Registry` (delete),
 `keeper.CatalogSource` + `keeper.Prober` (never one two-method
 port no consumer fully uses).
 
-Exhibits, all from step 3's autopsy: a `keeper.Marker` port
-(Mark/Clear/Unmark are keeper-only) has one package of callers
-but a single implementation — and the MemStore tests already prove
-more than any marker stub could, so the port would test *less*.
-Same for a run-state-read port (`GetCurrent`/`Activity` serve one
-use case, one redis behind it). Same for a sweep-side `Locker`
-twin (`gc.Locker` already has its consumer; a second twin has
-none). Three more ports nobody stands behind — and the clustering
-they were meant to document already lives in the per-method docs
-("the reap interface", "the plan-discard interface"). A plan dying
-to its own rule is the rule working: step 3 closed whole, output
-being this paragraph.
+Rejected ports, all from step 3: a `keeper.Marker` port (one
+package of callers, one implementation — MemStore tests already
+prove more than any marker stub could), a run-state-read port
+(one use case, one redis), a sweep-side `Locker` twin
+(`gc.Locker` already has its consumer; a second twin has none).
+The clustering they were meant to document already lives in the
+per-method docs.
 
 — [1b1d33a](https://nrtn.dev/catalyst/kpr/commit/1b1d33ab70d5d22d49770786d572684b5b115e40), [c8cdf03](https://nrtn.dev/catalyst/kpr/commit/c8cdf03073cb06301aaa676e08b07fcf7629c66f)
 
 ## W2: A port needs a second implementation that differs in a way someone uses
 
-The rule started life as "never cut a port before its second
-user" — and Oleksii's question broke it open twice. First:
-`MarkDue` has two keeper callers (`Reap`, `AddPlan`) and still
-earned no port — so callers don't count, implementations do.
-Second, harder: `Store` *has* two implementations, and so would
-every sub-port carved from it, structurally, for free — yet the
-split is still ceremony. So the surviving form: a port needs a
+Callers don't count, implementations do: `MarkDue` has two
+keeper callers (`Reap`, `AddPlan`) and still earned no port. And
+structural satisfaction doesn't count either: `Store` *has* two
+implementations, and so would every sub-port carved from it, for
+free — yet the split is still ceremony. The rule: a port needs a
 second implementation *that differs in a way someone uses* —
 different behavior (a stub that fails where the real succeeds),
 different trust (a sandboxed caller denied the mark surface),
-different backend (marks in a stream, rows in redis). Structural
-satisfaction doesn't count; somebody has to want the swap.
-`Collector` earned its port (shell stub behind the seam, then the
-orchestration consuming it); `Marker` earned nothing (one redis,
-MemStore tests already proving more than any stub could). Count
-backs of the substitute, never mouths of the caller.
+different backend (marks in a stream, rows in redis). Somebody has
+to want the swap. `Collector` earned its port (shell stub behind
+the seam, then the orchestration consuming it); `Marker` earned
+nothing (one redis, MemStore tests already proving more than any
+stub could).
 
-Two exhibits. Deletion is already owned — don't re-own it
-cheaply: splitting `Store.Delete` into its own one-method
-interface buys a name, not a seam. The tempting version — one port
-owning registry-manifest + store-row deletion together — merges
-two externals behind one seam and would finally house the orphaned
-`Outcome*` vocabulary; either the sweeper's true boundary or a
-god-port, and the tiebreaker is the same as ever — a second
-implementation asking for it. Until then, sweep-only plus the TTL
+Two exhibits. Deletion stays where it is: splitting
+`Store.Delete` into its own one-method interface buys a name, not
+a seam, and the tempting combined registry+store deletion port
+merges two externals behind one seam — the sweeper's true
+boundary or a god-port, decided by whether a second
+implementation asks for it. Until then, sweep-only plus the TTL
 floor *is* the boundary, held by convention and contract tests.
 Cluster, don't split, a store with one backend: `Store` has
-fourteen methods and one redis behind it, so implementation-
-splitting is ceremony. What pays is clustering by caller: marks
-are keeper-only, run-state reads serve one use case, locks already
-collapsed, `Delete` is sweep-only. Narrow by ownership, never by
-imagination.
-
-Mirror image for seams: `collectorCommand` (package var, swapped
-in tests) is a seam — invisible, global, test-only. `Collector`
-is the same need made public: in the signature, usable by any
-caller. Ports don't eliminate seams — they push them to the
-boundary. A seam used in one test file stays a seam; the second
-*consumer* promotes it. Seams are promoted by consumers, ports by
-implementations.
+fourteen methods and one redis behind it. What pays is clustering
+by caller — marks are keeper-only, run-state reads serve one use
+case, locks already collapsed, `Delete` is sweep-only. Narrow by
+ownership, never by imagination. (Seam side of this rule: W13.)
 
 — [3cf31a8](https://nrtn.dev/catalyst/kpr/commit/3cf31a8e4e0472bd61daae9ae7fbba9bfb4f35c6), [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
 
