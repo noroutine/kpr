@@ -72,7 +72,7 @@ cmd/app                  the only wiring
 - [ ] Step 3 — narrow store interfaces. Deferred: no consumer has
   abused the fat port yet, and the lock collapse already removed
   the clearest duplication. Waits for evidence.
-- [~] Step 4 — gc use case, partial, started early on Oleksii's
+- [ ] Step 4 — gc use case, partial, started early on Oleksii's
   call (biggest use-case-in-adapter left, and the port-design
   lesson lives here):
   - [x] gc-1 sentinel: `ProbeRegistry`, `Mode`, `ProbeRepo` with
