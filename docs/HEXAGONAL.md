@@ -80,10 +80,10 @@ cmd/app                  the only wiring
   - [x] gc-2 proofs: `StoreRoot`, `SameStoreUpload`,
     `SameStoreTagLink`, `FirstDigestRow` (+ readiness gates)
     moved with their tests. Pure groundwork, no ports yet.
-  - [ ] gc-3 collector: `runCollector`, `GCEvent` stream,
-    `collectorCommand` seam move; `Collector` port cut
-    (production adapter shells the stock binary, tests keep the
-    shell stub).
+  - [x] gc-3 collector: `RunCollector`, `GCEvent` stream,
+    `collectorCommand` seam moved; `Collector` port cut
+    (production shells the stock binary, tests keep the shell
+    stub; consumed by the orchestration in gc-4).
   - [ ] gc-4 orchestration: `runGC` + `GCOptions` move behind
     `Probe` (sentinel) and `Locker` (named lock) ports; `cli`
     keeps flags, wiring, and `renderGCEvent`.

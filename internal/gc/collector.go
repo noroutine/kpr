@@ -1,4 +1,4 @@
-package cli
+package gc
 
 import (
 	"bufio"
@@ -15,22 +15,22 @@ import (
 // the collector itself, so one event stream tells the whole run: what
 // the sentinel saw before, what the collector said, what it saw after.
 const (
-	GCStageStart        = "start"
-	GCStageSpawn        = "spawn"
-	GCStageStarted      = "started"
-	GCStagePreProbe     = "pre_probe"
-	GCStageCollectBegin = "collect_begin"
-	GCStageCollectExit  = "collect_exit"
-	GCStagePostProbe    = "post_probe"
-	GCStageModeFlip     = "mode_flip"
-	GCStageStopped      = "stopped"
-	GCStageFailure      = "failure"
+	StageStart        = "start"
+	StageSpawn        = "spawn"
+	StageStarted      = "started"
+	StagePreProbe     = "pre_probe"
+	StageCollectBegin = "collect_begin"
+	StageCollectExit  = "collect_exit"
+	StagePostProbe    = "post_probe"
+	StageModeFlip     = "mode_flip"
+	StageStopped      = "stopped"
+	StageFailure      = "failure"
 )
 
-// GCEvent is one lifecycle stage of a gc run. The JSON tags keep it
+// Event is one lifecycle stage of a gc run. The JSON tags keep it
 // suitable for the same JSON-lines transport the sweeper reports on,
 // should the console ever subscribe.
-type GCEvent struct {
+type Event struct {
 	Stage     string `json:"stage"`
 	ElapsedMs int64  `json:"elapsed_ms"`
 	PID       int    `json:"pid,omitempty"`
@@ -38,25 +38,51 @@ type GCEvent struct {
 	Error     string `json:"error,omitempty"`
 }
 
-// GCReporter receives gc lifecycle events. Nil reporters are fine:
-// runCollector and runGC both check before emitting.
-type GCReporter func(GCEvent)
+// Reporter receives gc lifecycle events. Nil reporters are fine:
+// RunCollector and the run orchestration both check before emitting.
+type Reporter func(Event)
 
-func timedGCEvent(stage string, started time.Time) GCEvent {
-	return GCEvent{Stage: stage, ElapsedMs: time.Since(started).Milliseconds()}
+// Collector runs the stock collector binary against the proven store,
+// streaming its output and reporting the lifecycle. RunCollector is
+// the production implementation; tests substitute a stub. Consumed by
+// the run orchestration when it moves (gc-4).
+type Collector func(ctx context.Context, out io.Writer, binPath string, args []string, report Reporter) error
+
+// RunCollector satisfies Collector: the assertion pins the port to
+// the implementation it will carry.
+var _ Collector = RunCollector
+
+// Timed stamps one lifecycle event against the run start.
+func Timed(stage string, started time.Time) Event {
+	return Event{Stage: stage, ElapsedMs: time.Since(started).Milliseconds()}
 }
 
-func emitGC(report GCReporter, event GCEvent) {
+// Emit delivers one lifecycle event. Nil reporters are fine.
+func Emit(report Reporter, event Event) {
 	if report != nil {
 		report(event)
 	}
 }
 
-func failGC(report GCReporter, started time.Time, err error) error {
-	event := timedGCEvent(GCStageFailure, started)
+func fail(report Reporter, started time.Time, err error) error {
+	event := Timed(StageFailure, started)
 	event.Error = err.Error()
-	emitGC(report, event)
+	Emit(report, event)
 	return err
+}
+
+// Args builds the stock collector invocation: the operator's flags,
+// nothing invented. dryRun previews (the default); only an explicit
+// --no-dry-run collects for real.
+func Args(configPath string, deleteUntagged, dryRun bool) []string {
+	args := []string{"garbage-collect"}
+	if dryRun {
+		args = append(args, "--dry-run")
+	}
+	if deleteUntagged {
+		args = append(args, "--delete-untagged")
+	}
+	return append(args, configPath)
 }
 
 // collectorCommand is a seam for tests: it builds the *exec.Cmd that
@@ -92,7 +118,7 @@ func scanGCOutput(r io.Reader) <-chan gcOutput {
 }
 
 // drainGCOutput blocks until scanGCOutput's goroutine has returned,
-// signaled by its own close. runCollector never returns while that
+// signaled by its own close. RunCollector never returns while that
 // goroutine could still be mid-syscall on the pipe: a caller that got
 // control back could otherwise reuse the pipe's fd number for an
 // unrelated file, corrupting the in-flight read.
@@ -101,49 +127,49 @@ func drainGCOutput(lines <-chan gcOutput) {
 	}
 }
 
-// runCollector spawns the stock collector with its stdin closed and
+// RunCollector spawns the stock collector with its stdin closed and
 // stdout/stderr merged into a pipe, streams every line to out, and
 // reports the lifecycle. A failing exit carries the last line, so a
 // number never arrives without the clue. Cancelling kills the child
 // and reports stopped.
-func runCollector(ctx context.Context, out io.Writer, binPath string, args []string, report GCReporter) error {
+func RunCollector(ctx context.Context, out io.Writer, binPath string, args []string, report Reporter) error {
 	started := time.Now()
-	emitGC(report, GCEvent{Stage: GCStageStart})
+	Emit(report, Event{Stage: StageStart})
 	if err := ctx.Err(); err != nil {
-		return failGC(report, started, fmt.Errorf("collector: %w", err))
+		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
-		return failGC(report, started, fmt.Errorf("collector: %w", err))
+		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
 	defer func() { _ = null.Close() }()
 	reader, writer, err := os.Pipe()
 	if err != nil {
-		return failGC(report, started, fmt.Errorf("collector: %w", err))
+		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
 	cmd := collectorCommand(ctx, binPath, args)
 	cmd.Stdin = null
 	cmd.Stdout = writer
 	cmd.Stderr = writer
 
-	emitGC(report, timedGCEvent(GCStageSpawn, started))
+	Emit(report, Timed(StageSpawn, started))
 	if err := cmd.Start(); err != nil {
 		_ = writer.Close()
 		_ = reader.Close()
-		return failGC(report, started, fmt.Errorf("collector: %w", err))
+		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
 	_ = writer.Close()
-	begun := timedGCEvent(GCStageStarted, started)
+	begun := Timed(StageStarted, started)
 	if cmd.Process != nil {
 		begun.PID = cmd.Process.Pid
 	}
-	emitGC(report, begun)
+	Emit(report, begun)
 
 	waitErr := make(chan error, 1)
 	go func() { waitErr <- cmd.Wait() }()
 	lines := scanGCOutput(reader)
 	defer drainGCOutput(lines)
-	emitGC(report, timedGCEvent(GCStageCollectBegin, started))
+	Emit(report, Timed(StageCollectBegin, started))
 	lastLine := ""
 	// feed streams one line to out, tracking the last for
 	// failure context. Write errors kill the child and fail:
@@ -163,7 +189,7 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 		killCollector(cmd)
 		<-waitErr
 		_ = reader.Close()
-		return failGC(report, started, fmt.Errorf("collector output: %w", werr))
+		return fail(report, started, fmt.Errorf("collector output: %w", werr))
 	}
 	// The exit and the stream race: a fast child is reaped while
 	// its last lines still sit in the pipe. Returning on the exit
@@ -192,7 +218,7 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	if cancelled {
 		_ = reader.Close()
 		<-waitErr
-		emitGC(report, timedGCEvent(GCStageStopped, started))
+		Emit(report, Timed(StageStopped, started))
 		return ctx.Err()
 	}
 	// The child is dead and every write end is closed, so the
@@ -203,23 +229,23 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 		for line := range lines {
 			if ferr := feed(line); ferr != nil {
 				_ = reader.Close()
-				return failGC(report, started, fmt.Errorf("collector output: %w", ferr))
+				return fail(report, started, fmt.Errorf("collector output: %w", ferr))
 			}
 		}
 	}
 	_ = reader.Close()
-	exit := timedGCEvent(GCStageCollectExit, started)
+	exit := Timed(StageCollectExit, started)
 	if exitErr != nil {
 		exit.Error = exitErr.Error()
 	}
-	emitGC(report, exit)
+	Emit(report, exit)
 	if exitErr == nil {
 		return nil
 	}
 	if lastLine != "" {
 		exitErr = fmt.Errorf("%w: %s", exitErr, lastLine)
 	}
-	return failGC(report, started, fmt.Errorf("garbage-collect: %w", exitErr))
+	return fail(report, started, fmt.Errorf("garbage-collect: %w", exitErr))
 }
 
 func killCollector(cmd *exec.Cmd) {

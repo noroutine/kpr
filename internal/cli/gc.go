@@ -19,20 +19,6 @@ import (
 // and store versions match by construction.
 var registryBinPath = "/bin/registry"
 
-// gcArgs builds the stock collector invocation: the operator's flags,
-// nothing invented. dryRun previews (the default); only an explicit
-// --no-dry-run collects for real.
-func gcArgs(configPath string, deleteUntagged, dryRun bool) []string {
-	args := []string{"garbage-collect"}
-	if dryRun {
-		args = append(args, "--dry-run")
-	}
-	if deleteUntagged {
-		args = append(args, "--delete-untagged")
-	}
-	return append(args, configPath)
-}
-
 // gcLockTTL bounds a collector run: a crashed gc releases at expiry
 // instead of wedging every later run.
 const gcLockTTL = 30 * time.Minute
@@ -44,7 +30,7 @@ type GCOptions struct {
 	DeleteUntagged bool
 	Force          bool
 	DryRun         bool
-	Report         GCReporter
+	Report         gc.Reporter
 }
 
 // runGC probes the registry writable/readonly, proves the local mount
@@ -90,9 +76,9 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 	if err != nil {
 		return err
 	}
-	pre := timedGCEvent(GCStagePreProbe, gcStarted)
+	pre := gc.Timed(gc.StagePreProbe, gcStarted)
 	pre.Message = gc.ModeName(mode)
-	emitGC(opts.Report, pre)
+	gc.Emit(opts.Report, pre)
 	switch mode {
 	case gc.ModeWritable:
 		if !gc.SameStoreUpload(root, uuid) {
@@ -124,7 +110,7 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 	default:
 		return fmt.Errorf("sentinel inconclusive for %s", registryURL)
 	}
-	if err := runCollector(ctx, w, registryBinPath, gcArgs(configPath, opts.DeleteUntagged, opts.DryRun), opts.Report); err != nil {
+	if err := gc.RunCollector(ctx, w, registryBinPath, gc.Args(configPath, opts.DeleteUntagged, opts.DryRun), opts.Report); err != nil {
 		return err
 	}
 	post, _, perr := gc.ProbeRegistry(ctx, registryURL)
@@ -132,13 +118,13 @@ func runGC(ctx context.Context, w io.Writer, s store.Store, registryURL, configP
 		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, gc.ModeName(mode))
 		return nil
 	}
-	pev := timedGCEvent(GCStagePostProbe, gcStarted)
+	pev := gc.Timed(gc.StagePostProbe, gcStarted)
 	pev.Message = gc.ModeName(post)
-	emitGC(opts.Report, pev)
+	gc.Emit(opts.Report, pev)
 	if post != mode {
-		flip := timedGCEvent(GCStageModeFlip, gcStarted)
+		flip := gc.Timed(gc.StageModeFlip, gcStarted)
 		flip.Message = gc.ModeName(mode) + "→" + gc.ModeName(post)
-		emitGC(opts.Report, flip)
+		gc.Emit(opts.Report, flip)
 		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", gc.ModeName(mode), gc.ModeName(post)); werr != nil {
 			return werr
 		}
@@ -160,20 +146,20 @@ var gcNoDryRun bool
 // renderGCEvent voices the lifecycle loud: probe verdicts, collector
 // start (pid, so a long mark phase is visibly alive), post-probe, and
 // the flip banner. Collector lines stream raw alongside.
-func renderGCEvent(w io.Writer, dryRun bool) GCReporter {
-	return func(e GCEvent) {
+func renderGCEvent(w io.Writer, dryRun bool) gc.Reporter {
+	return func(e gc.Event) {
 		switch e.Stage {
-		case GCStagePreProbe:
+		case gc.StagePreProbe:
 			_, _ = fmt.Fprintf(w, "sentinel: registry is %s\n", strings.ToUpper(e.Message))
-		case GCStageStarted:
+		case gc.StageStarted:
 			if e.PID != 0 {
 				_, _ = fmt.Fprintf(w, "collector started (pid %d)%s\n", e.PID, drySuffix(dryRun))
 			}
-		case GCStagePostProbe:
+		case gc.StagePostProbe:
 			_, _ = fmt.Fprintf(w, "sentinel: registry still %s\n", strings.ToUpper(e.Message))
-		case GCStageModeFlip:
+		case gc.StageModeFlip:
 			_, _ = fmt.Fprintf(w, "WARNING: registry flipped %s mid-run\n", e.Message)
-		case GCStageFailure:
+		case gc.StageFailure:
 			_, _ = fmt.Fprintf(w, "collector failed: %s\n", e.Error)
 		}
 	}
