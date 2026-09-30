@@ -131,7 +131,9 @@ content old = stale snapshot, the backfill blind spot) and
 a generic diagnostic vehicle.
 
 Shape (fixed): repo `kpr-sentinel`, tag `live`. Config blob
-= payload JSON `{"v":1,"gen":N,"ts":"…","writer":"…"}`
+= payload JSON `{"v":1,"gen":"<uuid7>","ts":"…","writer":"…"}` —
+the generation is time-ordered, so two observed generations
+compare without parsing timestamps
 (arbitrary bytes — blobs are never validated). Manifest =
 minimal OCI image manifest, `config` pointing at the real
 payload digest, payload digest repeated in

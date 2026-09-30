@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // Payload is the structured info in the sentinel config blob: schema
@@ -22,9 +24,22 @@ import (
 // keeps future readers honest.
 type Payload struct {
 	V      int    `json:"v"`
-	Gen    int    `json:"gen"`
+	Gen    string `json:"gen"`
 	TS     string `json:"ts,omitempty"`
 	Writer string `json:"writer,omitempty"`
+}
+
+// NewGen mints one generation: a UUIDv7 string, ordered by wall time
+// so two observed generations compare lexicographically without
+// parsing timestamps. Unpredictability is not the point (writing a
+// guessed generation to the shared store IS the trusted action) —
+// order is.
+func NewGen() (string, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", fmt.Errorf("sentinel: new generation: %w", err)
+	}
+	return id.String(), nil
 }
 
 // Manifest media types, fixed: the revision must parse as OCI (else
@@ -137,7 +152,7 @@ func Write(root, repo, tag string, p Payload) (string, error) {
 		MediaType:     manifestMediaType,
 		Config:        descriptor{MediaType: configMediaType, Digest: pDigest, Size: len(payload)},
 		Layers:        []descriptor{},
-		Annotations:   map[string]string{"kpr.sentinel": "1", "kpr.gen": fmt.Sprint(p.Gen)},
+		Annotations:   map[string]string{"kpr.sentinel": "1", "kpr.gen": p.Gen},
 	})
 	if err != nil {
 		return "", fmt.Errorf("sentinel: marshal manifest: %w", err)

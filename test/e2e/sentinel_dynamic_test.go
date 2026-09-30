@@ -27,7 +27,7 @@ func TestSentinelDynamicRoundTrip(t *testing.T) {
 	if _, _, err := sentinel.Read(ctx, api, "kpr-sentinel", "live"); err == nil {
 		t.Fatal("read before write succeeded, want absence")
 	}
-	want := sentinel.Payload{V: 1, Gen: 3, TS: time.Now().UTC().Format(time.RFC3339), Writer: "e2e"}
+	want := sentinel.Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000003", TS: time.Now().UTC().Format(time.RFC3339), Writer: "e2e"}
 	if _, err := sentinel.Write(store, "kpr-sentinel", "live", want); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -41,11 +41,11 @@ func TestSentinelDynamicRoundTrip(t *testing.T) {
 	// A new generation repoints the tag: the API must serve it at
 	// once, never a cached older one. If this fails, updates are
 	// write-only and the proof compares stale evidence.
-	want.Gen = 4
+	want.Gen = "0193abcd-0000-7000-8000-000000000004"
 	if _, err := sentinel.Write(store, "kpr-sentinel", "live", want); err != nil {
 		t.Fatalf("Write gen 4: %v", err)
 	}
-	if err := sentinel.Verify(ctx, api, "kpr-sentinel", "live", 4); err != nil {
+	if err := sentinel.Verify(ctx, api, "kpr-sentinel", "live", "0193abcd-0000-7000-8000-000000000004"); err != nil {
 		t.Errorf("Verify(gen 4) = %v, want nil", err)
 	}
 }

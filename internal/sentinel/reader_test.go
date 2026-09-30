@@ -37,7 +37,7 @@ func (s *stubAPI) GetBlob(_ context.Context, _, _ string) ([]byte, error) {
 // serves.
 func TestReadReturnsWrittenPayload(t *testing.T) {
 	root := t.TempDir()
-	want := Payload{V: 1, Gen: 3, TS: "2026-09-30T12:00:00Z", Writer: "test"}
+	want := Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000003", TS: "2026-09-30T12:00:00Z", Writer: "test"}
 	md, err := Write(root, "kpr-sentinel", "live", want)
 	if err != nil {
 		t.Fatalf("Write: %v", err)
@@ -79,7 +79,7 @@ func TestReadReturnsWrittenPayload(t *testing.T) {
 func TestReadRefusesUnexplained(t *testing.T) {
 	good := &stubAPI{
 		manifest: []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc","size":1}}`),
-		blob:     []byte(`{"v":1,"gen":2}`),
+		blob:     []byte(`{"v":1,"gen":"0193abcd-0000-7000-8000-000000000002"}`),
 	}
 	for _, tc := range []struct {
 		name string
@@ -106,13 +106,13 @@ func TestReadRefusesUnexplained(t *testing.T) {
 func TestVerifyMatchesGeneration(t *testing.T) {
 	api := &stubAPI{
 		manifest: []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc","size":1}}`),
-		blob:     []byte(`{"v":1,"gen":5}`),
+		blob:     []byte(`{"v":1,"gen":"0193abcd-0000-7000-8000-000000000005"}`),
 	}
-	if err := Verify(context.Background(), api, "kpr-sentinel", "live", 5); err != nil {
-		t.Errorf("Verify(gen 5) = %v, want nil", err)
+	if err := Verify(context.Background(), api, "kpr-sentinel", "live", "0193abcd-0000-7000-8000-000000000005"); err != nil {
+		t.Errorf("Verify(served gen) = %v, want nil", err)
 	}
-	if err := Verify(context.Background(), api, "kpr-sentinel", "live", 6); err == nil {
-		t.Error("Verify(gen 6) against served 5 passed, want mismatch")
+	if err := Verify(context.Background(), api, "kpr-sentinel", "live", "0193abcd-0000-7000-8000-000000000006"); err == nil {
+		t.Error("Verify(other gen) against served 5 passed, want mismatch")
 	}
 }
 
@@ -125,15 +125,15 @@ func TestVerifyMatchesGeneration(t *testing.T) {
 func TestVerifyMismatchIsTyped(t *testing.T) {
 	api := &stubAPI{
 		manifest: []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc","size":1}}`),
-		blob:     []byte(`{"v":1,"gen":5}`),
+		blob:     []byte(`{"v":1,"gen":"0193abcd-0000-7000-8000-000000000005"}`),
 	}
-	err := Verify(context.Background(), api, "kpr-sentinel", "live", 6)
+	err := Verify(context.Background(), api, "kpr-sentinel", "live", "0193abcd-0000-7000-8000-000000000006")
 	var mm *Mismatch
 	if !errors.As(err, &mm) {
 		t.Fatalf("Verify error = %v (%T), want *Mismatch", err, err)
 	}
-	if mm.Got != 5 || mm.Want != 6 {
-		t.Errorf("Mismatch = %+v, want Got 5 Want 6", mm)
+	if mm.Got != "0193abcd-0000-7000-8000-000000000005" || mm.Want != "0193abcd-0000-7000-8000-000000000006" {
+		t.Errorf("Mismatch = %+v, want served vs wanted", mm)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestVerifyMismatchIsTyped(t *testing.T) {
 // never a Mismatch: nothing answered, so nothing is stale. If this
 // fails, an outage reads as a snapshot and the wrong policy fires.
 func TestVerifyReadFailureIsNotMismatch(t *testing.T) {
-	err := Verify(context.Background(), &stubAPI{err: errors.New("connection refused")}, "kpr-sentinel", "live", 6)
+	err := Verify(context.Background(), &stubAPI{err: errors.New("connection refused")}, "kpr-sentinel", "live", "0193abcd-0000-7000-8000-000000000006")
 	if err == nil {
 		t.Fatal("Verify on dead registry passed, want refusal")
 	}

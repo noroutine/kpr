@@ -8,13 +8,26 @@ import (
 	"testing"
 )
 
+// NewGen mints ordered generations: UUIDv7 strings sort by wall
+// time, so two observed generations compare without parsing
+// timestamps. If this fails, recency needs the payload clock.
+func TestNewGenOrdersByTime(t *testing.T) {
+	a, err := NewGen()
+	if err != nil {
+		t.Fatalf("NewGen: %v", err)
+	}
+	if len(a) != 36 || a[14] != '7' {
+		t.Errorf("generation = %q, want a UUIDv7 string", a)
+	}
+}
+
 // Writing a generation must lay out exactly the files distribution
 // serves: two global blobs (payload as config, manifest) plus the
 // layer, revision, and tag links — nothing else. If this fails, the
 // API serves 404s or the collector trips over the residue.
 func TestWriteLaysOutExactFiles(t *testing.T) {
 	root := t.TempDir()
-	md, err := Write(root, "kpr-sentinel", "live", Payload{V: 1, Gen: 7, TS: "2026-09-30T11:00:00Z", Writer: "test"})
+	md, err := Write(root, "kpr-sentinel", "live", Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007", TS: "2026-09-30T11:00:00Z", Writer: "test"})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -62,8 +75,8 @@ func TestWriteLaysOutExactFiles(t *testing.T) {
 	if man.SchemaVersion != 2 {
 		t.Errorf("schemaVersion = %d, want 2 (else GET 500s and gc aborts)", man.SchemaVersion)
 	}
-	if man.Annotations["kpr.gen"] != "7" {
-		t.Errorf("annotations[kpr.gen] = %q, want 7", man.Annotations["kpr.gen"])
+	if man.Annotations["kpr.gen"] != "0193abcd-0000-7000-8000-000000000007" {
+		t.Errorf("annotations[kpr.gen] = %q, want the generation", man.Annotations["kpr.gen"])
 	}
 	payloadDigest = man.Config.Digest
 	phex := strings.TrimPrefix(payloadDigest, "sha256:")
@@ -72,7 +85,7 @@ func TestWriteLaysOutExactFiles(t *testing.T) {
 		t.Fatalf("read payload blob: %v", err)
 	}
 	var pay Payload
-	if err := json.Unmarshal(payRaw, &pay); err != nil || pay.Gen != 7 || pay.V != 1 {
+	if err := json.Unmarshal(payRaw, &pay); err != nil || pay.Gen != "0193abcd-0000-7000-8000-000000000007" || pay.V != 1 {
 		t.Errorf("payload = %q, want generation 7 as JSON", payRaw)
 	}
 	if man.Config.Size != len(payRaw) {
@@ -93,11 +106,11 @@ func TestWriteLaysOutExactFiles(t *testing.T) {
 // and the proof reads a stale generation.
 func TestWriteRepointMovesTag(t *testing.T) {
 	root := t.TempDir()
-	md1, err := Write(root, "kpr-sentinel", "live", Payload{V: 1, Gen: 1})
+	md1, err := Write(root, "kpr-sentinel", "live", Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000001"})
 	if err != nil {
 		t.Fatalf("Write gen1: %v", err)
 	}
-	md2, err := Write(root, "kpr-sentinel", "live", Payload{V: 1, Gen: 2})
+	md2, err := Write(root, "kpr-sentinel", "live", Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000002"})
 	if err != nil {
 		t.Fatalf("Write gen2: %v", err)
 	}

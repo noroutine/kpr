@@ -2,11 +2,9 @@ package gc
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -43,17 +41,6 @@ type Options struct {
 	Force          bool
 	DryRun         bool
 	Report         Reporter
-}
-
-// freshGen mints an unpredictable sentinel generation: the proof
-// compares exactly what this run wrote, so a stale snapshot serving
-// an older generation refuses instead of passing.
-func freshGen() (int, error) {
-	n, err := rand.Int(rand.Reader, big.NewInt(1<<62))
-	if err != nil {
-		return 0, fmt.Errorf("sentinel generation: %w", err)
-	}
-	return int(n.Int64()), nil
 }
 
 // Run probes the registry writable/readonly, proves the local mount
@@ -107,7 +94,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	Emit(opts.Report, pre)
 	switch mode {
 	case ModeWritable, ModeReadonly:
-		gen, err := freshGen()
+		gen, err := sentinel.NewGen()
 		if err != nil {
 			return err
 		}
@@ -118,7 +105,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
 			return fmt.Errorf("kpr does not share this registry's store: %v", err)
 		}
-		if _, err := fmt.Fprintf(w, "shared store proven via %s:%s generation %d\n", sentinel.Repo, sentinel.Tag, gen); err != nil {
+		if _, err := fmt.Fprintf(w, "shared store proven via %s:%s generation %s\n", sentinel.Repo, sentinel.Tag, gen); err != nil {
 			return err
 		}
 	default:

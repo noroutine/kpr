@@ -67,17 +67,17 @@ func Read(ctx context.Context, api API, repo, tag string) (Payload, string, erro
 // both, backfill (M4) treats a mismatch as snapshot age, not absence.
 type Mismatch struct {
 	Repo, Tag string
-	Got, Want int
+	Got, Want string
 }
 
 func (e *Mismatch) Error() string {
-	return fmt.Sprintf("sentinel: %s:%s serves generation %d, want %d", e.Repo, e.Tag, e.Got, e.Want)
+	return fmt.Sprintf("sentinel: %s:%s serves generation %s, want %s", e.Repo, e.Tag, e.Got, e.Want)
 }
 
 // Verify is the proof primitive: the served generation must equal
 // the written one. A mismatch refuses typed; a read failure refuses
 // plain.
-func Verify(ctx context.Context, api API, repo, tag string, wantGen int) error {
+func Verify(ctx context.Context, api API, repo, tag string, wantGen string) error {
 	got, _, err := Read(ctx, api, repo, tag)
 	if err != nil {
 		return err

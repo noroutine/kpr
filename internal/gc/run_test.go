@@ -137,7 +137,7 @@ func TestRunStrangerStoreRefuses(t *testing.T) {
 // pass silently.
 func TestRunStaleSnapshotRefuses(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
-	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, sentinel.Payload{V: 1, Gen: 1}); err != nil {
+	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, sentinel.Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000001"}); err != nil {
 		t.Fatalf("stage old generation: %v", err)
 	}
 	manRaw, err := fileAPI{root}.GetManifest(context.Background(), sentinel.Repo, sentinel.Tag)
