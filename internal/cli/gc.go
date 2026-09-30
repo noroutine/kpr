@@ -56,9 +56,9 @@ var gcCmd = &cobra.Command{
 	Use:   "gc",
 	Short: "Garbage-collect unreferenced registry blobs",
 	Long: `Run the stock registry garbage-collect against the shared store,
-streaming its output and reporting each stage. Dry-run by default
-(preview only): --no-dry-run (or KPR_CLI_NO_DRY_RUN=true) collects for
-real. The sentinel probes the registry first (readonly collects, a
+streaming its output and reporting each stage, in dry-run mode unless
+--no-dry-run (or KPR_CLI_NO_DRY_RUN=true), which collects for real.
+The sentinel probes the registry first (readonly collects, a
 real run on writable refuses unless --force — flip
 storage.maintenance.readonly and restart it instead — a preview on
 writable proceeds warned, inconclusive always refuses), then proves

@@ -124,7 +124,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	switch mode {
 	case ModeWritable:
 		if opts.DryRun {
-			if _, err := io.WriteString(w, "Warning: registry is writable; preview only, nothing will be deleted\n"); err != nil {
+			if _, err := io.WriteString(w, "Warning: registry is writable; dry-run mode, nothing will be deleted\n"); err != nil {
 				return err
 			}
 		} else {
