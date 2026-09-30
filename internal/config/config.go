@@ -103,10 +103,18 @@ const (
 	// Defaults to DefaultRegistryURL.
 	EnvRegistryURL = "KPR_REGISTRY_URL"
 
-	// EnvNoDryRun, when set to exactly "true", arms real execution:
-	// the sweeper deletes and reap marks. Anything else keeps the
-	// implicit dry-run (plan and log, change nothing).
-	EnvNoDryRun = "KPR_NO_DRY_RUN"
+	// EnvSweeperNoDryRun, when set to exactly "true", arms the serve
+	// loop: the sweeper deletes (and the console reports armed).
+	// Anything else keeps the implicit dry-run. One concern per
+	// var: one-shot commands (gc, reap) answer to EnvCLINoDryRun,
+	// never this.
+	EnvSweeperNoDryRun = "KPR_SWEEPER_NO_DRY_RUN"
+
+	// EnvCLINoDryRun, when set to exactly "true", arms one-shot
+	// commands (gc collects, reap marks) without repeating
+	// --no-dry-run. Anything else keeps the implicit dry-run. The
+	// serve loop answers to EnvSweeperNoDryRun, never this.
+	EnvCLINoDryRun = "KPR_CLI_NO_DRY_RUN"
 
 	// EnvOTELEnabled, when set to "true", enables OpenTelemetry tracing.
 	EnvOTELEnabled = "OTEL_ENABLED"
@@ -168,7 +176,8 @@ var EnvVars = []EnvVar{
 	{EnvStore, "State backend, file or redis. Unset means derive: KPR_STORE_DIR alone selects file, KPR_REDIS_ADDR alone selects redis, neither keeps redis. Must agree with backend-specific vars."},
 	{EnvStoreDir, "Directory for the file backend. Defaults to kpr/ (cwd-relative); compose sets it absolute on the shared volume."},
 	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
-	{EnvNoDryRun, "Set to \"true\" to arm real execution (sweeper deletes, reap marks, gc collects). Anything else keeps dry-run."},
+	{EnvSweeperNoDryRun, "Set to \"true\" to arm the serve loop (sweeper deletes). Anything else keeps dry-run."},
+	{EnvCLINoDryRun, "Set to \"true\" to arm one-shot commands (gc collects, reap marks). Anything else keeps dry-run."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},
 	{EnvOTELEndpoint, "OTLP/gRPC exporter endpoint (host:port). Defaults to localhost:4317."},
 	{EnvOTELServiceName, "Service name reported in traces. Defaults to kpr."},
@@ -270,9 +279,13 @@ type Config struct {
 	// unset.
 	RegistryURL string
 
-	// NoDryRun is true only when EnvNoDryRun is exactly "true".
-	// Anything else keeps the implicit dry-run.
-	NoDryRun bool
+	// SweeperNoDryRun is true only when EnvSweeperNoDryRun is
+	// exactly "true". Anything else keeps the implicit dry-run.
+	SweeperNoDryRun bool
+
+	// CLINoDryRun is true only when EnvCLINoDryRun is exactly
+	// "true". Anything else keeps the implicit dry-run.
+	CLINoDryRun bool
 
 	// OTELEnabled is true when EnvOTELEnabled is exactly "true".
 	OTELEnabled bool
@@ -410,7 +423,8 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.RedisPassword = os.Getenv(EnvRedisPassword)
 	b.cfg.RedisDB, b.cfg.RedisDBWarning = parseDB(os.Getenv(EnvRedisDB))
 	b.cfg.RegistryURL = envOr(EnvRegistryURL, DefaultRegistryURL)
-	b.cfg.NoDryRun = os.Getenv(EnvNoDryRun) == "true"
+	b.cfg.SweeperNoDryRun = os.Getenv(EnvSweeperNoDryRun) == "true"
+	b.cfg.CLINoDryRun = os.Getenv(EnvCLINoDryRun) == "true"
 
 	var err error
 	b.cfg.ManagementPort, err = parsePort(os.Getenv(EnvManagementPort), DefaultManagementPort)
@@ -462,7 +476,8 @@ func (b *Builder) WithRedisAddr(v string) *Builder              { b.cfg.RedisAdd
 func (b *Builder) WithRedisPassword(v string) *Builder          { b.cfg.RedisPassword = v; return b }
 func (b *Builder) WithRedisDB(v int) *Builder                   { b.cfg.RedisDB = v; return b }
 func (b *Builder) WithRegistryURL(v string) *Builder            { b.cfg.RegistryURL = v; return b }
-func (b *Builder) WithNoDryRun(v bool) *Builder                 { b.cfg.NoDryRun = v; return b }
+func (b *Builder) WithSweeperNoDryRun(v bool) *Builder          { b.cfg.SweeperNoDryRun = v; return b }
+func (b *Builder) WithCLINoDryRun(v bool) *Builder              { b.cfg.CLINoDryRun = v; return b }
 func (b *Builder) WithOTELEnabled(v bool) *Builder              { b.cfg.OTELEnabled = v; return b }
 func (b *Builder) WithOTLPEndpoint(v string) *Builder           { b.cfg.OTLPEndpoint = stripScheme(v); return b }
 func (b *Builder) WithOTELServiceName(v string) *Builder        { b.cfg.OTELServiceName = v; return b }

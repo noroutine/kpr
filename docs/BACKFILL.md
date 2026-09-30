@@ -13,12 +13,12 @@
 
 ## Goal
 
-`kpr backfill`: adopt pre-kpr tags into tracked rows. Constraint: backfill requires access to both the registry (API) and its storage (shared mount) — push time always comes from tag-link mtimes after an inline same-store proof (gc-style, per run, nothing stored). No mount or failed proof refuses the run loudly; there is no API-only mode and no zero-time rows. Never clobbers receiver-known rows.
+`kpr backfill`: adopt pre-kpr tags into tracked rows. Constraint: backfill is a locality-gated operation — it needs the shared mount (tag-link mtimes are bytes, not names), so it proves per run by minting a fresh generation and reading it back (same helpers as `gc`/`unlock`), and it honors the lock marker: locked refuses with the fix named. Stranger store refuses; stale snapshot (generation mismatch) warns and proceeds, rows landing not-due. There is no API-only mode and no zero-time rows. Never clobbers receiver-known rows.
 
 ## Success Criteria
 
 - Backfilled rows carry link-mtime push times and manifest digests, `actor=backfill`, not due; TTL/keep-N reason about them as real age.
-- Without storage access or with a failed proof, the run refuses loudly instead of recording anything.
+- Locked refuses naming `kpr unlock`; stranger store refuses; stale snapshot warns and still records (not-due) instead of refusing.
 - Re-running over receiver-tracked rows changes nothing.
 - `backfill <repo-glob>` touches only matching repos; dry-run default with explicit `--no-dry-run` (decided).
 - Armed backfill on a writable registry refuses unless `--force`; dry-run warns and proceeds.
@@ -37,7 +37,7 @@ Key decisions:
 2. **Unproven means refusal, never a guess** — mount present ≠ same store (the stale-DB3 lesson), and a guess would stamp false ages. No mount or failed proof ends the run before anything is recorded.
 3. **No zero-time rows.** Every recorded row carries a proven mtime, so keep-N needs no zero-time skip — backfilled rows flow through all policies as real age.
 4. **Backfill fills absence only** (enriching digest-less rows stays a follow-up).
-5. **Dry-run by default** (`--no-dry-run` / `KPR_NO_DRY_RUN=true` to record), same arming as `reap`.
+5. **Dry-run by default** (`--no-dry-run` / `KPR_CLI_NO_DRY_RUN=true` to record), same arming as `reap`.
 6. **Failures skip with counts**, same posture as catalog failures in `EvaluatePolicies`.
 
 Alternatives rejected: a persisted runtime-config gate (stale opinions across processes — the reason for this revision); mtime without proof; backfilling due marks (marks need a policy or a human).

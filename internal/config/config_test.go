@@ -177,7 +177,8 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 		WithRedisPassword("pw").
 		WithRedisDB(4).
 		WithRegistryURL("http://reg:5000").
-		WithNoDryRun(true).
+		WithSweeperNoDryRun(true).
+		WithCLINoDryRun(true).
 		WithOTELEnabled(true).
 		WithOTLPEndpoint("e:1").
 		WithOTELServiceName("s").
@@ -197,8 +198,8 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 	if cfg.RedisAddr != "r:1" || cfg.RedisPassword != "pw" || cfg.RedisDB != 4 || !cfg.OTELEnabled || cfg.OTLPEndpoint != "e:1" {
 		t.Errorf("backend/otel = %q/%q/%d/%v/%q", cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.OTELEnabled, cfg.OTLPEndpoint)
 	}
-	if cfg.RegistryURL != "http://reg:5000" || !cfg.NoDryRun {
-		t.Errorf("keeper = %q/%v, want reg/armed", cfg.RegistryURL, cfg.NoDryRun)
+	if cfg.RegistryURL != "http://reg:5000" || !cfg.SweeperNoDryRun || !cfg.CLINoDryRun {
+		t.Errorf("keeper = %q/%v/%v, want reg/armed/armed", cfg.RegistryURL, cfg.SweeperNoDryRun, cfg.CLINoDryRun)
 	}
 	if cfg.OTELServiceName != "s" || cfg.OTELServiceVersion != "v" || cfg.OTELEnvironment != "env" {
 		t.Error("otel identity not applied")
@@ -232,7 +233,7 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
 		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
-		EnvRegistryURL, EnvNoDryRun,
+		EnvRegistryURL, EnvSweeperNoDryRun, EnvCLINoDryRun,
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
 		EnvQuickwitURL, EnvJaegerURL, EnvGrafanaURL, EnvPrometheusURL,

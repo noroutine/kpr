@@ -83,12 +83,12 @@ var serveCmd = &cobra.Command{
 		sweeper := &sweep.Sweeper{
 			Store:    keeperStore,
 			Registry: regClient,
-			DryRun:   !cfg.NoDryRun,
+			DryRun:   !cfg.SweeperNoDryRun,
 		}
-		if cfg.NoDryRun {
+		if cfg.SweeperNoDryRun {
 			log.Printf("Sweeper armed: deletes are real")
 		} else {
-			log.Printf("Sweeper dry-run: deletes only planned (arm with --no-dry-run or KPR_NO_DRY_RUN=true)")
+			log.Printf("Sweeper dry-run: deletes only planned (arm with KPR_SWEEPER_NO_DRY_RUN=true)")
 		}
 		// AirPlay preflight: macOS Receiver squats localhost:5000 with
 		// Server: AirTunes, and only a positive fingerprint warns —
@@ -125,7 +125,7 @@ var serveCmd = &cobra.Command{
 				// generation through it.
 				Sentinel: regClient,
 				Sweeper:  sweeper,
-				Armed:    cfg.NoDryRun,
+				Armed:    cfg.SweeperNoDryRun,
 			}
 			addr := net.JoinHostPort(managementHost, fmt.Sprintf("%d", managementPort))
 			log.Printf("Starting management console on %s", addr)

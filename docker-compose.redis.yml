@@ -43,8 +43,10 @@ services:
       - "REGISTRY_REDIS_PASSWORD=${REDIS_PASSWORD:-kpr-dev-only}"
       # Armed by default: the local stack really deletes. Comment the
       # line out (anything but exactly "true" keeps dry-run) to go back
-      # to planning without touching anything.
-      - "KPR_NO_DRY_RUN=true"
+      # to planning without touching anything. Sweeper only — one-shot
+      # commands (gc, reap) stay dry-run unless flagged or
+      # KPR_CLI_NO_DRY_RUN=true.
+      - "KPR_SWEEPER_NO_DRY_RUN=true"
 
       # OpenTelemetry (optional)
       - OTEL_ENABLED=false

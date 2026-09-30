@@ -302,7 +302,7 @@ var statusCmd = &cobra.Command{
 		}
 		defer d.close()
 		cfg, s := d.cfg, d.store
-		return runStatus(cmd.Context(), cmd.OutOrStdout(), s, d.reg, describeStore(s, cfg), cfg.NoDryRun)
+		return runStatus(cmd.Context(), cmd.OutOrStdout(), s, d.reg, describeStore(s, cfg), cfg.SweeperNoDryRun)
 	},
 }
 
@@ -351,7 +351,7 @@ reasons. Bare reap means reap all. Marks accumulate across calls
 until sweep or plan discard. Policies: expired (elapsed TTL tags),
 partial (digest-less stale uploads), untagged (tag gone from the
 catalog past grace), keep-n (past the freshest ten per repo).
-Dry-run unless --no-dry-run (or KPR_NO_DRY_RUN=true): unarmed, it
+Dry-run unless --no-dry-run (or KPR_CLI_NO_DRY_RUN=true): unarmed, it
 only prints the plan. Repeat --exclude to spare keep-N for rows
 whose repo:tag matches (registry stripped).`,
 	Args: cobra.MaximumNArgs(1),
@@ -362,7 +362,7 @@ whose repo:tag matches (registry stripped).`,
 		}
 		defer d.close()
 		cfg, s := d.cfg, d.store
-		armed := reapNoDryRun || cfg.NoDryRun
+		armed := reapNoDryRun || cfg.CLINoDryRun
 		name := "all"
 		if len(args) == 1 {
 			name = args[0]

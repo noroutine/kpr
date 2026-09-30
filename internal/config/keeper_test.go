@@ -12,8 +12,8 @@ func TestKeeperDefaults(t *testing.T) {
 	if cfg.RegistryURL != "http://localhost:5000" {
 		t.Errorf("RegistryURL = %q, want the dev-stack default", cfg.RegistryURL)
 	}
-	if cfg.NoDryRun {
-		t.Error("NoDryRun = true by default, want implicit dry-run (armed off)")
+	if cfg.SweeperNoDryRun || cfg.CLINoDryRun {
+		t.Error("arming = true by default, want implicit dry-run (armed off)")
 	}
 }
 
@@ -22,25 +22,45 @@ func TestKeeperDefaults(t *testing.T) {
 // stack runs against defaults instead of what it ships with.
 func TestFromEnvResolvesKeeperVars(t *testing.T) {
 	t.Setenv(EnvRegistryURL, "http://registry:5000")
-	t.Setenv(EnvNoDryRun, "true")
+	t.Setenv(EnvSweeperNoDryRun, "true")
+	t.Setenv(EnvCLINoDryRun, "true")
 
 	cfg := NewBuilder().FromEnv().Build()
 	if cfg.RegistryURL != "http://registry:5000" {
 		t.Errorf("RegistryURL = %q", cfg.RegistryURL)
 	}
-	if !cfg.NoDryRun {
-		t.Error("NoDryRun = false with KPR_NO_DRY_RUN=true, want armed")
+	if !cfg.SweeperNoDryRun || !cfg.CLINoDryRun {
+		t.Error("arming = false with both vars true, want armed")
 	}
 }
 
 // Anything but exactly "true" keeps the safety on: arming the sweeper
 // must be deliberate, never a typo. If this fails, "1" or "yes" silently
 // arms deletes.
+// The two arming vars are independent concerns sharing a shape:
+// compose arms the serve loop without arming one-shot commands, so
+// a container gc stays a preview unless flagged. If this fails, one
+// concern's arming leaks into the other — the original confusion.
+func TestArmingVarsAreIndependent(t *testing.T) {
+	t.Setenv(EnvSweeperNoDryRun, "true")
+	if cfg := NewBuilder().FromEnv().Build(); !cfg.SweeperNoDryRun || cfg.CLINoDryRun {
+		t.Errorf("sweeper armed: sweeper=%v cli=%v, want true/false", cfg.SweeperNoDryRun, cfg.CLINoDryRun)
+	}
+	t.Setenv(EnvSweeperNoDryRun, "")
+	t.Setenv(EnvCLINoDryRun, "true")
+	if cfg := NewBuilder().FromEnv().Build(); cfg.SweeperNoDryRun || !cfg.CLINoDryRun {
+		t.Errorf("cli armed: sweeper=%v cli=%v, want false/true", cfg.SweeperNoDryRun, cfg.CLINoDryRun)
+	}
+}
+
 func TestNoDryRunNeedsExactTrue(t *testing.T) {
-	for _, v := range []string{"1", "yes", "TRUE", ""} {
-		t.Setenv(EnvNoDryRun, v)
-		if cfg := NewBuilder().FromEnv().Build(); cfg.NoDryRun {
-			t.Errorf("KPR_NO_DRY_RUN=%q armed the sweeper, want dry-run kept", v)
+	for _, env := range []string{EnvSweeperNoDryRun, EnvCLINoDryRun} {
+		for _, v := range []string{"1", "yes", "TRUE", ""} {
+			t.Setenv(env, v)
+			cfg := NewBuilder().FromEnv().Build()
+			if cfg.SweeperNoDryRun || cfg.CLINoDryRun {
+				t.Errorf("%s=%q armed execution, want dry-run kept", env, v)
+			}
 		}
 	}
 }

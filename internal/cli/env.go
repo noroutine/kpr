@@ -57,8 +57,10 @@ func envValue(cfg *config.Config, name string) string {
 		return "set"
 	case config.EnvRegistryURL:
 		return cfg.RegistryURL
-	case config.EnvNoDryRun:
-		return strconv.FormatBool(cfg.NoDryRun)
+	case config.EnvSweeperNoDryRun:
+		return strconv.FormatBool(cfg.SweeperNoDryRun)
+	case config.EnvCLINoDryRun:
+		return strconv.FormatBool(cfg.CLINoDryRun)
 	case config.EnvOTELEnabled:
 		return strconv.FormatBool(cfg.OTELEnabled)
 	case config.EnvOTELEndpoint:

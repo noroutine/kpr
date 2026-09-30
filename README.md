@@ -158,7 +158,8 @@ Wiring only (ports, redis addr, registry URL, arming); see
 | `KPR_STORE` | state backend, `file` or `redis`. Unset means derive: `KPR_STORE_DIR` alone selects file, `KPR_REDIS_ADDR` alone selects redis, silence keeps redis. Must agree with backend vars (see [docs/STORES.md](docs/STORES.md)) |
 | `KPR_STORE_DIR` | directory for the file backend (default `kpr/`, cwd-relative; compose sets it absolute on the shared volume, e.g. `<registry-root>/kpr` for a self-contained backup) |
 | `KPR_REGISTRY_URL` | registry peer (dev default `http://localhost:5000`) |
-| `KPR_NO_DRY_RUN=true` | arm the sweeper (anything else keeps implicit dry-run) |
+| `KPR_SWEEPER_NO_DRY_RUN=true` | arm the serve loop sweeper (anything else keeps implicit dry-run) |
+| `KPR_CLI_NO_DRY_RUN=true` | arm one-shot commands (gc collects, reap marks) |
 
 The local compose arms by default (comment the line out to go back
 to planning). Recreating the kpr container can pause sweeping for up

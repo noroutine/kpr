@@ -85,7 +85,7 @@ Notes:
 
 Same network as the registry (and Traefik, if you want the console
 routed). `CMD` already runs `kpr serve`; disarmed until
-`KPR_NO_DRY_RUN=true`:
+`KPR_SWEEPER_NO_DRY_RUN=true`:
 
 ```yaml
 services:
@@ -100,7 +100,7 @@ services:
       - KPR_REDIS_DB=4
       # Arm only after the first dry run (Step 5). Anything but exactly
       # "true" keeps implicit dry-run: plans, never deletes.
-      # - KPR_NO_DRY_RUN=true
+      # - KPR_SWEEPER_NO_DRY_RUN=true
     networks:
       - registry-net        # shared with registry (+ traefik below)
     restart: unless-stopped
@@ -144,7 +144,7 @@ docker exec kpr kpr reap --no-dry-run   # marks ttl:10m elapsed
 docker exec kpr kpr sweep               # dry-run: plans, deletes nothing
 ```
 
-When the plan looks right, set `KPR_NO_DRY_RUN=true`, recreate kpr,
+When the plan looks right, set `KPR_SWEEPER_NO_DRY_RUN=true`, recreate kpr,
 and repeat — this time `sweep` deletes by digest. Then reclaim blob
 bytes with the registry's offline GC (`registry garbage-collect
 --delete-untagged <config>`): deletes drop the manifest reference
