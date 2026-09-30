@@ -79,7 +79,9 @@ git diff origin/master...HEAD | claude --model claude-sonnet-5 -p "Review per do
 Pack: `docs/REVIEWER_CONTEXT.md` (roles, loop, contract).
 Reviewer reviews-not-runs: reads the diff, never executes. Triage
 every finding: fix it, or push back with the reason. Findings never
-auto-apply; coder judgment rules.
+auto-apply; coder judgment rules. Trivial changes skip review —
+typos, copy, one-line render tweaks with covered behavior; coder
+judgment on what counts as trivial.
 
 ## Destructive actions: implicit dry-run
 

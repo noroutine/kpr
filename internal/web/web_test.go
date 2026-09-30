@@ -507,7 +507,7 @@ func TestIndexDegradesWithoutStoreOrSentinel(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"State", "unavailable", "unproven", "noroutine/kpr-sentinel:live"} {
+	for _, want := range []string{"State", "unavailable", "unproven", "no generation served yet"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}

@@ -106,7 +106,7 @@ const indexTemplate = `<!DOCTYPE html>
             <div class="card stat-card">
                 <div class="label">Same-store proof</div>
                 <div class="value gen">{{ if .Sentinel.Proven }}{{ .Sentinel.Gen }}{{ else }}unproven{{ end }}</div>
-                <div class="meta">{{ .Sentinel.Addr }}{{ if .Sentinel.Proven }} · proven {{ .Sentinel.TS }}{{ end }}</div>
+                <div class="meta">{{ if .Sentinel.Proven }}{{ .Sentinel.Addr }} · proven {{ .Sentinel.TS }}{{ else }}no generation served yet{{ end }}</div>
             </div>
         </div>
     </div>
