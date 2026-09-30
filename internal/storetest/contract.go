@@ -30,6 +30,7 @@ func RunContract(t *testing.T, setup func(t *testing.T) store.Store) {
 	t.Run("current", func(t *testing.T) { testCurrentRoundTrip(t, setup(t)) })
 	t.Run("activity", func(t *testing.T) { testActivityRingCapped(t, setup(t)) })
 	t.Run("lock", func(t *testing.T) { testNamedLockSingleFlight(t, setup(t)) })
+	t.Run("unlock-marker", func(t *testing.T) { testUnlockMarkerFreshLocked(t, setup(t)) })
 }
 
 var storeNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
@@ -280,4 +281,31 @@ func testNamedLockSingleFlight(t *testing.T, s store.Store) {
 	}
 	_ = s.ReleaseLock(c, store.LockKey)
 	_ = s.ReleaseLock(c, store.GCLockKey)
+}
+
+// A fresh store reads locked: registry-store writes stay denied
+// until `kpr unlock` proves the shared store and records intent.
+// Lock clears back to denied; double-lock stays quiet. If this
+// fails, a fresh deploy collects on first gc, or intent doesn't
+// survive the backend round-trip.
+func testUnlockMarkerFreshLocked(t *testing.T, s store.Store) {
+	c := ctx()
+	if ok, err := s.IsUnlocked(c); err != nil || ok {
+		t.Fatalf("fresh IsUnlocked = (%v, %v), want (false, nil)", ok, err)
+	}
+	if err := s.SetUnlocked(c, true); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	if ok, err := s.IsUnlocked(c); err != nil || !ok {
+		t.Fatalf("post-unlock IsUnlocked = (%v, %v), want (true, nil)", ok, err)
+	}
+	if err := s.SetUnlocked(c, false); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	if ok, err := s.IsUnlocked(c); err != nil || ok {
+		t.Fatalf("post-lock IsUnlocked = (%v, %v), want (false, nil)", ok, err)
+	}
+	if err := s.SetUnlocked(c, false); err != nil {
+		t.Fatalf("double lock: %v", err)
+	}
 }

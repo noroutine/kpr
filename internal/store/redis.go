@@ -32,11 +32,31 @@ func (s *RedisStore) Close() error { return s.rdb.Close() }
 // Flush drops every kpr key. Tests only: a clean slate per subtest so
 // contract cases never see each other's rows.
 func (s *RedisStore) Flush(ctx context.Context) error {
-	return s.rdb.Del(ctx, RowsKey, CurrentKey, ActivityKey, LockKey).Err()
+	return s.rdb.Del(ctx, RowsKey, CurrentKey, ActivityKey, LockKey, UnlockedKey).Err()
 }
 
 func (s *RedisStore) Ping(ctx context.Context) error {
 	return s.rdb.Ping(ctx).Err()
+}
+
+// IsUnlocked reads the intent marker: absent (fresh included) is
+// locked. A redis error refuses, never guesses.
+func (s *RedisStore) IsUnlocked(ctx context.Context) (bool, error) {
+	n, err := s.rdb.Exists(ctx, UnlockedKey).Result()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+// SetUnlocked writes or drops the marker: presence is the whole
+// state, so lock is a DEL and unlock a plain SET (no expiry —
+// intent persists until the operator revokes it).
+func (s *RedisStore) SetUnlocked(ctx context.Context, unlocked bool) error {
+	if !unlocked {
+		return s.rdb.Del(ctx, UnlockedKey).Err()
+	}
+	return s.rdb.Set(ctx, UnlockedKey, "1", 0).Err()
 }
 
 func encodeRow(r policy.Row) string {

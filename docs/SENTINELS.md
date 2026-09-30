@@ -294,6 +294,19 @@ Enforcement rule: only locality-gated operations touch store
 bytes, and each proves first — today that is one call site
 (`gc.Run`); storage accounting and friends take the same
 mint+verify preamble when they arrive, never inherited trust.
+
+## The lock: default-deny intent (`lock` / `unlock`)
+
+Proof is locality; the marker is intent. `kpr unlock` mints a
+fresh generation, verifies the read-back, and only then records
+`kpr:store:unlocked` (redis key, `<dir>/unlocked` file) —
+unlock on a stranger's store refuses and the marker stays down.
+`kpr lock` drops the marker. Fresh stores read locked: `gc`
+refuses before probing, with the fix named. Reads, sweeps, and
+the receiver never check the marker — locked behaves exactly
+like no shared store for write ops, which makes `lock` the
+remote-mode simulator for tests. The console store card voices
+`locked` alongside reachability.
 The seam already points at object stores: `Write` takes the
 location (fs root now, bucket+prefix later behind a writer
 port) while `Read`/`Verify` go through the registry API and stay

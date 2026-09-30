@@ -54,6 +54,11 @@ func (s *FileStore) Dir() string { return s.dir }
 func (s *FileStore) rowsDir() string     { return filepath.Join(s.dir, "rows") }
 func (s *FileStore) locksDir() string    { return filepath.Join(s.dir, "locks") }
 func (s *FileStore) currentFile() string { return filepath.Join(s.dir, "current.json") }
+
+// unlockedFile is the intent marker: presence means `kpr unlock`
+// proved the shared store and opened it. Empty file — presence is
+// the whole state, like the lock files it sits beside.
+func (s *FileStore) unlockedFile() string { return filepath.Join(s.dir, "unlocked") }
 func (s *FileStore) activityFile() string {
 	return filepath.Join(s.dir, "activity.json")
 }
@@ -470,6 +475,33 @@ func (s *FileStore) ReleaseLock(_ context.Context, name string) error {
 		_ = f.Close()
 	}
 	return nil
+}
+
+// IsUnlocked stats the intent marker: missing (fresh stores
+// included) reads locked. A stat failure other than not-exist
+// refuses, never guesses.
+func (s *FileStore) IsUnlocked(_ context.Context) (bool, error) {
+	_, err := os.Stat(s.unlockedFile())
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+// SetUnlocked creates or drops the marker. Unlock ensures the dir
+// (Ping may never have run); lock removes a missing marker as a
+// no-op, so double-lock stays quiet.
+func (s *FileStore) SetUnlocked(_ context.Context, unlocked bool) error {
+	if !unlocked {
+		if err := os.Remove(s.unlockedFile()); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return putFile(s.unlockedFile(), []byte{})
 }
 
 // Close releases every held lock file: clean shutdown hands nothing

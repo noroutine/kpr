@@ -17,6 +17,13 @@ type storeData struct {
 	Name    string
 	Detail  string
 	Healthy bool
+	// LockNote voices the operator intent marker: "locked" denies
+	// registry-store writes (gc refuses) while reads, sweeps, and
+	// the receiver keep working; "lock unknown" on a marker read
+	// failure — collapsing the error into unlocked would claim
+	// intent nobody recorded. Empty means unlocked: the common
+	// open state needs no ink.
+	LockNote string
 }
 
 // sentinelData is the live same-store proof state: the fixed
@@ -32,21 +39,35 @@ type sentinelData struct {
 
 // storeSnapshot names the wired backend for the dashboard. The type
 // switch is the whole derivation: config knows addresses, only the
-// constructed store knows which backend serve actually opened.
-func storeSnapshot(s store.Store, healthy bool, cfg *config.Config) storeData {
+// constructed store knows which backend serve actually opened. The
+// lock read rides along: one cheap marker check per page load, so
+// the card voices intent without a second round trip anywhere.
+func storeSnapshot(ctx context.Context, s store.Store, healthy bool, cfg *config.Config) storeData {
+	note := ""
+	if s != nil {
+		switch ok, err := s.IsUnlocked(ctx); {
+		case err != nil:
+			note = "lock unknown"
+		case !ok:
+			note = "locked"
+		}
+	}
 	switch st := s.(type) {
 	case *store.FileStore:
-		return storeData{Name: "file", Detail: st.Dir(), Healthy: healthy}
+		return storeData{Name: "file", Detail: st.Dir(), Healthy: healthy, LockNote: note}
 	case *store.RedisStore:
 		return storeData{
-			Name:    "redis",
-			Detail:  cfg.RedisAddr + " db " + strconv.Itoa(cfg.RedisDB),
-			Healthy: healthy,
+			Name:     "redis",
+			Detail:   cfg.RedisAddr + " db " + strconv.Itoa(cfg.RedisDB),
+			Healthy:  healthy,
+			LockNote: note,
 		}
 	case *store.MemStore:
-		return storeData{Name: "mem", Detail: "in-memory, tests only", Healthy: healthy}
+		return storeData{Name: "mem", Detail: "in-memory, tests only", Healthy: healthy, LockNote: note}
 	default:
-		return storeData{Name: "unavailable"}
+		// Unknown implementations still voice the probe: the
+		// note was computed from the port, not the type.
+		return storeData{Name: "unavailable", LockNote: note}
 	}
 }
 

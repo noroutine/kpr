@@ -28,6 +28,11 @@ const (
 	// same key, so the two never race the store. Manual collector
 	// runs bypass it — the registry itself sets no lock.
 	GCLockKey = "kpr:gc:lock"
+	// UnlockedKey records operator intent to allow registry-store
+	// writes: present means `kpr unlock` proved the shared store
+	// and opened it. Absent (fresh stores included) reads locked —
+	// default-deny, never default-allow.
+	UnlockedKey = "kpr:store:unlocked"
 )
 
 // ActivityCap bounds the outcome ring: state, not a stream.
@@ -98,4 +103,12 @@ type Store interface {
 	AcquireLock(ctx context.Context, name string, ttl time.Duration) (bool, error)
 	// ReleaseLock drops the named lock after the run.
 	ReleaseLock(ctx context.Context, name string) error
+	// IsUnlocked reports operator intent for registry-store writes:
+	// false (including fresh stores, where nothing was ever set)
+	// means locked — gc and future writers refuse before proving
+	// anything. A read failure is an error, never a guess.
+	IsUnlocked(ctx context.Context) (bool, error)
+	// SetUnlocked records or clears the intent: true after `kpr
+	// unlock` proves the shared store, false on `kpr lock`.
+	SetUnlocked(ctx context.Context, unlocked bool) error
 }

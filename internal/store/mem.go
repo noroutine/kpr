@@ -16,6 +16,7 @@ type MemStore struct {
 	current  Current
 	activity []Outcome
 	locks    map[string]bool
+	unlocked bool
 }
 
 // NewMemStore builds an empty MemStore.
@@ -114,6 +115,19 @@ func (m *MemStore) GetCurrent(context.Context) (Current, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.current, nil
+}
+
+func (m *MemStore) IsUnlocked(context.Context) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.unlocked, nil
+}
+
+func (m *MemStore) SetUnlocked(_ context.Context, unlocked bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unlocked = unlocked
+	return nil
 }
 
 func (m *MemStore) PushActivity(_ context.Context, o Outcome) error {

@@ -101,7 +101,7 @@ const indexTemplate = `<!DOCTYPE html>
             <div class="card stat-card">
                 <div class="label">State backend</div>
                 <div class="value">{{ .Store.Name }}</div>
-                <div class="meta">{{ if .Store.Detail }}{{ .Store.Detail }} · {{ end }}{{ if .Store.Healthy }}reachable{{ else }}unreachable{{ end }}</div>
+                <div class="meta">{{ if .Store.Detail }}{{ .Store.Detail }} · {{ end }}{{ if .Store.Healthy }}reachable{{ else }}unreachable{{ end }}{{ if .Store.LockNote }} · {{ .Store.LockNote }}{{ end }}</div>
             </div>
             <div class="card stat-card">
                 <div class="label">Same-store proof</div>

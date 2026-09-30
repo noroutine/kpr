@@ -25,12 +25,15 @@ type Probe func(ctx context.Context, baseURL string) (Mode, string, error)
 // implementation it carries.
 var _ Probe = ProbeRegistry
 
-// Locker serializes collector runs on one named single-flight lock.
-// store.Store satisfies it structurally; the use case declares only
-// the two methods it needs.
+// Locker serializes collector runs on one named single-flight lock
+// and carries the operator's write intent: store.Store satisfies it
+// structurally; the use case declares only the three methods it
+// needs. A locked store refuses before anything else — the marker
+// is intent, the per-run proof that follows is locality.
 type Locker interface {
 	AcquireLock(ctx context.Context, name string, ttl time.Duration) (bool, error)
 	ReleaseLock(ctx context.Context, name string) error
+	IsUnlocked(ctx context.Context) (bool, error)
 }
 
 // Options tunes a gc run: the operator's flags plus the event
@@ -63,6 +66,13 @@ type Options struct {
 // the operator; this command never rewrites registry config.
 func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, opts Options) error {
 	gcStarted := time.Now()
+	unlocked, err := lock.IsUnlocked(ctx)
+	if err != nil {
+		return fmt.Errorf("store lock unreadable: %w", err)
+	}
+	if !unlocked {
+		return errors.New("store is locked: registry-store writes are denied — run `kpr unlock` to prove the shared store and allow them")
+	}
 	if err := Ready(binPath, configPath); err != nil {
 		return err
 	}

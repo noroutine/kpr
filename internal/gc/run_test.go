@@ -73,7 +73,15 @@ func stageProvenRun(t *testing.T) (string, string, *store.MemStore) {
 	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o644); err != nil {
 		t.Fatalf("stage config: %v", err)
 	}
-	return cfg, root, store.NewMemStore()
+	// Runs prove locality per pass, but intent is the operator's:
+	// staged stores arrive unlocked so tests vary the ports, not
+	// the marker. Fresh-locked is pinned by the storetest contract
+	// and the dedicated refusal test below.
+	s := store.NewMemStore()
+	if err := s.SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	return cfg, root, s
 }
 
 func okCollector(collected *[][]string) Collector {

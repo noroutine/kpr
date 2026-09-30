@@ -55,6 +55,9 @@ so compose always sets it absolute (the file stack mounts
   the lock means nothing.
 - `.lock` — serializes mutating ops across processes
   sharing the dir, held for milliseconds per op.
+- `unlocked` — the intent marker (empty file, presence is the
+  state): `kpr unlock` creates it after proving the shared
+  store, `kpr lock` removes it. Missing reads locked.
 
 `Ping` proves the dir exists *and* writable with a probe
 file (banner red, sweeper skips) — a Stat would lie about

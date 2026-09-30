@@ -481,7 +481,7 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 	body := rr.Body.String()
 	for _, want := range []string{
 		"State backend", "file", dir,
-		"File store", "reachable",
+		"File store", "reachable", "locked",
 		"noroutine/kpr-sentinel:live", "019-test-gen",
 	} {
 		if !strings.Contains(body, want) {
@@ -511,6 +511,41 @@ func TestIndexDegradesWithoutStoreOrSentinel(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}
+	}
+	if strings.Contains(body, "locked") {
+		t.Errorf("dashboard claims locked with no store wired")
+	}
+}
+
+// errUnlockStore fails the intent read: the card must voice "lock
+// unknown", never collapse the error into unlocked (which would
+// claim intent nobody recorded) or into locked (which would blame
+// the operator for a backend failure). If this fails, a redis
+// hiccup misreports write intent either way.
+type errUnlockStore struct {
+	store.Store
+}
+
+func (errUnlockStore) IsUnlocked(context.Context) (bool, error) {
+	return false, errors.New("marker unreadable")
+}
+
+func TestIndexShowsUnknownLockOnMarkerError(t *testing.T) {
+	testConfig(t)
+	s := &Server{Store: errUnlockStore{store.NewMemStore()}}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	s.indexHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "lock unknown") {
+		t.Errorf("dashboard hides the unreadable marker")
+	}
+	if strings.Contains(body, "· locked") {
+		t.Errorf("dashboard collapses the error into locked")
 	}
 }
 

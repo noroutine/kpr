@@ -31,6 +31,18 @@ func stageGCStore(t *testing.T, root string) string {
 	return path
 }
 
+// unlockedStore stages intent-open state: gc tests vary proof and
+// collection, never the marker. Fresh-locked is pinned by the
+// storetest contract and the dedicated refusal tests.
+func unlockedStore(t *testing.T) *store.MemStore {
+	t.Helper()
+	s := store.NewMemStore()
+	if err := s.SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	return s
+}
+
 // serveRegistry is a file-backed fake registry over root: the probe
 // initiate classifies writable/readonly, manifest and blob GETs read
 // what the run just wrote to the store, DELETE cancels uploads. A
@@ -99,7 +111,7 @@ func TestRunGCReleaseFailureWarns(t *testing.T) {
 	defer srv.Close()
 
 	cfg := stageGCStore(t, root)
-	s := &releaseFailStore{MemStore: store.NewMemStore()}
+	s := &releaseFailStore{MemStore: unlockedStore(t)}
 
 	oldBin := registryBinPath
 	registryBinPath = stageBin(t, "exit 0")
@@ -136,7 +148,7 @@ func TestRunGCForceWarnWriteError(t *testing.T) {
 	registryBinPath = stageBin(t, "exit 0")
 	defer func() { registryBinPath = oldBin }()
 
-	s := store.NewMemStore()
+	s := unlockedStore(t)
 	if err := gc.Run(context.Background(), errWriter{}, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{Force: true}); err == nil {
 		t.Error("forced gc with broken output succeeded, want the write error")
 	}
@@ -164,7 +176,7 @@ func TestRunGCRefusesWritableWithoutForce(t *testing.T) {
 	defer srv.Close()
 
 	cfg := stageGCStore(t, root)
-	s := store.NewMemStore()
+	s := unlockedStore(t)
 
 	oldBin := registryBinPath
 	registryBinPath = "/bin/sh"
@@ -196,7 +208,7 @@ func TestRunGCDifferentStoreRefuses(t *testing.T) {
 
 	root := t.TempDir()
 	cfg := stageGCStore(t, root)
-	s := store.NewMemStore()
+	s := unlockedStore(t)
 
 	oldBin := registryBinPath
 	registryBinPath = stageBin(t, "exit 0")
@@ -220,7 +232,7 @@ func TestRunGCLockContention(t *testing.T) {
 
 	ctx := context.Background()
 	cfg := stageGCStore(t, root)
-	s := store.NewMemStore()
+	s := unlockedStore(t)
 
 	oldBin := registryBinPath
 	registryBinPath = stageBin(t, "exit 0")
@@ -263,7 +275,7 @@ func TestRunGCPostProbeFlip(t *testing.T) {
 	defer flap.Close()
 	flipCfg := stageGCStore(t, flipRoot)
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, store.NewMemStore(), gc.RunCollector, registry.NewClient(flap.URL), flap.URL, flipCfg, registryBinPath, gc.Options{}); err == nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, unlockedStore(t), gc.RunCollector, registry.NewClient(flap.URL), flap.URL, flipCfg, registryBinPath, gc.Options{}); err == nil {
 		t.Fatal("gc across a readonly→writable flip succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "changed during collection") {
 		t.Errorf("failure names no cause: %v", err)
@@ -274,7 +286,7 @@ func TestRunGCPostProbeFlip(t *testing.T) {
 	defer down.Close()
 	deadCfg := stageGCStore(t, deadRoot)
 	out.Reset()
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, store.NewMemStore(), gc.RunCollector, registry.NewClient(down.URL), down.URL, deadCfg, registryBinPath, gc.Options{}); err != nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, unlockedStore(t), gc.RunCollector, registry.NewClient(down.URL), down.URL, deadCfg, registryBinPath, gc.Options{}); err != nil {
 		t.Fatalf("gc with dead post-probe = %v, want nil (warn only)", err)
 	}
 	if !strings.Contains(out.String(), "post-run probe") {
@@ -316,7 +328,7 @@ func TestRunGCReadonlyRunsBinary(t *testing.T) {
 	defer srv.Close()
 
 	cfg := stageGCStore(t, root)
-	s := store.NewMemStore()
+	s := unlockedStore(t)
 
 	oldBin := registryBinPath
 	registryBinPath = stageBin(t, "echo \"collector args: $@\"")

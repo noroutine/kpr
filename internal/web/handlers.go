@@ -137,7 +137,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
 		Links:          observabilityLinks(cfg),
 		Keeper:         keeper,
-		Store:          storeSnapshot(s.Store, keeper.RedisOK, cfg),
+		Store:          storeSnapshot(r.Context(), s.Store, keeper.RedisOK, cfg),
 		Sentinel:       s.sentinelSnapshot(r.Context()),
 	}
 
