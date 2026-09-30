@@ -209,18 +209,28 @@ func OpenStore(cfg *config.Config) (store.StoreCloser, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if backend == "file" {
-		s := store.NewFileStore(dir)
+		s := buildStore(backend, dir, cfg)
 		if err := s.Ping(ctx); err != nil {
 			return nil, fmt.Errorf("file store at %s unreachable: %w", dir, err)
 		}
 		return s, nil
 	}
-	s := store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	s := buildStore(backend, dir, cfg)
 	if err := s.Ping(ctx); err != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("redis unreachable at %s: %w", cfg.RedisAddr, err)
 	}
 	return s, nil
+}
+
+// buildStore constructs the derived backend without probing it: one
+// branch for OpenStore's fail-fast Ping and serve's lazy degrade, so
+// a flipped conditional fails both instead of hiding in one.
+func buildStore(backend, dir string, cfg *config.Config) store.StoreCloser {
+	if backend == "file" {
+		return store.NewFileStore(dir)
+	}
+	return store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 }
 
 // consoleURL builds the management console base from the resolved

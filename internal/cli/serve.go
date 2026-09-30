@@ -16,7 +16,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/registry"
-	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 	"nrtn.dev/catalyst/kpr/internal/web"
 )
@@ -71,12 +70,7 @@ var serveCmd = &cobra.Command{
 		if err != nil {
 			log.Fatalf("state backend: %v", err)
 		}
-		var keeperStore store.StoreCloser
-		if backend == "file" {
-			keeperStore = store.NewFileStore(storeDir)
-		} else {
-			keeperStore = store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
-		}
+		keeperStore := buildStore(backend, storeDir, cfg)
 		defer func() { _ = keeperStore.Close() }()
 		if perr := keeperStore.Ping(ctx); perr != nil {
 			log.Printf("Warning: state backend unreachable, keeper sections degrade: %v", perr)

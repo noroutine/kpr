@@ -137,16 +137,33 @@ func TestWriteRepointMovesTag(t *testing.T) {
 }
 
 // Repo and tag become directory names: empty or escaping values
-// must refuse before touching the store. If this fails, a crafted
-// name writes outside the root.
-func TestWriteRejectsBadNames(t *testing.T) {
+// must refuse before touching the store, and every boundary rune of
+// the tag shape must decide correctly (word edges a/z/A/Z/0-9/_,
+// first-char word-only, 128 max). If this fails, a crafted name
+// writes outside the root — or a valid tag refuses a generation.
+func TestWriteValidatesNames(t *testing.T) {
 	root := t.TempDir()
+	for _, tag := range []string{
+		"live", "v1", "_", "a", "z", "A", "Z", "0", "9",
+		"aZ09_.-b", strings.Repeat("a", 128),
+	} {
+		if _, err := Write(root, "kpr", tag, Payload{V: 1}); err != nil {
+			t.Errorf("Write(kpr, %q) refused, want accept", tag)
+		}
+	}
 	for _, tc := range []struct{ repo, tag string }{
 		{"", "live"},
-		{"kpr-sentinel", ""},
+		{"kpr", ""},
 		{"../escape", "live"},
-		{"kpr-sentinel", "../escape"},
-		{"kpr-sentinel", "a/b"},
+		{"kpr", "../escape"},
+		{"kpr", "a/b"},
+		{"kpr", ".v1"},
+		{"kpr", "-v1"},
+		{"kpr", "a:b"},
+		{"kpr", "a b"},
+		{"kpr", "a`b"},
+		{"kpr", "a{b"},
+		{"kpr", strings.Repeat("a", 129)},
 	} {
 		if _, err := Write(root, tc.repo, tc.tag, Payload{V: 1}); err == nil {
 			t.Errorf("Write(%q, %q) accepted, want refusal", tc.repo, tc.tag)

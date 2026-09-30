@@ -111,11 +111,20 @@ func putFile(path string, data []byte) error {
 	return nil
 }
 
+// ensureDir creates the dir, naming the op on failure: a bare
+// PathError must never leave this package unexplained.
+func ensureDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("filestore: mkdir %s: %w", dir, err)
+	}
+	return nil
+}
+
 // dirLock serializes mutating ops across processes sharing the dir.
 // Held for milliseconds per op — never across calls — so blocking is
 // fine; the kernel releases on holder death.
 func (s *FileStore) dirLock() (func(), error) {
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := ensureDir(s.dir); err != nil {
 		return nil, err
 	}
 	f, err := os.OpenFile(filepath.Join(s.dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o644)
@@ -358,6 +367,8 @@ func (s *FileStore) PushActivity(_ context.Context, o Outcome) error {
 		return err
 	}
 	activity = append([]Outcome{o}, activity...)
+	// NOTE(mutants): >= is equivalent — trimming an exactly-cap ring
+	// is identity, and append reaches exactly-cap only from below.
 	if len(activity) > ActivityCap {
 		activity = activity[:ActivityCap]
 	}
