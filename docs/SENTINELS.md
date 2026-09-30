@@ -261,6 +261,44 @@ Stranger store and stale snapshot both refuse with "does
 not share", before the collector spawns. The write probe
 keeps classifying mode only.
 
+## Locality: shared store unlocks, its absence degrades
+
+Locality means access to the same storage the registry serves —
+the filesystem mount today, S3/Azure/GCS bucket access tomorrow.
+It is a capability key, not a topology flag: nothing declares
+local or remote, and no mode is cached. Every operation that
+touches store bytes proves first (fresh mint + read-back, gc-style)
+and refuses unproven; everything else runs anywhere and never
+notices.
+
+What locality gates (bytes, not names):
+
+- blob collection (the stock collector runs on the store);
+- generation minting (proof writes land on the store);
+- storage accounting, deep backfill verify, orphaned upload dirs,
+  blob pinning — anything that must see bytes, not names.
+
+What works degraded (names over the API, no proof needed):
+
+- event intake, TTL rows, manifest sweeps, keep-N over known
+  tags, catalog backfill, writability probing, the console.
+
+The degraded failure mode is silent blob accumulation (tags go,
+layers stay), so staleness is loud, never gating: the console
+proof card shows the live generation and its age, serve logs the
+proof age at boot, the sweep loop voices it at startup and on
+fresh↔stale transitions (`ProofStaleAfter`, 7 days). A stale or
+missing proof warns; it never refuses a sweep.
+
+Enforcement rule: only locality-gated operations touch store
+bytes, and each proves first — today that is one call site
+(`gc.Run`); storage accounting and friends take the same
+mint+verify preamble when they arrive, never inherited trust.
+The seam already points at object stores: `Write` takes the
+location (fs root now, bucket+prefix later behind a writer
+port) while `Read`/`Verify` go through the registry API and stay
+identical.
+
 ### M4: backfill snapshot detection (open)
 
 Backfill reads the sentinel via API and compares

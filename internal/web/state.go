@@ -75,7 +75,7 @@ func (s *Server) sentinelSnapshot(ctx context.Context) sentinelData {
 	}
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	p, _, err := sentinel.Read(ctx, s.Sentinel, sentinel.Repo, sentinel.Tag)
+	p, err := sentinel.LastProof(ctx, s.Sentinel)
 	if err != nil {
 		return d
 	}

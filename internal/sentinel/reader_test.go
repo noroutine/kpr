@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 )
 
 // stubAPI is the second implementation behind the API port: canned
@@ -148,5 +149,63 @@ func TestVerifyReadFailureIsNotMismatch(t *testing.T) {
 	var mm *Mismatch
 	if errors.As(err, &mm) {
 		t.Errorf("dead-registry error = %v, want plain error, not *Mismatch", err)
+	}
+}
+
+// LastProof returns whatever the fixed address serves without taking
+// a position on it: callers compare age and decide. Absence refuses
+// — "unproven" is a fact about the store, never generation zero. If
+// this fails, the console and the sweep loop voice a generation
+// nobody proved.
+func TestLastProofServesLivePayload(t *testing.T) {
+	api := &stubAPI{
+		manifest: []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc"}}`),
+		blob:     []byte(`{"v":1,"gen":"019-live","ts":"2026-09-30T12:00:00Z","writer":"kpr-gc"}`),
+	}
+	p, err := LastProof(context.Background(), api)
+	if err != nil {
+		t.Fatalf("LastProof: %v", err)
+	}
+	if p.Gen != "019-live" {
+		t.Errorf("Gen = %q, want 019-live", p.Gen)
+	}
+	if _, err := LastProof(context.Background(), &stubAPI{err: errors.New("down")}); err == nil {
+		t.Errorf("LastProof on a dead registry = nil, want refusal")
+	}
+}
+
+// Age comes from the payload's wall timestamp, never the read
+// moment: a generation proven an hour ago is an hour old however
+// often it is read. Unparseable timestamps refuse instead of
+// reading as zero — an age nobody can compute is not fresh. If
+// this fails, staleness lines voice the wrong column.
+func TestPayloadAge(t *testing.T) {
+	now := time.Date(2026, 9, 30, 13, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		ts    string
+		want  time.Duration
+		refus bool
+	}{
+		{"fresh", "2026-09-30T12:00:00Z", time.Hour, false},
+		{"stale", "2026-09-22T13:00:00Z", 8 * 24 * time.Hour, false},
+		{"malformed", "last tuesday", 0, true},
+		{"empty", "", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Payload{Gen: "g", TS: tc.ts}.Age(now)
+			if tc.refus {
+				if err == nil {
+					t.Fatalf("Age(%q) = %v, want refusal", tc.ts, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Age: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("Age = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

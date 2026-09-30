@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // API is the read-back half of the sentinel: the manifest a tag
@@ -86,4 +87,33 @@ func Verify(ctx context.Context, api API, repo, tag string, wantGen string) erro
 		return &Mismatch{Repo: repo, Tag: tag, Got: got.Gen, Want: wantGen}
 	}
 	return nil
+}
+
+// ProofStaleAfter is the age past which a served generation stops
+// meaning "recently proven": tag lifecycle keeps working, but blob
+// reclamation hasn't been demonstrated within the window. A loud
+// line, never a refusal — staleness degrades, it doesn't gate.
+const ProofStaleAfter = 7 * 24 * time.Hour
+
+// LastProof reads the live generation at the fixed sentinel address:
+// what the registry serves right now, whoever proved it. Absence
+// refuses (never proven, or nothing served) — callers render that
+// as "unproven", never as generation zero.
+func LastProof(ctx context.Context, api API) (Payload, error) {
+	p, _, err := Read(ctx, api, Repo, Tag)
+	if err != nil {
+		return Payload{}, err
+	}
+	return p, nil
+}
+
+// Age reports how long ago p was proven, from its wall timestamp.
+// gc writes RFC3339; anything unparseable (or unwritten) refuses —
+// an age nobody can compute is not zero.
+func (p Payload) Age(now time.Time) (time.Duration, error) {
+	ts, err := time.Parse(time.RFC3339, p.TS)
+	if err != nil {
+		return 0, fmt.Errorf("sentinel: generation %q has unparseable timestamp %q", p.Gen, p.TS)
+	}
+	return now.Sub(ts), nil
 }

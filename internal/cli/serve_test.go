@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log"
 	"net"
@@ -202,4 +203,57 @@ func TestExecuteHelp(t *testing.T) {
 	RootCmd.SetArgs([]string{"--help"})
 	defer RootCmd.SetArgs(nil)
 	Execute()
+}
+
+// stubProofAPI serves one canned generation behind the sentinel.API
+// port: manifest with a config digest, payload blob behind it.
+type stubProofAPI struct {
+	ts  string
+	err error
+}
+
+func (s stubProofAPI) GetManifest(context.Context, string, string) ([]byte, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc"}}`), nil
+}
+
+func (s stubProofAPI) GetBlob(context.Context, string, string) ([]byte, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return []byte(`{"v":1,"gen":"019-proof","ts":"` + s.ts + `","writer":"kpr-gc"}`), nil
+}
+
+// The sweep loop voices the proof age once at startup and only on
+// fresh↔stale transitions after — a steady state logs nothing, so a
+// year of fresh ticks doesn't bury the log, and a year of stale
+// ticks warns once, not 500k times. If this fails, ticks spam or
+// transitions go silent.
+func TestLogSweepProofTransitions(t *testing.T) {
+	logs := captureLog(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	fresh := stubProofAPI{ts: now.Format(time.RFC3339)}
+	stale := stubProofAPI{ts: now.Add(-8 * 24 * time.Hour).Format(time.RFC3339)}
+
+	if !logSweepProof(ctx, fresh, true, true) {
+		t.Fatalf("startup on a fresh proof returns false")
+	}
+	if !logSweepProof(ctx, fresh, true, false) {
+		t.Fatalf("steady fresh returns false")
+	}
+	if logSweepProof(ctx, stale, true, false) {
+		t.Fatalf("fresh→stale returns true")
+	}
+	if logSweepProof(ctx, stale, false, false) {
+		t.Fatalf("steady stale returns true")
+	}
+	if logSweepProof(ctx, nil, false, false) != true {
+		t.Fatalf("nil api returns false")
+	}
+	if got := strings.Count(logs.String(), "Sweep: same-store proof"); got != 2 {
+		t.Errorf("logged %d proof lines, want 2 (startup + one transition)", got)
+	}
 }

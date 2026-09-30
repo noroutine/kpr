@@ -16,6 +16,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 	"nrtn.dev/catalyst/kpr/internal/web"
 )
@@ -76,6 +77,9 @@ var serveCmd = &cobra.Command{
 			log.Printf("Warning: state backend unreachable, keeper sections degrade: %v", perr)
 		}
 		regClient := registry.NewClient(cfg.RegistryURL)
+		// Informational only, never a gate: async so a slow/down
+		// registry can't delay the servers coming up.
+		go logProofAge(ctx, regClient)
 		sweeper := &sweep.Sweeper{
 			Store:    keeperStore,
 			Registry: regClient,
@@ -99,7 +103,7 @@ var serveCmd = &cobra.Command{
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			startSweeperLoop(ctx, sweeper, sweep.TickInterval)
+			startSweeperLoop(ctx, sweeper, sweep.TickInterval, regClient)
 		}()
 
 		// Setup signal handling
@@ -167,10 +171,32 @@ func init() {
 	RootCmd.AddCommand(serveCmd)
 }
 
+// logProofAge voices which column this serve lives in: a fresh
+// generation means something with the store proved recently (blob
+// reclamation handled); none served means tag lifecycle only —
+// sweeps delete names, layers still need a volume-side gc. Loud at
+// boot, never fatal: staleness degrades, it doesn't gate.
+func logProofAge(ctx context.Context, api sentinel.API) {
+	if api == nil {
+		return
+	}
+	current, note := sweepProofFresh(ctx, api)
+	if current {
+		log.Printf("Same-store proof: %s", note)
+		return
+	}
+	log.Printf("Warning: same-store proof %s", note)
+}
+
 // startSweeperLoop runs the sweep-on-start pass (a restart doesn't wait
 // a full interval) then the tick backstop until ctx ends. Triggers are
 // exactly these two plus the console POST — no queue, no backlog.
-func startSweeperLoop(ctx context.Context, sw *sweep.Sweeper, interval time.Duration) {
+// The startup pass always voices the proof age; ticks only on
+// fresh↔stale transitions, so a steady state costs one registry
+// read per tick and zero log lines. Nil api skips the proof lines
+// (tests, exotic wiring) without touching the passes.
+func startSweeperLoop(ctx context.Context, sw *sweep.Sweeper, interval time.Duration, api sentinel.API) {
+	fresh := logSweepProof(ctx, api, true, true)
 	sw.RunPass(ctx, "startup")
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -179,7 +205,47 @@ func startSweeperLoop(ctx context.Context, sw *sweep.Sweeper, interval time.Dura
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			fresh = logSweepProof(ctx, api, fresh, false)
 			sw.RunPass(ctx, "tick")
 		}
 	}
+}
+
+// logSweepProof reads the live generation and voices whether the
+// store counts as recently proven, returning the current freshness.
+// Always logs when forced (startup); otherwise only on fresh↔stale
+// transitions, so a steady state costs one registry read per tick
+// and zero log lines. A read failure counts as stale (nothing
+// demonstrated); nil api skips the lines entirely.
+func logSweepProof(ctx context.Context, api sentinel.API, prev, force bool) bool {
+	if api == nil {
+		return true
+	}
+	current, note := sweepProofFresh(ctx, api)
+	if force || current != prev {
+		log.Printf("Sweep: same-store proof %s", note)
+	}
+	return current
+}
+
+// sweepProofFresh reads the live generation once and reports whether
+// the store counts as recently proven, plus the log fragment voicing
+// it. A read failure counts as stale (nothing demonstrated) —
+// callers never distinguish "unproven" from "unreadable" for gating,
+// because neither unlocks anything.
+func sweepProofFresh(ctx context.Context, api sentinel.API) (bool, string) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	p, err := sentinel.LastProof(ctx, api)
+	if err != nil {
+		return false, "unserved — tag lifecycle only, layers accumulate until a volume-side gc"
+	}
+	age, err := p.Age(time.Now().UTC())
+	if err != nil {
+		return false, fmt.Sprintf("generation %s served but its timestamp is unreadable", p.Gen)
+	}
+	if age > sentinel.ProofStaleAfter {
+		return false, fmt.Sprintf("generation %s %s old, stale — layers accumulate until a volume-side gc", p.Gen, age.Round(time.Second))
+	}
+	return true, fmt.Sprintf("generation %s %s old, fresh", p.Gen, age.Round(time.Second))
 }

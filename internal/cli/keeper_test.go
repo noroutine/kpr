@@ -663,7 +663,7 @@ func TestSweeperLoopStartupAndTick(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { defer close(done); startSweeperLoop(ctx, sw, 20*time.Millisecond) }()
+	go func() { defer close(done); startSweeperLoop(ctx, sw, 20*time.Millisecond, nil) }()
 	time.Sleep(150 * time.Millisecond)
 	cancel()
 	select {
