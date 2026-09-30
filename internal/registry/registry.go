@@ -37,9 +37,16 @@ func NewClient(baseURL string) *Client {
 }
 
 func (c *Client) get(ctx context.Context, path string) (int, []byte, error) {
+	return c.getAccept(ctx, path, "")
+}
+
+func (c *Client) getAccept(ctx context.Context, path, accept string) (int, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
 	if err != nil {
 		return 0, nil, err
+	}
+	if accept != "" {
+		req.Header.Set("Accept", accept)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -118,6 +125,37 @@ func (c *Client) Catalog(ctx context.Context, repo string) ([]string, error) {
 		return nil, err
 	}
 	return list.Tags, nil
+}
+
+// ociManifestType is the media type the sentinel reader asks for:
+// without an Accept the registry 406s a manifest GET.
+const ociManifestType = "application/vnd.oci.image.manifest.v1+json"
+
+// GetManifest returns the exact manifest bytes a tag serves. Any
+// non-200 is an error with the registry's status — absence of proof
+// is never an empty manifest.
+func (c *Client) GetManifest(ctx context.Context, repo, ref string) ([]byte, error) {
+	status, body, err := c.getAccept(ctx, "/v2/"+repo+"/manifests/"+ref, ociManifestType)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("manifest %s:%s: registry status %d", repo, ref, status)
+	}
+	return body, nil
+}
+
+// GetBlob returns the exact blob bytes a digest serves under repo.
+// Any non-200 is an error — a missing blob is never empty bytes.
+func (c *Client) GetBlob(ctx context.Context, repo, digest string) ([]byte, error) {
+	status, body, err := c.get(ctx, "/v2/"+repo+"/blobs/"+digest)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("blob %s@%s: registry status %d", repo, digest, status)
+	}
+	return body, nil
 }
 
 // Reachable probes the registry base for the console banner.

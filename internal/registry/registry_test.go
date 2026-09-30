@@ -160,6 +160,85 @@ func TestCatalogListsTags(t *testing.T) {
 // A non-200 base probe is unreachable too: the banner must redden on
 // a sick registry, not just a dead socket. If this fails, a 500ing
 // registry shows green.
+
+// The sentinel reader fetches manifests by tag: the request must ask
+// for a manifest media type (else the registry 406s) and return the
+// exact bytes. If this fails, generation read-back compares garbage.
+func TestGetManifestSendsAccept(t *testing.T) {
+	var gotAccept, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept, gotPath = r.Header.Get("Accept"), r.URL.Path
+		_, _ = w.Write([]byte(`{"schemaVersion":2}`))
+	}))
+	defer srv.Close()
+
+	body, err := NewClient(srv.URL).GetManifest(testCtx(), "kpr-sentinel", "live")
+	if err != nil {
+		t.Fatalf("GetManifest: %v", err)
+	}
+	if string(body) != `{"schemaVersion":2}` {
+		t.Errorf("body = %q, want exact bytes", body)
+	}
+	if gotPath != "/v2/kpr-sentinel/manifests/live" {
+		t.Errorf("path = %s, want /v2/kpr-sentinel/manifests/live", gotPath)
+	}
+	if gotAccept == "" {
+		t.Error("no Accept header sent, want a manifest media type")
+	}
+}
+
+// A missing sentinel tag is absence of proof, never an empty
+// manifest: callers must refuse, not compare zero values. If this
+// fails, a stranger's store reads as "generation 0".
+func TestGetManifestUnknownFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"MANIFEST_UNKNOWN","message":"not found"}]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := NewClient(srv.URL).GetManifest(testCtx(), "kpr-sentinel", "live"); err == nil {
+		t.Error("GetManifest on 404 succeeded, want an error")
+	}
+}
+
+// The sentinel payload comes back as a blob by digest under the same
+// repo (the layer link we craft). If this fails, the reader cannot
+// reach the structured info behind the manifest.
+func TestGetBlobFetchesByDigest(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{"v":1,"gen":3}`))
+	}))
+	defer srv.Close()
+
+	body, err := NewClient(srv.URL).GetBlob(testCtx(), "kpr-sentinel", "sha256:abc")
+	if err != nil {
+		t.Fatalf("GetBlob: %v", err)
+	}
+	if string(body) != `{"v":1,"gen":3}` {
+		t.Errorf("body = %q, want exact bytes", body)
+	}
+	if gotPath != "/v2/kpr-sentinel/blobs/sha256:abc" {
+		t.Errorf("path = %s, want /v2/kpr-sentinel/blobs/sha256:abc", gotPath)
+	}
+}
+
+// A blob the registry never saw is an error, never empty bytes: an
+// empty payload would unmarshal to generation 0 and pass a careless
+// comparison. If this fails, missing evidence reads as old evidence.
+func TestGetBlobUnknownFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"BLOB_UNKNOWN","message":"not found"}]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := NewClient(srv.URL).GetBlob(testCtx(), "kpr-sentinel", "sha256:abc"); err == nil {
+		t.Error("GetBlob on 404 succeeded, want an error")
+	}
+}
 func TestReachableRejectsServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

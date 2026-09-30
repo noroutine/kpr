@@ -4,6 +4,7 @@
 - [What distribution actually serves](#what-distribution-actually-serves)
 - [Same-store proof without API writes](#same-store-proof-without-api-writes)
 - [Why not a crafted image](#why-not-a-crafted-image)
+- [Dynamic sentinel: plan and progress](#dynamic-sentinel-plan-and-progress)
 
 ## Current situation
 
@@ -117,3 +118,101 @@ Content round-trip proves nothing the catalog signal
 doesn't: both read through the same driver off the same
 root. The bare dir is the whole proof; an image is proof
 plus three kinds of residue.
+
+## Dynamic sentinel: plan and progress
+
+Supersedes the bare-dir proof above: instead of deleting
+the evidence, kpr keeps a live sentinel image — a real
+manifest + tag whose config blob carries structured info
+(generation, timestamp, writer). Same-store proof becomes
+"the store serves the generation I just wrote"; the same
+object doubles as a snapshot marker (store shared but
+content old = stale snapshot, the backfill blind spot) and
+a generic diagnostic vehicle.
+
+Shape (fixed): repo `kpr-sentinel`, tag `live`. Config blob
+= payload JSON `{"v":1,"gen":N,"ts":"…","writer":"…"}`
+(arbitrary bytes — blobs are never validated). Manifest =
+minimal OCI image manifest, `config` pointing at the real
+payload digest, payload digest repeated in
+`annotations{kpr.sentinel:1, kpr.gen:N}` for tag-level
+reads. Update = write new blobs + links, atomic rename of
+`tags/live/current/link`. Old generations go untagged and
+die in `--delete-untagged` runs — the collector kpr already
+drives cleans up after the sentinel by itself.
+
+### M0 spike: hand-crafted round-trip (done)
+
+Throwaway containers in `/tmp/spike` (not committed),
+real `registry:3` + `redis:8-alpine`, prod-like config
+(redis blobdescriptor cache). Pushed one reference image
+via API, copied its on-disk conventions by hand, then
+served a fully hand-crafted repo. Findings:
+
+- Hand-written global blob + `_layers` link → `GET blob`
+  200. Hand-written revision + tag links → `GET manifest`
+  200 with exact bytes, `tags/list` and `_catalog` list it.
+- Cache miss falls through to fs: identical results under
+  `inmemory` and `redis` blobdescriptor cache. Repointing
+  `current/link` serves the new generation immediately —
+  manifests are never cached. Redis residue is small
+  descriptor keys per served blob (`blobs::…`,
+  `repository::<repo>::blobs::…`), no TTL.
+- Manifest content must be schema-valid JSON
+  (`schemaVersion: 2`, known media type). Garbage bytes →
+  GET 500s, and worse: `garbage-collect` **aborts the whole
+  mark phase** on an unparseable revision. Every revision
+  link under the sentinel repo must stay parseable —
+  generation writes are all-or-nothing.
+- References are NOT validated on GET (bogus config digest
+  serves fine), but the mark phase marks referenced blobs —
+  so `config` points at the real payload digest: the
+  current payload stays live, old payloads sweep away.
+- Drive-by learning: monolithic `PUT` with curl
+  `--data-binary "$var"` sends an empty body under
+  `application/x-www-form-urlencoded` (the 400s); files or
+  explicit `Content-Type: application/octet-stream` work.
+  PATCH-then-PUT is the reliable shell flow; kpr never
+  pushes this way (fs writes only).
+
+### M1: layout writer, unit-tested (done)
+
+`Write(root, repo, tag, payload)` in a new
+`internal/sentinel` package: config blob + manifest blob +
+layer/revision/tag links, exact conventions from M0 (link
+files with no trailing newline, atomic tag switch via
+rename). Tests on `t.TempDir`: file set, digest
+correctness, manifest shape parseable as OCI, repoint
+moves the tag. No registry needed. Name validation
+follows the OCI tag shape; nested repos allowed, `.`/`..`
+refused.
+
+### M2: API reader, stub + e2e (done)
+
+`Read` returns the served payload plus the manifest
+digest; `Verify` compares the generation. Port: minimal
+`API` interface (`GetManifest`, `GetBlob`); second
+implementation per W2 is the `internal/registry` client
+extended with Accept-header GETs (bare `get` 406s on
+manifests). Unit tests against `httptest` stubs plus a
+hand stub behind the port; e2e
+(`test/e2e/sentinel_dynamic_test.go`) against `registry:3`
+with a bind-mounted store — write layout, read via API,
+bump the generation, verify the repoint serves fresh.
+Absence (read before write) refuses.
+
+### M3: gc same-store proof on sentinel (open)
+
+`gc Run` proves identity via sentinel generation
+read-back instead of upload-dir sighting (writable) and
+tracked-row links (readonly). Kills the empty-redis
+refusal in readonly mode; the write probe keeps
+classifying mode only.
+
+### M4: backfill snapshot detection (open)
+
+Backfill reads the sentinel via API and compares
+generation/timestamp against expectations: shared store
+with an old snapshot becomes visible instead of silently
+trusted. Payload schema and staleness policy decided here,
+not earlier.
