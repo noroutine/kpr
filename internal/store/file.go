@@ -46,6 +46,11 @@ func NewFileStore(dir string) *FileStore {
 	return &FileStore{dir: dir, locks: map[string]*os.File{}}
 }
 
+// Dir names the state root for operators (console, logs). The only
+// backend detail the dashboard renders — rows/locks layout stays in
+// docs/STORES.md.
+func (s *FileStore) Dir() string { return s.dir }
+
 func (s *FileStore) rowsDir() string     { return filepath.Join(s.dir, "rows") }
 func (s *FileStore) locksDir() string    { return filepath.Join(s.dir, "locks") }
 func (s *FileStore) currentFile() string { return filepath.Join(s.dir, "current.json") }

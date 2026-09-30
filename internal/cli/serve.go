@@ -116,8 +116,12 @@ var serveCmd = &cobra.Command{
 				OTELEnabled: otelCfg.Enabled,
 				Store:       keeperStore,
 				Registry:    regClient,
-				Sweeper:     sweeper,
-				Armed:       cfg.NoDryRun,
+				// Same client speaks sentinel.API (GetManifest +
+				// GetBlob): the proof card reads the live
+				// generation through it.
+				Sentinel: regClient,
+				Sweeper:  sweeper,
+				Armed:    cfg.NoDryRun,
 			}
 			addr := net.JoinHostPort(managementHost, fmt.Sprintf("%d", managementPort))
 			log.Printf("Starting management console on %s", addr)

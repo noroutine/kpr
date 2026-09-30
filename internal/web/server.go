@@ -10,6 +10,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/otel"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 
@@ -29,6 +30,12 @@ type Server struct {
 	// (keeper.Prober): production passes *registry.Client, tests a
 	// stub.
 	Registry keeper.Prober
+	// Sentinel is read for the same-store proof card: the live
+	// generation the registry serves, or unproven. Same production
+	// client as Registry (it already speaks sentinel.API), separate
+	// port so the card degrades on its own. Nil renders
+	// unconfigured.
+	Sentinel sentinel.API
 	// Sweeper serves POST /api/sweep. Nil answers 503.
 	Sweeper *sweep.Sweeper
 	// Armed renders "armed" instead of "dry-run" in the banner.

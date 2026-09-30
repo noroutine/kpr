@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // captureLog redirects the standard logger into a buffer for the test's
@@ -437,6 +438,82 @@ func TestIndexHandlerShowsRuntimePlatform(t *testing.T) {
 
 // bracketHost exists so the console never prints ":::9300": bare IPv6
 // gets brackets, everything else passes through untouched.
+// stubSentinelAPI serves one canned generation (or an error) for the
+// proof card: manifest with a config digest, blob with the payload.
+type stubSentinelAPI struct {
+	man, blob []byte
+	err       error
+}
+
+func (s stubSentinelAPI) GetManifest(context.Context, string, string) ([]byte, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.man, nil
+}
+
+func (s stubSentinelAPI) GetBlob(context.Context, string, string) ([]byte, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.blob, nil
+}
+
+// The State section must name the wired backend, where it lives, and
+// the live sentinel generation — a file stack shows "file" and its
+// dir, never Redis's name. If this fails, the console misreports the
+// backend the operator must fix.
+func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
+	testConfig(t)
+	dir := t.TempDir()
+	api := stubSentinelAPI{
+		man:  []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc"}}`),
+		blob: []byte(`{"v":1,"gen":"019-test-gen","ts":"2026-09-30T00:00:00Z","writer":"test"}`),
+	}
+	s := &Server{Store: store.NewFileStore(dir), Sentinel: api}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	s.indexHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		"State backend", "file", dir,
+		"File store", "reachable",
+		"noroutine/kpr-sentinel:live", "019-test-gen",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+	if strings.Contains(body, ">Redis<") {
+		t.Errorf("dashboard names Redis on a file stack")
+	}
+}
+
+// With no store and no sentinel API the State section degrades to
+// named absences — "unavailable", "unproven" — and still renders
+// 200. If this fails, a backend outage takes the whole console down
+// with it.
+func TestIndexDegradesWithoutStoreOrSentinel(t *testing.T) {
+	testConfig(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	IndexHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"State", "unavailable", "unproven", "noroutine/kpr-sentinel:live"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+}
+
 func TestBracketHost(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"::", "[::]"},

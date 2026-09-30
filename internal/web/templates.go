@@ -79,7 +79,7 @@ const indexTemplate = `<!DOCTYPE html>
                 <div class="value">{{ if .Keeper.RegistryOK }}reachable{{ else }}unreachable{{ end }}</div>
             </div>
             <div class="card">
-                <div class="label">Redis</div>
+                <div class="label">{{ .Keeper.BackendLabel }}</div>
                 <div class="value">{{ if .Keeper.RedisOK }}reachable{{ else }}unreachable{{ end }}</div>
             </div>
             <div class="card">
@@ -90,6 +90,22 @@ const indexTemplate = `<!DOCTYPE html>
                 <div class="label">Tracked / Due</div>
                 <div class="value">{{ .Keeper.Tracked }} / {{ .Keeper.Due }}</div>
                 <div class="meta">performed {{ .Keeper.Performed }} · planned {{ .Keeper.Planned }} · failed {{ .Keeper.Failed }} · untracked {{ .Keeper.Untracked }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🗄️ State</h2>
+        <div class="grid">
+            <div class="card stat-card">
+                <div class="label">State backend</div>
+                <div class="value">{{ .Store.Name }}</div>
+                <div class="meta">{{ if .Store.Detail }}{{ .Store.Detail }} · {{ end }}{{ if .Store.Healthy }}reachable{{ else }}unreachable{{ end }}</div>
+            </div>
+            <div class="card stat-card">
+                <div class="label">Same-store proof</div>
+                <div class="value">{{ if .Sentinel.Proven }}{{ .Sentinel.Gen }}{{ else }}unproven{{ end }}</div>
+                <div class="meta">{{ .Sentinel.Addr }}{{ if .Sentinel.Proven }} · proven {{ .Sentinel.TS }}{{ end }}</div>
             </div>
         </div>
     </div>

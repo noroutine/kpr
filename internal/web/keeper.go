@@ -17,17 +17,21 @@ const probeTimeout = 2 * time.Second
 // keeperData is everything the console shows about what kpr tracks —
 // never a registry catalog: banner, counters, plan, activity.
 type keeperData struct {
-	RedisOK    bool
-	RegistryOK bool
-	Armed      bool
-	Tracked    int
-	Due        int
-	Performed  int
-	Planned    int
-	Failed     int
-	Untracked  int
-	Plan       []keeperPlanRow
-	Activity   []keeperActivityRow
+	RedisOK bool
+	// BackendLabel names the banner card for the wired backend
+	// ("Redis", "File store") — the label used to lie on non-redis
+	// stacks, where every backend answered under Redis's name.
+	BackendLabel string
+	RegistryOK   bool
+	Armed        bool
+	Tracked      int
+	Due          int
+	Performed    int
+	Planned      int
+	Failed       int
+	Untracked    int
+	Plan         []keeperPlanRow
+	Activity     []keeperActivityRow
 }
 
 type keeperPlanRow struct {
@@ -55,7 +59,8 @@ func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
 
 	st := keeper.FetchStatus(ctx, s.Store, s.Registry)
 	k := keeperData{
-		RedisOK: st.StoreOK, RegistryOK: st.RegistryOK, Armed: s.Armed,
+		RedisOK: st.StoreOK, BackendLabel: backendLabel(s.Store),
+		RegistryOK: st.RegistryOK, Armed: s.Armed,
 		Tracked: st.Tracked, Due: st.Due,
 		Performed: st.Performed, Planned: st.Planned,
 		Failed: st.Failed, Untracked: st.Untracked,

@@ -45,6 +45,10 @@ type pageData struct {
 	Links []consoleLink
 	// Keeper is what kpr tracks (banner, counters, plan, activity).
 	Keeper keeperData
+	// Store names the state backend and where it lives; Sentinel
+	// carries the live same-store proof generation, if any.
+	Store    storeData
+	Sentinel sentinelData
 }
 
 // bracketHost renders a bind address for display: a bare IPv6 host
@@ -114,6 +118,8 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 
 	rt := config.CurrentRuntime()
 
+	keeper := s.keeperSnapshot(r.Context())
+
 	data := pageData{
 		Hostname:       hostname,
 		Version:        config.Version,
@@ -130,7 +136,9 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppPort:        strconv.Itoa(cfg.AppPort),
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
 		Links:          observabilityLinks(cfg),
-		Keeper:         s.keeperSnapshot(r.Context()),
+		Keeper:         keeper,
+		Store:          storeSnapshot(s.Store, keeper.RedisOK, cfg),
+		Sentinel:       s.sentinelSnapshot(r.Context()),
 	}
 
 	tmpl, err := template.New("index").Parse(indexTemplate)
