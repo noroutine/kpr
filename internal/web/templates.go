@@ -25,8 +25,7 @@ const indexTemplate = `<!DOCTYPE html>
             border-left-color: #dcdcaa;
         }
         .label { color: #ce9178; font-size: 0.85em; margin-bottom: 4px; }
-        .value { color: #9cdcfe; font-size: 1.2em; font-weight: bold; }
-        .gen { font-size: 1em; overflow-wrap: anywhere; }
+        .value { color: #9cdcfe; font-size: 1em; font-weight: bold; overflow-wrap: anywhere; }
         .meta { color: #808080; font-size: 0.9em; margin-top: 4px; }
         .config-item {
             margin-bottom: 12px;
@@ -105,8 +104,8 @@ const indexTemplate = `<!DOCTYPE html>
             </div>
             <div class="card stat-card">
                 <div class="label">Same-store proof</div>
-                <div class="value gen">{{ if .Sentinel.Proven }}{{ .Sentinel.Gen }}{{ else }}unproven{{ end }}</div>
-                <div class="meta">{{ if .Sentinel.Proven }}{{ .Sentinel.Addr }} · proven {{ .Sentinel.TS }}{{ else }}no generation served yet{{ end }}</div>
+                <div class="value">{{ if .Sentinel.Proven }}{{ .Sentinel.Gen }}{{ else }}unproven{{ end }}</div>
+                <div class="meta">{{ if .Sentinel.Proven }}proven {{ .Sentinel.TS }}{{ else }}no generation served yet{{ end }}</div>
             </div>
         </div>
     </div>

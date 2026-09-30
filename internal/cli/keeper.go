@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
@@ -23,7 +24,16 @@ import (
 // The numbers come from keeper.FetchStatus — the same implementation
 // the console reads. Redis down fails fast (every number would be a
 // lie); a down registry only reddens the banner.
-func runStatus(ctx context.Context, w io.Writer, s store.Store, reg keeper.Prober, armed bool) error {
+// statusRegistry is what the banner reads: reachability plus the
+// live generation. *registry.Client carries both; tests pass it or
+// nil (nil reddens the registry and unproves the proof, never
+// panics).
+type statusRegistry interface {
+	keeper.Prober
+	sentinel.API
+}
+
+func runStatus(ctx context.Context, w io.Writer, s store.Store, reg statusRegistry, storeLine string, armed bool) error {
 	st := keeper.FetchStatus(ctx, s, reg)
 	if !st.StoreOK {
 		return fmt.Errorf("%s unreachable: no tracked state to report", storeName(s))
@@ -36,9 +46,51 @@ func runStatus(ctx context.Context, w io.Writer, s store.Store, reg keeper.Probe
 	if armed {
 		arming = "armed"
 	}
-	_, err := fmt.Fprintf(w, "registry: %s\nredis: reachable\nsweeper: %s\ntracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\npass: %s (%s)\n",
-		registryState, arming, st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, st.Current.Stage, st.Current.Trigger)
+	_, err := fmt.Fprintf(w, "registry: %s\nstore: %s\nstore-lock: %s\nproof: %s\nsweeper: %s\ntracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\npass: %s (%s)\n",
+		registryState, storeLine, lockState(ctx, s), proofState(ctx, reg), arming, st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, st.Current.Stage, st.Current.Trigger)
 	return err
+}
+
+// lockState voices the intent marker in one word: locked denies
+// registry-store writes, unlocked allows them, unknown means the
+// read itself failed (never collapsed into either).
+func lockState(ctx context.Context, s store.Store) string {
+	ok, err := s.IsUnlocked(ctx)
+	if err != nil {
+		return "unknown"
+	}
+	if ok {
+		return "unlocked"
+	}
+	return "locked"
+}
+
+// proofState voices the live generation with its age, or unproven
+// when the registry serves none. Nil registry reads unproven;
+// an unreadable timestamp still names the generation.
+func proofState(ctx context.Context, api sentinel.API) string {
+	if api == nil {
+		return "unproven"
+	}
+	p, err := sentinel.LastProof(ctx, api)
+	if err != nil {
+		return "unproven"
+	}
+	age, err := p.Age(time.Now().UTC())
+	if err != nil {
+		return p.Gen
+	}
+	return p.Gen + " (" + age.Round(time.Second).String() + " ago)"
+}
+
+// describeStore names the wired backend with its address for the
+// banner: file with its dir, redis with addr and DB. Mirrors the
+// console's store card; both stay dumb views over the same facts.
+func describeStore(s store.Store, cfg *config.Config) string {
+	if st, ok := s.(*store.FileStore); ok {
+		return "file (" + st.Dir() + ")"
+	}
+	return "redis (" + cfg.RedisAddr + " db " + strconv.Itoa(cfg.RedisDB) + ")"
 }
 
 // runPlan prints pending candidates with reasons; asJSON renders them
@@ -241,8 +293,8 @@ func consoleURL(cfg *config.Config) string {
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show keeper banner and counters as text",
-	Long:  `Banner plus counters from tracked state, for scripts and ssh. Needs redis; fails fast without it.`,
+	Short: "Show keeper banner, store, proof, and counters as text",
+	Long:  `Banner plus counters from tracked state, for scripts and ssh. Needs state; fails fast without it. Names the wired backend, the store lock, and the live proof generation alongside.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()
 		if err != nil {
@@ -250,7 +302,7 @@ var statusCmd = &cobra.Command{
 		}
 		defer d.close()
 		cfg, s := d.cfg, d.store
-		return runStatus(cmd.Context(), cmd.OutOrStdout(), s, d.reg, cfg.NoDryRun)
+		return runStatus(cmd.Context(), cmd.OutOrStdout(), s, d.reg, describeStore(s, cfg), cfg.NoDryRun)
 	},
 }
 

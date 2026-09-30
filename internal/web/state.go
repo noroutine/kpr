@@ -31,7 +31,6 @@ type storeData struct {
 // serves, read back through the API on every page load. No
 // generation served means no proof — "unproven", never a guess.
 type sentinelData struct {
-	Addr   string
 	Gen    string
 	TS     string
 	Proven bool
@@ -90,7 +89,7 @@ func backendLabel(s store.Store) string {
 // registry or an unproven store renders unproven, never slow and
 // never 500. Nil API renders unconfigured.
 func (s *Server) sentinelSnapshot(ctx context.Context) sentinelData {
-	d := sentinelData{Addr: sentinel.Repo + ":" + sentinel.Tag}
+	var d sentinelData
 	if s.Sentinel == nil {
 		return d
 	}

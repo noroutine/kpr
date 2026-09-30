@@ -226,6 +226,13 @@ func (s stubProofAPI) GetBlob(context.Context, string, string) ([]byte, error) {
 	return []byte(`{"v":1,"gen":"019-proof","ts":"` + s.ts + `","writer":"kpr-gc"}`), nil
 }
 
+// Reachable completes the fake registry: production serves both the
+// proof port and the reachability port from one client, so the stub
+// does too — mirroring err, so an errored stub reddens every card.
+func (s stubProofAPI) Reachable(context.Context) error {
+	return s.err
+}
+
 // The sweep loop voices the proof age once at startup and only on
 // fresh↔stale transitions after — a steady state logs nothing, so a
 // year of fresh ticks doesn't bury the log, and a year of stale

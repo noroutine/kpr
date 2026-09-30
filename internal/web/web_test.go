@@ -482,7 +482,7 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 	for _, want := range []string{
 		"State backend", "file", dir,
 		"File store", "reachable", "locked",
-		"noroutine/kpr-sentinel:live", "019-test-gen",
+		"019-test-gen", "proven 2026-09-30T00:00:00Z",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
