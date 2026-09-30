@@ -94,7 +94,7 @@ Why this shape:
 - **No API writes.** The write probe stays a classifier;
   identity never mints uploads, links, or blobs.
 
-Name: `<sentinel>` = `kpr/sentinel`, beside the existing
+Name: `<sentinel>` = `noroutine/kpr-sentinel`, beside the existing
 `kpr-gc-probe` write-probe repo. Fixed name is fine —
 mkdir is idempotent, concurrent runs prove the same truth.
 
@@ -161,7 +161,7 @@ object doubles as a snapshot marker (store shared but
 content old = stale snapshot, the backfill blind spot) and
 a generic diagnostic vehicle.
 
-Shape (fixed): repo `kpr/sentinel`, tag `live`. Config blob
+Shape (fixed): repo `noroutine/kpr-sentinel`, tag `live`. Config blob
 = payload JSON `{"v":1,"gen":"<uuid7>","ts":"…","writer":"…"}` —
 the generation is time-ordered, so two observed generations
 compare without parsing timestamps. Nested under `kpr/` so one
@@ -169,8 +169,10 @@ glob excludes every kpr-owned repo from backfill enumeration;
 leading-underscore namespaces are out (name components must
 start alphanumeric per the distribution-spec grammar, and the
 router 404s them — both verified against `registry:3`).
-Upgrading from the flat `kpr-sentinel` address: remove
-`<root>/docker/registry/v2/repositories/kpr-sentinel` once —
+Namespaced under `noroutine/` (owned) rather than the bare
+tool name — no collisions with other tenants' repos.
+Upgrading from an older address (flat `kpr-sentinel`, then
+`kpr/sentinel`): remove the stale repo dir once —
 a tagged manifest is kept by the collector forever.
 (arbitrary bytes — blobs are never validated). Manifest =
 minimal OCI image manifest, `config` pointing at the real
@@ -243,7 +245,7 @@ Absence (read before write) refuses.
 
 ### M3: gc same-store proof on sentinel (done)
 
-`gc Run` writes a fresh `kpr/sentinel:live` generation per
+`gc Run` writes a fresh `noroutine/kpr-sentinel:live` generation per
 run and reads it back through the API — same proof both
 modes, no tracked rows, empty redis proves fine. `Run`
 dropped the `Store` port entirely (no `FirstDigestRow`,

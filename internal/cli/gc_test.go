@@ -59,8 +59,8 @@ func serveSentinelFiles(w http.ResponseWriter, r *http.Request, root string) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if tag, ok := strings.CutPrefix(r.URL.Path, "/v2/kpr/sentinel/manifests/"); ok {
-		raw, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "repositories", "kpr/sentinel", "_manifests", "tags", tag, "current", "link"))
+	if tag, ok := strings.CutPrefix(r.URL.Path, "/v2/noroutine/kpr-sentinel/manifests/"); ok {
+		raw, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "repositories", "noroutine/kpr-sentinel", "_manifests", "tags", tag, "current", "link"))
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -68,9 +68,9 @@ func serveSentinelFiles(w http.ResponseWriter, r *http.Request, root string) {
 		serveBlobFile(w, root, strings.TrimSpace(string(raw)))
 		return
 	}
-	if digest, ok := strings.CutPrefix(r.URL.Path, "/v2/kpr/sentinel/blobs/"); ok {
+	if digest, ok := strings.CutPrefix(r.URL.Path, "/v2/noroutine/kpr-sentinel/blobs/"); ok {
 		hex := strings.TrimPrefix(digest, "sha256:")
-		if _, err := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", "kpr/sentinel", "_layers", "sha256", hex, "link")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", "noroutine/kpr-sentinel", "_layers", "sha256", hex, "link")); err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -326,7 +326,7 @@ func TestRunGCReadonlyRunsBinary(t *testing.T) {
 	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{DeleteUntagged: true}); err != nil {
 		t.Fatalf("readonly gc = %v, want nil", err)
 	}
-	for _, want := range []string{"garbage-collect", "--delete-untagged", "config.yml", "shared store proven via kpr/sentinel:live generation "} {
+	for _, want := range []string{"garbage-collect", "--delete-untagged", "config.yml", "shared store proven via noroutine/kpr-sentinel:live generation "} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("collector invocation lacks %q:\n%s", want, out.String())
 		}

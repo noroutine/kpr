@@ -58,7 +58,7 @@ const (
 // grammar, and the router 404s them. Generations turn over under
 // the tag; old revisions go untagged for the collector.
 const (
-	Repo = "kpr/sentinel"
+	Repo = "noroutine/kpr-sentinel"
 	Tag  = "live"
 )
 

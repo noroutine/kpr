@@ -103,7 +103,7 @@ func TestRunBehindStubPorts(t *testing.T) {
 	if len(collected) != 1 || !hasArg(collected[0], "--dry-run") {
 		t.Errorf("collector got %v, want one --dry-run invocation", collected)
 	}
-	if !strings.Contains(out.String(), "shared store proven via kpr/sentinel:live generation ") {
+	if !strings.Contains(out.String(), "shared store proven via noroutine/kpr-sentinel:live generation ") {
 		t.Errorf("output lacks the proof line:\n%s", out.String())
 	}
 }
