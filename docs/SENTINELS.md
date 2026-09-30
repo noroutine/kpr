@@ -223,5 +223,8 @@ keeps classifying mode only.
 Backfill reads the sentinel via API and compares
 generation/timestamp against expectations: shared store
 with an old snapshot becomes visible instead of silently
-trusted. Payload schema and staleness policy decided here,
-not earlier.
+trusted. Ground laid: `Verify` refuses typed —
+`sentinel.Mismatch` (answered, wrong generation) vs plain
+read error (no evidence) — noted in `docs/BACKFILL.md`.
+Payload schema and staleness policy decided here, not
+earlier.

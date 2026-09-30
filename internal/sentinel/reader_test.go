@@ -115,3 +115,38 @@ func TestVerifyMatchesGeneration(t *testing.T) {
 		t.Error("Verify(gen 6) against served 5 passed, want mismatch")
 	}
 }
+
+// A served-but-wrong generation is a typed Mismatch: the store
+// answered with sentinel content this writer did not write — a stale
+// snapshot, not an unreachable registry. Backfill (M4) keys its
+// snapshot policy off this distinction, so it must survive as a type,
+// not a substring. If this fails, every refusal looks the same and
+// staleness is unnameable.
+func TestVerifyMismatchIsTyped(t *testing.T) {
+	api := &stubAPI{
+		manifest: []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc","size":1}}`),
+		blob:     []byte(`{"v":1,"gen":5}`),
+	}
+	err := Verify(context.Background(), api, "kpr-sentinel", "live", 6)
+	var mm *Mismatch
+	if !errors.As(err, &mm) {
+		t.Fatalf("Verify error = %v (%T), want *Mismatch", err, err)
+	}
+	if mm.Got != 5 || mm.Want != 6 {
+		t.Errorf("Mismatch = %+v, want Got 5 Want 6", mm)
+	}
+}
+
+// No evidence at all (down registry, unknown tag) is a plain error,
+// never a Mismatch: nothing answered, so nothing is stale. If this
+// fails, an outage reads as a snapshot and the wrong policy fires.
+func TestVerifyReadFailureIsNotMismatch(t *testing.T) {
+	err := Verify(context.Background(), &stubAPI{err: errors.New("connection refused")}, "kpr-sentinel", "live", 6)
+	if err == nil {
+		t.Fatal("Verify on dead registry passed, want refusal")
+	}
+	var mm *Mismatch
+	if errors.As(err, &mm) {
+		t.Errorf("dead-registry error = %v, want plain error, not *Mismatch", err)
+	}
+}

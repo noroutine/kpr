@@ -58,16 +58,32 @@ func Read(ctx context.Context, api API, repo, tag string) (Payload, string, erro
 	return p, digestOf(manRaw), nil
 }
 
+// Mismatch means the store answered the sentinel read with a
+// generation this writer did not write. That is a stale snapshot of
+// a once-shared store — something served sentinel content, just not
+// ours — as opposed to a Read failure, which is no evidence at all
+// (stranger's store, down registry, unparseable bytes). The type
+// carries the distinction so callers can policy on it: gc refuses
+// both, backfill (M4) treats a mismatch as snapshot age, not absence.
+type Mismatch struct {
+	Repo, Tag string
+	Got, Want int
+}
+
+func (e *Mismatch) Error() string {
+	return fmt.Sprintf("sentinel: %s:%s serves generation %d, want %d", e.Repo, e.Tag, e.Got, e.Want)
+}
+
 // Verify is the proof primitive: the served generation must equal
-// the written one. A mismatch means a different store — or a stale
-// snapshot — and refuses.
+// the written one. A mismatch refuses typed; a read failure refuses
+// plain.
 func Verify(ctx context.Context, api API, repo, tag string, wantGen int) error {
 	got, _, err := Read(ctx, api, repo, tag)
 	if err != nil {
 		return err
 	}
 	if got.Gen != wantGen {
-		return fmt.Errorf("sentinel: %s:%s serves generation %d, want %d", repo, tag, got.Gen, wantGen)
+		return &Mismatch{Repo: repo, Tag: tag, Got: got.Gen, Want: wantGen}
 	}
 	return nil
 }
