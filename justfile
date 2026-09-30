@@ -500,19 +500,28 @@ docker-clean:
     -docker rmi {{DOCKER_IMAGE}}:{{VERSION}} 2>/dev/null || true
     @echo "Docker images removed"
 
+# Stack backend: file (default) or redis. One knob switches every
+# compose recipe below: `COMPOSE=redis just up` brings up the
+# redis-backed stack instead. No per-backend recipes — the shape is
+# identical, only the state backend differs (see docs/STORES.md).
+COMPOSE := env_var_or_default('COMPOSE', 'file')
+COMPOSE_FILE := if COMPOSE == 'redis' { 'docker-compose.redis.yml' } else if COMPOSE == 'file' { 'docker-compose.yml' } else { error('COMPOSE must be file or redis, got ' + COMPOSE) }
+
 # Start base dev stack locally (detached)
 up:
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
-    docker compose up -d --build
+    mkdir -p kpr
+    docker compose -f {{COMPOSE_FILE}} up -d --build
 
 # Start full dev stack with observability overlay (detached)
 up-observability:
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
-    docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --build
+    mkdir -p kpr
+    docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml up -d --build
 
 # Stop local stacks
 down:
-    docker compose -f docker-compose.yml -f docker-compose.observability.yml down
+    docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml down
 
 # Garbage-collect unreferenced registry blobs (API deletes drop the
 # tag reference only; --delete-untagged also drops the orphaned
@@ -522,11 +531,24 @@ down:
 # flight refuses this, and vice versa. Manual collector runs bypass
 # the lock (the registry itself sets none) — don't run those
 # concurrently either.
+#
+# File backend: the collector runs inside the kpr container (which
+# embeds /bin/registry and mounts the same volumes) under flock on
+# the real gc lock file — blocking, not failing, since file locks
+# die with their holder and can never go stale.
 gc:
     #!/usr/bin/env bash
     set -euo pipefail
-    docker exec kpr-redis redis-cli -a "${REDIS_PASSWORD:-kpr-dev-only}" -n 4 SET kpr:gc:lock make-gc NX EX 1800 2>/dev/null | grep -q OK || { echo "kpr:gc:lock held (kpr gc running?) or redis unreachable — wait it out, or DEL kpr:gc:lock on DB 4 if stale"; exit 1; }
-    docker compose stop registry
-    docker compose run --rm --no-deps --entrypoint /bin/registry registry garbage-collect --delete-untagged /etc/distribution/config.yml
-    docker compose start registry
-    docker exec kpr-redis redis-cli -a "${REDIS_PASSWORD:-kpr-dev-only}" -n 4 DEL kpr:gc:lock || true
+    if [ "{{COMPOSE}}" = "redis" ]; then
+      docker exec kpr-redis redis-cli -a "${REDIS_PASSWORD:-kpr-dev-only}" -n 4 SET kpr:gc:lock make-gc NX EX 1800 2>/dev/null | grep -q OK || { echo "kpr:gc:lock held (kpr gc running?) or redis unreachable — wait it out, or DEL kpr:gc:lock on DB 4 if stale"; exit 1; }
+      docker compose -f {{COMPOSE_FILE}} stop registry
+      docker compose -f {{COMPOSE_FILE}} run --rm --no-deps --entrypoint /bin/registry registry garbage-collect --delete-untagged /etc/distribution/config.yml
+      docker compose -f {{COMPOSE_FILE}} start registry
+      docker exec kpr-redis redis-cli -a "${REDIS_PASSWORD:-kpr-dev-only}" -n 4 DEL kpr:gc:lock || true
+    else
+      docker compose -f {{COMPOSE_FILE}} stop registry
+      docker exec kpr mkdir -p /var/lib/kpr/locks
+      echo "waiting for the gc lock (a kpr gc run in flight holds it)…"
+      docker exec kpr flock /var/lib/kpr/locks/kpr:gc:lock.lock /bin/registry garbage-collect --delete-untagged /etc/distribution/config.yml
+      docker compose -f {{COMPOSE_FILE}} start registry
+    fi

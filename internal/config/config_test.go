@@ -231,7 +231,8 @@ func TestSetCurrentRestoresPrevious(t *testing.T) {
 func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
-		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvRegistryURL, EnvNoDryRun,
+		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
+		EnvRegistryURL, EnvNoDryRun,
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
 		EnvQuickwitURL, EnvJaegerURL, EnvGrafanaURL, EnvPrometheusURL,

@@ -22,8 +22,11 @@ flowchart LR
    kpr by service name — same Docker network, internal URL.
 2. **kpr → registry**: catalog reads (`reap`) and manifest deletes by
    digest (sweeper). Needs `storage.delete.enabled: true`.
-3. **Both → redis**: kpr rows live on one logical DB of your (or a
+3. **Both → state**: kpr rows live on one logical DB of your (or a
    new) redis. Never the registry's blob-cache DB — pick a free one.
+   (No redis at all? `KPR_STORE=file` keeps rows as plain files on a
+   shared volume instead — see [docs/STORES.md](STORES.md). The rest
+   of this guide assumes redis.)
 
 Traefik only ever fronts the **console** (`:9300`). The receiver stays
 off Traefik: notifications from inside the registry container to a
@@ -46,7 +49,7 @@ password if auth is on:
 redis-cli -a "$REDIS_PASSWORD" INFO keyspace  # confirm DB 4 empty
 ```
 
-Or copy the `redis` service from this repo's `docker-compose.yml`
+Or copy the `redis` service from this repo's `docker-compose.redis.yml`
 (password + persistence + healthcheck included).
 
 ## Step 2 — registry config: notify + allow deletes

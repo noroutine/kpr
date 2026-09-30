@@ -15,8 +15,8 @@ import (
 
 // The redis backend implements the shared store contract against the
 // real thing — auth, kpr's DB, the lot — via the fixture, never
-// ambient localhost. If this fails, the unit suite's mem-only
-// contract is proving half the backends.
+// ambient localhost. If this fails, the file contract below is
+// proving one backend while production runs another.
 func TestRedisStoreContract(t *testing.T) {
 	fx := NewFixture(t)
 	s := store.NewRedisStore(fx.RedisAddr(), fx.RedisPassword(), fx.RedisDB())
@@ -35,6 +35,19 @@ func TestRedisStoreContract(t *testing.T) {
 		}
 	}
 	storetest.RunContract(t, func(t *testing.T) store.Store { flush(t); return s })
+}
+
+// The file backend implements the same contract with no fixture at
+// all — a pristine dir per scenario (cleaner than flush, and the
+// point: no shared state between scenarios, only the layout). Both
+// production backends prove the suite in this gate; mem stays a
+// unit-test stand-in. If this fails, redis-less mode reasons
+// differently about rows, marks, or locks.
+func TestFileStoreContract(t *testing.T) {
+	storetest.RunContract(t, func(t *testing.T) store.Store {
+		t.Helper()
+		return store.NewFileStore(t.TempDir())
+	})
 }
 
 // Opening state the way every keeper command does succeeds against

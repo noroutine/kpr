@@ -1,0 +1,147 @@
+# Redis-backed dev stack. The default is the file backend in
+# docker-compose.yml — select this one with `COMPOSE=redis make up`
+# (same for just). Kept for the shared-instance shape production
+# resembles; see docs/STORES.md for the backend contract.
+services:
+  kpr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: nrtn.dev/catalyst/kpr:${VERSION:-latest}
+    container_name: kpr
+    ports:
+      - "8080:8080"   # Application server
+      - "9300:9300"   # Management console
+    environment:
+      # Server configuration
+      - "KPR_MANAGEMENT_HOST=::"
+      - "KPR_MANAGEMENT_PORT=9300"
+      - "KPR_APP_HOST=::"
+      - "KPR_APP_PORT=8080"
+
+      # State backend (see docs/goals.md). The password must match the
+      # redis service's REDIS_PASSWORD below; empty would mean no auth,
+      # which a shared, reachable redis should never run with. DB 4 is
+      # kpr's: DBs 0-2 belong to other tenants, 3 is the registry
+      # blobdescriptor cache — never assume the 0 default on a shared
+      # instance.
+      - "KPR_REDIS_ADDR=redis:6379"
+      - "KPR_REDIS_PASSWORD=${REDIS_PASSWORD:-kpr-dev-only}"
+      - "KPR_REDIS_DB=4"
+
+      # Registry peer (sweeper deletes, reap reads catalog)
+      - "KPR_REGISTRY_URL=http://registry:5000"
+      # The stock collector kpr gc shells out to reads the same file
+      # and honors the same override convention, so it needs the
+      # registry's redis password too: without it the blobdescriptor
+      # cache mis-marks and collection eats live layers. Must match
+      # REDIS_PASSWORD, like the registry service below.
+      - "REGISTRY_REDIS_PASSWORD=${REDIS_PASSWORD:-kpr-dev-only}"
+      # Armed by default: the local stack really deletes. Comment the
+      # line out (anything but exactly "true" keeps dry-run) to go back
+      # to planning without touching anything.
+      - "KPR_NO_DRY_RUN=true"
+
+      # OpenTelemetry (optional)
+      - OTEL_ENABLED=false
+      # - OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4317
+      # - OTEL_SERVICE_NAME=kpr
+      # - OTEL_ENVIRONMENT=production
+      # - OTEL_SERVICE_VERSION=${VERSION:-dev}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      # GC shares the registry's store: config read-only, blob data
+      # read-write. `kpr gc` runs the stock collector against these
+      # after the sentinel proves the registry readonly.
+      - ./registry-config.yml:/etc/distribution/config.yml:ro
+      - registry-data:/var/lib/registry
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9300/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    networks:
+      - kpr-net
+
+  # State backend for TTL tracking and cleanup bookkeeping (kpr rows
+  # on DB 4) plus the registry's blobdescriptor cache (DB 3) — one
+  # shared instance, password-protected like a realistic deployment.
+  # Override the dev-only default from the environment:
+  #   REDIS_PASSWORD=a-real-secret docker compose up --build
+  redis:
+    image: redis:8-alpine
+    container_name: kpr-redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-kpr-dev-only}"]
+    volumes:
+      - redis-data:/data
+    # Published for local development; drop in production. Local
+    # redis-cli needs the password from now on:
+    #   redis-cli -a "${REDIS_PASSWORD:-kpr-dev-only}" HGETALL kpr:rows
+    ports:
+      - "127.0.0.1:6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-kpr-dev-only}", "--no-auth-warning", "ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    networks:
+      - kpr-net
+
+  # Plain OCI distribution registry that kpr companions.
+  # Notification hooks (-> kpr) feed the receiver; retention policies
+  # are kpr-side (reap marks, serve sweeps). See registry-config.yml,
+  # which mirrors a realistic deployment (redis blobdescriptor cache,
+  # debug/prometheus, health checks).
+  registry:
+    image: registry:3
+    container_name: kpr-registry
+    # Same uid as kpr (1000): the blob store is shared with the kpr
+    # container for `kpr gc`, so both writers must own it. One-time
+    # chown of the volume, then restarts are clean.
+    user: "1000:1000"
+    ports:
+      # Needs localhost:5000 free: macOS AirPlay Receiver squats it when
+      # enabled (answers 403 with Server: AirTunes) — keep that off.
+      # `make up` probes the port and kpr serve sniffs the peer at boot;
+      # both warn when they see AirTunes.
+      - "127.0.0.1:5000:5000"
+      # Debug + prometheus (/metrics) from registry-config.yml's
+      # http.debug block; scraped by the observability overlay.
+      - "127.0.0.1:5001:5001"
+    environment:
+      # Overrides registry-config.yml's redis.password (upstream
+      # REGISTRY_ env-override convention); must match REDIS_PASSWORD.
+      - "REGISTRY_REDIS_PASSWORD=${REDIS_PASSWORD:-kpr-dev-only}"
+    volumes:
+      - ./registry-config.yml:/etc/distribution/config.yml:ro
+      - registry-data:/var/lib/registry
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/v2/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    networks:
+      - kpr-net
+
+networks:
+  kpr-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+  registry-data:

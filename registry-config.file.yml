@@ -1,0 +1,66 @@
+# OCI distribution configuration for the kpr file-backend dev stack
+# (docker-compose.yml). Twin of registry-config.yml minus redis: the
+# blobdescriptor cache is process-local inmemory, so this stack needs
+# no shared instance at all. Referenced as
+# /etc/distribution/config.yml by the `registry` service.
+notifications:
+  endpoints:
+    - name: kpr
+      url: http://kpr:8080/events
+      timeout: 1s
+      threshold: 5
+      backoff: 1s
+
+version: 0.1
+
+log:
+  level: info
+  fields:
+    service: registry
+    environment: core
+
+storage:
+  delete:
+    # kpr sweeps expired manifests: deletes must be enabled or every
+    # DELETE 405s with UNSUPPORTED.
+    enabled: true
+  cache:
+    # No redis on this stack — descriptors live in the registry
+    # process. Lost on restart (rebuilt from disk on demand); the
+    # redis stack's registry-config.yml keeps the shared cache for
+    # deployments where warm restarts matter.
+    blobdescriptor: inmemory
+  filesystem:
+    rootdirectory: /var/lib/registry
+  maintenance:
+    uploadpurging:
+      # Off: kpr owns stale-upload reaping (its stale-upload selector
+      # marks rows the sweeper deletes). Registry-side purging would
+      # remove orphaned upload dirs under kpr's feet — enable with an
+      # explicit age/interval only if abandoned uploads pile up on disk.
+      enabled: false
+  tag:
+    # Tag-reference lookup concurrency on manifest delete (each delete
+    # scans the repo's tags for the digest); 0 would mean GOMAXPROCS.
+    concurrencylimit: 8
+
+http:
+  addr: :5000
+  debug:
+    addr: :5001
+    prometheus:
+      enabled: true
+      path: /metrics
+  headers:
+    X-Content-Type-Options: [nosniff]
+
+#auth:
+#  htpasswd:
+#    realm: basic-realm
+#    path: /etc/distribution/htpasswd
+
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3

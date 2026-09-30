@@ -1,8 +1,10 @@
 # kpr architecture
 
 Dead-simple companion that keeps a local `distribution` registry from
-becoming a pig. One binary, one redis, opinionated behaviors written as
-plain code — no policy engine.
+becoming a pig. One binary, one state backend (redis by default, plain
+files with `KPR_STORE=file`), opinionated behaviors written as
+plain code — no policy engine. This page draws the redis deployment;
+the file alternative is in [docs/STORES.md](STORES.md).
 
 Placement rule: the behaviors are client-side — they live in the
 `reap` command (or any script), not in `serve`. `serve` is a dumb

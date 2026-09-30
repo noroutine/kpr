@@ -165,6 +165,8 @@ var EnvVars = []EnvVar{
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
 	{EnvRedisPassword, "Redis password (empty means no auth). Shown as set/unset only, never rendered."},
 	{EnvRedisDB, "Redis logical database for kpr rows. Defaults to 0; compose uses 4 (0-2 taken, 3 is the registry cache)."},
+	{EnvStore, "State backend, file or redis. Unset means derive: KPR_STORE_DIR alone selects file, KPR_REDIS_ADDR alone selects redis, neither keeps redis. Must agree with backend-specific vars."},
+	{EnvStoreDir, "Directory for the file backend. Defaults to kpr/ (cwd-relative); compose sets it absolute on the shared volume."},
 	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
 	{EnvNoDryRun, "Set to \"true\" to arm real execution (sweeper deletes, reap marks, gc collects). Anything else keeps dry-run."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},

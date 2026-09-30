@@ -4,18 +4,21 @@ Lightweight companion sidecar for a stock OCI `distribution`
 registry: ephemeral images and lightweight retention cleanups,
 without the weight of Harbor or Nexus. Inspired by ttl.sh.
 
-One binary, one redis, opinions written as plain code — no policy
-engine. Push a tag like `app:10m` and it becomes eligible for
-collection 10 minutes after push; `kpr reap` marks it, the sweeper
-in `kpr serve` deletes it by digest. Design lives in
+One binary, one state backend (redis by default, plain files with
+`KPR_STORE=file` — no redis required), opinions written as plain
+code — no policy engine. Push a tag like `app:10m` and it becomes
+eligible for collection 10 minutes after push; `kpr reap` marks it,
+the sweeper in `kpr serve` deletes it by digest. Design lives in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the current state is in the
 [Current state section](docs/ARCHITECTURE.md#current-state) at the end
-of that file.
+of that file. State backends (including the redis-less file mode):
+[docs/STORES.md](docs/STORES.md).
 
 ## How it works
 
 1. `docker push` → the registry notifies the receiver in `kpr serve`,
-   which records the row (repo/tag/digest/push time) in redis.
+   which records the row (repo/tag/digest/push time) in the state
+   backend.
 2. `kpr reap` evaluates the policies and **marks** rows due with a
    reason. Dry-run unless `--no-dry-run` — unarmed, it only prints.
 3. The sweeper in `kpr serve` (tick backstop, sweep-on-start, or
@@ -105,8 +108,9 @@ kpr gc       # garbage-collect the shared store (dry-run preview by
 kpr env      # resolved configuration
 ```
 
-The keeper CLI talks to redis directly, so it runs colocated with
-`serve` (same network: `docker exec kpr kpr …`). Detached operation
+The keeper CLI talks to state directly, so it runs colocated with
+`serve` (same network for redis, same volume for files:
+`docker exec kpr kpr …`). Detached operation
 is explicitly deferred.
 
 ## Garbage collection
@@ -151,6 +155,8 @@ Wiring only (ports, redis addr, registry URL, arming); see
 | `KPR_REDIS_ADDR` | redis (default `localhost:6379`; compose sets `redis:6379`) |
 | `KPR_REDIS_PASSWORD` | redis password (empty = no auth; compose sets the shared dev default — `kpr env` shows set/unset only) |
 | `KPR_REDIS_DB` | redis logical DB for kpr rows (default `0`; compose sets `4` — DBs 0-2 are taken, 3 is the registry cache) |
+| `KPR_STORE` | state backend, `file` or `redis`. Unset means derive: `KPR_STORE_DIR` alone selects file, `KPR_REDIS_ADDR` alone selects redis, silence keeps redis. Must agree with backend vars (see [docs/STORES.md](docs/STORES.md)) |
+| `KPR_STORE_DIR` | directory for the file backend (default `kpr/`, cwd-relative; compose sets it absolute on the shared volume, e.g. `<registry-root>/kpr` for a self-contained backup) |
 | `KPR_REGISTRY_URL` | registry peer (dev default `http://localhost:5000`) |
 | `KPR_NO_DRY_RUN=true` | arm the sweeper (anything else keeps implicit dry-run) |
 

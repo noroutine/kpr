@@ -16,10 +16,11 @@ adapters carry it; the `storetest` contract suite runs
 identical scenarios against all of them — one contract,
 never a copy per backend.
 
-- **RedisStore** (default): rows in a `kpr:rows` HASH,
+- **RedisStore** (the code default when `KPR_STORE` is unset):
+  rows in a `kpr:rows` HASH,
   locks as expiring keys. Multi-process safe by
   construction, server-side TTL expiry on locks. Needs the
-  shared redis from the compose stack.
+  shared redis from the redis compose stack.
 - **MemStore**: in-memory, hermetic unit tests. Not for
   production.
 - **FileStore** (`KPR_STORE=file`): per-row JSON files
@@ -36,8 +37,8 @@ whatever carries them.
 Rooted at `KPR_STORE_DIR`, default `kpr` (relative to the
 working directory — run serve and CLI from one place, or
 set an absolute path; a split cwd silently forks state,
-so compose always sets it absolute, e.g.
-`KPR_STORE_DIR=/var/lib/registry/kpr`):
+so compose always sets it absolute (the file stack mounts
+`./kpr` at `KPR_STORE_DIR=/var/lib/kpr`):
 
 - `rows/<repo-path…>/<tag>.json` — one file per row, the
   repo split into subdirs mirroring the registry
@@ -106,6 +107,12 @@ carries a default that must not count as a choice):
   defaults (current behavior, unchanged).
 - `KPR_STORE_DIR` defaults to `kpr` (cwd-relative); compose
   sets it absolute on the shared volume.
+- Dev stacks: `docker-compose.yml` is the file backend (default),
+  `docker-compose.redis.yml` the redis one. One knob switches
+  every make/just target — `make up` vs `COMPOSE=redis make up`
+  (same for just). No per-backend targets; `make gc` honors the
+  same knob (file: collector under flock in the kpr container;
+  redis: collector via `compose run` under the redis lock).
 
 `serve` derives the same way but keeps its lazy semantics
 (degrade with a warning, except a backend conflict, which
