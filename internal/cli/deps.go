@@ -14,7 +14,7 @@ import (
 // it only holds the base URL.
 type deps struct {
 	cfg   *config.Config
-	store *store.RedisStore
+	store store.StoreCloser
 	reg   *registry.Client
 }
 

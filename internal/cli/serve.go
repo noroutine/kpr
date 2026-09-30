@@ -62,13 +62,24 @@ var serveCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		// Shared keeper state: the redis store (lazy — a down redis
-		// degrades banner/receiver/sweeper instead of blocking boot),
-		// the registry client, and the single-owner sweeper.
-		keeperStore := store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+		// Shared keeper state (lazy — a down backend degrades
+		// banner/receiver/sweeper instead of blocking boot), the registry
+		// client, and the single-owner sweeper. Backend derives like
+		// every command; a conflict refuses boot (guessing state wrong
+		// is worse than not booting).
+		backend, storeDir, err := resolveStoreBackend()
+		if err != nil {
+			log.Fatalf("state backend: %v", err)
+		}
+		var keeperStore store.StoreCloser
+		if backend == "file" {
+			keeperStore = store.NewFileStore(storeDir)
+		} else {
+			keeperStore = store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+		}
 		defer func() { _ = keeperStore.Close() }()
 		if perr := keeperStore.Ping(ctx); perr != nil {
-			log.Printf("Warning: redis at %s unreachable, keeper sections degrade: %v", cfg.RedisAddr, perr)
+			log.Printf("Warning: state backend unreachable, keeper sections degrade: %v", perr)
 		}
 		regClient := registry.NewClient(cfg.RegistryURL)
 		sweeper := &sweep.Sweeper{

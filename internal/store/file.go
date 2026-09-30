@@ -455,3 +455,16 @@ func (s *FileStore) ReleaseLock(_ context.Context, name string) error {
 	}
 	return nil
 }
+
+// Close releases every held lock file: clean shutdown hands nothing
+// to the kernel. State files need no closing — each op is complete
+// on return.
+func (s *FileStore) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for name, f := range s.locks {
+		_ = f.Close()
+		delete(s.locks, name)
+	}
+	return nil
+}

@@ -131,3 +131,23 @@ func TestFileStoreConcurrentHammer(t *testing.T) {
 func policyRow(repo, tag string) policy.Row {
 	return policy.Row{Repo: repo, Tag: tag, Digest: "sha256:abc", PushedAt: time.Now()}
 }
+
+// Close releases held locks: a new instance acquires right after.
+// If this fails, shutdown leaks locks into kernel cleanup instead of
+// handing them over.
+func TestFileStoreCloseReleasesLocks(t *testing.T) {
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	ctx := t.Context()
+	if ok, err := s.AcquireLock(ctx, store.GCLockKey, time.Minute); err != nil || !ok {
+		t.Fatalf("acquire = (%v, %v), want (true, nil)", ok, err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	other := store.NewFileStore(dir)
+	if ok, err := other.AcquireLock(ctx, store.GCLockKey, time.Minute); err != nil || !ok {
+		t.Errorf("acquire after Close = (%v, %v), want (true, nil)", ok, err)
+	}
+	_ = other.Close()
+}

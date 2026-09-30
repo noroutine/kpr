@@ -3,11 +3,11 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -26,7 +26,7 @@ import (
 func runStatus(ctx context.Context, w io.Writer, s store.Store, reg keeper.Prober, armed bool) error {
 	st := keeper.FetchStatus(ctx, s, reg)
 	if !st.StoreOK {
-		return errors.New("redis unreachable: no tracked state to report")
+		return fmt.Errorf("%s unreachable: no tracked state to report", storeName(s))
 	}
 	registryState := "unreachable"
 	if st.RegistryOK {
@@ -142,15 +142,80 @@ func sweepUnreached(ctx context.Context, w io.Writer, s store.Store) error {
 	return err
 }
 
-// OpenStore dials the configured redis, failing fast with a clear
+// resolveStoreBackend derives the state backend from explicit
+// signals, never resolved values (KPR_REDIS_ADDR carries a default
+// that must not count as a choice): KPR_STORE, when set, is
+// authoritative and must agree with backend-specific variables;
+// otherwise KPR_STORE_DIR alone selects file and KPR_REDIS_ADDR
+// alone selects redis; silence keeps redis defaults. Empty counts as
+// unset throughout. Mixed signals refuse instead of guessing.
+func resolveStoreBackend() (backend, dir string, err error) {
+	storeVar, storeSet := os.LookupEnv(config.EnvStore)
+	dirVar, dirSet := os.LookupEnv(config.EnvStoreDir)
+	redisVar, redisSet := os.LookupEnv(config.EnvRedisAddr)
+	if storeVar == "" {
+		storeSet = false
+	}
+	if dirVar == "" {
+		dirSet = false
+	}
+	if redisVar == "" {
+		redisSet = false
+	}
+	if storeSet {
+		switch storeVar {
+		case "file":
+			if redisSet {
+				return "", "", fmt.Errorf("KPR_STORE=file conflicts with %s: unset one", config.EnvRedisAddr)
+			}
+			if !dirSet {
+				dirVar = config.DefaultStoreDir
+			}
+			return "file", dirVar, nil
+		case "redis":
+			if dirSet {
+				return "", "", fmt.Errorf("KPR_STORE=redis conflicts with %s: unset one", config.EnvStoreDir)
+			}
+			return "redis", "", nil
+		default:
+			return "", "", fmt.Errorf("unknown KPR_STORE=%q: want file or redis", storeVar)
+		}
+	}
+	if dirSet {
+		return "file", dirVar, nil
+	}
+	return "redis", "", nil
+}
+
+// storeName voices which backend failed: the refusal names what the
+// operator must fix, in either mode.
+func storeName(s store.Store) string {
+	if _, ok := s.(*store.FileStore); ok {
+		return "file store"
+	}
+	return "redis"
+}
+
+// OpenStore opens the derived backend, failing fast with a clear
 // error: every keeper command needs state, and inventing numbers
 // without it is worse than refusing. Exported so the e2e suite
 // (test/e2e) opens state the same way every command does — auth, DB
 // selection, and refusal included.
-func OpenStore(cfg *config.Config) (*store.RedisStore, error) {
-	s := store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+func OpenStore(cfg *config.Config) (store.StoreCloser, error) {
+	backend, dir, err := resolveStoreBackend()
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if backend == "file" {
+		s := store.NewFileStore(dir)
+		if err := s.Ping(ctx); err != nil {
+			return nil, fmt.Errorf("file store at %s unreachable: %w", dir, err)
+		}
+		return s, nil
+	}
+	s := store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err := s.Ping(ctx); err != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("redis unreachable at %s: %w", cfg.RedisAddr, err)

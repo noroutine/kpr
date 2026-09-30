@@ -57,6 +57,13 @@ type Outcome struct {
 // to. Implementations: MemStore (hermetic tests), RedisStore
 // (default), and FileStore (redis-less mode). Shapes documented in
 // docs/STORES.md; semantics pinned by the storetest contract.
+
+// StoreCloser is a Store with lifecycle: both production backends.
+// MemStore stays Close-less (tests own it outright).
+type StoreCloser interface {
+	Store
+	Close() error
+}
 type Store interface {
 	// Ping reports backend reachability (banner red, sweeper skips).
 	Ping(ctx context.Context) error

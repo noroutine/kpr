@@ -87,6 +87,17 @@ const (
 	// else's keyspace silently is worse than refusing.
 	EnvRedisDB = "KPR_REDIS_DB"
 
+	// EnvStore selects the state backend explicitly: file or redis.
+	// Unset means derive — KPR_STORE_DIR alone selects file,
+	// KPR_REDIS_ADDR alone selects redis, neither keeps redis
+	// defaults. When set it must agree with backend-specific
+	// variables, else boot refuses instead of guessing.
+	EnvStore = "KPR_STORE"
+
+	// EnvStoreDir roots the file backend. Defaults to DefaultStoreDir
+	// (cwd-relative); compose sets it absolute on the shared volume.
+	EnvStoreDir = "KPR_STORE_DIR"
+
 	// EnvRegistryURL overrides the distribution registry base URL the
 	// sweeper deletes through and reap reads the catalog from.
 	// Defaults to DefaultRegistryURL.
@@ -179,6 +190,12 @@ const (
 	// DefaultRedisAddr is the redis address used when KPR_REDIS_ADDR is
 	// unset — a bare local run with no compose stack alongside it.
 	DefaultRedisAddr = "localhost:6379"
+
+	// DefaultStoreDir roots the file backend when KPR_STORE_DIR is
+	// unset — the plain kpr/ dir, cwd-relative. Single working dir
+	// for serve and CLI, or set KPR_STORE_DIR absolute; a split cwd
+	// silently forks state.
+	DefaultStoreDir = "kpr"
 
 	// DefaultRedisDB is the redis logical database used when
 	// KPR_REDIS_DB is unset or invalid — the redis convention. Shared

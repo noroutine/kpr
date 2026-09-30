@@ -3,6 +3,7 @@
 - [The three stores](#the-three-stores)
 - [FileStore layout](#filestore-layout)
 - [Invariants](#invariants)
+- [Wiring: deriving the backend](#wiring-deriving-the-backend)
 - [The self-contained backup](#the-self-contained-backup)
 - [Limits](#limits)
 
@@ -88,6 +89,28 @@ Crash-proofing is a write protocol, not a format:
 This is the registry's own discipline: distribution's
 filesystem driver commits blobs via temp-file rename for
 exactly the same reason.
+
+## Wiring: deriving the backend
+
+No selector flag — the backend derives from explicit signals
+(`os.LookupEnv`, never resolved values, since `KPR_REDIS_ADDR`
+carries a default that must not count as a choice):
+
+- `KPR_STORE=file|redis`, when set, is authoritative and must
+  agree with backend-specific variables, else boot refuses
+  instead of guessing (`file` + `KPR_REDIS_ADDR` conflicts;
+  `redis` + `KPR_STORE_DIR` conflicts; unknown values
+  refuse).
+- Unset: `KPR_STORE_DIR` alone selects file,
+  `KPR_REDIS_ADDR` alone selects redis, silence keeps redis
+  defaults (current behavior, unchanged).
+- `KPR_STORE_DIR` defaults to `kpr` (cwd-relative); compose
+  sets it absolute on the shared volume.
+
+`serve` derives the same way but keeps its lazy semantics
+(degrade with a warning, except a backend conflict, which
+refuses boot). Refusals name the backend (`storeName`), so
+the operator fixes the right thing in either mode.
 
 ## The self-contained backup
 

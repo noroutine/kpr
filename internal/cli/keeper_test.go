@@ -683,3 +683,75 @@ func TestSweeperLoopStartupAndTick(t *testing.T) {
 		t.Error("loop ran no passes, want startup + ticks recorded")
 	}
 }
+
+// clearStoreEnv unsets every backend signal: derivation reads
+// explicitness, and a leaked CI variable would select a backend the
+// case never asked for.
+func clearStoreEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(config.EnvStore, "")
+	t.Setenv(config.EnvStoreDir, "")
+	t.Setenv(config.EnvRedisAddr, "")
+}
+
+// The backend derives from explicit signals, never resolved values
+// (KPR_REDIS_ADDR carries a default that must not count):
+// KPR_STORE is authoritative and must agree with backend-specific
+// variables, KPR_STORE_DIR alone selects file, KPR_REDIS_ADDR alone
+// selects redis, silence keeps redis defaults. If this fails, mixed
+// signals boot a guessed backend or refuse a coherent one.
+func TestResolveStoreBackend(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		env             map[string]string
+		wantBackend     string
+		wantDir         string
+		wantErrContains string
+	}{
+		{"silence keeps redis", nil, "redis", "", ""},
+		{"explicit redis addr", map[string]string{config.EnvRedisAddr: "r:6379"}, "redis", "", ""},
+		{"explicit store redis", map[string]string{config.EnvStore: "redis"}, "redis", "", ""},
+		{"explicit store file defaults dir", map[string]string{config.EnvStore: "file"}, "file", "kpr", ""},
+		{"store dir alone selects file", map[string]string{config.EnvStoreDir: "/x/kpr"}, "file", "/x/kpr", ""},
+		{"unknown store refuses", map[string]string{config.EnvStore: "sqlite"}, "", "", "unknown"},
+		{"file plus redis addr conflicts", map[string]string{config.EnvStore: "file", config.EnvRedisAddr: "r:6379"}, "", "", "conflicts"},
+		{"redis plus store dir conflicts", map[string]string{config.EnvStore: "redis", config.EnvStoreDir: "/x"}, "", "", "conflicts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearStoreEnv(t)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			backend, dir, err := resolveStoreBackend()
+			if tc.wantErrContains != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErrContains) {
+					t.Fatalf("resolve = (%q, %q, %v), want error containing %q", backend, dir, err, tc.wantErrContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			if backend != tc.wantBackend || dir != tc.wantDir {
+				t.Errorf("resolve = (%q, %q), want (%q, %q)", backend, dir, tc.wantBackend, tc.wantDir)
+			}
+		})
+	}
+}
+
+// KPR_STORE=file opens the file backend (fail-fast Ping like redis):
+// the operator gets file state or a refusal naming the dir, never a
+// silent redis. If this fails, file mode boots something else.
+func TestOpenStoreFileBackend(t *testing.T) {
+	clearStoreEnv(t)
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
+	cfg := config.NewBuilder().FromEnv().Build()
+	s, err := OpenStore(cfg)
+	if err != nil {
+		t.Fatalf("OpenStore(file): %v", err)
+	}
+	if _, ok := s.(*store.FileStore); !ok {
+		t.Errorf("store = %T, want *store.FileStore", s)
+	}
+}
