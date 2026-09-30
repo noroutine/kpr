@@ -4,6 +4,7 @@
 - [What distribution actually serves](#what-distribution-actually-serves)
 - [Same-store proof without API writes](#same-store-proof-without-api-writes)
 - [Why not a crafted image](#why-not-a-crafted-image)
+- [Rejected: blob re-push as write proof](#rejected-blob-re-push-as-write-proof)
 - [Dynamic sentinel: plan and progress](#dynamic-sentinel-plan-and-progress)
 
 ## Current situation
@@ -118,6 +119,36 @@ Content round-trip proves nothing the catalog signal
 doesn't: both read through the same driver off the same
 root. The bare dir is the whole proof; an image is proof
 plus three kinds of residue.
+
+## Rejected: blob re-push as write proof
+
+Idea: classify mode by re-pushing the known sentinel blob
+instead of the initiate-and-cancel probe — 201 writable,
+405 readonly, zero garbage when the bytes are identical.
+Rejected:
+
+- Readonly 405s before any content logic: the upload
+  POST/PATCH/PUT/DELETE handlers aren't registered at all
+  in readonly mode (`blobUploadDispatcher`, routing-level),
+  so known-digest initiates and cross-repo mounts 405
+  without comparison. Verified live against `registry:3`.
+- Self-defeating lock: rewriting live evidence is only
+  safe with no live traffic (stopped/readonly) — exactly
+  when pushes 405. kpr's advisory lock doesn't stop
+  registry readers, and link files rewrite via
+  truncate-and-write, so a concurrent GET can catch a torn
+  link. The initiate probe only touches registry-managed
+  session dirs it then deletes.
+- Preconditions for the same 1-bit signal: a re-push needs
+  a crafted generation on disk first and only ever
+  replaces the writable branch (readonly still needs
+  fs-write + API-read). Initiate needs nothing.
+
+Conceded: identical bytes can't corrupt, and blob mtimes
+are unused (backfill reads tag-link mtimes). Not
+corruption that kills it — precondition plus blast radius
+for zero new signal. The write probe stays a classifier
+with no preconditions; identity stays fs-write + API-read.
 
 ## Dynamic sentinel: plan and progress
 
