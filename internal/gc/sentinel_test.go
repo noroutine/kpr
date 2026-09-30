@@ -17,7 +17,7 @@ func TestProbeRegistryModes(t *testing.T) {
 	writable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
-			w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
+			w.Header().Set("Location", "/v2/noroutine/kpr-gc-probe/blobs/uploads/uuid")
 			w.WriteHeader(http.StatusAccepted)
 		case http.MethodDelete:
 			sawDelete = true
@@ -61,17 +61,17 @@ func TestProbeRegistryModes(t *testing.T) {
 // registry answering odd Locations either crashes gc or mints
 // evidence from thin air.
 func TestUploadUUIDEdges(t *testing.T) {
-	if got := uploadUUID("http://reg:5000/v2/kpr-gc-probe/blobs/uploads/abc123"); got != "abc123" {
+	if got := uploadUUID("http://reg:5000/v2/noroutine/kpr-gc-probe/blobs/uploads/abc123"); got != "abc123" {
 		t.Errorf("uploadUUID = %q, want abc123", got)
 	}
 	for _, loc := range []string{
 		"",
-		"http://reg:5000/v2/kpr-gc-probe/blobs/uploads/",
-		"http://reg:5000/v2/kpr-gc-probe/blobs/uploads",
+		"http://reg:5000/v2/noroutine/kpr-gc-probe/blobs/uploads/",
+		"http://reg:5000/v2/noroutine/kpr-gc-probe/blobs/uploads",
 		"http://reg:5000/v2/repositories",
-		"http://reg:5000/v2/kpr-gc-probe/blobs/uploads/abc?digest=sha256:x",
+		"http://reg:5000/v2/noroutine/kpr-gc-probe/blobs/uploads/abc?digest=sha256:x",
 	} {
-		if loc == "http://reg:5000/v2/kpr-gc-probe/blobs/uploads/abc?digest=sha256:x" {
+		if loc == "http://reg:5000/v2/noroutine/kpr-gc-probe/blobs/uploads/abc?digest=sha256:x" {
 			if got := uploadUUID(loc); got != "abc" {
 				t.Errorf("uploadUUID(%q) = %q, want abc (query stripped)", loc, got)
 			}
@@ -131,7 +131,7 @@ func TestProbeBadLocationSkipsCancel(t *testing.T) {
 // the probe but refuses the cancel panics the probe on a nil body.
 func TestProbeDeleteFailureSkipsClose(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", "http://127.0.0.1:1/v2/kpr-gc-probe/blobs/uploads/u1")
+		w.Header().Set("Location", "http://127.0.0.1:1/v2/noroutine/kpr-gc-probe/blobs/uploads/u1")
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer srv.Close()

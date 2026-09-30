@@ -44,7 +44,7 @@ func serveRegistry(t *testing.T, root string, writable bool) *httptest.Server {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
-			w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
+			w.Header().Set("Location", "/v2/noroutine/kpr-gc-probe/blobs/uploads/uuid")
 			w.WriteHeader(http.StatusAccepted)
 			return
 		}
@@ -296,7 +296,7 @@ func serveFlapRegistry(t *testing.T, root string, first, rest int) *httptest.Ser
 				status = first
 			}
 			if status == http.StatusAccepted {
-				w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
+				w.Header().Set("Location", "/v2/noroutine/kpr-gc-probe/blobs/uploads/uuid")
 			}
 			w.WriteHeader(status)
 			return

@@ -16,7 +16,7 @@ import (
 
 // ProbeRepo is the throwaway repo the gc sentinel uploads under. A
 // cancelled initiate leaves no blob, no manifest, no residue.
-const ProbeRepo = "kpr-gc-probe"
+const ProbeRepo = "noroutine/kpr-gc-probe"
 
 // Mode is what the write sentinel found: the registry takes writes,
 // refuses them (v3 maintenance readonly), or answered something the

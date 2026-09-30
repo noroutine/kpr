@@ -29,7 +29,7 @@ func TestSentinelProbeModes(t *testing.T) {
 	}
 	// No residue: the probe repo must not exist after the cancelled
 	// initiate.
-	if tags, err := registry.NewClient(fx.RegistryURL()).Catalog(ctx, "kpr-gc-probe"); err == nil {
+	if tags, err := registry.NewClient(fx.RegistryURL()).Catalog(ctx, gc.ProbeRepo); err == nil {
 		t.Fatalf("probe repo catalog = %v, want absent (no residue)", tags)
 	}
 

@@ -12,7 +12,7 @@
 The gc sentinel does two jobs under one name, and only one of
 them needs a write:
 
-- **Write proof (mode).** `POST /v2/kpr-gc-probe/blobs/uploads/`
+- **Write proof (mode).** `POST /v2/noroutine/kpr-gc-probe/blobs/uploads/`
   (`internal/gc/sentinel.go`): 202 means the registry takes
   writes, 405 means v3 maintenance readonly. The upload is
   cancelled at once, leaving nothing. This is classification,
@@ -95,7 +95,8 @@ Why this shape:
   identity never mints uploads, links, or blobs.
 
 Name: `<sentinel>` = `noroutine/kpr-sentinel`, beside the existing
-`kpr-gc-probe` write-probe repo. Fixed name is fine —
+`noroutine/kpr-gc-probe` write-probe repo. Both under the owned
+namespace — no collisions with mirrored images. Fixed names are fine —
 mkdir is idempotent, concurrent runs prove the same truth.
 
 ## Why not a crafted image
