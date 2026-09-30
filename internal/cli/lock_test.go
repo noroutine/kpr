@@ -81,6 +81,30 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 	}
 }
 
+// A locked gc refuses with the error alone: no usage screen (that
+// answers flag typos, not refusals) and no "Error:" echo (Execute
+// prints the message once). Drives the real root path — RunE alone
+// never prints usage, so only Execute proves the silence. If this
+// fails, every refusal buries its fix under a help dump.
+func TestGCLockedRefusalOmitsUsage(t *testing.T) {
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
+	var buf bytes.Buffer
+	RootCmd.SetOut(&buf)
+	RootCmd.SetErr(&buf)
+	RootCmd.SetArgs([]string{"gc"})
+	defer RootCmd.SetArgs(nil)
+	defer RootCmd.SetOut(nil)
+	defer RootCmd.SetErr(nil)
+	err := RootCmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "store is locked") {
+		t.Fatalf("locked gc = %v, want the locked refusal", err)
+	}
+	if out := buf.String(); strings.Contains(out, "Usage:") || strings.Contains(out, "Error:") {
+		t.Errorf("refusal prints help or echoes:\n%s", out)
+	}
+}
+
 // Unlock against a registry that doesn't serve the staged store
 // refuses: intent never opens without proof, however reachable the
 // API. If this fails, a remote kpr unlocks against nothing.

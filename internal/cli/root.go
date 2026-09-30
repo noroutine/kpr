@@ -27,6 +27,15 @@ Configuration comes from KPR_* environment variables (see
 docs/CONFIG.md); every flag below overrides its matching variable.
 Run "kpr env" to list every variable with its effective value.`,
 	Version: config.Version,
+	// Errors print once, from Execute below — cobra stays silent,
+	// so a refusal never echoes as "Error: ..." plus the message.
+	SilenceErrors: true,
+	// Usage is for mistyped flags, not refusals: flag parsing fails
+	// before this runs (usage still prints), while every RunE error
+	// returns after it (usage suppressed, error only).
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		cmd.SilenceUsage = true
+	},
 }
 
 func init() {
