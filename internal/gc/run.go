@@ -2,11 +2,14 @@ package gc
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -42,22 +45,36 @@ type Options struct {
 	Report         Reporter
 }
 
+// freshGen mints an unpredictable sentinel generation: the proof
+// compares exactly what this run wrote, so a stale snapshot serving
+// an older generation refuses instead of passing.
+func freshGen() (int, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(1<<62))
+	if err != nil {
+		return 0, fmt.Errorf("sentinel generation: %w", err)
+	}
+	return int(n.Int64()), nil
+}
+
 // Run probes the registry writable/readonly, proves the local mount
-// is the registry's own store, then runs the stock collector against
+// is the registry's own store with a fresh sentinel generation it
+// reads back through the API, then runs the stock collector against
 // it under the shared collector lock, streaming every line and
-// reporting each stage. A real (non-dry) run on a writable registry
-// refuses: the operator flips storage.maintenance.readonly and
-// restarts first. A dry-run preview on a writable registry proceeds
-// with a loud warning instead — previews delete nothing, so a race
-// only stales the preview. Anything unproven — inconclusive probe,
-// invisible upload, unresolvable link — refuses always. After the
-// collect the sentinel re-probes: a mode flip mid-run is loud but
-// never a panic — without --force it fails the run (writes may have
-// raced the mark phase), with --force the operator presumed to know
-// and the run passes warned. A dead post-probe only warns.
-// Flipping readonly stays with the operator; this command never
-// rewrites registry config.
-func Run(ctx context.Context, w io.Writer, s store.Store, probe Probe, lock Locker, collect Collector, registryURL, configPath, binPath string, opts Options) error {
+// reporting each stage. The proof needs no tracked rows and no API
+// writes: a generation Write lands on the local mount, and only the
+// registry serving that same store reads it back. A real (non-dry)
+// run on a writable registry refuses: the operator flips
+// storage.maintenance.readonly and restarts first. A dry-run preview
+// on a writable registry proceeds with a loud warning instead —
+// previews delete nothing, so a race only stales the preview.
+// Anything unproven — inconclusive probe, unwritten or unreadable
+// generation — refuses always. After the collect the sentinel
+// re-probes: a mode flip mid-run is loud but never a panic — without
+// --force it fails the run (writes may have raced the mark phase),
+// with --force the operator presumed to know and the run passes
+// warned. A dead post-probe only warns. Flipping readonly stays with
+// the operator; this command never rewrites registry config.
+func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, opts Options) error {
 	gcStarted := time.Now()
 	if err := Ready(binPath, configPath); err != nil {
 		return err
@@ -81,7 +98,7 @@ func Run(ctx context.Context, w io.Writer, s store.Store, probe Probe, lock Lock
 			_, _ = fmt.Fprintf(w, "Warning: gc lock release failed (%v); expires in %v\n", rerr, lockTTL)
 		}
 	}()
-	mode, uuid, err := probe(ctx, registryURL)
+	mode, _, err := probe(ctx, registryURL)
 	if err != nil {
 		return err
 	}
@@ -89,10 +106,26 @@ func Run(ctx context.Context, w io.Writer, s store.Store, probe Probe, lock Lock
 	pre.Message = ModeName(mode)
 	Emit(opts.Report, pre)
 	switch mode {
-	case ModeWritable:
-		if !SameStoreUpload(root, uuid) {
-			return fmt.Errorf("sentinel upload %s not visible under %s: kpr does not share this registry's store", uuid, root)
+	case ModeWritable, ModeReadonly:
+		gen, err := freshGen()
+		if err != nil {
+			return err
 		}
+		payload := sentinel.Payload{V: 1, Gen: gen, TS: time.Now().UTC().Format(time.RFC3339), Writer: "kpr-gc"}
+		if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload); err != nil {
+			return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
+		}
+		if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
+			return fmt.Errorf("kpr does not share this registry's store: %v", err)
+		}
+		if _, err := fmt.Fprintf(w, "shared store proven via %s:%s generation %d\n", sentinel.Repo, sentinel.Tag, gen); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("sentinel inconclusive for %s", registryURL)
+	}
+	switch mode {
+	case ModeWritable:
 		if opts.DryRun {
 			if _, err := io.WriteString(w, "Warning: registry is writable; preview only, nothing will be deleted\n"); err != nil {
 				return err
@@ -106,18 +139,9 @@ func Run(ctx context.Context, w io.Writer, s store.Store, probe Probe, lock Lock
 			}
 		}
 	case ModeReadonly:
-		row, ok := FirstDigestRow(ctx, s)
-		if !ok {
-			return errors.New("cannot prove shared store: no tracked digests; push or reap something first, or --force")
-		}
-		if !SameStoreTagLink(root, row.Repo, row.Tag, row.Digest) {
-			return fmt.Errorf("tag %s:%s does not resolve to tracked %s under %s: kpr does not share this registry's store", row.Repo, row.Tag, row.Digest, root)
-		}
-		if _, err := fmt.Fprintf(w, "shared store proven via %s:%s\n", row.Repo, row.Tag); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("sentinel inconclusive for %s", registryURL)
+		// The generation read-back above is the whole gate: no
+		// tracked rows needed, an empty redis proves as well as
+		// a full one.
 	}
 	if err := collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, opts.DryRun), opts.Report); err != nil {
 		return err

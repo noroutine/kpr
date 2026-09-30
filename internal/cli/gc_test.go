@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/gc"
-	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -31,49 +31,82 @@ func stageGCStore(t *testing.T, root string) string {
 	return path
 }
 
-// stageUploadDir plants the uuid dir a writable probe must find.
-func stageUploadDir(t *testing.T, root, uuid string) {
+// serveRegistry is a file-backed fake registry over root: the probe
+// initiate classifies writable/readonly, manifest and blob GETs read
+// what the run just wrote to the store, DELETE cancels uploads. A
+// root that never receives the generation serves 404s — a stranger's
+// store on demand.
+func serveRegistry(t *testing.T, root string, writable bool) *httptest.Server {
 	t.Helper()
-	dir := filepath.Join(root, "docker", "registry", "v2", "repositories", gc.ProbeRepo, "_uploads", uuid)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("stage upload dir: %v", err)
-	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/blobs/uploads/") {
+			if !writable {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		serveSentinelFiles(w, r, root)
+	}))
 }
 
-// stageTagLink plants a tag link resolving to digest.
-func stageTagLink(t *testing.T, root, repo, tag, digest string) {
-	t.Helper()
-	link := filepath.Join(root, "docker", "registry", "v2", "repositories", repo, "_manifests", "tags", tag, "current", "link")
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		t.Fatalf("stage link dir: %v", err)
+// serveSentinelFiles answers the non-probe half: upload cancels plus
+// manifest/blob reads straight from the staged root.
+func serveSentinelFiles(w http.ResponseWriter, r *http.Request, root string) {
+	if r.Method == http.MethodDelete {
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
-	if err := os.WriteFile(link, []byte(digest+"\n"), 0o644); err != nil {
-		t.Fatalf("stage link: %v", err)
+	if tag, ok := strings.CutPrefix(r.URL.Path, "/v2/kpr-sentinel/manifests/"); ok {
+		raw, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "repositories", "kpr-sentinel", "_manifests", "tags", tag, "current", "link"))
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		serveBlobFile(w, root, strings.TrimSpace(string(raw)))
+		return
 	}
+	if digest, ok := strings.CutPrefix(r.URL.Path, "/v2/kpr-sentinel/blobs/"); ok {
+		hex := strings.TrimPrefix(digest, "sha256:")
+		if _, err := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", "kpr-sentinel", "_layers", "sha256", hex, "link")); err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		serveBlobFile(w, root, digest)
+		return
+	}
+	w.WriteHeader(http.StatusNotFound)
+}
+
+func serveBlobFile(w http.ResponseWriter, root, digest string) {
+	hex := strings.TrimPrefix(digest, "sha256:")
+	raw, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "blobs", "sha256", hex[:2], hex, "data"))
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	_, _ = w.Write(raw)
 }
 
 // A lock release failure after a good run warns (with the TTL bound)
 // instead of failing the run: the collection already happened. If
 // this fails, a redis blip at release time rewrites history.
 func TestRunGCReleaseFailureWarns(t *testing.T) {
-	deny := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}))
-	defer deny.Close()
-
 	root := t.TempDir()
+	srv := serveRegistry(t, root, false)
+	defer srv.Close()
+
 	cfg := stageGCStore(t, root)
-	digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
 	s := &releaseFailStore{MemStore: store.NewMemStore()}
-	_ = s.Record(context.Background(), policy.Row{Repo: "app", Tag: "v1", Digest: digest, PushedAt: time.Now()})
-	stageTagLink(t, root, "app", "v1", digest)
 
 	oldBin := registryBinPath
 	registryBinPath = stageBin(t, "exit 0")
 	defer func() { registryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err != nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{}); err != nil {
 		t.Fatalf("gc with failing release = %v, want nil (warn only)", err)
 	}
 	if !strings.Contains(out.String(), "lock release failed") {
@@ -93,26 +126,18 @@ var errRelease = errors.New("release failed")
 // instead of collecting deaf: the operator never saw the risk they
 // accepted. If this fails, gc nods along with nobody listening.
 func TestRunGCForceWarnWriteError(t *testing.T) {
-	accept := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer accept.Close()
-
 	root := t.TempDir()
+	srv := serveRegistry(t, root, true)
+	defer srv.Close()
+
 	cfg := stageGCStore(t, root)
-	stageUploadDir(t, root, "uuid")
 
 	oldBin := registryBinPath
 	registryBinPath = stageBin(t, "exit 0")
 	defer func() { registryBinPath = oldBin }()
 
 	s := store.NewMemStore()
-	if err := gc.Run(context.Background(), errWriter{}, s, gc.ProbeRegistry, s, gc.RunCollector, accept.URL, cfg, registryBinPath, gc.Options{Force: true}); err == nil {
+	if err := gc.Run(context.Background(), errWriter{}, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{Force: true}); err == nil {
 		t.Error("forced gc with broken output succeeded, want the write error")
 	}
 }
@@ -129,24 +154,16 @@ func stageBin(t *testing.T, body string) string {
 
 // A writable registry refuses gc without --force (the operator flips
 // readonly first), and proceeds with it after warning — but only when
-// the probe upload is visible in the local store. An invisible upload
-// means a stranger's registry at the right URL and refuses even
-// forced. If this fails, collection runs against live writes, or
-// against the wrong store entirely.
+// the generation just written reads back from the local store. A
+// stranger's registry at the right URL refuses even forced. If this
+// fails, collection runs against live writes, or against the wrong
+// store entirely.
 func TestRunGCRefusesWritableWithoutForce(t *testing.T) {
-	accept := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer accept.Close()
-
 	root := t.TempDir()
+	srv := serveRegistry(t, root, true)
+	defer srv.Close()
+
 	cfg := stageGCStore(t, root)
-	stageUploadDir(t, root, "uuid")
 	s := store.NewMemStore()
 
 	oldBin := registryBinPath
@@ -154,7 +171,7 @@ func TestRunGCRefusesWritableWithoutForce(t *testing.T) {
 	defer func() { registryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, accept.URL, cfg, registryBinPath, gc.Options{}); err == nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{}); err == nil {
 		t.Fatal("gc on writable registry succeeded without --force, want refusal")
 	} else if !strings.Contains(err.Error(), "readonly") {
 		t.Errorf("refusal names no remedy: %v", err)
@@ -162,7 +179,7 @@ func TestRunGCRefusesWritableWithoutForce(t *testing.T) {
 
 	registryBinPath = stageBin(t, "exit 0")
 	out.Reset()
-	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, accept.URL, cfg, registryBinPath, gc.Options{Force: true}); err != nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{Force: true}); err != nil {
 		t.Fatalf("forced gc = %v, want nil", err)
 	}
 	if !strings.Contains(out.String(), "Warning") {
@@ -170,19 +187,12 @@ func TestRunGCRefusesWritableWithoutForce(t *testing.T) {
 	}
 }
 
-// A stranger's registry at the right URL — probe upload invisible in
-// the local store — refuses even forced. If this fails, gc happily
+// A stranger's registry at the right URL — the generation never
+// reads back — refuses even forced. If this fails, gc happily
 // collects whatever directory the mount points at.
 func TestRunGCDifferentStoreRefuses(t *testing.T) {
-	accept := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer accept.Close()
+	srv := serveRegistry(t, t.TempDir(), true)
+	defer srv.Close()
 
 	root := t.TempDir()
 	cfg := stageGCStore(t, root)
@@ -193,7 +203,7 @@ func TestRunGCDifferentStoreRefuses(t *testing.T) {
 	defer func() { registryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, accept.URL, cfg, registryBinPath, gc.Options{Force: true}); err == nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{Force: true}); err == nil {
 		t.Fatal("gc on a stranger's store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -204,18 +214,13 @@ func TestRunGCDifferentStoreRefuses(t *testing.T) {
 // key make gc honors), and a finished run releases it. If this fails,
 // two collectors race the same store, or one run wedges the rest.
 func TestRunGCLockContention(t *testing.T) {
-	deny := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}))
-	defer deny.Close()
+	root := t.TempDir()
+	srv := serveRegistry(t, root, false)
+	defer srv.Close()
 
 	ctx := context.Background()
-	root := t.TempDir()
 	cfg := stageGCStore(t, root)
-	digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
 	s := store.NewMemStore()
-	_ = s.Record(ctx, policy.Row{Repo: "app", Tag: "v1", Digest: digest, PushedAt: time.Now()})
-	stageTagLink(t, root, "app", "v1", digest)
 
 	oldBin := registryBinPath
 	registryBinPath = stageBin(t, "exit 0")
@@ -225,7 +230,7 @@ func TestRunGCLockContention(t *testing.T) {
 		t.Fatalf("pre-acquire = (%v, %v), want (true, nil)", ok, err)
 	}
 	var out strings.Builder
-	if err := gc.Run(ctx, &out, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err == nil {
+	if err := gc.Run(ctx, &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{}); err == nil {
 		t.Fatal("gc under held lock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "another gc") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -234,7 +239,7 @@ func TestRunGCLockContention(t *testing.T) {
 		t.Fatalf("release: %v", err)
 	}
 	out.Reset()
-	if err := gc.Run(ctx, &out, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err != nil {
+	if err := gc.Run(ctx, &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{}); err != nil {
 		t.Fatalf("gc after release = %v, want nil", err)
 	}
 	if ok, _ := s.AcquireLock(ctx, store.GCLockKey, time.Minute); !ok {
@@ -249,35 +254,27 @@ func TestRunGCLockContention(t *testing.T) {
 // the lie. A failed post-probe only warns: unknown is not observed
 // interference. If this fails, gc blesses runs it watched go sideways.
 func TestRunGCPostProbeFlip(t *testing.T) {
-	flap := httptest.NewServer(flipFlop(405, 202))
-	defer flap.Close()
-	down := httptest.NewServer(flipFlop(405, 500))
-	defer down.Close()
-
-	staged := func(t *testing.T) (string, *store.MemStore, string) {
-		root := t.TempDir()
-		cfg := stageGCStore(t, root)
-		digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
-		s := store.NewMemStore()
-		_ = s.Record(context.Background(), policy.Row{Repo: "app", Tag: "v1", Digest: digest, PushedAt: time.Now()})
-		stageTagLink(t, root, "app", "v1", digest)
-		return cfg, s, root
-	}
 	oldBin := registryBinPath
 	registryBinPath = stageBin(t, "exit 0")
 	defer func() { registryBinPath = oldBin }()
 
-	cfg, s, _ := staged(t)
+	flipRoot := t.TempDir()
+	flap := serveFlapRegistry(t, flipRoot, http.StatusMethodNotAllowed, http.StatusAccepted)
+	defer flap.Close()
+	flipCfg := stageGCStore(t, flipRoot)
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, flap.URL, cfg, registryBinPath, gc.Options{}); err == nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, store.NewMemStore(), gc.RunCollector, registry.NewClient(flap.URL), flap.URL, flipCfg, registryBinPath, gc.Options{}); err == nil {
 		t.Fatal("gc across a readonly→writable flip succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "changed during collection") {
 		t.Errorf("failure names no cause: %v", err)
 	}
 
-	cfg2, s2, _ := staged(t)
+	deadRoot := t.TempDir()
+	down := serveFlapRegistry(t, deadRoot, http.StatusMethodNotAllowed, http.StatusInternalServerError)
+	defer down.Close()
+	deadCfg := stageGCStore(t, deadRoot)
 	out.Reset()
-	if err := gc.Run(context.Background(), &out, s2, gc.ProbeRegistry, s2, gc.RunCollector, down.URL, cfg2, registryBinPath, gc.Options{}); err != nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, store.NewMemStore(), gc.RunCollector, registry.NewClient(down.URL), down.URL, deadCfg, registryBinPath, gc.Options{}); err != nil {
 		t.Fatalf("gc with dead post-probe = %v, want nil (warn only)", err)
 	}
 	if !strings.Contains(out.String(), "post-run probe") {
@@ -285,48 +282,51 @@ func TestRunGCPostProbeFlip(t *testing.T) {
 	}
 }
 
-// flipFlop answers the first upload-initiate with first and every later
-// one with rest: a mode change mid-run on demand.
-func flipFlop(first, rest int) http.HandlerFunc {
-	var calls int
-	return func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if calls == 1 {
-			w.WriteHeader(first)
+// serveFlapRegistry answers the first upload-initiate with first and
+// every later one with rest, serving sentinel files throughout so the
+// proof passes and only the probe verdict moves.
+func serveFlapRegistry(t *testing.T, root string, first, rest int) *httptest.Server {
+	t.Helper()
+	var posts int
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/blobs/uploads/") {
+			posts++
+			status := rest
+			if posts == 1 {
+				status = first
+			}
+			if status == http.StatusAccepted {
+				w.Header().Set("Location", "/v2/kpr-gc-probe/blobs/uploads/uuid")
+			}
+			w.WriteHeader(status)
 			return
 		}
-		w.WriteHeader(rest)
-	}
+		serveSentinelFiles(w, r, root)
+	}))
 }
 
 // A readonly registry runs the stock collector with the operator's
-// flags — but only after a tracked tag resolves to its digest in the
-// local store. No tracked rows, or a mismatched link, refuses: URL
-// alone proves nothing. A failing collector surfaces (never silent).
-// If this fails, gc either drops flags, trusts strangers, or swallows
-// the collector's exit.
+// flags after the fresh generation reads back — with no tracked rows
+// at all: an empty redis proves as well as a full one. A failing
+// collector surfaces (never silent). If this fails, gc either drops
+// flags, demands rows it no longer needs, or swallows the exit.
 func TestRunGCReadonlyRunsBinary(t *testing.T) {
-	deny := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}))
-	defer deny.Close()
-
 	root := t.TempDir()
+	srv := serveRegistry(t, root, false)
+	defer srv.Close()
+
 	cfg := stageGCStore(t, root)
-	digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
 	s := store.NewMemStore()
-	_ = s.Record(context.Background(), policy.Row{Repo: "app", Tag: "v1", Digest: digest, PushedAt: time.Now()})
-	stageTagLink(t, root, "app", "v1", digest)
 
 	oldBin := registryBinPath
 	registryBinPath = stageBin(t, "echo \"collector args: $@\"")
 	defer func() { registryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{DeleteUntagged: true}); err != nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{DeleteUntagged: true}); err != nil {
 		t.Fatalf("readonly gc = %v, want nil", err)
 	}
-	for _, want := range []string{"garbage-collect", "--delete-untagged", "config.yml", "shared store proven via app:v1"} {
+	for _, want := range []string{"garbage-collect", "--delete-untagged", "config.yml", "shared store proven via kpr-sentinel:live generation "} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("collector invocation lacks %q:\n%s", want, out.String())
 		}
@@ -334,16 +334,8 @@ func TestRunGCReadonlyRunsBinary(t *testing.T) {
 
 	registryBinPath = stageBin(t, "exit 3")
 	var fail strings.Builder
-	if err := gc.Run(context.Background(), &fail, s, gc.ProbeRegistry, s, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err == nil {
+	if err := gc.Run(context.Background(), &fail, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, gc.Options{}); err == nil {
 		t.Error("failing collector returned nil, want the exit surfaced")
-	}
-
-	empty := store.NewMemStore()
-	var norows strings.Builder
-	if err := gc.Run(context.Background(), &norows, empty, gc.ProbeRegistry, empty, gc.RunCollector, deny.URL, cfg, registryBinPath, gc.Options{}); err == nil {
-		t.Error("readonly gc with no tracked rows succeeded, want refusal")
-	} else if !strings.Contains(err.Error(), "no tracked digests") {
-		t.Errorf("refusal names no cause: %v", err)
 	}
 }
 

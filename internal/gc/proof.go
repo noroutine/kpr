@@ -4,14 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"go.yaml.in/yaml/v3"
-	"nrtn.dev/catalyst/kpr/internal/policy"
-	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // Ready infers at runtime whether this container can collect at all:
@@ -107,57 +103,4 @@ func StoreRoot(configPath string) (string, error) {
 		return "", fmt.Errorf("no filesystem storage root in %s: local gc needs the shared directory layout", configPath)
 	}
 	return cfg.Storage.Filesystem.RootDirectory, nil
-}
-
-// layout joins the distribution filesystem layout below root.
-func layout(root string, elems ...string) string {
-	return filepath.Join(append([]string{root, "docker", "registry", "v2"}, elems...)...)
-}
-
-// SameStoreUpload proves the probe upload landed in the local store:
-// the uuid dir the registry just created must exist under the
-// configured root. Retried briefly — creation races the response on a
-// loaded registry; a minute-old absence means a different store.
-func SameStoreUpload(root, uuid string) bool {
-	if uuid == "" {
-		return false
-	}
-	dir := layout(root, "repositories", ProbeRepo, "_uploads", uuid)
-	for i := 0; i < 5; i++ {
-		if st, err := os.Stat(dir); err == nil && st.IsDir() {
-			return true
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	return false
-}
-
-// SameStoreTagLink proves shared store without writing: a tracked
-// tag's link file must resolve to the tracked digest. Readonly mode
-// cannot mint fresh evidence, so it reuses what the receiver already
-// recorded.
-func SameStoreTagLink(root, repo, tag, digest string) bool {
-	if repo == "" || tag == "" || digest == "" {
-		return false
-	}
-	raw, err := os.ReadFile(layout(root, "repositories", repo, "_manifests", "tags", tag, "current", "link"))
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(string(raw)) == digest
-}
-
-// FirstDigestRow returns any tracked row carrying a manifest digest:
-// readonly proofs need one recorded link to check.
-func FirstDigestRow(ctx context.Context, s store.Store) (policy.Row, bool) {
-	rows, err := s.All(ctx)
-	if err != nil {
-		return policy.Row{}, false
-	}
-	for _, r := range rows {
-		if r.Digest != "" {
-			return r, true
-		}
-	}
-	return policy.Row{}, false
 }

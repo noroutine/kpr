@@ -8,61 +8,6 @@ import (
 	"testing"
 )
 
-// A sentinel upload nobody can find is a different store — false,
-// after the retry bound, not a hang. If this fails, gc blocks on a
-// stranger's registry instead of refusing it.
-func TestSameStoreUploadMissingDir(t *testing.T) {
-	if SameStoreUpload(t.TempDir(), "no-such-uuid") {
-		t.Error("missing upload dir proved same-store, want false")
-	}
-}
-
-// A writable probe is only authoritative when its fresh upload dir is
-// visible under the configured root: same bytes the registry just
-// wrote, seen locally. If this fails, gc collects a stranger's store
-// while pointed at the right URL.
-func TestSameStoreUploadNeedsFreshDir(t *testing.T) {
-	root := t.TempDir()
-	uuid := "01a0e844-a69b-7d13-bd66-97efe391d879"
-	if SameStoreUpload(root, uuid) {
-		t.Error("absent upload dir proved same store, want false")
-	}
-	dir := filepath.Join(root, "docker", "registry", "v2", "repositories", ProbeRepo, "_uploads", uuid)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("stage upload dir: %v", err)
-	}
-	if !SameStoreUpload(root, uuid) {
-		t.Error("present upload dir proved nothing, want true")
-	}
-}
-
-// Readonly proves nothing by writing, so the proof reads: a tracked
-// tag's link file must resolve to the tracked digest. If this fails,
-// gc in readonly mode trusts the URL alone.
-func TestSameStoreTagLinkNeedsMatchingDigest(t *testing.T) {
-	root := t.TempDir()
-	digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
-	link := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", "_manifests", "tags", "v1", "current", "link")
-	if SameStoreTagLink(root, "app", "v1", digest) {
-		t.Error("absent link proved same store, want false")
-	}
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		t.Fatalf("stage link dir: %v", err)
-	}
-	if err := os.WriteFile(link, []byte("sha256:deadbeef\n"), 0o644); err != nil {
-		t.Fatalf("stage link: %v", err)
-	}
-	if SameStoreTagLink(root, "app", "v1", digest) {
-		t.Error("mismatched link proved same store, want false")
-	}
-	if err := os.WriteFile(link, []byte(digest+"\n"), 0o644); err != nil {
-		t.Fatalf("stage link: %v", err)
-	}
-	if !SameStoreTagLink(root, "app", "v1", digest) {
-		t.Error("matching link proved nothing, want true")
-	}
-}
-
 // Missing binary or config refuses with the remedy instead of failing
 // mid-collect: gc degrades by construction when the store isn't
 // shared into this container. If this fails, a bare image (no mounts)

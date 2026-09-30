@@ -201,13 +201,22 @@ with a bind-mounted store — write layout, read via API,
 bump the generation, verify the repoint serves fresh.
 Absence (read before write) refuses.
 
-### M3: gc same-store proof on sentinel (open)
+### M3: gc same-store proof on sentinel (done)
 
-`gc Run` proves identity via sentinel generation
-read-back instead of upload-dir sighting (writable) and
-tracked-row links (readonly). Kills the empty-redis
-refusal in readonly mode; the write probe keeps
-classifying mode only.
+`gc Run` writes a fresh `kpr-sentinel:live` generation per
+run and reads it back through the API — same proof both
+modes, no tracked rows, empty redis proves fine. `Run`
+dropped the `Store` port entirely (no `FirstDigestRow`,
+no `SameStoreUpload`/`SameStoreTagLink` — deleted with
+their tests); it keeps `Probe` (mode), `Locker`, and
+`Collector`, and gains the `sentinel.API` port the
+registry client carries. Unit tests run behind a
+file-backed fake registry (`fileAPI` over the staged
+root) plus a frozen-generation fake for the stale case;
+cli tests serve sentinel files from disk over httptest.
+Stranger store and stale snapshot both refuse with "does
+not share", before the collector spawns. The write probe
+keeps classifying mode only.
 
 ### M4: backfill snapshot detection (open)
 

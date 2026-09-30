@@ -127,8 +127,9 @@ classifiable mode, and the local mount is the registry's own store.
 
 - **Sentinel**: a cancelled blob-upload initiate under a probe repo —
   202 means writable, 405 means maintenance readonly, anything else
-  refuses. Writable proves same-store via the fresh upload dir;
-  readonly proves it via a tracked tag link. A real run on writable
+  refuses. Same-store proof is a fresh `kpr-sentinel:live` generation
+  written to the local mount and read back through the API — both
+  modes, no tracked rows, no API writes. A real run on writable
   refuses unless `--force`; a dry-run preview proceeds warned.
 - **Lock**: the shared `kpr:gc:lock` (30m bound) serializes kpr-driven
   runs. It is advisory by necessity — distribution's `MarkAndSweep`

@@ -35,6 +35,13 @@ const (
 	configMediaType   = "application/vnd.oci.image.config.v1+json"
 )
 
+// The live sentinel's fixed address: one repo, one tag. Generations
+// turn over under it; old revisions go untagged for the collector.
+const (
+	Repo = "kpr-sentinel"
+	Tag  = "live"
+)
+
 type descriptor struct {
 	MediaType string `json:"mediaType"`
 	Digest    string `json:"digest"`

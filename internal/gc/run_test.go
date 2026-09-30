@@ -2,15 +2,15 @@ package gc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -19,72 +19,61 @@ var (
 	errProbeDead     = errors.New("probe dead")
 )
 
-// The orchestration runs behind stub ports: a fixed readonly probe
-// and a recording collector drive a full pass with no network and no
-// binary. If this fails, Run reaches past its ports to the concrete
-// world.
-func TestRunBehindStubPorts(t *testing.T) {
-	root := t.TempDir()
-	cfg := filepath.Join(t.TempDir(), "config.yml")
-	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o644); err != nil {
-		t.Fatalf("stage config: %v", err)
-	}
-	digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
-	s := store.NewMemStore()
-	c := context.Background()
-	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: digest, PushedAt: time.Now()})
-	link := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", "_manifests", "tags", "v1", "current", "link")
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		t.Fatalf("stage link dir: %v", err)
-	}
-	if err := os.WriteFile(link, []byte(digest+"\n"), 0o644); err != nil {
-		t.Fatalf("stage link: %v", err)
-	}
+// fileAPI serves sentinel generations straight from the staged root:
+// tag link to revision blob, manifest to config blob, layer link
+// checked like the registry checks it. Whatever Write laid down,
+// this serves back — a file-backed fake registry for the proof half
+// of Run. A different (or empty) root serves nothing.
+type fileAPI struct{ root string }
 
-	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
-	})
-	var collected [][]string
-	collect := Collector(func(_ context.Context, _ io.Writer, _ string, args []string, _ Reporter) error {
-		collected = append(collected, args)
-		return nil
-	})
-	var out strings.Builder
-	err := Run(c, &out, s, probe, s, collect, "http://registry:5000", cfg, "/bin/sh",
-		Options{DryRun: true, Report: func(Event) {}})
-	if err != nil {
-		t.Fatalf("stub-port run: %v", err)
-	}
-	if len(collected) != 1 || !hasArg(collected[0], "--dry-run") {
-		t.Errorf("collector got %v, want one --dry-run invocation", collected)
-	}
-	if !strings.Contains(out.String(), "shared store proven via app:v1") {
-		t.Errorf("output lacks the proof line:\n%s", out.String())
-	}
+func (f fileAPI) blob(root, digest string) ([]byte, error) {
+	hex := strings.TrimPrefix(digest, "sha256:")
+	return os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "blobs", "sha256", hex[:2], hex, "data"))
 }
 
-// stageProvenRun stages config, one digest row, and its link: every
-// orchestration test below starts from proven ground and varies one
-// port.
-func stageProvenRun(t *testing.T) (string, *store.MemStore) {
+func (f fileAPI) GetManifest(_ context.Context, repo, tag string) ([]byte, error) {
+	raw, err := os.ReadFile(filepath.Join(f.root, "docker", "registry", "v2", "repositories", repo, "_manifests", "tags", tag, "current", "link"))
+	if err != nil {
+		return nil, err
+	}
+	return f.blob(f.root, strings.TrimSpace(string(raw)))
+}
+
+func (f fileAPI) GetBlob(_ context.Context, repo, digest string) ([]byte, error) {
+	hex := strings.TrimPrefix(digest, "sha256:")
+	if _, err := os.Stat(filepath.Join(f.root, "docker", "registry", "v2", "repositories", repo, "_layers", "sha256", hex, "link")); err != nil {
+		return nil, err
+	}
+	return f.blob(f.root, digest)
+}
+
+// frozenAPI serves one fixed generation whatever the store holds: a
+// stale snapshot on demand. If Run accepts it, the proof compares
+// anything but the generation it just wrote.
+type frozenAPI struct {
+	manifest []byte
+	blob     []byte
+}
+
+func (f frozenAPI) GetManifest(context.Context, string, string) ([]byte, error) {
+	return f.manifest, nil
+}
+
+func (f frozenAPI) GetBlob(context.Context, string, string) ([]byte, error) {
+	return f.blob, nil
+}
+
+// stageProvenRun stages a config over an empty root and returns the
+// config, the root, and a lock: the sentinel Write inside Run lays
+// the proof ground itself, so tests start empty and vary one port.
+func stageProvenRun(t *testing.T) (string, string, *store.MemStore) {
 	t.Helper()
 	root := t.TempDir()
 	cfg := filepath.Join(t.TempDir(), "config.yml")
 	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o644); err != nil {
 		t.Fatalf("stage config: %v", err)
 	}
-	digest := "sha256:094354e66a2a3da4f26955a83048fb9a5b6e36e8a972a3ea3628c2fcdd09a3cd"
-	s := store.NewMemStore()
-	c := context.Background()
-	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: digest, PushedAt: time.Now()})
-	link := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", "_manifests", "tags", "v1", "current", "link")
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		t.Fatalf("stage link dir: %v", err)
-	}
-	if err := os.WriteFile(link, []byte(digest+"\n"), 0o644); err != nil {
-		t.Fatalf("stage link: %v", err)
-	}
-	return cfg, s
+	return cfg, root, store.NewMemStore()
 }
 
 func okCollector(collected *[][]string) Collector {
@@ -94,16 +83,105 @@ func okCollector(collected *[][]string) Collector {
 	}
 }
 
+// The orchestration runs behind stub ports: a fixed readonly probe,
+// a file-backed fake registry, and a recording collector drive a
+// full pass with no network and no binary. If this fails, Run reaches
+// past its ports to the concrete world.
+func TestRunBehindStubPorts(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	var collected [][]string
+	var out strings.Builder
+	err := Run(context.Background(), &out, probe, lock, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh",
+		Options{DryRun: true, Report: func(Event) {}})
+	if err != nil {
+		t.Fatalf("stub-port run: %v", err)
+	}
+	if len(collected) != 1 || !hasArg(collected[0], "--dry-run") {
+		t.Errorf("collector got %v, want one --dry-run invocation", collected)
+	}
+	if !strings.Contains(out.String(), "shared store proven via kpr-sentinel:live generation ") {
+		t.Errorf("output lacks the proof line:\n%s", out.String())
+	}
+}
+
+// A stranger's store — the fake serves a different root — refuses
+// even forced: the generation just written never comes back. If this
+// fails, gc collects whatever directory the mount points at.
+func TestRunStrangerStoreRefuses(t *testing.T) {
+	cfg, _, lock := stageProvenRun(t)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	var collected [][]string
+	var out strings.Builder
+	err := Run(context.Background(), &out, probe, lock, okCollector(&collected), fileAPI{t.TempDir()},
+		"http://registry:5000", cfg, "/bin/sh",
+		Options{DryRun: true, Force: true, Report: func(Event) {}})
+	if err == nil {
+		t.Fatal("gc on a stranger's store succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "does not share") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+	if len(collected) != 0 {
+		t.Errorf("collector ran %v on unproven ground, want no invocation", collected)
+	}
+}
+
+// A stale snapshot — the fake serves a fixed old generation —
+// refuses too: same files, wrong content. If this fails, the proof
+// is presence of the sentinel, not freshness, and old snapshots
+// pass silently.
+func TestRunStaleSnapshotRefuses(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, sentinel.Payload{V: 1, Gen: 1}); err != nil {
+		t.Fatalf("stage old generation: %v", err)
+	}
+	manRaw, err := fileAPI{root}.GetManifest(context.Background(), sentinel.Repo, sentinel.Tag)
+	if err != nil {
+		t.Fatalf("read staged manifest: %v", err)
+	}
+	var staged struct {
+		Config struct {
+			Digest string `json:"digest"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(manRaw, &staged); err != nil {
+		t.Fatalf("parse staged manifest: %v", err)
+	}
+	payRaw, err := fileAPI{root}.GetBlob(context.Background(), sentinel.Repo, staged.Config.Digest)
+	if err != nil {
+		t.Fatalf("read staged blob: %v", err)
+	}
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	frozen := frozenAPI{manifest: manRaw, blob: payRaw}
+	var collected [][]string
+	var out strings.Builder
+	err = Run(context.Background(), &out, probe, lock, okCollector(&collected), frozen,
+		"http://registry:5000", cfg, "/bin/sh",
+		Options{DryRun: true, Force: true, Report: func(Event) {}})
+	if err == nil {
+		t.Fatal("gc on a stale snapshot succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "does not share") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
 // releaseFailLocker drops the lock release: the run still passes
 // (the lock expires), but warns loud instead of pretending a clean
 // handoff. If this fails, a leaked lock reads as orderly.
 func TestRunWarnsOnReleaseFailure(t *testing.T) {
-	cfg, s := stageProvenRun(t)
+	cfg, root, s := stageProvenRun(t)
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, s,
+	err := Run(context.Background(), &out,
 		Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
-		releaseFailLocker{s}, okCollector(&collected),
+		releaseFailLocker{s}, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}})
 	if err != nil {
@@ -127,7 +205,7 @@ func (releaseFailLocker) ReleaseLock(context.Context, string) error {
 // --force passes warned instead — the operator presumed to know. If
 // this fails, mid-run writes go unnoticed either way.
 func TestRunFlipRefusesUnlessForced(t *testing.T) {
-	cfg, s := stageProvenRun(t)
+	cfg, root, s := stageProvenRun(t)
 	flipProbe := func() Probe {
 		calls := 0
 		return func(context.Context, string) (Mode, string, error) {
@@ -140,14 +218,14 @@ func TestRunFlipRefusesUnlessForced(t *testing.T) {
 	}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, s, flipProbe(), s, okCollector(&collected),
+	err := Run(context.Background(), &out, flipProbe(), s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}})
 	if err == nil || !strings.Contains(err.Error(), "mode changed") {
 		t.Fatalf("flipped run = %v, want the mode-change refusal", err)
 	}
 	out.Reset()
-	if err := Run(context.Background(), &out, s, flipProbe(), s, okCollector(&collected),
+	if err := Run(context.Background(), &out, flipProbe(), s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh",
 		Options{DryRun: true, Force: true, Report: func(Event) {}}); err != nil {
 		t.Fatalf("forced flipped run: %v", err)
@@ -161,7 +239,7 @@ func TestRunFlipRefusesUnlessForced(t *testing.T) {
 // proven ground, and refusing now would lie about work done. If this
 // fails, a transient probe blip fails a good run.
 func TestRunDeadPostProbeWarns(t *testing.T) {
-	cfg, s := stageProvenRun(t)
+	cfg, root, s := stageProvenRun(t)
 	calls := 0
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		calls++
@@ -172,7 +250,7 @@ func TestRunDeadPostProbeWarns(t *testing.T) {
 	})
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, s, probe, s, okCollector(&collected),
+	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}})
 	if err != nil {

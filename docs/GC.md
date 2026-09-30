@@ -12,7 +12,7 @@ Manifest deletes drop references only; blob bytes need the stock collector again
 Current behavior in short:
 
 - **Offline.** The collector needs the registry stopped or readonly; kpr proves the mode via sentinel (cancelled blob-upload initiate under a probe repo — 202 writable, 405 maintenance readonly) and refuses anything else.
-- **Same-store proof per run, stored nothing.** Writable proves via a fresh upload dir; readonly via a tracked tag link. A real run on writable refuses unless `--force`.
+- **Same-store proof per run, stored nothing.** Every run writes a fresh `kpr-sentinel:live` generation to the local mount and reads it back through the API — both modes, no tracked rows, an empty redis proves fine. A real run on writable refuses unless `--force`. Old generations go untagged and die in `--delete-untagged` runs.
 - **Advisory lock.** The shared `kpr:gc:lock` (30m bound) serializes kpr-driven runs; distribution's `MarkAndSweep` sets none, so never run a manual `garbage-collect` alongside.
 - **Evented runner.** The collector streams through a subprocess with pipe capture, line streaming, and drain discipline; pre/post sentinel events; a mode flip mid-run fails loudly unless `--force`.
 - **Dry-run default.** `kpr gc` previews; `--no-dry-run` collects for real.

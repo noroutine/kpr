@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/registry"
 )
 
 // registryBinPath is the stock registry binary gc shells out to. The
@@ -57,10 +58,12 @@ var gcCmd = &cobra.Command{
 	Long: `Run the stock registry garbage-collect against the shared store,
 streaming its output and reporting each stage. Dry-run by default
 (preview only): --no-dry-run (or KPR_NO_DRY_RUN=true) collects for
-real. The sentinel probes the registry first: readonly collects, a
-real run on writable refuses unless --force (flip
-storage.maintenance.readonly and restart it instead), a preview on
-writable proceeds warned, inconclusive always refuses. After the
+real. The sentinel probes the registry first (readonly collects, a
+real run on writable refuses unless --force — flip
+storage.maintenance.readonly and restart it instead — a preview on
+writable proceeds warned, inconclusive always refuses), then proves
+the store shared with a fresh generation it reads back through the
+API. After the
 collect the sentinel re-probes: a mode flip mid-run is loud but
 never a panic — it fails the run unless --force (which presumes you
 know). Flipping readonly stays with the operator — this command
@@ -71,10 +74,10 @@ never rewrites registry config.`,
 			return err
 		}
 		defer d.close()
-		cfg, s := d.cfg, d.store
+		cfg := d.cfg
 		out := cmd.OutOrStdout()
 		dryRun := !gcNoDryRun && !cfg.NoDryRun
-		return gc.Run(cmd.Context(), out, s, gc.ProbeRegistry, s, gc.RunCollector, cfg.RegistryURL, gcConfigPath, registryBinPath, gc.Options{
+		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, registry.NewClient(cfg.RegistryURL), cfg.RegistryURL, gcConfigPath, registryBinPath, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			Force:          gcForce,
 			DryRun:         dryRun,
