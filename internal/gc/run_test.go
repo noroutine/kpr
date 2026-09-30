@@ -114,6 +114,9 @@ func TestRunBehindStubPorts(t *testing.T) {
 	if !strings.Contains(out.String(), "shared store proven via noroutine/kpr-sentinel:live generation ") {
 		t.Errorf("output lacks the proof line:\n%s", out.String())
 	}
+	if !strings.HasSuffix(strings.TrimRight(out.String(), "\n"), "dry-run complete: nothing was deleted") {
+		t.Errorf("dry-run verdict is not the last line:\n%s", out.String())
+	}
 }
 
 // A stranger's store — the fake serves a different root — refuses

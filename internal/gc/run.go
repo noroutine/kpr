@@ -162,5 +162,13 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run", ModeName(mode), ModeName(post))
 		}
 	}
+	// The verdict goes last: the marking flood buries everything
+	// above it, so a preview restates its harmlessness here, where
+	// the eye lands.
+	if opts.DryRun {
+		if _, werr := io.WriteString(w, "dry-run complete: nothing was deleted\n"); werr != nil {
+			return werr
+		}
+	}
 	return nil
 }
