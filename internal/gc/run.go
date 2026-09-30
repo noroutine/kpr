@@ -166,7 +166,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// above it, so a preview restates its harmlessness here, where
 	// the eye lands.
 	if opts.DryRun {
-		if _, werr := io.WriteString(w, "dry-run complete: nothing was deleted\n"); werr != nil {
+		if _, werr := io.WriteString(w, "dry-run complete: nothing was deleted (collect for real with --no-dry-run)\n"); werr != nil {
 			return werr
 		}
 	}
