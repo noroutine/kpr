@@ -1,7 +1,8 @@
-// Package store is redis-as-API: rows, marks, run state, and the
-// sweep lock live in redis under the keys below (see docs/ARCHITECTURE.md).
-// Redis holds state, never log streams: the activity ring is capped,
-// and verbose operational logs stay on stdout/OTLP.
+// Package store is kpr state behind one port: rows, marks, run
+// state, and the single-flight locks (see docs/STORES.md for the
+// redis, mem, and file shapes). Backends hold state, never log
+// streams: the activity ring is capped, and verbose operational logs
+// stay on stdout/OTLP.
 package store
 
 import (
@@ -53,7 +54,9 @@ type Outcome struct {
 }
 
 // Store is the shared state both `serve` and the colocated CLI talk
-// to. Implementations: MemStore (hermetic tests) and RedisStore.
+// to. Implementations: MemStore (hermetic tests), RedisStore
+// (default), and FileStore (redis-less mode). Shapes documented in
+// docs/STORES.md; semantics pinned by the storetest contract.
 type Store interface {
 	// Ping reports backend reachability (banner red, sweeper skips).
 	Ping(ctx context.Context) error
