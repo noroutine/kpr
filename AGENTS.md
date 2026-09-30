@@ -68,17 +68,18 @@ folder for test containers.
 
 ## Code review (Claude reviews, Muse implements)
 
-Claude Code (`claude` CLI, `-p` print mode) is the reviewer onwards;
-Muse writes the code. Reviewer reviews-not-runs: reads the diff,
-never executes. Before each milestone commit, get a review of the
-working-tree diff:
+Claude Code (`claude --model claude-sonnet-5 -p`, print mode) reviews
+milestones, not every change: before pushing a milestone, review the
+pushed range per the pack:
 
 ```bash
-git diff | claude -p "Review this Go diff for correctness and hexagonal discipline (narrow ports, adapters behind interfaces, use cases free of I/O). Conventions in AGENTS.md. Findings by severity, no execution."
+git diff origin/master...HEAD | claude --model claude-sonnet-5 -p "Review per docs/REVIEWER_CONTEXT.md. Ordered findings only, file:line anchors."
 ```
 
-Triage every finding: fix it, or push back with the reason. Reviewer
-findings never auto-apply; coder judgment rules.
+Pack: `docs/REVIEWER_CONTEXT.md` (roles, loop, contract).
+Reviewer reviews-not-runs: reads the diff, never executes. Triage
+every finding: fix it, or push back with the reason. Findings never
+auto-apply; coder judgment rules.
 
 ## Destructive actions: implicit dry-run
 
