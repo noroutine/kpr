@@ -50,10 +50,15 @@ const (
 	configMediaType   = "application/vnd.oci.image.config.v1+json"
 )
 
-// The live sentinel's fixed address: one repo, one tag. Generations
-// turn over under it; old revisions go untagged for the collector.
+// The live sentinel's fixed address: one nested repo, one tag.
+// Nested under kpr/ so one glob (kpr/*) excludes every kpr-owned
+// repo from backfill enumeration, and future diagnostic vehicles
+// group beside it. Leading-underscore namespaces are out — name
+// components must start alphanumeric per the distribution-spec
+// grammar, and the router 404s them. Generations turn over under
+// the tag; old revisions go untagged for the collector.
 const (
-	Repo = "kpr-sentinel"
+	Repo = "kpr/sentinel"
 	Tag  = "live"
 )
 

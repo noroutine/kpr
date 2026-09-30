@@ -27,7 +27,7 @@ func TestNewGenOrdersByTime(t *testing.T) {
 // API serves 404s or the collector trips over the residue.
 func TestWriteLaysOutExactFiles(t *testing.T) {
 	root := t.TempDir()
-	md, err := Write(root, "kpr-sentinel", "live", Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007", TS: "2026-09-30T11:00:00Z", Writer: "test"})
+	md, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007", TS: "2026-09-30T11:00:00Z", Writer: "test"})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -36,9 +36,9 @@ func TestWriteLaysOutExactFiles(t *testing.T) {
 	}
 	mhex := strings.TrimPrefix(md, "sha256:")
 	want := map[string]string{
-		filepath.Join("docker", "registry", "v2", "repositories", "kpr-sentinel", "_manifests", "revisions", "sha256", mhex, "link"):             md,
-		filepath.Join("docker", "registry", "v2", "repositories", "kpr-sentinel", "_manifests", "tags", "live", "current", "link"):               md,
-		filepath.Join("docker", "registry", "v2", "repositories", "kpr-sentinel", "_manifests", "tags", "live", "index", "sha256", mhex, "link"): md,
+		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "revisions", "sha256", mhex, "link"):             md,
+		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "live", "current", "link"):               md,
+		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "live", "index", "sha256", mhex, "link"): md,
 	}
 	var payloadDigest string
 	for path, wantBody := range want {
@@ -91,7 +91,7 @@ func TestWriteLaysOutExactFiles(t *testing.T) {
 	if man.Config.Size != len(payRaw) {
 		t.Errorf("config.size = %d, want payload bytes %d", man.Config.Size, len(payRaw))
 	}
-	linkRaw, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "repositories", "kpr-sentinel", "_layers", "sha256", phex, "link"))
+	linkRaw, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_layers", "sha256", phex, "link"))
 	if err != nil {
 		t.Fatalf("read layer link: %v", err)
 	}
@@ -106,18 +106,18 @@ func TestWriteLaysOutExactFiles(t *testing.T) {
 // and the proof reads a stale generation.
 func TestWriteRepointMovesTag(t *testing.T) {
 	root := t.TempDir()
-	md1, err := Write(root, "kpr-sentinel", "live", Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000001"})
+	md1, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000001"})
 	if err != nil {
 		t.Fatalf("Write gen1: %v", err)
 	}
-	md2, err := Write(root, "kpr-sentinel", "live", Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000002"})
+	md2, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000002"})
 	if err != nil {
 		t.Fatalf("Write gen2: %v", err)
 	}
 	if md1 == md2 {
 		t.Fatalf("generations share digest %q, want distinct", md1)
 	}
-	cur, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "repositories", "kpr-sentinel", "_manifests", "tags", "live", "current", "link"))
+	cur, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "live", "current", "link"))
 	if err != nil {
 		t.Fatalf("read current link: %v", err)
 	}
@@ -127,11 +127,11 @@ func TestWriteRepointMovesTag(t *testing.T) {
 	// Old revision stays (untagged, collectable), new index entry added.
 	for _, md := range []string{md1, md2} {
 		mhex := strings.TrimPrefix(md, "sha256:")
-		if _, err := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", "kpr-sentinel", "_manifests", "revisions", "sha256", mhex, "link")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_manifests", "revisions", "sha256", mhex, "link")); err != nil {
 			t.Errorf("revision %q missing: %v", md, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", "kpr-sentinel", "_manifests", "tags", "live", "index", "sha256", strings.TrimPrefix(md1, "sha256:"), "link")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "live", "index", "sha256", strings.TrimPrefix(md1, "sha256:"), "link")); err != nil {
 		t.Errorf("gen1 index entry missing: %v", err)
 	}
 }
