@@ -150,9 +150,8 @@ Fix: no new port. `Sweeper.Untag` / `Sweeper.Untrack` beside
 TTL floor, dry-run, `Current` staging. Duplicate dies.
 
 Landed:
-- `ba7e27f` — `Untag`, cli delegates, duplicate dies.
-- (next) — `Untrack` (bare `rm` delegates, journals `untracked`),
-  partial-output fix, row-drop-failure continuation.
+- [ba7e27f](https://nrtn.dev/catalyst/kpr/commit/ba7e27ff71b9bbd67cda39feefeed560b05e9fd2) — `Untag`, cli delegates, duplicate dies.
+- [4d06efb](https://nrtn.dev/catalyst/kpr/commit/4d06efb5577f1e7000267787ae38a78c1e664f66) — `Untrack` (bare `rm` delegates, journals `untracked`), partial-output fix, row-drop-failure continuation.
 
 ### Miss 2 — no generation (open)
 
