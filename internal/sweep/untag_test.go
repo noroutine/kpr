@@ -48,6 +48,12 @@ func TestUntagDeletesByDigestDropsRow(t *testing.T) {
 	if len(acts) != 1 || acts[0].Outcome != "deleted" {
 		t.Errorf("activity = %+v, want one deleted outcome", acts)
 	}
+	if len(acts) == 1 && acts[0].Actor != "kpr-sweep" {
+		t.Errorf("activity actor = %q, want the sweeper named", acts[0].Actor)
+	}
+	if len(acts) == 1 && acts[0].Trigger != "untag" {
+		t.Errorf("activity trigger = %q, want untag (not a pass trigger)", acts[0].Trigger)
+	}
 }
 
 // Already-gone counts as confirmed: the tag is gone, the row has
@@ -142,6 +148,12 @@ func TestUntrackDropsRowsOnly(t *testing.T) {
 	acts, _ := s.Activity(testCtx())
 	if len(acts) != 1 || acts[0].Outcome != "untracked" {
 		t.Errorf("activity = %+v, want one untracked outcome", acts)
+	}
+	if len(acts) == 1 && acts[0].Actor != "kpr-sweep" {
+		t.Errorf("activity actor = %q, want the sweeper named", acts[0].Actor)
+	}
+	if len(acts) == 1 && acts[0].Trigger != "rm" {
+		t.Errorf("activity trigger = %q, want rm (bare rm untags nothing)", acts[0].Trigger)
 	}
 }
 

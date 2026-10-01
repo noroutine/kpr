@@ -140,6 +140,12 @@ func TestDryRunPlansWithoutDeleting(t *testing.T) {
 	if len(acts) != 1 || acts[0].Outcome != "planned" {
 		t.Errorf("activity = %+v, want one planned outcome", acts)
 	}
+	if len(acts) == 1 && acts[0].Actor != "kpr-sweep" {
+		t.Errorf("activity actor = %q, want the sweeper named", acts[0].Actor)
+	}
+	if len(acts) == 1 && acts[0].Trigger != "POST" {
+		t.Errorf("activity trigger = %q, want the pass trigger", acts[0].Trigger)
+	}
 	// The pass counts every attempted row: watchers read Done to tell
 	// progress from a stall. If this fails, the run-state undercounts.
 	if cur, _ := s.GetCurrent(testCtx()); cur.Done != 1 || cur.Due != 1 {

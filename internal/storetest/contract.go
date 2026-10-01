@@ -235,7 +235,7 @@ func testCurrentRoundTrip(t *testing.T, s store.Store) {
 func testActivityRingCapped(t *testing.T, s store.Store) {
 	c := ctx()
 	for i := 0; i < store.ActivityCap+5; i++ {
-		if err := s.PushActivity(c, store.Outcome{Repo: "app", Reason: "x"}); err != nil {
+		if err := s.PushActivity(c, store.Outcome{Repo: "app", Reason: "x", Actor: "kpr-sweep", Trigger: "tick"}); err != nil {
 			t.Fatalf("PushActivity: %v", err)
 		}
 	}
@@ -245,6 +245,9 @@ func testActivityRingCapped(t *testing.T, s store.Store) {
 	}
 	if len(got) != store.ActivityCap {
 		t.Errorf("Activity = %d outcomes, want cap %d", len(got), store.ActivityCap)
+	}
+	if got[0].Actor != "kpr-sweep" || got[0].Trigger != "tick" {
+		t.Errorf("Activity[0] = %+v, want actor and trigger round-tripped", got[0])
 	}
 }
 

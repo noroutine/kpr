@@ -14,10 +14,13 @@ import (
 
 // resolveRow records one outcome in the redis ring and on the
 // activity log together: the console and Quickwit never diverge.
-// Shared by the pass loop and directed deletes.
-func (s *Sweeper) resolveRow(ctx context.Context, passID string, r policy.Row, outcome string, rerr error) {
+// Shared by the pass loop and directed deletes. Every record signs
+// the sweeper and the trigger that wrote it — a pass and an untag
+// journal the same outcomes, and only the trigger tells them apart.
+func (s *Sweeper) resolveRow(ctx context.Context, passID, trigger string, r policy.Row, outcome string, rerr error) {
 	if err := s.Store.PushActivity(ctx, store.Outcome{
 		Repo: r.Repo, Tag: r.Tag, Reason: r.Reason, Outcome: outcome, At: s.now(),
+		Actor: "kpr-sweep", Trigger: trigger,
 	}); err != nil {
 		log.Printf("sweeper: activity write failed: %v", err)
 	}
@@ -59,7 +62,7 @@ func (s *Sweeper) Untrack(ctx context.Context, rows []policy.Row) ([]policy.Row,
 			failed = append(failed, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, err))
 			continue
 		}
-		s.resolveRow(ctx, id, r, "untracked", nil)
+		s.resolveRow(ctx, id, "rm", r, "untracked", nil)
 		done = append(done, r)
 	}
 	if len(failed) > 0 {
@@ -83,14 +86,14 @@ func (s *Sweeper) Untag(ctx context.Context, rows []policy.Row) ([]policy.Row, e
 		outcome, derr := s.deleteManifest(ctx, r)
 		switch {
 		case derr != nil:
-			s.resolveRow(ctx, id, r, "failed", derr)
+			s.resolveRow(ctx, id, "untag", r, "failed", derr)
 			failed = append(failed, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, derr))
 		case outcome == registry.OutcomeHeld:
 			herr := errors.New("registry held the delete")
-			s.resolveRow(ctx, id, r, "failed", herr)
+			s.resolveRow(ctx, id, "untag", r, "failed", herr)
 			failed = append(failed, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, herr))
 		default: // deleted or already gone: confirmed, resolve.
-			s.resolveRow(ctx, id, r, "deleted", nil)
+			s.resolveRow(ctx, id, "untag", r, "deleted", nil)
 			if err := s.Store.Delete(ctx, r.Repo, r.Tag); err != nil {
 				// Like the pass loop: a local store failure must not
 				// abandon the batch — the manifest is already gone, a

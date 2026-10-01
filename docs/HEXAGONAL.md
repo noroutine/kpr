@@ -10,13 +10,19 @@ doesn't get cut.
 
 ## Contents
 
-- [Where we are](#where-we-are)
-- [Shape](#shape)
-- [Standing rules](#standing-rules)
-- [Settled questions](#settled-questions)
-- [How hexagonal is it](#how-hexagonal-is-it)
-- [Focused study: rm --untag and the bypass](#focused-study-rm---untag-and-the-bypass)
-- [Future attacks](#future-attacks)
+- [Hexagonal architecture](#hexagonal-architecture)
+  - [Contents](#contents)
+  - [Where we are](#where-we-are)
+  - [Shape](#shape)
+  - [Standing rules](#standing-rules)
+  - [Settled questions](#settled-questions)
+  - [How hexagonal is it](#how-hexagonal-is-it)
+  - [Focused study: rm --untag and the three misses](#focused-study-rm---untag-and-the-three-misses)
+    - [Miss 1 — the bypass](#miss-1--the-bypass)
+    - [Miss 2 — no generation (open)](#miss-2--no-generation-open)
+      - [Evaluation: write surface](#evaluation-write-surface)
+    - [Miss 3 — lock unchecked (open)](#miss-3--lock-unchecked-open)
+  - [Future attacks](#future-attacks)
 
 ## Where we are
 
@@ -160,9 +166,49 @@ What happened: the delete ties to no proven generation.
 Problem: a misconfigured `KPR_REGISTRY_URL` plus a valid digest
 deletes someone else's tags with no refusal anywhere.
 
-Fix: lineage read-gate inside `Untag`, no mint. Refuse
-foreign/unpaired/identity-less/stale outright; remedy is
-`store adopt` (`rm` carries no `--force`).
+Fix: lineage read-gate inside `Untag`, no mint — evaluation
+below. Refuse foreign/unpaired/identity-less/stale outright;
+remedy is `store adopt` (`rm` carries no `--force`).
+
+#### Evaluation: write surface
+
+Every write path: the gates each one carries (mint / lineage /
+store-lock / clock / mode-probe), who drives it, and what it
+drives (signing name in brackets):
+
+| Operation    | Mint?        | Lineage?       | Lock?   | Clock? | Mode? | Driven by          | Drives                                  |
+|--------------|--------------|----------------|---------|--------|-------|--------------------|-----------------------------------------|
+| `gc` armed   | yes, per run | yes            | yes     | yes    | yes   | human (`gc`)       | mount + rows [`kpr-gc`]                 |
+| `unlock`     | yes          | yes            | sets it | yes    | no    | human (`unlock`)   | mount + marker [`kpr-unlock`]           |
+| sweeper pass | no           | yes, read gate | no¹     | no     | no    | tick loop / POST   | registry + rows + activity [`kpr-sweep`] |
+| `rm --untag` | no           | **no**         | no      | no     | no    | human (`rm`)       | registry + rows + activity [`kpr-sweep`] |
+| `rm`         | no           | **no**         | no      | no     | no    | human (`rm`)       | rows + activity [`kpr-sweep`]            |
+| receiver in  | no           | no             | no      | no     | no    | registry push      | rows [`kpr-receiver`]                   |
+| `plan` edits | no           | no             | no      | no     | no    | human (`plan`)     | marks (no signature)                    |
+
+¹ The sweeper takes the single-flight `LockKey`, not the intent
+marker — different lock, different meaning.
+
+Readings:
+
+- Minting is concentrated: two call sites, both in `gc`.
+  Everything else correctly mints nothing — only gc/unlock
+  establish freshness.
+- The verdict is evaluated three times by hand: same preamble
+  (read served generation → identity + rows → `Judge`), three
+  refusal renderings. Miss 2 extracts this preamble instead of
+  adding a fourth copy.
+- Clock and mode-probe are gc-only, correctly so. Deletes work
+  either mode (readonly fails visibly); activity timestamps
+  aren't proof. No reason to spread either.
+- Conclusion: no grand write-gate — operations need genuinely
+  different subsets (receiver and plan edits need none). One
+  shared lineage preamble, callers render their own refusal.
+- Driving in, driven out: humans drive the CLI paths, the
+  registry drives intake with push events, the tick loop (or POST)
+  drives passes. What each drives is on the right — and only the
+  sweeper serves many errands, so only its activity needs both
+  names (actor `kpr-sweep`, trigger tick/POST/`untag`/`rm`).
 
 ### Miss 3 — lock unchecked (open)
 

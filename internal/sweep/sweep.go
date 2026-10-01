@@ -117,7 +117,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	// resolve records the outcome in the redis ring and on the
 	// activity log together: the console and Quickwit never diverge.
 	resolve := func(r policy.Row, outcome string, rerr error) {
-		s.resolveRow(ctx, sum.PassID, r, outcome, rerr)
+		s.resolveRow(ctx, sum.PassID, trigger, r, outcome, rerr)
 	}
 
 	// Lineage before lock: no point holding single-flight for a

@@ -37,13 +37,16 @@ type PlanEntry struct {
 	PushedAt time.Time
 }
 
-// ActivityEntry is one resolved row: what the pass did, and when.
+// ActivityEntry is one resolved row: what the pass did, who did it,
+// what caused it, and when.
 type ActivityEntry struct {
 	Repo    string
 	Tag     string
 	Reason  string
 	Outcome string
 	At      time.Time
+	Actor   string
+	Trigger string
 }
 
 // Status is everything the console and `status` show about what kpr
@@ -115,6 +118,7 @@ func FetchStatus(ctx context.Context, s store.Store, reg Prober) Status {
 		}
 		st.Activity = append(st.Activity, ActivityEntry{
 			Repo: a.Repo, Tag: a.Tag, Reason: a.Reason, Outcome: a.Outcome, At: a.At,
+			Actor: a.Actor, Trigger: a.Trigger,
 		})
 	}
 	return st

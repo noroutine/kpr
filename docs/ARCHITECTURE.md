@@ -191,6 +191,12 @@ vocabulary is closed at five: every recording path runs through a
 hexagon above. (Old rows may still carry `""` or a pusher name —
 re-push restamps them.)
 
+Activity records carry two more names with a split meaning: actor
+is who carried the operation out (always `kpr-sweep` — one pair of
+hands), trigger is what caused it (the pass trigger like
+tick/POST, or `untag` for directed deletes). The field names may
+earn better ones later; the split stays.
+
 ## Surfaces
 
 Console (server-rendered, no SPA) shows only what kpr tracks — never

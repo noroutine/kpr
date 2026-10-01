@@ -126,7 +126,7 @@ const indexTemplate = `<!DOCTYPE html>
         <h2>📜 Activity</h2>
         <ul>
             {{ range .Keeper.Activity }}
-            <li>{{ .Repo }}:{{ .Tag }} — {{ .Outcome }} ({{ .Reason }}) at {{ .At }}</li>
+            <li>{{ .Repo }}:{{ .Tag }} — {{ .Outcome }} ({{ .Reason }}){{ if .Actor }} by {{ .Actor }}{{ end }}{{ if .Trigger }} via {{ .Trigger }}{{ end }} at {{ .At }}</li>
             {{ end }}
         </ul>
     </div>

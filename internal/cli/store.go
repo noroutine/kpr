@@ -262,6 +262,8 @@ type activityJSON struct {
 	Reason  string `json:"reason"`
 	Outcome string `json:"outcome"`
 	At      string `json:"at"`
+	Actor   string `json:"actor,omitempty"`
+	Trigger string `json:"trigger,omitempty"`
 }
 
 // runStoreStatus prints the store card the banner gave up: backend,
@@ -284,7 +286,8 @@ func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentine
 		if actErr == nil {
 			for _, a := range acts {
 				out.Activity = append(out.Activity, activityJSON{Repo: a.Repo, Tag: a.Tag,
-					Reason: a.Reason, Outcome: a.Outcome, At: a.At.UTC().Format(time.RFC3339)})
+					Reason: a.Reason, Outcome: a.Outcome, At: a.At.UTC().Format(time.RFC3339),
+					Actor: a.Actor, Trigger: a.Trigger})
 			}
 		}
 		return json.NewEncoder(w).Encode(out)

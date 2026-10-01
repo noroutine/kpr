@@ -47,6 +47,8 @@ type keeperActivityRow struct {
 	Reason  string
 	Outcome string
 	At      string
+	Actor   string
+	Trigger string
 }
 
 // keeperSnapshot renders the keeper use case for the dashboard. The
@@ -79,6 +81,7 @@ func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
 		}
 		k.Activity = append(k.Activity, keeperActivityRow{
 			Repo: a.Repo, Tag: a.Tag, Reason: a.Reason, Outcome: a.Outcome, At: at,
+			Actor: a.Actor, Trigger: a.Trigger,
 		})
 	}
 	return k
