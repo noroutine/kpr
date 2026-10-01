@@ -8,7 +8,7 @@ You already run `distribution` (maybe behind Traefik, maybe with redis
 blob-descriptor cache) and you want ephemeral tags without migrating
 to Harbor. kpr attaches as a sidecar: no registry fork, no data
 migration, three wires. Start disarmed — it only plans until you say
-otherwise.
+otherwise. (No registry yet? Start at [docs/QUICKSTART.md](QUICKSTART.md).)
 
 ## Contents
 
