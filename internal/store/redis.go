@@ -77,7 +77,7 @@ func (s *RedisStore) GetIdentity(ctx context.Context) (Identity, error) {
 }
 
 // SetIdentity writes the pairing outright as JSON (no expiry —
-// pairing persists until `kpr adopt` re-pairs).
+// pairing persists until `kpr store adopt` re-pairs).
 func (s *RedisStore) SetIdentity(ctx context.Context, id Identity) error {
 	raw, err := json.Marshal(id)
 	if err != nil {

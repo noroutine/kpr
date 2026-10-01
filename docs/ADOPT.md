@@ -1,6 +1,6 @@
 # Adopting kpr: bolting the keeper onto an existing registry (+ Traefik)
 
-> Not to be confused with `kpr adopt` — the lineage-pairing ceremony
+> Not to be confused with `kpr store adopt` — the lineage-pairing ceremony
 > (`docs/SENTINELS.md`: whose registry is this). This guide attaches
 > kpr to your registry; that command pairs a store to a lineage.
 
@@ -150,12 +150,12 @@ ports collide on your network. Full wiring reference:
 
 Bootstrap order matters: `unlock` first (mints the baseline and
 pairs the store), `adopt` only ever re-pairs. On a fresh registry
-`kpr adopt` correctly refuses — nothing served, nothing to pair
+`kpr store adopt` correctly refuses — nothing served, nothing to pair
 to — so don't start there.
 
 ```bash
 docker compose up -d kpr
-docker exec kpr kpr unlock    # proves the shared store, pairs it
+docker exec kpr kpr store unlock    # proves the shared store, pairs it
 crane copy busybox:latest registry.example.com/test/hello:10m
 
 docker exec kpr kpr status    # tracked: 1, due: 0

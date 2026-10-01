@@ -81,7 +81,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		return fmt.Errorf("store lock unreadable: %w", err)
 	}
 	if !unlocked {
-		return errors.New("store is locked: registry-store writes are denied — run `kpr unlock` to prove the shared store and allow them")
+		return errors.New("store is locked: registry-store writes are denied — run `kpr store unlock` to prove the shared store and allow them")
 	}
 	if err := Ready(binPath, configPath); err != nil {
 		return err

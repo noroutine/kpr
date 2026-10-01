@@ -136,17 +136,17 @@ func TestJudgeMatrix(t *testing.T) {
 		{
 			name:   "foreign refuses both",
 			served: vserved(vother, vgen3), local: paired,
-			ask: Ask{DryRun: true, Now: vnow}, proceed: false, action: "kpr adopt",
+			ask: Ask{DryRun: true, Now: vnow}, proceed: false, action: "kpr store adopt",
 		},
 		{
 			name:   "foreign refuses armed force",
 			served: vserved(vother, vgen3), local: paired,
-			ask: Ask{Force: true, Now: vnow}, proceed: false, action: "kpr adopt",
+			ask: Ask{Force: true, Now: vnow}, proceed: false, action: "kpr store adopt",
 		},
 		{
 			name:   "unpaired store refuses served lineage",
 			served: vserved(vother, vgen3), local: Local{},
-			ask: Ask{DryRun: true, Now: vnow}, proceed: false, action: "kpr adopt",
+			ask: Ask{DryRun: true, Now: vnow}, proceed: false, action: "kpr store adopt",
 		},
 		{
 			name:   "id-less served refuses like foreign",

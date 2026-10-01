@@ -13,7 +13,7 @@ var lockCmd = &cobra.Command{
 	Use:   "lock",
 	Short: "Deny kpr registry-store writes",
 	Long: `Drop the unlock marker: gc and every future store writer refuse
-until 'kpr unlock' proves the shared store again. Reads, sweeps,
+until 'kpr store unlock' proves the shared store again. Reads, sweeps,
 and the receiver keep working — only writes under the registry's
 store go away. Doubles as the remote-mode simulator: locked behaves
 exactly like no shared store for write ops.`,
@@ -26,7 +26,7 @@ exactly like no shared store for write ops.`,
 		if err := d.store.SetUnlocked(cmd.Context(), false); err != nil {
 			return err
 		}
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), "store locked: registry-store writes denied until 'kpr unlock'")
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), "store locked: registry-store writes denied until 'kpr store unlock'")
 		return err
 	},
 }
@@ -55,5 +55,5 @@ to revoke.`,
 
 func init() {
 	unlockCmd.Flags().StringVar(&unlockConfigPath, "config", "/etc/distribution/config.yml", "Registry config file (shared store paths come from it)")
-	RootCmd.AddCommand(lockCmd, unlockCmd)
+	storeCmd.AddCommand(lockCmd, unlockCmd)
 }

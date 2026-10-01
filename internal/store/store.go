@@ -29,7 +29,7 @@ const (
 	// runs bypass it — the registry itself sets no lock.
 	GCLockKey = "kpr:gc:lock"
 	// UnlockedKey records operator intent to allow registry-store
-	// writes: present means `kpr unlock` proved the shared store
+	// writes: present means `kpr store unlock` proved the shared store
 	// and opened it. Absent (fresh stores included) reads locked —
 	// default-deny, never default-allow.
 	UnlockedKey = "kpr:store:unlocked"
@@ -112,7 +112,7 @@ type Store interface {
 	// anything. A read failure is an error, never a guess.
 	IsUnlocked(ctx context.Context) (bool, error)
 	// SetUnlocked records or clears the intent: true after `kpr
-	// unlock` proves the shared store, false on `kpr lock`.
+	// unlock` proves the shared store, false on `kpr store lock`.
 	SetUnlocked(ctx context.Context, unlocked bool) error
 	// GetIdentity reports the paired lineage: empty ID means fresh,
 	// unpaired — nothing to compare served generations against. A
@@ -120,7 +120,7 @@ type Store interface {
 	GetIdentity(ctx context.Context) (Identity, error)
 	// SetIdentity records the pairing: the lineage just established
 	// or adopted, with its baseline generation. Overwrites outright
-	// — only `kpr adopt` invokes it, never inference.
+	// — only `kpr store adopt` invokes it, never inference.
 	SetIdentity(ctx context.Context, id Identity) error
 }
 

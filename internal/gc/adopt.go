@@ -34,7 +34,7 @@ func Adopt(ctx context.Context, w io.Writer, api sentinel.API, ids lineage.Ident
 			return fmt.Errorf("sentinel unreadable: %v", rerr)
 		}
 		if identArg == "" {
-			return fmt.Errorf("nothing served: run an armed `kpr unlock` or `kpr gc` to mint a baseline first (or pass an identity to pre-pair)")
+			return fmt.Errorf("nothing served: run an armed `kpr store unlock` or `kpr gc` to mint a baseline first (or pass an identity to pre-pair)")
 		}
 		if err := ids.SetIdentity(ctx, store.Identity{ID: identArg, AdoptedAt: time.Now().UTC()}); err != nil {
 			return fmt.Errorf("lineage unrecordable: %w", err)

@@ -93,7 +93,7 @@ func TestRunPassRefusesForeignLineage(t *testing.T) {
 	}
 	if len(sum.Failures) != 1 || !strings.Contains(sum.Failures[0], "foreign lineage") {
 		t.Errorf("failures = %v, want the foreign-lineage refusal", sum.Failures)
-	} else if !strings.Contains(sum.Failures[0], "kpr adopt") {
+	} else if !strings.Contains(sum.Failures[0], "kpr store adopt") {
 		t.Errorf("refusal names no ceremony: %v", sum.Failures[0])
 	}
 	if got := stubDeletes(stub); got != 0 {

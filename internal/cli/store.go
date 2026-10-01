@@ -155,8 +155,9 @@ var storeCmd = &cobra.Command{
 row (plan shows due marks only), 'store inspect' shows one full
 row, 'store rm' drops rows outright. rm removes tracking only —
 the registry tag survives, untracked until a re-push or backfill
-re-tracks it. lock/unlock and adopt move under here later;
-backfill lands here as its own milestone.`,
+re-tracks it. 'store lock' / 'store unlock' gate registry-store
+writes behind a fresh proof; 'store adopt' pairs the lineage.
+Backfill lands here as its own milestone.`,
 }
 
 var storeLsCmd = &cobra.Command{

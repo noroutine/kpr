@@ -93,7 +93,7 @@ docker compose up -d
 # Fresh volumes are root-owned; both processes run as uid 1000.
 # One-shot claim (repo `make up` does this for you):
 docker exec -u 0 kpr chown -R 1000:1000 /var/lib/registry
-docker exec kpr kpr unlock    # proves the shared store, pairs it
+docker exec kpr kpr store unlock    # proves the shared store, pairs it
 ```
 
 `unlock` mints a baseline sentinel generation and records the

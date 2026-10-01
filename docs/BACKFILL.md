@@ -18,7 +18,7 @@
 ## Success Criteria
 
 - Backfilled rows carry link-mtime push times and manifest digests, `actor=backfill`, not due; TTL/keep-N reason about them as real age.
-- Locked refuses naming `kpr unlock`; stranger store refuses; stale snapshot warns and still records (not-due) instead of refusing.
+- Locked refuses naming `kpr store unlock`; stranger store refuses; stale snapshot warns and still records (not-due) instead of refusing.
 - Re-running over receiver-tracked rows changes nothing.
 - `backfill <repo-glob>` touches only matching repos; dry-run default with explicit `--no-dry-run` (decided).
 - Backfill runs live on a writable registry; races resolve safe (re-push newer-wins, mid-run delete skipped by count).
@@ -29,7 +29,7 @@
 
 No stored gate anywhere: a resolved-and-persisted runtime config would let `serve` and `backfill` hold different opinions (different mounts, different times). Backfill gates on the served generation inline, per run — then acts on that run's verdict only.
 
-Prerequisite: one prior mint (`kpr unlock` or an armed `gc` — backfill itself never mints). Absent generation refuses naming that ceremony.
+Prerequisite: one prior mint (`kpr store unlock` or an armed `gc` — backfill itself never mints). Absent generation refuses naming that ceremony.
 
 ```mermaid
 flowchart TB

@@ -285,7 +285,7 @@ func testNamedLockSingleFlight(t *testing.T, s store.Store) {
 }
 
 // A fresh store reads locked: registry-store writes stay denied
-// until `kpr unlock` proves the shared store and records intent.
+// until `kpr store unlock` proves the shared store and records intent.
 // Lock clears back to denied; double-lock stays quiet. If this
 // fails, a fresh deploy collects on first gc, or intent doesn't
 // survive the backend round-trip.

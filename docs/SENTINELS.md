@@ -15,7 +15,7 @@ vehicle.
 - [The sentinel today](#the-sentinel-today)
 - [Locality: shared store unlocks, its absence degrades](#locality-shared-store-unlocks-its-absence-degrades)
 - [The lock: default-deny intent (`lock` / `unlock`)](#the-lock-default-deny-intent-lock--unlock)
-- [Lineage: whose registry is this (`id`, verdicts, `kpr adopt`)](#lineage-whose-registry-is-this-id-verdicts-kpr-adopt)
+- [Lineage: whose registry is this (`id`, verdicts, `kpr store adopt`)](#lineage-whose-registry-is-this-id-verdicts-kpr-store-adopt)
 - [Future: backfill snapshot detection](#future-backfill-snapshot-detection)
 
 ## Registry facts the design leans on
@@ -182,11 +182,11 @@ they arrive, never inherited trust.
 
 ## The lock: default-deny intent (`lock` / `unlock`)
 
-Proof is locality; the marker is intent. `kpr unlock` mints a
+Proof is locality; the marker is intent. `kpr store unlock` mints a
 fresh generation, verifies the read-back, and only then records
 `kpr:store:unlocked` (redis key, `<dir>/unlocked` file) —
 unlock on a stranger's store refuses and the marker stays down.
-`kpr lock` drops the marker. Fresh stores read locked: `gc`
+`kpr store lock` drops the marker. Fresh stores read locked: `gc`
 refuses before probing, with the fix named. Reads, sweeps, and
 the receiver never check the marker — locked behaves exactly
 like no shared store for write ops, which makes `lock` the
@@ -197,7 +197,7 @@ location (fs root now, bucket+prefix later behind a writer
 port) while `Read`/`Verify` go through the registry API and stay
 identical.
 
-## Lineage: whose registry is this (`id`, verdicts, `kpr adopt`)
+## Lineage: whose registry is this (`id`, verdicts, `kpr store adopt`)
 
 Locality proves *access*; lineage proves *ownership*. Every
 mint carries the store's lineage identity (`id`, a uuid7 minted
@@ -216,9 +216,9 @@ separate stores fork lineages and refuse by design.
 | nothing (absent), armed | any | establish — mint the baseline under the stored id (fresh store: generate one) |
 | unreadable / unparseable / future timestamp | any | refuse |
 | identity-less (pre-pairing) | any | refuse, never auto-adopted — wipe the volume or remove stale tags (even explicit `adopt` won't bless it) |
-| identity, store unpaired | — | refuse — `kpr adopt` pairs, optionally pinned to an expected id |
-| foreign identity | paired elsewhere | refuse, `--force` never overrides — `kpr adopt` re-pairs (prunes the old epoch's sentinel rows) |
-| generation older than tracked | paired | refuse armed (`--force` if the restore was intentional); warn through dry-run and `--force`; proceed clean once accepted via `kpr adopt --gen` |
+| identity, store unpaired | — | refuse — `kpr store adopt` pairs, optionally pinned to an expected id |
+| foreign identity | paired elsewhere | refuse, `--force` never overrides — `kpr store adopt` re-pairs (prunes the old epoch's sentinel rows) |
+| generation older than tracked | paired | refuse armed (`--force` if the restore was intentional); warn through dry-run and `--force`; proceed clean once accepted via `kpr store adopt --gen` |
 | untracked generation, own identity | paired | proceed — adopt-recorded for keep-N (armed runs only) |
 | tracked newest | paired | proceed |
 
@@ -234,14 +234,14 @@ Gates, in order per operation: clock check → lock → mode
 (writable refuses pre-proof unless forced — no point minting a
 generation the gate will reject) → lineage verdict → proof mint
 (id-bearing) → verify → record → collect. Dry-run reads
-presence, not freshness; refused runs mint nothing. `kpr unlock`
+presence, not freshness; refused runs mint nothing. `kpr store unlock`
 judges through the same verdict: foreign/unpaired-served/
 identity-less/stale refuse with the ceremony named (plus a
 skewed clock — unlock carries no `--force`); silence
 establishes, warning loud under an already-paired store. The sweeper
 carries no `--force` and never mints, so silence and stale-armed
 refuse there; its refusal is a skipped pass with the cause in
-`failures`, before the sweep lock. `kpr adopt [IDENT] [--gen]`
+`failures`, before the sweep lock. `kpr store adopt [IDENT] [--gen]`
 is the only pairing writer: follow the served id, pin an
 expected one (mismatch refuses), accept a rollback baseline
 (`--gen` must name the served generation). (This ceremony is

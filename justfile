@@ -526,7 +526,7 @@ image-hub-test:
     trap 'docker compose -f /tmp/kpr-hubtest-compose.yml -p kprhubtest down -v' EXIT
     KPR=kprhubtest-kpr-1
     docker exec -u 0 "$KPR" chown -R 1000:1000 /var/lib/registry
-    docker exec "$KPR" kpr unlock
+    docker exec "$KPR" kpr store unlock
     crane copy busybox:latest localhost:5003/qs/hello:10s
     docker exec "$KPR" kpr status | grep -q 'tracked'
     docker exec "$KPR" kpr plan

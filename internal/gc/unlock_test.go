@@ -109,7 +109,7 @@ func TestUnlockRefusesForeignLineage(t *testing.T) {
 	var out strings.Builder
 	if err := Unlock(ctx, &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
 		t.Fatal("unlock over a foreign lineage succeeded, want refusal")
-	} else if !strings.Contains(err.Error(), "foreign lineage") || !strings.Contains(err.Error(), "kpr adopt") {
+	} else if !strings.Contains(err.Error(), "foreign lineage") || !strings.Contains(err.Error(), "kpr store adopt") {
 		t.Errorf("refusal names no cause or ceremony: %v", err)
 	}
 	back, _, err := sentinel.Read(ctx, fileAPI{root}, sentinel.Repo, sentinel.Tag)
@@ -134,7 +134,7 @@ func TestUnlockRefusesUnpairedWithServed(t *testing.T) {
 	var out strings.Builder
 	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
 		t.Fatal("unlock with an unpaired store succeeded, want refusal")
-	} else if !strings.Contains(err.Error(), "unpaired") || !strings.Contains(err.Error(), "kpr adopt") {
+	} else if !strings.Contains(err.Error(), "unpaired") || !strings.Contains(err.Error(), "kpr store adopt") {
 		t.Errorf("refusal names no cause or ceremony: %v", err)
 	}
 	if ok, err := s.IsUnlocked(context.Background()); err != nil || ok {
@@ -148,7 +148,7 @@ func TestUnlockRefusesUnpairedWithServed(t *testing.T) {
 
 // Unlock judges like gc does: a served rollback refuses instead of
 // being minted past — the restore is an incident, not a baseline.
-// If this fails, `kpr unlock` silently buries what `kpr gc` refuses.
+// If this fails, `kpr store unlock` silently buries what `kpr gc` refuses.
 func TestUnlockRefusesStaleRollback(t *testing.T) {
 	cfg, root, _ := stageProvenRun(t)
 	s := store.NewMemStore()

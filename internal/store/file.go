@@ -55,7 +55,7 @@ func (s *FileStore) rowsDir() string     { return filepath.Join(s.dir, "rows") }
 func (s *FileStore) locksDir() string    { return filepath.Join(s.dir, "locks") }
 func (s *FileStore) currentFile() string { return filepath.Join(s.dir, "current.json") }
 
-// unlockedFile is the intent marker: presence means `kpr unlock`
+// unlockedFile is the intent marker: presence means `kpr store unlock`
 // proved the shared store and opened it. Empty file — presence is
 // the whole state, like the lock files it sits beside.
 func (s *FileStore) unlockedFile() string { return filepath.Join(s.dir, "unlocked") }

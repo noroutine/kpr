@@ -19,7 +19,7 @@ of that file. State backends (including the redis-less file mode):
 | Doc | Answers |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | components, policies, gc, data keys, current state, open items |
-| [docs/SENTINELS.md](docs/SENTINELS.md) | same-store proof, locality, lock, lineage verdicts, `kpr adopt` |
+| [docs/SENTINELS.md](docs/SENTINELS.md) | same-store proof, locality, lock, lineage verdicts, `kpr store adopt` |
 | [docs/TIMESTAMPS.md](docs/TIMESTAMPS.md) | checked clock: transports, wiring, skew semantics |
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | fresh setup: two containers, one volume, first expiring tag |
 | [docs/ADOPT.md](docs/ADOPT.md) | bolting kpr onto your own registry + Traefik |
@@ -121,6 +121,9 @@ kpr plan remove <pattern>...  # unmark due rows by glob, regex: or exact image (
 kpr store ls  # every tracked row, not just due (--json for piping)
 kpr store inspect <repo:tag>  # one full row (exact spelling)
 kpr store rm <repo:tag>...  # drop rows; tag stays, untracked (no dry-run)
+kpr store unlock   # prove the shared store, set the intent marker
+kpr store lock     # drop the intent marker
+kpr store adopt [IDENT] [--gen]  # pair the store to the served lineage
 kpr reap [policy]  # evaluate one policy (expired, partial, untagged,
                    # keep-n) or all; marks accumulate until sweep or
                    # plan discard (--no-dry-run to mark, repeat --exclude
@@ -128,9 +131,6 @@ kpr reap [policy]  # evaluate one policy (expired, partial, untagged,
 kpr sweep    # POST the sweep trigger, print the pass summary
 kpr gc       # garbage-collect the shared store (dry-run preview by
              # default; --no-dry-run collects, readonly probe first)
-kpr unlock   # prove the shared store, set the intent marker
-kpr lock     # drop the intent marker
-kpr adopt [IDENT] [--gen]  # pair the store to the served lineage
 kpr env      # resolved configuration
 ```
 

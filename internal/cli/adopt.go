@@ -36,5 +36,5 @@ volume or remove the stale tags instead. At most one IDENT.`,
 
 func init() {
 	adoptCmd.Flags().StringVar(&adoptGen, "gen", "", "Served generation to accept as baseline (must match what the registry serves)")
-	RootCmd.AddCommand(adoptCmd)
+	storeCmd.AddCommand(adoptCmd)
 }

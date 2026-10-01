@@ -42,7 +42,7 @@ flowchart TB
     status[kpr status] --- redis
     plan[kpr plan\nadd, remove, discard] --- redis
     store[kpr store\nls, inspect, rm] --- redis
-    ceremony[kpr unlock/lock/adopt\nlineage ceremony] --- redis
+    ceremony[kpr store\nlock/unlock/adopt\nlineage ceremony] --- redis
     human((human)) --> console
     human --> status
     human --> plan
@@ -187,15 +187,15 @@ CLI, next to `serve` and `env`:
   `add` / `remove` / `discard`.
 - `kpr store` — the rows themselves: `ls` (all rows, `--json`),
   `inspect <repo:tag>` (one full row), `rm` (drop rows; tag stays,
-  untracked — exact spellings, all-or-nothing, no dry-run).
+  untracked — exact spellings, all-or-nothing, no dry-run);
+  `lock` / `unlock` set / drop the intent marker (proof first);
+  `adopt [IDENT] [--gen]` — the only pairing writer: pairs the
+  store to the served lineage. Full ceremony in `docs/SENTINELS.md`.
 - `kpr reap [policy]` — evaluates one policy or all and marks rows
   due. Dry-run unless `--no-dry-run`.
 - `kpr sweep` — triggers a sweep pass and watches it to the summary.
   No opinions, no marks: only rows already marked due are processed.
 - `kpr gc` — previews by default; `--no-dry-run` collects for real.
-- `kpr unlock` / `kpr lock` — set / drop the intent marker (proof first).
-- `kpr adopt [IDENT] [--gen]` — the only pairing writer: pairs the
-  store to the served lineage. Full ceremony in `docs/SENTINELS.md`.
 
 Colocation constraint: the CLI talks to redis directly, so it runs in
 the same environment as `serve` (same network, same redis auth). An
@@ -341,7 +341,7 @@ previews by default, `--no-dry-run` collects.
   per-repo tuning declined by decision.
 - Sentinel generations tagged with keep-N reaping, lineage-gated
   altering paths (`gc`/`unlock`/sweeper) with the explicit
-  `kpr adopt` pairing ceremony; checked clock (local default,
+  `kpr store adopt` pairing ceremony; checked clock (local default,
   compose pins `https`) opens every altering path.
 - Mutation testing (gremlins, local): efficacy 94.84% on the
   clock tree (588 killed, 32 lived); survivors are timing

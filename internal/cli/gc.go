@@ -68,7 +68,7 @@ never a panic — it fails the run unless --force (which presumes you
 know). Flipping readonly stays with the operator — this command
 never rewrites registry config. The store starts locked (fresh
 stores included): a locked run refuses before probing — 'kpr
-unlock' proves the shared store and opens writes, 'kpr lock'
+unlock' proves the shared store and opens writes, 'kpr store lock'
 revokes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()

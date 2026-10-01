@@ -89,7 +89,7 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 			if ask.DryRun {
 				return refuse(
 					fmt.Sprintf("no sentinel served: %v", s.Err),
-					"run an armed `kpr gc` or `kpr unlock` first to establish pairing (or check the volume mount)")
+					"run an armed `kpr gc` or `kpr store unlock` first to establish pairing (or check the volume mount)")
 			}
 			return Verdict{Establish: true,
 				Reason: fmt.Sprintf("no sentinel served: %v; establishing pairing by mint", s.Err),
@@ -108,12 +108,12 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 	if l.Ident.ID == "" {
 		return refuse(
 			fmt.Sprintf("store unpaired and the registry serves identity %s", p.ID),
-			"run `kpr adopt` to pair this store (or `kpr adopt <identity>` to pin the expected one)")
+			"run `kpr store adopt` to pair this store (or `kpr adopt <identity>` to pin the expected one)")
 	}
 	if p.ID != l.Ident.ID {
 		return refuse(
 			fmt.Sprintf("foreign lineage: serves %s, store paired to %s", p.ID, l.Ident.ID),
-			"run `kpr adopt` to re-pair with the served lineage (or check the volume mount if unintended)")
+			"run `kpr store adopt` to re-pair with the served lineage (or check the volume mount if unintended)")
 	}
 	ts, err := time.Parse(time.RFC3339, p.TS)
 	if err != nil {
@@ -149,13 +149,13 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 	if known[p.Gen] && p.Gen != max.Tag {
 		if p.Gen != "" && p.Gen == l.Ident.BaselineGen {
 			return Verdict{Proceed: true,
-				Reason: fmt.Sprintf("serves adopted baseline %s (rollback accepted via `kpr adopt --gen`)", p.Gen),
+				Reason: fmt.Sprintf("serves adopted baseline %s (rollback accepted via `kpr store adopt --gen`)", p.Gen),
 				Action: "none (armed runs mint past it)"}
 		}
 		reason := fmt.Sprintf("serves generation %s older than tracked %s (rollback?)", p.Gen, max.Tag)
 		if ask.DryRun || ask.Force {
 			return Verdict{Proceed: true, Stale: true, Reason: reason,
-				Action: "run `kpr adopt --gen " + p.Gen + "` to accept the rollback as baseline"}
+				Action: "run `kpr store adopt --gen " + p.Gen + "` to accept the rollback as baseline"}
 		}
 		return refuse(reason, "re-run with --force if the registry was intentionally restored")
 	}
