@@ -119,14 +119,18 @@ e2e:
 ## coverage: Run tests with coverage (coverprofile + terminal summary + HTML report)
 coverage:
 	@if command -v gotestsum >/dev/null 2>&1; then \
-		gotestsum $(GOTESTSUM_FLAGS) --format pkgname -- -race -coverprofile=coverage.out ./...; \
+		gotestsum $(GOTESTSUM_FLAGS) --format pkgname -- -race -coverprofile=coverage.raw.out ./...; \
 	else \
 		echo "gotestsum not found, using go test..."; \
 		echo "Install gotestsum for a dense pass/fail summary:"; \
 		echo "  go install gotest.tools/gotestsum@latest"; \
 		echo ""; \
-		go test -race -coverprofile=coverage.out ./...; \
+		go test -race -coverprofile=coverage.raw.out ./...; \
 	fi
+	@# storetest/ is shared contract scaffolding (exercised only under docker runs),
+	@# not product code: exclude it from the roll-up the way *_test.go is excluded.
+	grep -v '^nrtn.dev/catalyst/kpr/internal/storetest/' coverage.raw.out > coverage.out
+	rm -f coverage.raw.out
 	go tool cover -func=coverage.out | tail -n 20
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
