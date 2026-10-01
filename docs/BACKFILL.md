@@ -13,7 +13,7 @@
 
 ## Goal
 
-`kpr backfill`: adopt pre-kpr tags into tracked rows. Constraint: backfill is a locality-gated operation — it needs the shared mount (tag-link mtimes are bytes, not names), so it proves per run by minting a fresh generation and reading it back (same helpers as `gc`/`unlock`), and it honors the lock marker: locked refuses with the fix named. Stranger store refuses; stale snapshot (generation mismatch) warns and proceeds, rows landing not-due. There is no API-only mode and no zero-time rows. Never clobbers receiver-known rows.
+`kpr backfill`: adopt pre-kpr tags into tracked rows. Constraint: backfill reads tag-link mtimes off the shared mount (bytes, not names), so it gates per run on the served generation — `sentinel.LastProof` + lineage verdict, never a mint — and it honors the lock marker: locked refuses with the fix named. Stranger store refuses; stale snapshot (generation mismatch) warns and proceeds, rows landing not-due. There is no API-only mode and no zero-time rows. Never clobbers receiver-known rows.
 
 ## Success Criteria
 
@@ -21,15 +21,27 @@
 - Locked refuses naming `kpr unlock`; stranger store refuses; stale snapshot warns and still records (not-due) instead of refusing.
 - Re-running over receiver-tracked rows changes nothing.
 - `backfill <repo-glob>` touches only matching repos; dry-run default with explicit `--no-dry-run` (decided).
-- Armed backfill on a writable registry refuses unless `--force`; dry-run warns and proceeds.
+- Backfill runs live on a writable registry; races resolve safe (re-push newer-wins, mid-run delete skipped by count).
 - Enumeration authenticates with basic creds; rejected creds refuse the run loudly.
 - Unit suite + lint clean, one e2e scenario green, ARCHITECTURE.md documents the command.
 
 ## Approach
 
-No stored gate anywhere: a resolved-and-persisted runtime config would let `serve` and `backfill` hold different opinions (different mounts, different times). Like `gc`, backfill proves shared storage inline, per run, with the same helpers — then acts on that run's verdict only.
+No stored gate anywhere: a resolved-and-persisted runtime config would let `serve` and `backfill` hold different opinions (different mounts, different times). Backfill gates on the served generation inline, per run — then acts on that run's verdict only.
 
-Flow per invocation: classify the registry with the gc sentinel first (cancelled blob-upload initiate under a probe repo — 202 writable, 405 maintenance readonly), then enumerate via API (`_catalog` paging, per-repo tag lists, manifest HEAD for digests — headers only, blob never fetched), optionally scoped to one repo glob (`kpr backfill [repo-glob]`, same Kyverno-style matcher as `plan add`, default all). Like gc, backfill expects a quiet registry: armed (`--no-dry-run`) on writable refuses unless `--force` (same presume-knowledge semantics); dry-run on writable proceeds with a warning. A listed tag whose manifest won't resolve is skipped with a count (gone mid-run, or dangling — telling them apart is the future housekeeping plan's job, not backfill's). Then prove with a read sentinel: a well-known tag created once upfront (e.g. `noroutine/kpr-sentinel:latest`) ties the two sides together — HEAD its manifest via API for digest `D`, read `<root>/…/repositories/<repo>/_manifests/tags/<tag>/current/link` on the mount for revision `R`; `D == R` proves the mount is the registry's own store. Pure reads, no per-run writes, no fs residue — and it works in every mode, including readonly with an empty row DB (nothing to write, no tracked rows needed). Tie broken or sentinel missing → refuse loudly, record nothing. Proof holds → stat each tag's link file, mtime as `PushedAt`. Record absent rows only (existing rows keep their receiver-stamped times; `Record` would otherwise overwrite them with older data). Who creates the sentinel upfront (operator one-time push vs a `backfill --init`) is open — see below.
+Prerequisite: one prior mint (`kpr unlock` or an armed `gc` — backfill itself never mints). Absent generation refuses naming that ceremony.
+
+```mermaid
+flowchart TB
+    enum["enumerate via API\n_catalog paging, per-repo tags, HEAD digests\n(headers only, noroutine/kpr-* skipped)"] --> gate{"served generation?\nLastProof + lineage verdict"}
+    gate -- "absent / unreadable / foreign /\nunpaired / identity-less" --> refuse["refuse, record nothing"]
+    gate -- "mismatch\n(stale snapshot or untracked-own)" --> warn["warn, proceed\nrows land not-due"]
+    gate -- "tracked newest" --> hold["proceed"]
+    warn --> mtime["stat tag-link mtimes as PushedAt\nrecord absent rows only"]
+    hold --> mtime["stat tag-link mtimes as PushedAt\nrecord absent rows only"]
+```
+
+Unresolvable tags skip with a count (gone mid-run vs dangling is housekeeping's job, not backfill's). Existing rows keep receiver-stamped times — absence-only. No probe, no mint, no fs residue: pure reads, works live on a writable registry (re-push resolves newer-wins, delete resolves skip-by-count) and readonly with an empty row DB.
 
 Key decisions:
 
@@ -56,7 +68,7 @@ The cases backfill exists for — each ends tracked, with a digest, not due:
 
 Cases that don't backfill but need no operator action — the design already answers them:
 
-- **Tag deleted between list and HEAD.** 404 on resolve → skipped: it is gone, there is nothing to track, and a later push re-enters via the receiver. The race itself is contained by the quiet-registry contract — backfill classifies with the gc sentinel up front, armed runs on writable refuse unless `--force`, dry-runs warn and proceed. Churn on a live registry is expected, gated, and never silent.
+- **Tag deleted between list and HEAD.** 404 on resolve → skipped: it is gone, there is nothing to track, and a later push re-enters via the receiver. Churn on a live registry is expected and never silent — counted, not gated.
 - **Catalog unreachable or gated.** Addressed by narrowing scope: backfill requires a reachable `_catalog` and a kpr user that can read everything, both validated up front — any gap refuses loudly by name instead of a silent empty run. What falls outside (blocked catalog, foreign auth) is the shadow reader's job, not backfill's.
 
 ## What you don't need to worry about
@@ -80,7 +92,7 @@ Rules: loopback-only is non-negotiable — an unauthenticated registry must neve
 ## Steps
 
 1. **Registry client: auth + `_catalog` paging + manifest HEAD.** The client speaks no auth today — wire basic (`KPR_REGISTRY_USER` / `KPR_REGISTRY_PASSWORD`, presented on every call) covering open and htpasswd registries. `CatalogAll` (Link pagination, terminates on short/empty page), `ManifestDigest` (HEAD, digest + type headers, missing = skip). Rejected creds refuse loudly up front (a 401 on the first call ends the run, never a silent empty enumeration). Bearer-exchange against token issuers reuses the same pair later — future work, see `docs/GC.md`. `httptest` unit tests (basic accepted, 401 refuses).
-2. **`kpr backfill` command.** `runBackfill` reusing the gc sentinel + root helpers (`registryStoreRoot`, `probeRegistry`) with a new read-tie proof (API digest vs link-file revision of the sentinel tag): sentinel classify → armed-on-writable refuses unless `--force` → enumerate → digest → read-tie proof → broken tie refuses → mtime → skip-tracked → print/record + `recorded/skipped/failed` summary. Cobra `backfill [repo-glob]` with `--no-dry-run` and `--force`. Mem-store + stub-registry unit tests (absent records, tracked no-ops, mid-run 404 skips, unproven refusal, proven mtimes via `t.TempDir` store layout, writable refusal + `--force` override, dry-run warning, unreachable-catalog refusal).
+2. **`kpr backfill` command.** `runBackfill` reusing the root helper (`registryStoreRoot`) with the read gate (`sentinel.LastProof` + lineage verdict, no mint): enumerate → digest → served-generation gate → refusal cases refuse, mismatch warns-and-proceeds → mtime → skip-tracked → print/record + `recorded/skipped/failed` summary. Cobra `backfill [repo-glob]` with `--no-dry-run` (no `--force` — nothing writability-gated left to override). Mem-store + stub-registry unit tests (absent records, tracked no-ops, mid-run 404 skips, ungated refusal, gated mtimes via `t.TempDir` store layout, unreachable-catalog refusal).
 3. **Per-repo scoping.** The positional glob filters enumerated repos before any tag work (unknown-repo typo → refusal, like exact names in `plan add`); unit test scoped vs full runs.
 4. **E2E scenario.** Push tags, flush kpr rows, backfill armed (full + one scoped run), assert digests + times + none due; re-run asserts no-op.
 5. **Docs.** ARCHITECTURE.md: backfill, per-run proof, mtime contract, storage-required constraint, scoping; Open item removed.
@@ -105,7 +117,5 @@ Rules: loopback-only is non-negotiable — an unauthenticated registry must neve
 - **Risk: `_catalog`/HEAD quirks across distributions.** Pagination Link-header flavors, catalog auth, registries answering HEAD with 405 — terminate on short/empty pages, treat missing digests and failed HEADs as skip-with-count, never fatal. A GET-with-body-discard fallback for HEAD-less registries is a possible follow-up, not v1. Covered in unit tests.
 - **Risk:** store swap between proof and mtime reads mis-stamps push times — same exposure class as gc's mid-run flip, bounded to age skew on not-due rows; accepted, no post-proof (backfill deletes nothing).
 - **Risk: keep-N is where backfill bites.** The other policies can't misfire on backfilled rows: `partial` needs digest-less rows (backfill records digests or skips the tag), `untagged` needs catalog absence plus grace, TTL skew only shifts eligibility of rows that land not-due for a human to review first. keep-N has one live edge: proven mtimes make old rows *legitimate* victims mixed with fresh rows (correct behavior, still surprising — review the plan, `--exclude` release lines).
-- **Open: sentinel creation.** The read sentinel must exist before the first backfill: either the operator pushes a well-known tag once (ADOPT prerequisite, alongside the kpr user) or `backfill --init` creates it on demand. Decide at implementation; either way it is one write ever, not per run.
-- **Known limit: identity, not liveness.** The read tie proves the mount *is* the registry's store, not that it is *current* — a stale snapshot matches too. For backfill that errs safe (missing newest tags fill in on the next run against a live mount); this reasoning must not transfer to gc, which deletes.
-- **Note: generations now separate the cases (M3 ground, for M4).** `gc Run` no longer ties digests — it writes a fresh `noroutine/kpr-sentinel:latest` generation per run and reads it back, so a stale snapshot answers with the *wrong* generation instead of matching. The refusal is typed: `sentinel.Mismatch` (answered, old generation → stale snapshot) vs a plain `Read` error (no evidence → stranger's store or down registry). Backfill should reuse the same proof and policy on the type — mismatch means snapshot age, not absence. The "who creates the sentinel" open above lapses: every writer mints its own generation. Enumeration must skip `noroutine/*` — kpr-owned repos are machinery, never inventory.
+- **Known limit: identity, not liveness.** The served-generation gate proves the mount *is* the registry's store, not that it is *current* — a stale snapshot serves an old generation too. For backfill that errs safe (missing newest tags fill in on the next run against a live mount); this reasoning must not transfer to gc, which deletes. No mint here by design: backfill deletes nothing, so freshness buys nothing — the write proof stays gc/unlock-only. Mismatch warns and proceeds (snapshot age, rows land not-due); a plain read failure refuses (no evidence — stranger's store or down registry). No `--init`, no one-time push: the first `gc`/`unlock` mint creates the generation backfill reads; enumeration skips `noroutine/kpr-*` — our sentinel/probe repos are machinery, never inventory.
 - **Non-goals:** any persisted gate state, digest-less enrichment, backfill-then-sweep automation, API-only mode.

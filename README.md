@@ -118,6 +118,9 @@ kpr plan discard  # drop the whole plan (clear due marks, no dry-run)
 kpr plan add <pattern>...     # mark tracked repo:tag by glob, regex: or
                              # exact image (exact names must match; no dry-run)
 kpr plan remove <pattern>...  # unmark due rows by glob, regex: or exact image (no dry-run)
+kpr store ls  # every tracked row, not just due (--json for piping)
+kpr store inspect <repo:tag>  # one full row (exact spelling)
+kpr store rm <repo:tag>...  # drop rows; tag stays, untracked (no dry-run)
 kpr reap [policy]  # evaluate one policy (expired, partial, untagged,
                    # keep-n) or all; marks accumulate until sweep or
                    # plan discard (--no-dry-run to mark, repeat --exclude

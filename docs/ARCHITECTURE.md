@@ -41,10 +41,12 @@ flowchart TB
     gc[kpr gc\nsentinel + stock collector] -- reclaims blob bytes --> dist
     status[kpr status] --- redis
     plan[kpr plan\nadd, remove, discard] --- redis
+    store[kpr store\nls, inspect, rm] --- redis
     ceremony[kpr unlock/lock/adopt\nlineage ceremony] --- redis
     human((human)) --> console
     human --> status
     human --> plan
+    human --> store
     human --> reap
     human --> sweepcmd
     human --> gc
@@ -183,6 +185,9 @@ CLI, next to `serve` and `env`:
 - `kpr status` — banner + counters as text, for scripts and ssh.
 - `kpr plan` — pending candidates, optionally JSON for piping, plus
   `add` / `remove` / `discard`.
+- `kpr store` — the rows themselves: `ls` (all rows, `--json`),
+  `inspect <repo:tag>` (one full row), `rm` (drop rows; tag stays,
+  untracked — exact spellings, all-or-nothing, no dry-run).
 - `kpr reap [policy]` — evaluates one policy or all and marks rows
   due. Dry-run unless `--no-dry-run`.
 - `kpr sweep` — triggers a sweep pass and watches it to the summary.
