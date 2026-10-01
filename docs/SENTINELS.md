@@ -256,8 +256,9 @@ Absence (read before write) refuses.
 ### M3: gc same-store proof on sentinel (done)
 
 `gc Run` writes a fresh `noroutine/kpr-sentinel:latest` generation per
-run and reads it back through the API — same proof both
-modes, an empty redis proves fine. `Run`
+armed run and reads it back through the API — same proof both
+modes, an empty redis proves fine; dry-run previews skip the proof
+and record nothing. `Run`
 dropped the old identity ports (`FirstDigestRow`,
 `SameStoreUpload`/`SameStoreTagLink` — deleted with
 their tests); it keeps `Probe` (mode), `Locker`, and
@@ -318,8 +319,9 @@ fresh↔stale transitions (`ProofStaleAfter`, 7 days). A stale or
 missing proof warns; it never refuses a sweep.
 
 Enforcement rule: only locality-gated operations touch store
-bytes, and each proves first — today that is one call site
-(`gc.Run`); storage accounting and friends take the same
+bytes, and each mutating one proves first — today that is one
+call site (`gc.Run` armed); dry-run previews are reads, unproven
+by design. Storage accounting and friends take the same
 mint+verify preamble when they arrive, never inherited trust.
 
 ## The lock: default-deny intent (`lock` / `unlock`)

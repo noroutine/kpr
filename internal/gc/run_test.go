@@ -103,7 +103,7 @@ func TestRunRecordsMintedGeneration(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s,
-		Options{DryRun: true, Report: func(Event) {}})
+		Options{DryRun: false, Report: func(Event) {}})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -152,8 +152,8 @@ func TestRunBehindStubPorts(t *testing.T) {
 	if len(collected) != 1 || !hasArg(collected[0], "--dry-run") {
 		t.Errorf("collector got %v, want one --dry-run invocation", collected)
 	}
-	if !strings.Contains(out.String(), "shared store proven via noroutine/kpr-sentinel:latest generation ") {
-		t.Errorf("output lacks the proof line:\n%s", out.String())
+	if strings.Contains(out.String(), "shared store proven via") {
+		t.Errorf("dry-run names a proof it never minted:\n%s", out.String())
 	}
 	if !strings.HasSuffix(strings.TrimRight(out.String(), "\n"), "dry-run complete: nothing was deleted (collect for real with --no-dry-run)") {
 		t.Errorf("dry-run verdict is not the last line:\n%s", out.String())
@@ -161,8 +161,9 @@ func TestRunBehindStubPorts(t *testing.T) {
 }
 
 // A stranger's store — the fake serves a different root — refuses
-// even forced: the generation just written never comes back. If this
-// fails, gc collects whatever directory the mount points at.
+// even forced: the generation just written never comes back. Armed
+// runs only; dry-run previews skip the proof. If this fails, gc
+// collects whatever directory the mount points at.
 func TestRunStrangerStoreRefuses(t *testing.T) {
 	cfg, _, lock := stageProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
@@ -172,7 +173,7 @@ func TestRunStrangerStoreRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, lock, okCollector(&collected), fileAPI{t.TempDir()},
 		"http://registry:5000", cfg, "/bin/sh", lock,
-		Options{DryRun: true, Force: true, Report: func(Event) {}})
+		Options{DryRun: false, Force: true, Report: func(Event) {}})
 	if err == nil {
 		t.Fatal("gc on a stranger's store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
@@ -184,9 +185,9 @@ func TestRunStrangerStoreRefuses(t *testing.T) {
 }
 
 // A stale snapshot — the fake serves a fixed old generation —
-// refuses too: same files, wrong content. If this fails, the proof
-// is presence of the sentinel, not freshness, and old snapshots
-// pass silently.
+// refuses too: same files, wrong content. Armed runs only; dry-run
+// previews skip the proof. If this fails, the proof is presence of
+// the sentinel, not freshness, and old snapshots pass silently.
 func TestRunStaleSnapshotRefuses(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
 	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, sentinel.Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000001"}); err != nil {
@@ -216,7 +217,7 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 	var out strings.Builder
 	err = Run(context.Background(), &out, probe, lock, okCollector(&collected), frozen,
 		"http://registry:5000", cfg, "/bin/sh", lock,
-		Options{DryRun: true, Force: true, Report: func(Event) {}})
+		Options{DryRun: false, Force: true, Report: func(Event) {}})
 	if err == nil {
 		t.Fatal("gc on a stale snapshot succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
@@ -284,6 +285,40 @@ func TestRunFlipRefusesUnlessForced(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "WARNING") {
 		t.Errorf("forced flip lacks the WARNING:\n%s", out.String())
+	}
+}
+
+// A dry-run previews without proving: no generation is minted, no
+// row recorded — a preview changes nothing, so it litters nothing.
+// If this fails, every default gc invocation costs a generation.
+func TestRunDryRunSkipsProof(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	var collected [][]string
+	var out strings.Builder
+	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s,
+		Options{DryRun: true, Report: func(Event) {}})
+	if err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if strings.Contains(out.String(), "shared store proven via") {
+		t.Errorf("dry-run names a proof it never minted:\n%s", out.String())
+	}
+	if len(collected) != 1 || !hasArg(collected[0], "--dry-run") {
+		t.Errorf("collector got %v, want one --dry-run invocation", collected)
+	}
+	rows, rerr := s.All(context.Background())
+	if rerr != nil {
+		t.Fatalf("All: %v", rerr)
+	}
+	if len(rows) != 0 {
+		t.Errorf("dry-run recorded %d rows, want none", len(rows))
+	}
+	if _, serr := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", sentinel.Repo)); !os.IsNotExist(serr) {
+		t.Errorf("dry-run laid the sentinel repo, want untouched root")
 	}
 }
 

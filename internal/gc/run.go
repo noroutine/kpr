@@ -117,23 +117,28 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	}
 	switch mode {
 	case ModeWritable, ModeReadonly:
-		gen, err := sentinel.NewGen()
-		if err != nil {
-			return err
-		}
-		payload := sentinel.Payload{V: 1, Gen: gen, TS: time.Now().UTC().Format(time.RFC3339), Writer: "kpr-gc"}
-		md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
-		if err != nil {
-			return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
-		}
-		if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
-			return fmt.Errorf("kpr does not share this registry's store: %v", err)
-		}
-		if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: time.Now().UTC(), Actor: payload.Writer}); err != nil {
-			return fmt.Errorf("proof held but the generation went untracked: %w", err)
-		}
-		if _, err := fmt.Fprintf(w, "shared store proven via %s:%s generation %s\n", sentinel.Repo, sentinel.Tag, gen); err != nil {
-			return err
+		// Dry-run previews without proving: a preview changes
+		// nothing, so it mints nothing and records nothing. Only
+		// armed runs pay for the proof they act on.
+		if !opts.DryRun {
+			gen, err := sentinel.NewGen()
+			if err != nil {
+				return err
+			}
+			payload := sentinel.Payload{V: 1, Gen: gen, TS: time.Now().UTC().Format(time.RFC3339), Writer: "kpr-gc"}
+			md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
+			if err != nil {
+				return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
+			}
+			if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
+				return fmt.Errorf("kpr does not share this registry's store: %v", err)
+			}
+			if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: time.Now().UTC(), Actor: payload.Writer}); err != nil {
+				return fmt.Errorf("proof held but the generation went untracked: %w", err)
+			}
+			if _, err := fmt.Fprintf(w, "shared store proven via %s:%s generation %s\n", sentinel.Repo, sentinel.Tag, gen); err != nil {
+				return err
+			}
 		}
 	default:
 		return fmt.Errorf("sentinel inconclusive for %s", registryURL)

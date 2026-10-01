@@ -75,11 +75,18 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, gc.Options{DryRun: true, Report: func(gc.Event) {}}); err != nil {
 		t.Fatalf("unlocked gc: %v", err)
 	}
-	if !strings.Contains(out.String(), "shared store proven via") {
-		t.Errorf("unlocked gc names no proof:\n%s", out.String())
+	if strings.Contains(out.String(), "shared store proven via") {
+		t.Errorf("dry-run gc names a proof it never minted:\n%s", out.String())
 	}
 	if len(collected) != 1 {
 		t.Errorf("collector ran %d times, want 1", len(collected))
+	}
+	rows, rerr := state.All(ctx)
+	if rerr != nil {
+		t.Fatalf("read rows: %v", rerr)
+	}
+	if len(rows) != 1 {
+		t.Errorf("rows after unlock + dry-run gc = %d, want only the unlock generation", len(rows))
 	}
 
 	if err := state.SetUnlocked(ctx, false); err != nil {

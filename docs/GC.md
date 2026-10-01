@@ -13,10 +13,10 @@ Manifest deletes drop references only; blob bytes need the stock collector again
 Current behavior in short:
 
 - **Offline.** The collector needs the registry stopped or readonly; kpr proves the mode via sentinel (cancelled blob-upload initiate under a probe repo — 202 writable, 405 maintenance readonly) and refuses anything else.
-- **Same-store proof per run, one tracked row.** Every run writes a fresh `noroutine/kpr-sentinel:latest` generation to the local mount — linked at its uuid tag beside the floater — and reads it back through the API: both modes, an empty redis proves fine. The verified mint records one row (gen tag, digest, writer); the floater is never tracked. A real run on writable refuses unless `--force`. Overflow generations die by keep-N (below), not by `--delete-untagged` runs.
+- **Same-store proof per armed run, one tracked row.** Every armed run writes a fresh `noroutine/kpr-sentinel:latest` generation to the local mount — linked at its uuid tag beside the floater — and reads it back through the API: both modes, an empty redis proves fine. The verified mint records one row (gen tag, digest, writer); the floater is never tracked. Dry-run previews skip all of it (above). A real run on writable refuses unless `--force`, before any mint. Overflow generations die by keep-N (below), not by `--delete-untagged` runs.
 - **Advisory lock.** The shared `kpr:gc:lock` (30m bound) serializes kpr-driven runs; distribution's `MarkAndSweep` sets none, so never run a manual `garbage-collect` alongside.
 - **Evented runner.** The collector streams through a subprocess with pipe capture, line streaming, and drain discipline; pre/post sentinel events; a mode flip mid-run fails loudly unless `--force`.
-- **Dry-run default.** `kpr gc` previews; `--no-dry-run` collects for real.
+- **Dry-run default.** `kpr gc` previews; `--no-dry-run` collects for real. Previews skip the proof entirely — no mint, no row, no proof line: a preview changes nothing, so it litters nothing, but it is unproven best-effort against the configured root. Only armed runs pay for (and print) the proof.
 - **Out of scope: Online GC.** Needs a registry engine; soft-deleted blobs dedupe re-pushes until then.
 
 ## Per-repo collection: keep-N over gen tags (done)
