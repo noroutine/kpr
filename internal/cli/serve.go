@@ -45,6 +45,9 @@ var serveCmd = &cobra.Command{
 		if cfg.RedisDBWarning != nil {
 			log.Printf("Warning: %v", cfg.RedisDBWarning)
 		}
+		if cfg.TimeMethodWarning != nil {
+			log.Printf("Warning: %v", cfg.TimeMethodWarning)
+		}
 
 		// Initialize OpenTelemetry
 		otelCfg := otel.LoadConfig()

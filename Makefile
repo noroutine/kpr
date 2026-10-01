@@ -441,17 +441,25 @@ else
 $(error COMPOSE must be file or redis, got '$(COMPOSE)')
 endif
 
+## CLAIM_STORE: Fresh named volumes arrive root-owned, but both
+## writers (kpr, registry) run as uid 1000 — claim the shared store
+## once per up (idempotent one-shot, no-op afterwards). Without it
+## the first write fails (registry 500s, unlock permission-denied).
+CLAIM_STORE = docker compose -f $(COMPOSE_FILE) run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry
+
 ## up: Start base dev stack locally (detached)
 up:
 	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
 	mkdir -p kpr
 	docker compose -f $(COMPOSE_FILE) up -d --build
+	@$(CLAIM_STORE) >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
 
 ## up-observability: Start full dev stack with observability overlay (detached)
 up-observability:
 	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
 	mkdir -p kpr
 	docker compose -f $(COMPOSE_FILE) -f docker-compose.observability.yml up -d --build
+	@$(CLAIM_STORE) >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
 
 ## down: Stop local stacks
 down:

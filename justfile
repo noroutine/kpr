@@ -512,12 +512,14 @@ up:
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     mkdir -p kpr
     docker compose -f {{COMPOSE_FILE}} up -d --build
+    docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
 
 # Start full dev stack with observability overlay (detached)
 up-observability:
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     mkdir -p kpr
     docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml up -d --build
+    docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
 
 # Stop local stacks
 down:

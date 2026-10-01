@@ -36,6 +36,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -100,10 +101,16 @@ const (
 	// (cwd-relative); compose sets it absolute on the shared volume.
 	EnvStoreDir = "KPR_STORE_DIR"
 
-	// EnvNTPServer overrides the NTP source mint timestamps are
-	// checked against. Defaults to clock.DFNServer; air-gapped sites
-	// point at their own instead of failing every check.
-	EnvNTPServer = "KPR_NTP_SERVER"
+	// EnvTimeMethod selects the clock transport mint timestamps are
+	// checked with: local (default — trusts the machine clock),
+	// https (a Date read, works wherever the web does) or ntp
+	// (precise, often egress-blocked). Anything else falls back to
+	// the default with a warning.
+	EnvTimeMethod = "KPR_TIME_METHOD"
+	// EnvTimeServer overrides the time source host mint timestamps
+	// are checked against. Defaults to clock.DFNServer; air-gapped
+	// sites point at their own instead of failing every check.
+	EnvTimeServer = "KPR_TIME_SERVER"
 
 	// EnvRegistryURL overrides the distribution registry base URL the
 	// sweeper deletes through and reap reads the catalog from.
@@ -183,7 +190,8 @@ var EnvVars = []EnvVar{
 	{EnvStore, "State backend, file or redis. Unset means derive: KPR_STORE_DIR alone selects file, KPR_REDIS_ADDR alone selects redis, neither keeps redis. Must agree with backend-specific vars."},
 	{EnvStoreDir, "Directory for the file backend. Defaults to kpr/ (cwd-relative); compose sets it absolute on the shared volume."},
 	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
-	{EnvNTPServer, "NTP source mint timestamps are checked against. Defaults to zeitstempel.dfn.de; air-gapped sites point at their own."},
+	{EnvTimeMethod, "Clock transport mint timestamps are checked with: local (default), https, or ntp."},
+	{EnvTimeServer, "Time source host mint timestamps are checked against. Defaults to zeitstempel.dfn.de; air-gapped sites point at their own."},
 	{EnvSweeperNoDryRun, "Set to \"true\" to arm the serve loop (sweeper deletes). Anything else keeps dry-run."},
 	{EnvCLINoDryRun, "Set to \"true\" to arm one-shot commands (gc collects, reap marks). Anything else keeps dry-run."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},
@@ -287,10 +295,19 @@ type Config struct {
 	// unset.
 	RegistryURL string
 
-	// NTPServer is EnvNTPServer's value, or clock.DFNServer if unset.
-	// Mint timestamps are checked against it; unreachable warns and
-	// proceeds, skew beyond tolerance refuses unless overridden.
-	NTPServer string
+	// TimeMethod is EnvTimeMethod's value (https or ntp), or
+	// clock.DefaultMethod if unset or invalid. See TimeMethodWarning.
+	TimeMethod clock.Method
+	// TimeMethodWarning is non-nil when EnvTimeMethod was set but
+	// named no known transport; TimeMethod still falls back to
+	// clock.DefaultMethod. Callers that log this (serve startup)
+	// check it once, right after building the config.
+	TimeMethodWarning error
+	// TimeServer is EnvTimeServer's value, or clock.DFNServer if
+	// unset. Mint timestamps are checked against it; unreachable
+	// warns and proceeds, skew beyond tolerance refuses unless
+	// overridden.
+	TimeServer string
 
 	// SweeperNoDryRun is true only when EnvSweeperNoDryRun is
 	// exactly "true". Anything else keeps the implicit dry-run.
@@ -454,7 +471,17 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.OTELServiceName = envOr(EnvOTELServiceName, DefaultOTELServiceName)
 	b.cfg.OTELServiceVersion = envOr(EnvOTELServiceVersion, Version)
 	b.cfg.OTELEnvironment = envOr(EnvOTELEnvironment, DefaultOTELEnvironment)
-	b.cfg.NTPServer = envOr(EnvNTPServer, clock.DFNServer)
+	b.cfg.TimeServer = envOr(EnvTimeServer, clock.DFNServer)
+	switch m := clock.Method(strings.TrimSpace(os.Getenv(EnvTimeMethod))); m {
+	case "", clock.MethodLocal, clock.MethodHTTPS, clock.MethodNTP:
+		if m == "" {
+			m = clock.DefaultMethod
+		}
+		b.cfg.TimeMethod = m
+	default:
+		b.cfg.TimeMethod = clock.DefaultMethod
+		b.cfg.TimeMethodWarning = fmt.Errorf("unknown time method %q, want local, https, or ntp", os.Getenv(EnvTimeMethod))
+	}
 	b.cfg.QuickwitURL = envOr(EnvQuickwitURL, "")
 	b.cfg.JaegerURL = envOr(EnvJaegerURL, "")
 	b.cfg.GrafanaURL = envOr(EnvGrafanaURL, "")

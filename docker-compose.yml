@@ -34,6 +34,10 @@ services:
       # commands (gc, reap) stay dry-run unless flagged or
       # KPR_CLI_NO_DRY_RUN=true.
       - "KPR_SWEEPER_NO_DRY_RUN=true"
+      # Checked clock: HTTPS works wherever the web does (the binary
+      # default is local trust). ntp is precise but often
+      # egress-blocked; local skips the check entirely.
+      - "KPR_TIME_METHOD=https"
 
       # OpenTelemetry (optional)
       - OTEL_ENABLED=false
@@ -72,8 +76,9 @@ services:
     image: registry:3
     container_name: kpr-registry
     # Same uid as kpr (1000): the blob store is shared with the kpr
-    # container for `make gc`, so both writers must own it. One-time
-    # chown of the volume, then restarts are clean.
+    # container for `make gc`, so both writers must own it. Fresh
+    # named volumes arrive root-owned; `make up` / `just up` claims
+    # the store (CLAIM_STORE recipe), then restarts are clean.
     user: "1000:1000"
     ports:
       # Needs localhost:5000 free: macOS AirPlay Receiver squats it when

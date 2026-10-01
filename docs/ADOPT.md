@@ -137,8 +137,14 @@ ports collide on your network. Full wiring reference:
 
 ## Step 5 — first run, still disarmed
 
+Bootstrap order matters: `unlock` first (mints the baseline and
+pairs the store), `adopt` only ever re-pairs. On a fresh registry
+`kpr adopt` correctly refuses — nothing served, nothing to pair
+to — so don't start there.
+
 ```bash
 docker compose up -d kpr
+docker exec kpr kpr unlock    # proves the shared store, pairs it
 crane copy busybox:latest registry.example.com/test/hello:10m
 
 docker exec kpr kpr status    # tracked: 1, due: 0
@@ -166,6 +172,19 @@ only; GC needs the registry stopped, so schedule the downtime.
   network, or kpr down. The registry logs the failed POSTs.
 - **Recreating kpr pauses sweeping** up to the 5-minute sweep lock —
   self-heals at expiry, plan with `kpr status` meanwhile.
+- **Fresh volumes are root-owned; both writers run as uid 1000.**
+  After `down -v` (or first-ever `up`) the first write fails —
+  registry 500s on push, `unlock` fails `permission denied` on
+  the sentinel. `make up` / `just up` claims the shared store
+  (CLAIM_STORE recipe); hand-started stacks need one
+  `docker exec -u 0 kpr chown -R 1000:1000 /var/lib/registry`.
+  FileStore state (`./kpr`) survives on its bind mount while the
+  registry volume is fresh: `unlock` then warns it is re-minting
+  under an existing pairing — expected, not a stranger.
+- **NTP unreachable warning is harmless.** Sandboxed hosts without
+  UDP egress can't reach the clock source; gc and unlock warn and
+  proceed on local time. Skew (a wrong clock, not an unreachable
+  one) still refuses — fix NTP, then retry.
 - **macOS dev only**: AirPlay Receiver squats `localhost:5000`.
   Production Linux hosts don't have it; `make up` and serve boot warn
   when they see `Server: AirTunes` anyway.

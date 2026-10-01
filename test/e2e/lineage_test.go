@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
@@ -53,7 +54,7 @@ func lineageCollect(collected *[][]string) gc.Collector {
 func liveRun(t *testing.T, ctx context.Context, out *strings.Builder, collected *[][]string, api *registry.Client, url, cfg, bin string, state *store.FileStore, opts gc.Options) error {
 	t.Helper()
 	return gc.Run(ctx, out, gc.ProbeRegistry, state, lineageCollect(collected), api, url, cfg, bin,
-		state, state, state, "127.0.0.1:1", opts)
+		state, state, state, clock.HTTPS{}, stageTimeServer(t), opts)
 }
 
 func freshPayload(gen, id string) sentinel.Payload {
@@ -75,7 +76,7 @@ func mustGen(t *testing.T) string {
 func TestE2ELineageUnlockEstablishesLive(t *testing.T) {
 	ctx, api, _, _, cfg, _, state := stageLineage(t)
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, "127.0.0.1:1"); err != nil {
+	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	ident, err := state.GetIdentity(ctx)
@@ -104,7 +105,7 @@ func TestE2ELineageUnlockEstablishesLive(t *testing.T) {
 func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 	ctx, api, url, root, cfg, bin, state := stageLineage(t)
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, "127.0.0.1:1"); err != nil {
+	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	foreignGen, foreignID := mustGen(t), mustGen(t)
@@ -170,7 +171,7 @@ func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
 	ctx, api, url, root, cfg, bin, state := stageLineage(t)
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, "127.0.0.1:1"); err != nil {
+	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	gen0, _, err := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
@@ -236,7 +237,7 @@ func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
 func TestE2ELineageSweeperRefusesForeignDryRun(t *testing.T) {
 	ctx, api, _, root, cfg, _, state := stageLineage(t)
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, "127.0.0.1:1"); err != nil {
+	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	if err := state.Record(ctx, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",

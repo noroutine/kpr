@@ -1,10 +1,25 @@
 package cli
 
 import (
+	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
+
+// clockSource builds the configured time transport: the one place
+// the method env var becomes behavior, so gc and unlock (and any
+// future minter) check against the same source.
+func clockSource(cfg *config.Config) clock.Source {
+	switch cfg.TimeMethod {
+	case clock.MethodNTP:
+		return clock.NTP{}
+	case clock.MethodHTTPS:
+		return clock.HTTPS{}
+	default:
+		return clock.Local{}
+	}
+}
 
 // deps bundles one command's shared wiring: config, the redis state,
 // and the registry client for the commands that need it (status,

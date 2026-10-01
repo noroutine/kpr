@@ -373,12 +373,16 @@ separate stores fork lineages and refuse by design.
 | tracked newest | paired | proceed |
 
 Clock: mint timestamps come from a checked clock
-(`internal/clock`, stdlib SNTP). Skew past 30s refuses unless
-forced (forced runs warn); an unreachable NTP warns and proceeds
-on local time — air-gapped sites stay working. Server:
-`zeitstempel.dfn.de`, overridable per site via `KPR_NTP_SERVER`
-(one concern per env var; JWT-ready shape when registries go
-token-auth, no ledger anywhere).
+(`internal/clock`) behind a transport port: `local` (default —
+trusts the machine clock, no check), `https` (a plain `Date`
+read — 1s resolution against a 30s tolerance, passes wherever
+the web does), or `ntp` (precise, often egress-blocked).
+`KPR_TIME_METHOD` selects, `KPR_TIME_SERVER` points (default
+`zeitstempel.dfn.de` for both — one concern per env var);
+compose pins `https`. Skew past tolerance refuses unless forced
+(forced runs warn); an unreachable source warns and proceeds on
+local time — air-gapped sites stay working. JWT-ready shape when
+registries go token-auth, no ledger anywhere.
 
 Gates, in order per operation: clock check → lock → mode
 (writable refuses pre-proof unless forced — no point minting a

@@ -74,7 +74,7 @@ type Options struct {
 // with --force the operator presumed to know and the run passes
 // warned. A dead post-probe only warns. Flipping readonly stays with
 // the operator; this command never rewrites registry config.
-func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, ntpServer string, opts Options) error {
+func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string, opts Options) error {
 	gcStarted := time.Now()
 	unlocked, err := lock.IsUnlocked(ctx)
 	if err != nil {
@@ -96,18 +96,18 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// Mint timestamps come from a checked clock: skew beyond
 	// tolerance refuses unless forced; an unreachable NTP warns and
 	// proceeds on local time (air-gapped sites stay working).
-	if cerr := clock.Check(ctx, ntpServer, clock.Tolerance); cerr != nil {
+	if cerr := clock.Check(ctx, clk, timeServer, clock.Tolerance); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
 			if !opts.Force {
-				return fmt.Errorf("clock skew %s exceeds %s against %s: fix NTP or re-run with --force",
-					skew.Offset.Round(time.Second), skew.Tolerance, ntpServer)
+				return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock or re-run with --force",
+					skew.Offset.Round(time.Second), skew.Tolerance, timeServer)
 			}
 			if _, err := fmt.Fprintf(w, "Warning: clock skew %s exceeds %s; collecting anyway (--force)\n",
 				skew.Offset.Round(time.Second), skew.Tolerance); err != nil {
 				return err
 			}
-		} else if _, err := fmt.Fprintf(w, "Warning: NTP %s unreachable (%v); proceeding with local clock\n", ntpServer, cerr); err != nil {
+		} else if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", timeServer, cerr); err != nil {
 			return err
 		}
 	}

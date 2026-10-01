@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/gc"
-	"nrtn.dev/catalyst/kpr/internal/registry"
 )
 
 // registryBinPath is the stock registry binary gc shells out to. The
@@ -80,7 +79,7 @@ revokes.`,
 		cfg := d.cfg
 		out := cmd.OutOrStdout()
 		dryRun := !gcNoDryRun && !cfg.CLINoDryRun
-		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, registry.NewClient(cfg.RegistryURL), cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, cfg.NTPServer, gc.Options{
+		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			Force:          gcForce,
 			DryRun:         dryRun,

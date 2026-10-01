@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/clock"
 )
 
 // An operator starting kpr with a clean environment must get the documented
@@ -84,6 +86,54 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	}
 	if cfg.OTELServiceName != "kpr-prod" || cfg.OTELServiceVersion != "v9.9.9" || cfg.OTELEnvironment != "production" {
 		t.Errorf("otel identity = %q/%q/%q", cfg.OTELServiceName, cfg.OTELServiceVersion, cfg.OTELEnvironment)
+	}
+}
+
+// Time source resolves to local-by-default, https or ntp on request,
+// and falls soft to the default (with a warning) on garbage — Build
+// never fails outright. If this fails, mints check against the
+// wrong transport or a typo silently selects nothing.
+func TestFromEnvResolvesTimeSource(t *testing.T) {
+	t.Setenv(EnvTimeMethod, "ntp")
+	t.Setenv(EnvTimeServer, "time.example.com")
+
+	cfg := NewBuilder().FromEnv().Build()
+	if cfg.TimeMethod != clock.MethodNTP || cfg.TimeServer != "time.example.com" {
+		t.Errorf("time = %q/%q", cfg.TimeMethod, cfg.TimeServer)
+	}
+	if cfg.TimeMethodWarning != nil {
+		t.Errorf("warning = %v, want nil for a valid method", cfg.TimeMethodWarning)
+	}
+}
+
+func TestFromEnvDefaultsTimeSource(t *testing.T) {
+	cfg := NewBuilder().FromEnv().Build()
+	if cfg.TimeMethod != clock.MethodLocal || cfg.TimeServer != clock.DFNServer {
+		t.Errorf("time = %q/%q, want local DFN", cfg.TimeMethod, cfg.TimeServer)
+	}
+}
+
+func TestFromEnvResolvesHTTPS(t *testing.T) {
+	t.Setenv(EnvTimeMethod, "https")
+
+	cfg := NewBuilder().FromEnv().Build()
+	if cfg.TimeMethod != clock.MethodHTTPS {
+		t.Errorf("method = %q, want https", cfg.TimeMethod)
+	}
+	if cfg.TimeMethodWarning != nil {
+		t.Errorf("warning = %v, want nil for a valid method", cfg.TimeMethodWarning)
+	}
+}
+
+func TestFromEnvRejectsBadTimeMethod(t *testing.T) {
+	t.Setenv(EnvTimeMethod, "sundial")
+
+	cfg := NewBuilder().FromEnv().Build()
+	if cfg.TimeMethod != clock.DefaultMethod {
+		t.Errorf("method = %q, want the default", cfg.TimeMethod)
+	}
+	if cfg.TimeMethodWarning == nil {
+		t.Error("garbage method warned nothing")
 	}
 }
 
@@ -237,7 +287,7 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
 		EnvQuickwitURL, EnvJaegerURL, EnvGrafanaURL, EnvPrometheusURL,
-		EnvNTPServer,
+		EnvTimeMethod, EnvTimeServer,
 	}
 	seen := map[string]int{}
 	for _, v := range EnvVars {

@@ -39,7 +39,7 @@ it back through the API, and record the intent to allow
 registry-store writes (gc and future writers). Reads first
 through the same verdict gc uses: foreign, unpaired, stale, and
 identity-less lineages refuse with the ceremony named (as does a
-skewed clock — fix NTP and retry, there is no --force here).
+skewed clock — fix the clock and retry, there is no --force here).
 Silence establishes the pairing. The marker never opens without
 proof. Fresh stores start locked: unlock once per deploy, lock
 to revoke.`,
@@ -49,7 +49,7 @@ to revoke.`,
 			return err
 		}
 		defer d.close()
-		return gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, unlockConfigPath, d.store, d.store, d.store, d.store, d.cfg.NTPServer)
+		return gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, unlockConfigPath, d.store, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer)
 	},
 }
 
