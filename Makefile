@@ -434,6 +434,45 @@ docker-clean:
 	-docker rmi $(DOCKER_IMAGE):$(VERSION) 2>/dev/null || true
 	@echo "Docker images removed"
 
+## Hub image (Docker Hub): noroutine/kpr, sha-tagged. Built from the
+## dev Dockerfile (self-contained: compiles the binary, ships the stock
+## registry binary for `kpr gc`, runs as uid 1000). Push only the tag
+## image-hub-test proves — never an untested build.
+HUB_IMAGE ?= noroutine/kpr
+HUB_TAG ?= $(shell git rev-parse --short HEAD)
+
+## image-hub: Build the Hub image, sha-tagged, local arch
+image-hub:
+	docker build -f Dockerfile -t $(HUB_IMAGE):$(HUB_TAG) .
+
+## image-hub-test: Prove the tagged Hub image on a throwaway file-backend
+## stack extracted from docs/QUICKSTART.md (ports remapped off the dev
+## stack): unlock, ttl push, reap marks, sweep dry-runs, console healthy
+image-hub-test:
+	@set -e; \
+	python3 -c "import re;md=open('docs/QUICKSTART.md').read();b=re.findall(r'\`\`\`yaml\n(.*?)\`\`\`',md,re.S);open('/tmp/kpr-hubtest-src.yml','w').write(b[0]);open('/tmp/kpr-hubtest-reg.yml','w').write(b[1])"; \
+	sed -e 's|noroutine/kpr:<release-tag>|$(HUB_IMAGE):$(HUB_TAG)|' \
+		-e 's|"5000:5000"|"5003:5000"|' -e 's|"9300:9300"|"9301:9300"|' \
+		-e 's|\./registry-config.yml|/tmp/kpr-hubtest-reg.yml|' \
+		/tmp/kpr-hubtest-src.yml > /tmp/kpr-hubtest-compose.yml; \
+	docker compose -f /tmp/kpr-hubtest-compose.yml -p kprhubtest up -d; \
+	trap 'docker compose -f /tmp/kpr-hubtest-compose.yml -p kprhubtest down -v' EXIT; \
+	KPR=kprhubtest-kpr-1; \
+	docker exec -u 0 $$KPR chown -R 1000:1000 /var/lib/registry; \
+	docker exec $$KPR kpr unlock; \
+	crane copy busybox:latest localhost:5003/qs/hello:10s; \
+	docker exec $$KPR kpr status | grep -q 'tracked'; \
+	docker exec $$KPR kpr plan; \
+	sleep 12; \
+	docker exec $$KPR kpr reap --no-dry-run | grep -q 'ttl:10s elapsed'; \
+	docker exec $$KPR kpr sweep; \
+	curl -sf localhost:9301/health; \
+	echo "HUB IMAGE OK: $(HUB_IMAGE):$(HUB_TAG)"
+
+## image-hub-push: Push the tested sha tag to Docker Hub (needs `docker login`)
+image-hub-push:
+	docker push $(HUB_IMAGE):$(HUB_TAG)
+
 ## Stack backend: file (default) or redis. One knob switches every
 ## compose target below: `COMPOSE=redis make up` brings up the
 ## redis-backed stack instead. No per-backend targets — the shape is

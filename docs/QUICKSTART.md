@@ -33,13 +33,22 @@ noroutine/kpr:dev .` from the repo and pin `dev`.)
 services:
   registry:
     image: registry:3
+    # Same uid as kpr (1000): the blob store is shared, so both
+    # writers must own it or the sentinel mint permission-denies.
+    user: "1000:1000"
     volumes:
       - registry-data:/var/lib/registry
       - ./registry-config.yml:/etc/distribution/config.yml:ro
+    ports:
+      # Host pushes land here. Needs localhost:5000 free: macOS
+      # AirPlay Receiver squats it when enabled — remap or disable.
+      - "5000:5000"
   kpr:
     image: noroutine/kpr:<release-tag>   # pin it
     volumes:
       - registry-data:/var/lib/registry   # the shared store
+      # gc/unlock resolve the store root from the registry config:
+      - ./registry-config.yml:/etc/distribution/config.yml:ro
     ports:
       - "9300:9300"   # console; the receiver (:8080) stays internal
     environment:
