@@ -160,18 +160,40 @@ pass occasionally misses lines the suite provably executes (verified
 by hand-mutating `sweep.go:139/143` and `registry.go:90-95` — the tests
 catch both loudly). Trust a failing hand-mutant over the label.
 
+Test scaffolding is excluded from candidacy (`--exclude-files` in
+the `mutation` target: the e2e harness files plus
+`internal/storetest/contract.go`): mutants in test support measure
+nothing — they break tests trivially or live only because the
+docker suites don't run. Same rationale as the coverage filter,
+and it keeps mutator coverage a meaningful gate instead of a
+scaffolding census.
+
 Accepted survivors (equivalent or untestable-by-construction — every
 one earned, none by neglect):
 
 - `internal/policy/policy.go` clamp guards: the boundary inputs evaluate
   to exactly `MaxTTL` on both sides, so the mutants are provably
   equivalent — no test can distinguish them.
-- Sort-comparator boundaries (`web/keeper.go` plan order, `cli/keeper.go`
-  plan/evaluate order): equal keys sort identically under `<=`, so the
+- Sort-comparator boundaries (`cli/keeper.go`, `keeper/keeper.go`,
+  `keeper/plan.go`): equal keys sort identically under `<=`, so the
   only distinguishing inputs have indistinguishable outputs.
-- `store/mem.go` ring trim (`97`): trimming at-cap is a no-op either way.
-- Timing constants (`registry.go:35`, `cli/keeper.go:199,242`,
-  `sweep.go:30`): changed timeouts don't change observable behavior.
+- Activity-ring trim (`store/file.go`, `store/mem.go`): trimming an
+  exactly-cap ring is identity, NOTE'd at the site.
+- Boundary-at-value equivalents (each NOTE'd at the site): clock
+  zero-negation (negating zero is identity), lineage tag tie-break
+  (tags unique per row set), `match.go` `:tag` refusal (identical
+  message either branch), policy bound-1 (719 still clamps
+  everything ≥720h identically).
+- Timing constants (`registry.go:35`, `gc/proof.go` cache timeouts,
+  `gc/sentinel.go` probe timeout): changed timeouts don't change
+  observable behavior.
+- Dead-server error convergence (`store/redis.go` Record/MarkDue/
+  UnmarkDue HGet guards): with no server HGet and the follow-on
+  HSet fail identically, so the guard mutants converge — except
+  MarkDue's, whose error identity is pinned by the root-error test.
+- Live-redis branches that only die under `-tags e2e` (GetCurrent
+  empty, activity LTrim/LRange bounds): the e2e contract asserts
+  the exact values; the unit run never executes them.
 - `otel/telemetry.go:95` (`initMetrics` error): needs a broken global
   OTel SDK — same untestable family as the Once-guarded Warn survivor.
 

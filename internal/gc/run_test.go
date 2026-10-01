@@ -179,6 +179,43 @@ func TestRunBehindStubPorts(t *testing.T) {
 	}
 }
 
+// tailFailWriter passes every write to the buffer except the final
+// verdict line, which fails: the dry-run tail is a real write, and
+// its failure must surface, not vanish into a nil return.
+type tailFailWriter struct {
+	buf strings.Builder
+	err error
+}
+
+func (w *tailFailWriter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "dry-run complete") {
+		if w.err == nil {
+			w.err = errors.New("tail write failed")
+		}
+		return 0, w.err
+	}
+	return w.buf.Write(p)
+}
+
+// A failing final verdict write fails the preview: swallowing it
+// would report success while the operator never saw the verdict.
+// If this fails, output errors below the event stream go quiet.
+func TestRunDryRunTailWriteFailureSurfaces(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	stagePairedGen(t, lock, root)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	var collected [][]string
+	out := &tailFailWriter{}
+	err := Run(context.Background(), out, probe, lock, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
+		Options{DryRun: true, Report: func(Event) {}})
+	if err == nil {
+		t.Fatal("dry-run with failing verdict write succeeded, want the write error")
+	}
+}
+
 // A stranger's store — the fake serves a different root — refuses
 // in preview too: the read finds nothing to serve, armed or not.
 // If this fails, gc previews whatever directory the mount points

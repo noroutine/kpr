@@ -138,6 +138,9 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 		known[r.Tag] = true
 		// Ties break by tag, never slice order: uuid7 tags sort by
 		// mint time, so equal pushes still have a newest.
+		// NOTE(mutants): >= is equivalent — tags are unique per row
+		// set, so r.Tag == max.Tag only for the row already held;
+		// no second row can take the other branch.
 		if r.PushedAt.After(max.PushedAt) ||
 			(r.PushedAt.Equal(max.PushedAt) && r.Tag > max.Tag) {
 			max = r

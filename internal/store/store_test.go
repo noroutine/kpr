@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,9 @@ func TestRedisStoreDeadServer(t *testing.T) {
 	if err := s.MarkDue(ctx, row.Repo, row.Tag, "x"); err == nil {
 		t.Error("MarkDue = nil, want connection error")
 	}
+	if _, err := s.UnmarkDue(ctx, row.Repo, row.Tag); err == nil {
+		t.Error("UnmarkDue = nil, want connection error")
+	}
 	if err := s.Delete(ctx, row.Repo, row.Tag); err == nil {
 		t.Error("Delete = nil, want connection error")
 	}
@@ -67,5 +71,21 @@ func TestRedisStoreDeadServer(t *testing.T) {
 	}
 	if err := s.ReleaseLock(ctx, store.LockKey); err == nil {
 		t.Error("ReleaseLock = nil, want connection error")
+	}
+}
+
+// A dead-server MarkDue must surface the connection failure itself,
+// not a follow-on decoding error: the degraded path logs this error
+// to explain the outage, and a JSON complaint would misdirect. If
+// this fails, the HGet error is masked before it reaches the caller.
+func TestRedisStoreDeadServerSurfacesRootError(t *testing.T) {
+	s := store.NewRedisStore("127.0.0.1:1", "", 0)
+	t.Cleanup(func() { _ = s.Close() })
+	err := s.MarkDue(context.Background(), "app", "v1", "x")
+	if err == nil {
+		t.Fatal("MarkDue = nil, want connection error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "refus") {
+		t.Errorf("MarkDue error = %v, want the refused connection (not a follow-on)", err)
 	}
 }

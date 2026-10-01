@@ -16,6 +16,31 @@ import (
 // The file store must satisfy the same contract as mem and redis:
 // one suite, never a copy per backend. If this fails, the redis-less
 // mode reasons differently about rows, marks, or locks.
+// A lock-removal failure is a refusal, never a quiet unlock: a
+// non-empty directory sitting at the marker path fails the remove
+// deterministically on any user (no permission tricks, root-proof).
+// If this fails, a stuck marker reads cleared while still on disk.
+func TestFileStoreLockRemovalFailureRefuses(t *testing.T) {
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	if err := s.SetUnlocked(t.Context(), true); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	marker := filepath.Join(dir, "unlocked")
+	if err := os.Remove(marker); err != nil {
+		t.Fatalf("stage marker removal: %v", err)
+	}
+	if err := os.Mkdir(marker, 0o755); err != nil {
+		t.Fatalf("stage marker dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(marker, "child"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("stage marker child: %v", err)
+	}
+	if err := s.SetUnlocked(t.Context(), false); err == nil {
+		t.Error("lock over an unremovable marker succeeded, want refusal")
+	}
+}
+
 func TestFileStoreContract(t *testing.T) {
 	storetest.RunContract(t, func(t *testing.T) store.Store {
 		t.Helper()

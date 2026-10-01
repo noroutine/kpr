@@ -331,3 +331,14 @@ func TestFromEnvInvalidRedisDBFallsBackWithWarning(t *testing.T) {
 		})
 	}
 }
+
+// DB 0 is a valid selection, not a missing one: it must resolve
+// clean, never warn. If this fails, the boundary between "unset"
+// and "explicitly zero" collapsed.
+func TestFromEnvZeroRedisDBSelectsZero(t *testing.T) {
+	t.Setenv(EnvRedisDB, "0")
+	cfg := NewBuilder().FromEnv().Build()
+	if cfg.RedisDB != 0 || cfg.RedisDBWarning != nil {
+		t.Errorf("DB 0 = %d/%v, want 0 with no warning", cfg.RedisDB, cfg.RedisDBWarning)
+	}
+}

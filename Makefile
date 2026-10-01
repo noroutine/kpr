@@ -164,7 +164,9 @@ mutation:
 		exit 1; \
 	fi
 	gremlins unleash --timeout-coefficient=100 --workers=$(WORKERS) \
-		--threshold-efficacy=90 --threshold-mcover=85 .
+		--threshold-efficacy=90 --threshold-mcover=85 \
+		--exclude-files 'test/e2e/(clients|scenario|fixture|toolbox)\.go$$' \
+		--exclude-files 'internal/storetest/contract\.go$$' .
 
 ## mutation-dry: Discover mutation candidates without running any tests
 mutation-dry:

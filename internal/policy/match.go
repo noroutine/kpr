@@ -56,6 +56,8 @@ func ParseExactImage(image string) (repo, tag string, err error) {
 		return "", "", fmt.Errorf("not an exact image %q: wildcards need plan add/remove, not reap add", image)
 	}
 	idx := strings.LastIndex(image, ":")
+	// NOTE(mutants): <= is equivalent — idx 0 (":tag") falls into
+	// the identical empty-repo refusal below, same message.
 	if idx < 0 {
 		return "", "", fmt.Errorf("not an exact image %q: want repo:tag", image)
 	}

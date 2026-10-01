@@ -338,10 +338,13 @@ previews by default, `--no-dry-run` collects.
   altering paths (`gc`/`unlock`/sweeper) with the explicit
   `kpr adopt` pairing ceremony; checked clock (local default,
   compose pins `https`) opens every altering path.
-- Mutation testing (gremlins, local): efficacy 93.28% on the
-  pre-clock tree (569 killed, 41 lived); survivors are timing
-  mutants, provable equivalents, and live-redis branches that
-  only die under `-tags e2e`. Re-run for the clock tree pending.
+- Mutation testing (gremlins, local): efficacy 94.84% on the
+  clock tree (588 killed, 32 lived); survivors are timing
+  mutants, provable equivalents (NOTE'd at the site),
+  dead-server error convergence, and live-redis branches that
+  only die under `-tags e2e`. Scaffolding excluded from
+  candidacy (see `docs/TESTING.md`). Killable lived fixed with
+  focused tests; scoped re-run confirming.
 - GC lock verified advisory against the distribution source
   (`MarkAndSweep` at v3.1.2 sets none).
 

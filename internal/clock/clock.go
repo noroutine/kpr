@@ -237,6 +237,8 @@ func Check(ctx context.Context, src Source, server string, tolerance time.Durati
 	if err != nil {
 		return err
 	}
+	// NOTE(mutants): <= is equivalent — negating a zero offset is
+	// identity, and every other input takes the same branch either way.
 	if off < 0 {
 		off = -off
 	}

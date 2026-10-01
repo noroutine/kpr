@@ -288,6 +288,35 @@ func TestOffsetRejectsNonServerMode(t *testing.T) {
 	}
 }
 
+// fixedSource reports one offset for every check: exact-boundary
+// skew no network exchange can hold still.
+type fixedSource struct{ off time.Duration }
+
+func (s fixedSource) Offset(context.Context, string) (time.Duration, error) {
+	return s.off, nil
+}
+
+// An offset exactly at tolerance still proceeds: the bound refuses
+// past it, not at it. If this fails, boundary skew flips verdicts.
+func TestCheckAcceptsExactTolerance(t *testing.T) {
+	ctx := context.Background()
+	for _, off := range []time.Duration{Tolerance, -Tolerance, 0} {
+		if err := Check(ctx, fixedSource{off}, "time.example.com", Tolerance); err != nil {
+			t.Errorf("offset %v refused: %v", off, err)
+		}
+	}
+	// Past tolerance refuses on both signs: the absolute value is
+	// taken before comparing, so a slow clock fails like a fast one.
+	// If this fails, negative skew never refuses.
+	for _, off := range []time.Duration{Tolerance + time.Second, -(Tolerance + time.Second)} {
+		err := Check(ctx, fixedSource{off}, "time.example.com", Tolerance)
+		var skew *SkewError
+		if !errors.As(err, &skew) {
+			t.Errorf("offset %v = %v, want *SkewError", off, err)
+		}
+	}
+}
+
 func TestCheckEnforcesTolerance(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

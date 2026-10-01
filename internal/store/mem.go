@@ -150,6 +150,8 @@ func (m *MemStore) PushActivity(_ context.Context, o Outcome) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.activity = append([]Outcome{o}, m.activity...)
+	// NOTE(mutants): >= is equivalent — trimming an exactly-cap ring
+	// is identity, and append reaches exactly-cap only from below.
 	if len(m.activity) > ActivityCap {
 		m.activity = m.activity[:ActivityCap]
 	}

@@ -391,6 +391,11 @@ func TestPassEmitsActivityLogRecords(t *testing.T) {
 	if pass["pass_id"] != sum.PassID {
 		t.Errorf("pass pass_id = %v, want %q", pass["pass_id"], sum.PassID)
 	}
+	// A clean pass carries no failures key at all (not an empty
+	// one): downstream log queries distinguish "none" from "empty".
+	if _, ok := pass["failures"]; ok {
+		t.Errorf("clean pass carries failures key: %v", pass)
+	}
 }
 
 // A skipped pass still logs its summary (skipped=true, no rows): in

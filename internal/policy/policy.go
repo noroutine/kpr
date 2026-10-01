@@ -86,6 +86,9 @@ func parseTTL(tag string) (ttl time.Duration, ok bool) {
 	if unit == 0 {
 		return 0, false
 	}
+	// NOTE(mutants): bound-1 is equivalent — 719 still clamps
+	// everything at/over 720h identically (720h is MaxTTL either
+	// way); bound+1 is pinned by TestEffectiveTTLMaxBoundaryExact.
 	if n > uint64(MaxTTL/unit) {
 		return MaxTTL, true
 	}
