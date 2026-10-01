@@ -112,7 +112,7 @@ type Store interface {
 	// anything. A read failure is an error, never a guess.
 	IsUnlocked(ctx context.Context) (bool, error)
 	// SetUnlocked records or clears the intent: true after `kpr
-	// unlock` proves the shared store, false on `kpr store lock`.
+	// store unlock` proves the shared store, false on `kpr store lock`.
 	SetUnlocked(ctx context.Context, unlocked bool) error
 	// GetIdentity reports the paired lineage: empty ID means fresh,
 	// unpaired — nothing to compare served generations against. A

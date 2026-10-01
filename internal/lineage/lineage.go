@@ -108,7 +108,7 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 	if l.Ident.ID == "" {
 		return refuse(
 			fmt.Sprintf("store unpaired and the registry serves identity %s", p.ID),
-			"run `kpr store adopt` to pair this store (or `kpr adopt <identity>` to pin the expected one)")
+			"run `kpr store adopt` to pair this store (or `kpr store adopt <identity>` to pin the expected one)")
 	}
 	if p.ID != l.Ident.ID {
 		return refuse(
