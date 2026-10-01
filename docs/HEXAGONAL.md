@@ -21,6 +21,8 @@ doesn't get cut.
     - [Miss 1 — the bypass](#miss-1--the-bypass)
     - [Miss 2 — no generation (open)](#miss-2--no-generation-open)
       - [Evaluation: write surface](#evaluation-write-surface)
+      - [Evaluation: enforcing mint and proof](#evaluation-enforcing-mint-and-proof)
+      - [Evaluation: producers vs consumers](#evaluation-producers-vs-consumers)
     - [Miss 3 — lock unchecked (open)](#miss-3--lock-unchecked-open)
   - [Future attacks](#future-attacks)
 
@@ -209,6 +211,107 @@ Readings:
   drives passes. What each drives is on the right — and only the
   sweeper serves many errands, so only its activity needs both
   names (actor `kpr-sweep`, trigger tick/POST/`untag`/`rm`).
+
+#### Evaluation: enforcing mint and proof
+
+Miss 2 is a symptom. The problem is enforcement: two invariants
+that hold by habit rather than by construction.
+
+- **A — mint on modify.** Every operation that modifies the kpr
+  store advances the generation.
+- **B — proof on registry.** Every operation that writes the
+  registry carries same-store proof.
+
+Where each operation stands against both:
+
+| Operation    | A: mints on modify   | B: proves same store   | Gap                 |
+|--------------|----------------------|------------------------|---------------------|
+| `gc` armed   | yes, per run         | n/a — no registry write | —                   |
+| `unlock`     | yes                  | n/a                    | —                   |
+| sweeper pass | no, writes rows      | yes, read gate         | A, if rows count    |
+| `rm --untag` | no, writes rows      | **no**                 | both                |
+| `rm`         | no, writes rows      | n/a                    | A, if rows count    |
+| receiver in  | no, writes rows      | n/a                    | A, if rows count    |
+| `plan` edits | no, marks only       | n/a                    | exempt by design    |
+
+Readings:
+
+- Scope A before enforcing it. Taken literally, four operations
+  violate it: sweeper, `rm --untag`, `rm` and the receiver all write
+  rows and mint nothing. Either the generation tracks mount bytes
+  only — rows and activity excluded by definition — or A is far
+  larger than Miss 2. The first evaluation's "everything else
+  correctly mints nothing" assumes the narrow reading without
+  saying so. An invariant with an undefined subject cannot be
+  enforced, so this decision comes first.
+- Enforcement has tiers, ascending: a doc rule; a shared helper
+  callers may call; a test enumerating known paths; a type that
+  cannot be constructed outside its prover; an invariant inside the
+  port contract. "One shared lineage preamble, callers render their
+  own refusal" sits at tier two — the same tier that produced Miss 2,
+  since nothing obliges write path eight to call it. Tier three
+  still depends on someone remembering to extend the list.
+- A belongs in the port contract, not in the use cases. If the
+  generation is the store's answer to "which version are you," the
+  store advances it, and no mutating method exists that does not.
+  That is one assertion in `storetest/contract.go` — after any
+  mutation the generation differs — pinned across `RedisStore`,
+  `MemStore` and `FileStore` at once. Today the use cases remember
+  to mint, which is why minting is concentrated in `gc` by habit
+  rather than by construction.
+- B belongs in the signature. An opaque proof value with no
+  exported constructor, producible only by the prover, sitting in
+  the parameter list of every `Sweeper` write. Then write path
+  eight cannot be written without first obtaining one — no list to
+  maintain, no reviewer to catch it. In Cockburn's template this is
+  a precondition used as he means it: not a step performed inside
+  the scenario, but the entry condition for being in the scenario.
+- No grand write-gate still holds. One gate per invariant, not one
+  gate for all five mechanisms. Registry writes are uniform in
+  exactly one respect, and that is the one the type carries.
+- The enforcement point is the application boundary, so this is the
+  first real argument for inbound-port discipline in kpr — not
+  "when the detached API lands." If `Sweeper`'s exported writes
+  demand a proof, `cli`, `web` and the future API are all
+  constrained by construction, and the published redis bypass stays
+  the only deliberate exception.
+
+#### Evaluation: producers vs consumers
+
+Agreements first: tiers over helpers (Miss 2 goes to tier four,
+not tier two); scope before enforcement; no grand write-gate;
+the boundary is where enforcement lives.
+
+One correction: the table above marks B "n/a" for `gc`/`unlock`
+— "no registry write". False. The mint *is* a registry write
+(blobs to the mount, tag via API). Minting and proving are the
+same act there: write, then read back. The minter is the
+degenerate prover — it checks nothing, it writes, and the
+read-back turns the write into proof. So the roles split clean:
+
+- **Producers** (`gc`, `unlock`): mint freshness. Exempt from
+  proof by construction — there is nothing to check yet.
+- **Consumers** (sweeper pass, `Untag`, future backfill): take
+  proof as input. No proof value, no delete.
+
+And one refusal: A-in-the-port-contract as written. Generations
+are registry-side tags; "the store advances it on any mutation"
+means a fresh generation per push event (a tag per notification,
+keep-N churning at intake frequency) or a second, store-local
+version scheme beside sentinel generations. That is a redesign,
+not an assertion — parked until someone designs per-mutation
+versioning. The scope answer stands as written: the generation
+proves mount bytes; rows and activity are versioned by nothing,
+and the table should say so instead of hedging per row.
+
+Actionable, in order: `Proven` opaque type plus `Prove`
+constructor in `lineage`; thread it into `RunPass` and `Untag`
+(three preambles collapse, callers keep their refusal
+rendering); `Fresh` for mint returns (documentation-grade, mint
+sites already concentrated); `Untrack` stays proof-free by
+explicit decision — row drops write nothing to the registry.
+Receiver and plan paths untouched: no registry writes, nothing
+to prove.
 
 ### Miss 3 — lock unchecked (open)
 

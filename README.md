@@ -20,6 +20,7 @@ of that file. State backends (including the redis-less file mode):
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | components, policies, gc, data keys, current state, open items |
 | [docs/SENTINELS.md](docs/SENTINELS.md) | same-store proof, locality, lock, lineage verdicts, `kpr store adopt` |
+| [docs/PROOFS.md](docs/PROOFS.md) | the five proofs, what each establishes, how they compose |
 | [docs/TIMESTAMPS.md](docs/TIMESTAMPS.md) | checked clock: transports, wiring, skew semantics |
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | fresh setup: two containers, one volume, first expiring tag |
 | [docs/ADOPT.md](docs/ADOPT.md) | bolting kpr onto your own registry + Traefik |
