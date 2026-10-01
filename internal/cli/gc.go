@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
 // registryBinPath is the stock registry binary gc shells out to. The
@@ -78,7 +79,11 @@ revokes.`,
 		defer d.close()
 		cfg := d.cfg
 		out := cmd.OutOrStdout()
-		dryRun := !gcNoDryRun && !cfg.CLINoDryRun
+		// The run mode flows from the mint: dry-run is the absence
+		// of Armed. The adapter feeds raw readings (flag var,
+		// config value); minting stays in proof.
+		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
+		dryRun := armedRun == nil
 		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			Force:          gcForce,

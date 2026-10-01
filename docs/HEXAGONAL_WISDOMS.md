@@ -19,6 +19,7 @@ it. The rule, then the receipt. Two megawisdoms up top, then the checklist.
 - [W12: Coverage gaps: name them, don't hide them](#w12-coverage-gaps-name-them-dont-hide-them)
 - [W13: Seams are proto-ports](#w13-seams-are-proto-ports)
 - [W14: A declined port can earn its way back](#w14-a-declined-port-can-earn-its-way-back)
+- [W15: Core takes readings, never readers](#w15-core-takes-readings-never-readers)
 
 ## W1: Ports hide partners, not steps
 
@@ -216,3 +217,20 @@ A "never" in the standing rules is a verdict on the evidence
 at the time; new evidence re-opens exactly that verdict, not
 every neighboring one (the core still takes time as an
 argument — only the mint path grew the port).
+
+## W15: Core takes readings, never readers
+
+The temptation: `proof.Arm(cmd, cfg)` — one call that reads the
+flag and the env itself, so every command "gets arming
+automatically". Declined: the core would import cobra and
+config, and the adapter arrow would point inward. Evidence
+flows inward means *values* flow inward — the adapter reads its
+own sources and passes bools (`proof.Arm(gcNoDryRun,
+cfg.CLINoDryRun)`). Two prices killed the shortcut: a stringly
+flag lookup fails at runtime where a bound var fails at compile
+time, and per-command sources differ anyway
+(`CLINoDryRun` vs `SweeperNoDryRun`), so the "automatic" call
+needs parameters for which sources — saving nothing over two
+bools. The automatic part comes from the other side: stages
+take `ArmedRun`, so a command that forgets the one line doesn't
+compile.

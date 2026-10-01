@@ -161,6 +161,11 @@ Landed:
 - [ba7e27f](https://nrtn.dev/catalyst/kpr/commit/ba7e27ff71b9bbd67cda39feefeed560b05e9fd2) — `Untag`, cli delegates, duplicate dies.
 - [4d06efb](https://nrtn.dev/catalyst/kpr/commit/4d06efb5577f1e7000267787ae38a78c1e664f66) — `Untrack` (bare `rm` delegates, journals `untracked`), partial-output fix, row-drop-failure continuation.
 
+Follow-up (open): `Adopt`'s `pruneSentinelRows` deletes rows
+past the sweeper — check whether epoch pruning belongs in
+`Sweeper` beside `Untrack`, or stands as the ceremony's own
+explicit exception.
+
 ### Miss 2 — no generation (open)
 
 What happened: the delete ties to no proven generation.
@@ -304,12 +309,13 @@ versioning. The scope answer stands as written: the generation
 proves mount bytes; rows and activity are versioned by nothing,
 and the table should say so instead of hedging per row.
 
-Actionable, in order: `Proven` opaque type plus `Prove`
-constructor in `lineage`; thread it into `RunPass` and `Untag`
-(three preambles collapse, callers keep their refusal
-rendering); `Fresh` for mint returns (documentation-grade, mint
-sites already concentrated); `Untrack` stays proof-free by
-explicit decision — row drops write nothing to the registry.
+Actionable, in order: `SameStore` sealed plus `Prover.Prove`
+cut in `internal/proof` (done); thread it into `RunPass` and
+`Untag` (three preambles collapse, callers keep their refusal
+rendering); `FreshGeneration` for mint returns
+(documentation-grade, mint sites already concentrated);
+`Untrack` stays proof-free by explicit decision — row drops
+write nothing to the registry.
 Receiver and plan paths untouched: no registry writes, nothing
 to prove.
 
