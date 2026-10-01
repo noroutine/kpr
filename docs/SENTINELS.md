@@ -6,6 +6,7 @@
 - [Why not a crafted image](#why-not-a-crafted-image)
 - [Rejected: blob re-push as write proof](#rejected-blob-re-push-as-write-proof)
 - [Dynamic sentinel: plan and progress](#dynamic-sentinel-plan-and-progress)
+- [Lineage: whose registry is this](#lineage-whose-registry-is-this-id-verdicts-kpr-adopt)
 
 ## Current situation
 
@@ -169,7 +170,7 @@ the digest: the generation uuid itself (history, keep-N reaps past
 ten) and the floater. The minter records one row per generation
 (repo, gen tag, digest, push time, writer); the floater is never
 tracked. Config blob
-= payload JSON `{"v":1,"gen":"<uuid7>","ts":"…","writer":"…"}` —
+= payload JSON `{"v":1,"gen":"<uuid7>","id":"<uuid7>","ts":"…","writer":"…"}` —
 the generation is time-ordered, so two observed generations
 compare without parsing timestamps. Nested under `kpr/` so one
 glob excludes every kpr-owned repo from backfill enumeration;
@@ -257,8 +258,8 @@ Absence (read before write) refuses.
 
 `gc Run` writes a fresh `noroutine/kpr-sentinel:latest` generation per
 armed run and reads it back through the API — same proof both
-modes, an empty redis proves fine; dry-run previews skip the proof
-and record nothing. `Run`
+modes, an empty redis proves fine; dry-run previews read the served
+generation instead (presence, not freshness) and record nothing. `Run`
 dropped the old identity ports (`FirstDigestRow`,
 `SameStoreUpload`/`SameStoreTagLink` — deleted with
 their tests); it keeps `Probe` (mode), `Locker`, and
@@ -308,21 +309,26 @@ What locality gates (bytes, not names):
 
 What works degraded (names over the API, no proof needed):
 
-- event intake, TTL rows, manifest sweeps, keep-N over known
-  tags, catalog backfill, writability probing, the console.
+- event intake, TTL rows, keep-N over known tags, catalog
+  backfill, writability probing, the console. Manifest sweeps are
+  NOT degraded work: the sweeper gates every pass on lineage
+  (below) and refuses foreign, silent, or rolled-back registries
+  before its lock, let alone any delete.
 
 The degraded failure mode is silent blob accumulation (tags go,
-layers stay), so staleness is loud, never gating: the console
-proof card shows the live generation and its age, serve logs the
-proof age at boot, the sweep loop voices it at startup and on
-fresh↔stale transitions (`ProofStaleAfter`, 7 days). A stale or
-missing proof warns; it never refuses a sweep.
+layers stay), so proof-age staleness is loud, never gating: the
+console proof card shows the live generation and its age, serve
+logs the proof age at boot, the sweep loop voices it at startup
+and on fresh↔stale transitions (`ProofStaleAfter`, 7 days). A
+stale or missing *locality proof* warns; a failed *lineage
+verdict* refuses (different proofs — age vs identity).
 
 Enforcement rule: only locality-gated operations touch store
 bytes, and each mutating one proves first — today that is one
-call site (`gc.Run` armed); dry-run previews are reads, unproven
-by design. Storage accounting and friends take the same
-mint+verify preamble when they arrive, never inherited trust.
+call site (`gc.Run` armed); dry-run previews are reads gated on
+the served generation (presence, not freshness). Storage
+accounting and friends take the same mint+verify preamble when
+they arrive, never inherited trust.
 
 ## The lock: default-deny intent (`lock` / `unlock`)
 
@@ -340,6 +346,57 @@ The seam already points at object stores: `Write` takes the
 location (fs root now, bucket+prefix later behind a writer
 port) while `Read`/`Verify` go through the registry API and stay
 identical.
+
+## Lineage: whose registry is this (`id`, verdicts, `kpr adopt`)
+
+Locality proves *access*; lineage proves *ownership*. Every
+mint carries the store's lineage identity (`id`, a uuid7 minted
+beside the first generation); every altering path — `gc`,
+`unlock`, the sweeper — reads the served generation first and
+judges it against the paired identity plus tracked rows
+(`internal/lineage`: pure, no network; the table below mirrors
+its cases one to one, e2e-pinned in `test/e2e/lineage_test.go`).
+No TOFU, no `--force` re-pairing: a pairing is set by an explicit
+ceremony or not at all, and HA means one shared kpr store —
+separate stores fork lineages and refuse by design.
+
+| Served | Store | Verdict |
+| --- | --- | --- |
+| nothing (absent), dry-run | any | refuse — previews cannot establish; run armed first |
+| nothing (absent), armed | any | establish — mint the baseline under the stored id (fresh store: generate one) |
+| unreadable / unparseable / future timestamp | any | refuse |
+| identity-less (pre-pairing) | any | refuse, never auto-adopted — wipe the volume or remove stale tags (even explicit `adopt` won't bless it) |
+| identity, store unpaired | — | refuse — `kpr adopt` pairs, optionally pinned to an expected id |
+| foreign identity | paired elsewhere | refuse, `--force` never overrides — `kpr adopt` re-pairs (prunes the old epoch's sentinel rows) |
+| generation older than tracked | paired | refuse armed (`--force` if the restore was intentional); warn through dry-run and `--force`; proceed clean once accepted via `kpr adopt --gen` |
+| untracked generation, own identity | paired | proceed — adopt-recorded for keep-N (armed runs only) |
+| tracked newest | paired | proceed |
+
+Clock: mint timestamps come from a checked clock
+(`internal/clock`, stdlib SNTP). Skew past 30s refuses unless
+forced (forced runs warn); an unreachable NTP warns and proceeds
+on local time — air-gapped sites stay working. Server:
+`zeitstempel.dfn.de`, overridable per site via `KPR_NTP_SERVER`
+(one concern per env var; JWT-ready shape when registries go
+token-auth, no ledger anywhere).
+
+Gates, in order per operation: clock check → lock → mode
+(writable refuses pre-proof unless forced — no point minting a
+generation the gate will reject) → lineage verdict → proof mint
+(id-bearing) → verify → record → collect. Dry-run reads
+presence, not freshness; refused runs mint nothing. `kpr unlock`
+judges through the same verdict: foreign/unpaired-served/
+identity-less/stale refuse with the ceremony named (plus a
+skewed clock — unlock carries no `--force`); silence
+establishes, warning loud under an already-paired store. The sweeper
+carries no `--force` and never mints, so silence and stale-armed
+refuse there; its refusal is a skipped pass with the cause in
+`failures`, before the sweep lock. `kpr adopt [IDENT] [--gen]`
+is the only pairing writer: follow the served id, pin an
+expected one (mismatch refuses), accept a rollback baseline
+(`--gen` must name the served generation). (This ceremony is
+not [Adopting kpr](ADOPT.md) — that guide bolts kpr onto an
+existing registry; this one pairs a store to a lineage.)
 
 ### M4: backfill snapshot detection (open)
 

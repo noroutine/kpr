@@ -237,6 +237,7 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
 		EnvQuickwitURL, EnvJaegerURL, EnvGrafanaURL, EnvPrometheusURL,
+		EnvNTPServer,
 	}
 	seen := map[string]int{}
 	for _, v := range EnvVars {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func (s *stubAPI) GetBlob(_ context.Context, _, _ string) ([]byte, error) {
 // serves.
 func TestReadReturnsWrittenPayload(t *testing.T) {
 	root := t.TempDir()
-	want := Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000003", TS: "2026-09-30T12:00:00Z", Writer: "test"}
+	want := Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000003", ID: testIdentity, TS: "2026-09-30T12:00:00Z", Writer: "test"}
 	md, err := Write(root, Repo, Tag, want)
 	if err != nil {
 		t.Fatalf("Write: %v", err)
@@ -104,6 +105,39 @@ func TestReadRefusesUnexplained(t *testing.T) {
 // the written one. A mismatch means a different store (or a stale
 // snapshot), never a pass. If this fails, gc collects a stranger's
 // store on a matching URL.
+// statusErr is a local 404/500 carrier: Absent matches the status
+// interface, never the production client.
+type statusErr struct{ status int }
+
+func (e statusErr) Error() string   { return "status" }
+func (e statusErr) StatusCode() int { return e.status }
+
+// Silence is a 404-shaped answer or a missing file — corruption
+// (unparseable bytes) and transport failure refuse as unreadable,
+// and nil is never absence. If this fails, establish and refuse-dry
+// trigger on the wrong bucket.
+func TestAbsentClassifiesSilence(t *testing.T) {
+	for _, err := range []error{
+		statusErr{status: 404},
+		fmt.Errorf("read: %w", statusErr{status: 404}),
+		os.ErrNotExist,
+	} {
+		if !Absent(err) {
+			t.Errorf("Absent(%v) = false, want silence", err)
+		}
+	}
+	for _, err := range []error{
+		nil,
+		statusErr{status: 500},
+		errors.New("connection refused"),
+		errors.New("payload unparseable"),
+	} {
+		if Absent(err) {
+			t.Errorf("Absent(%v) = true, want unreadable", err)
+		}
+	}
+}
+
 func TestVerifyMatchesGeneration(t *testing.T) {
 	api := &stubAPI{
 		manifest: []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc","size":1}}`),

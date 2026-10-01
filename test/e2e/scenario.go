@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
@@ -39,6 +41,7 @@ type Scenario struct {
 	store   *store.RedisStore
 	reg     *registry.Client
 	sweeper *sweep.Sweeper
+	lined   bool
 }
 
 // New wires a scenario to a fixture: the redis store on kpr's DB, the
@@ -58,7 +61,7 @@ func New(t *testing.T, fx *Fixture) *Scenario {
 		fx:      fx,
 		store:   s,
 		reg:     reg,
-		sweeper: &sweep.Sweeper{Store: s, Registry: reg, DryRun: false},
+		sweeper: &sweep.Sweeper{Store: s, Registry: reg, Sentinel: reg, DryRun: false},
 	}
 }
 
@@ -328,12 +331,43 @@ func (s *Scenario) ExpectDueCount(n int) {
 }
 
 // SweepArmed runs one armed pass — the tick's work, on demand — and
-// returns its summary for the test's verdict.
+// returns its summary for the test's verdict. The first sweep
+// establishes the lineage (push a sentinel through the API, pair
+// the store): scenario registries start unproven, and serve only
+// ticks proven ground.
 func (s *Scenario) SweepArmed() sweep.Summary {
 	s.t.Helper()
+	s.establishLineage()
 	ctx, cancel := s.ctx()
 	defer cancel()
 	return s.sweeper.RunPass(ctx, "e2e")
+}
+
+// establishLineage pushes one sentinel generation through the API
+// and pairs the scenario store to it, once per scenario. The config
+// blob IS the payload (oras --config), so the served manifest reads
+// as a genuine generation — no fixture backdoor.
+func (s *Scenario) establishLineage() {
+	s.t.Helper()
+	if s.lined {
+		return
+	}
+	s.lined = true
+	ctx, cancel := s.ctx()
+	defer cancel()
+	gen := fmt.Sprintf("e2e-%d", time.Now().UTC().UnixNano())
+	payload := fmt.Sprintf(`{"v":1,"gen":%q,"id":"e2e-lineage","ts":%q,"writer":"e2e"}`,
+		gen, time.Now().UTC().Format(time.RFC3339))
+	file := toolboxFile(s.t, ctx, sentinel.Repo, gen, payload)
+	dst := s.fx.RegistryDirect() + "/" + sentinel.Repo + ":latest"
+	toolbox.Exec(s.t, ctx, "oras", "push", "--plain-http", "--disable-path-validation",
+		"--config", file+":application/json", dst, file+":application/octet-stream")
+	if _, _, err := sentinel.Read(ctx, s.reg, sentinel.Repo, sentinel.Tag); err != nil {
+		s.t.Fatalf("establish lineage: pushed sentinel unreadable: %v", err)
+	}
+	if err := s.store.SetIdentity(ctx, store.Identity{ID: "e2e-lineage", BaselineGen: gen}); err != nil {
+		s.t.Fatalf("establish lineage: pair store: %v", err)
+	}
 }
 
 // ExpectAbsentFromCatalog asserts the tag left the registry catalog —

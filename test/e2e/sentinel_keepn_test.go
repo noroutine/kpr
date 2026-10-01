@@ -31,13 +31,17 @@ func TestSentinelGenerationsKeepNReaped(t *testing.T) {
 	st := store.NewMemStore()
 	now := time.Now().UTC()
 
+	const lineageID = "0193abcd-0000-7000-8000-000000000099"
+	if err := st.SetIdentity(ctx, store.Identity{ID: lineageID, BaselineGen: "0193abcd-0000-7000-8000-000000000012"}); err != nil {
+		t.Fatalf("pair store: %v", err)
+	}
 	gens := make([]string, 0, 12)
 	digests := map[string]string{}
 	for k := 1; k <= 12; k++ {
 		gen := fmt.Sprintf("0193abcd-0000-7000-8000-%012d", k)
 		gens = append(gens, gen)
 		md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, sentinel.Payload{
-			V: 1, Gen: gen, TS: now.Format(time.RFC3339), Writer: "e2e",
+			V: 1, Gen: gen, ID: lineageID, TS: now.Format(time.RFC3339), Writer: "e2e",
 		})
 		if err != nil {
 			t.Fatalf("Write gen %d: %v", k, err)
@@ -74,7 +78,7 @@ func TestSentinelGenerationsKeepNReaped(t *testing.T) {
 		}
 	}
 
-	sum := (&sweep.Sweeper{Store: st, Registry: api, DryRun: false}).RunPass(ctx, "e2e")
+	sum := (&sweep.Sweeper{Store: st, Registry: api, Sentinel: api, DryRun: false}).RunPass(ctx, "e2e")
 	if sum.Performed != 2 || sum.Failed != 0 {
 		t.Fatalf("sweep = %+v, want 2 performed, 0 failed", sum)
 	}

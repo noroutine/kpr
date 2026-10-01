@@ -31,6 +31,7 @@ func RunContract(t *testing.T, setup func(t *testing.T) store.Store) {
 	t.Run("activity", func(t *testing.T) { testActivityRingCapped(t, setup(t)) })
 	t.Run("lock", func(t *testing.T) { testNamedLockSingleFlight(t, setup(t)) })
 	t.Run("unlock-marker", func(t *testing.T) { testUnlockMarkerFreshLocked(t, setup(t)) })
+	t.Run("identity", func(t *testing.T) { testIdentityRoundTrip(t, setup(t)) })
 }
 
 var storeNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
@@ -307,5 +308,43 @@ func testUnlockMarkerFreshLocked(t *testing.T, s store.Store) {
 	}
 	if err := s.SetUnlocked(c, false); err != nil {
 		t.Fatalf("double lock: %v", err)
+	}
+}
+
+// A fresh store is unpaired: no lineage to compare against. Pairing
+// records identity plus the adopted baseline generation; re-pairing
+// overwrites both. If this fails, adopt ceremonies don't survive
+// the backend round-trip, or every backend disagrees about the
+// pairing.
+func testIdentityRoundTrip(t *testing.T, s store.Store) {
+	c := ctx()
+	got, err := s.GetIdentity(c)
+	if err != nil {
+		t.Fatalf("fresh GetIdentity: %v", err)
+	}
+	if got.ID != "" {
+		t.Fatalf("fresh identity = %+v, want unpaired", got)
+	}
+	want := store.Identity{ID: "0193abcd-0000-7000-8000-000000000021", BaselineGen: "0193abcd-0000-7000-8000-000000000020", AdoptedAt: storeNow}
+	if err := s.SetIdentity(c, want); err != nil {
+		t.Fatalf("SetIdentity: %v", err)
+	}
+	got, err = s.GetIdentity(c)
+	if err != nil {
+		t.Fatalf("GetIdentity: %v", err)
+	}
+	if got != want {
+		t.Errorf("identity = %+v, want %+v", got, want)
+	}
+	re := store.Identity{ID: "0193abcd-0000-7000-8000-000000000022"}
+	if err := s.SetIdentity(c, re); err != nil {
+		t.Fatalf("re-pair: %v", err)
+	}
+	got, err = s.GetIdentity(c)
+	if err != nil {
+		t.Fatalf("post-repair GetIdentity: %v", err)
+	}
+	if got != re {
+		t.Errorf("identity = %+v, want %+v", got, re)
 	}
 }

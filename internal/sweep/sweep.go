@@ -11,9 +11,11 @@ import (
 	"log"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -60,6 +62,11 @@ type Registry interface {
 type Sweeper struct {
 	Store    store.Store
 	Registry Registry
+	// Sentinel reads the served lineage: a pass over a foreign,
+	// silent, or rolled-back registry refuses before the lock, let
+	// alone any delete. The sweeper never mints, so it cannot
+	// establish — silence refuses in both modes.
+	Sentinel sentinel.API
 	DryRun   bool
 	// Now is a seam for tests; production leaves it nil (wall clock).
 	Now func() time.Time
@@ -123,6 +130,44 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			args = append(args, "err", rerr.Error())
 		}
 		s.emit(ctx, "sweep row", args...)
+	}
+
+	// Lineage before lock: no point holding single-flight for a
+	// pass that must not act, and a refused pass must not resolve
+	// (let alone delete) anything. The sweeper carries no --force:
+	// stale armed refuses; stale dry-run proceeds to plan, which
+	// deletes nothing. Heal rows are the mint path's job (gc
+	// adopt-records); the sweep acts on due rows only.
+	if s.Sentinel == nil {
+		setStage(StageFailure, 0, 0)
+		sum.Skipped = true
+		sum.Failures = append(sum.Failures, "sweeper miswired: no sentinel reader (refusing instead of sweeping blind)")
+		return sum
+	}
+	pay, digest, rerr := sentinel.Read(ctx, s.Sentinel, sentinel.Repo, sentinel.Tag)
+	ident, err := s.Store.GetIdentity(ctx)
+	if err != nil {
+		setStage(StageFailure, 0, 0)
+		sum.Skipped = true
+		sum.Failures = append(sum.Failures, fmt.Sprintf("lineage unreadable: %v", err))
+		return sum
+	}
+	allRows, err := s.Store.All(ctx)
+	if err != nil {
+		setStage(StageFailure, 0, 0)
+		sum.Skipped = true
+		sum.Failures = append(sum.Failures, fmt.Sprintf("tracked state unreadable: %v", err))
+		return sum
+	}
+	v := lineage.Judge(
+		lineage.Served{Payload: pay, Digest: digest, Err: rerr},
+		lineage.Local{Ident: ident, Rows: allRows},
+		lineage.Ask{DryRun: s.DryRun, Now: now})
+	if !v.Proceed || v.Establish {
+		setStage(StageFailure, 0, 0)
+		sum.Skipped = true
+		sum.Failures = append(sum.Failures, fmt.Sprintf("%s — %s", v.Reason, v.Action))
+		return sum
 	}
 
 	held, err := s.Store.AcquireLock(ctx, store.LockKey, LockTTL)

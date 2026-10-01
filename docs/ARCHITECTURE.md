@@ -204,8 +204,9 @@ auth provider, only a client of the registry's.
   not reached — next tick picks them up." Degrades to the tick loop,
   which was always the backstop.
 - **gc unproven anything**: missing mounts, non-filesystem store,
-  inconclusive sentinel, unproven shared store, dead cache, held lock
-  — every one refuses with the remedy, never collects blind.
+  inconclusive sentinel, unproven shared store, foreign lineage,
+  dead cache, held lock — every one refuses with the remedy, never
+  collects blind.
 
 ## Sweeper events
 
@@ -231,7 +232,7 @@ stateDiagram-v2
 | `skip` | nothing due, or another pass holds the lock |
 | `row` | one due row attempted (repo, tag, reason, outcome) |
 | `done` | rows exhausted (performed / planned / failed counts) |
-| `failure` | pass-level error, e.g. redis lost mid-pass |
+| `failure` | pass-level error, e.g. redis lost mid-pass, lineage refused (foreign/silent/rolled-back registry — skipped with the cause in `failures`, before the lock) |
 
 Run state lives in redis under two keys: `current` (one JSON record,
 overwritten through the pass: pass id, stage, started_at, trigger,

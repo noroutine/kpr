@@ -83,6 +83,7 @@ var serveCmd = &cobra.Command{
 		sweeper := &sweep.Sweeper{
 			Store:    keeperStore,
 			Registry: regClient,
+			Sentinel: regClient,
 			DryRun:   !cfg.SweeperNoDryRun,
 		}
 		if cfg.SweeperNoDryRun {

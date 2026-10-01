@@ -162,7 +162,24 @@ func TestSweepEndpointToleratesWriteError(t *testing.T) {
 // fails, the CLI trigger has no endpoint to call.
 func TestSweepEndpointTriggersPass(t *testing.T) {
 	testConfig(t)
+	// The fake serves the sentinel read paths with a live paired
+	// generation (fresh timestamp per request) so the pass exercises
+	// the real client parse; everything else answers 202 as before.
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "manifests") {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"schemaVersion":2,"config":{"digest":"sha256:stub"}}`))
+			return
+		}
+		if strings.Contains(r.URL.Path, "blobs") {
+			w.WriteHeader(http.StatusOK)
+			pay, _ := json.Marshal(map[string]any{
+				"v": 1, "gen": "web-gen", "id": "web-lineage",
+				"ts": time.Now().UTC().Format(time.RFC3339), "writer": "kpr-gc",
+			})
+			_, _ = w.Write(pay)
+			return
+		}
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer fake.Close()
@@ -172,7 +189,11 @@ func TestSweepEndpointTriggersPass(t *testing.T) {
 		Sweeper: &sweep.Sweeper{Store: store.NewMemStore(), Registry: registry.NewClient(fake.URL)},
 	}
 	s.Sweeper.Store = s.Store
+	s.Sweeper.Sentinel = registry.NewClient(fake.URL)
 	s.Sweeper.DryRun = true
+	if err := s.Store.SetIdentity(context.Background(), store.Identity{ID: "web-lineage", BaselineGen: "web-gen"}); err != nil {
+		t.Fatalf("pair store: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/sweep", nil)
 	rr := httptest.NewRecorder()

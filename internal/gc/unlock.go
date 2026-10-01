@@ -2,12 +2,16 @@ package gc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/clock"
+	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // UnlockStore records the operator's write intent: the one method
@@ -18,21 +22,75 @@ type UnlockStore interface {
 }
 
 // Unlock proves the shared store with a fresh generation and records
-// the intent to allow registry-store writes. Mode-agnostic: the
-// proof lands on the mount and reads back through the API on
-// writable and readonly registries alike. Anything unproven —
-// unwritten or unreadable generation — refuses and the store stays
-// locked: unlock on a stranger's (or no) store never opens writes.
-func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath string, st UnlockStore, rec Recorder) error {
+// the intent to allow registry-store writes. Read-first through the
+// same verdict gc uses: silence establishes the pairing (generating
+// one when unpaired — with a loud warning when the store was
+// already paired, since a missing tag under a lineage means a wipe,
+// not a fresh deploy); a served lineage mints under the stored
+// identity; foreign, unpaired-facing-served, identity-less, stale,
+// and unreadable lineages refuse with the ceremony named. The
+// proof's timestamp comes from a checked clock: skew refuses
+// (unlock is manual — fix NTP and retry, there is no --force to
+// hide behind), an unreachable NTP warns and proceeds. Anything
+// unproven refuses and the store stays locked.
+func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath string, st UnlockStore, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, ntpServer string) error {
 	root, err := StoreRoot(configPath)
 	if err != nil {
 		return err
+	}
+	if cerr := clock.Check(ctx, ntpServer, clock.Tolerance); cerr != nil {
+		var skew *clock.SkewError
+		if errors.As(cerr, &skew) {
+			return fmt.Errorf("clock skew %s exceeds %s against %s: fix NTP and retry (unlock carries no --force)",
+				skew.Offset.Round(time.Second), skew.Tolerance, ntpServer)
+		}
+		if _, err := fmt.Fprintf(w, "Warning: NTP %s unreachable (%v); proceeding with local clock\n", ntpServer, cerr); err != nil {
+			return err
+		}
+	}
+	now := time.Now().UTC()
+	pay, digest, rerr := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
+	allRows, err := rows.All(ctx)
+	if err != nil {
+		return fmt.Errorf("tracked state unreadable: %w", err)
+	}
+	ident, err := ids.GetIdentity(ctx)
+	if err != nil {
+		return fmt.Errorf("lineage unreadable: %w", err)
+	}
+	v := lineage.Judge(
+		lineage.Served{Payload: pay, Digest: digest, Err: rerr},
+		lineage.Local{Ident: ident, Rows: allRows},
+		lineage.Ask{Now: now})
+	if !v.Proceed && !v.Establish {
+		return fmt.Errorf("%s — %s", v.Reason, v.Action)
+	}
+	useID := ident.ID
+	if v.Establish {
+		est := store.Identity{ID: useID, BaselineGen: ident.BaselineGen, AdoptedAt: now}
+		if useID == "" {
+			useID, err = sentinel.NewGen()
+			if err != nil {
+				return err
+			}
+			est.ID = useID
+		} else {
+			// Re-minting, not re-pairing: the acceptance the
+			// operator recorded (baseline, adopted-at) survives.
+			est.AdoptedAt = ident.AdoptedAt
+			if _, err := fmt.Fprintf(w, "Warning: store paired to %s but nothing served — re-minting the baseline (check the mount if unintended)\n", useID); err != nil {
+				return err
+			}
+		}
+		if err := ids.SetIdentity(ctx, est); err != nil {
+			return fmt.Errorf("lineage unrecordable: %w", err)
+		}
 	}
 	gen, err := sentinel.NewGen()
 	if err != nil {
 		return err
 	}
-	payload := sentinel.Payload{V: 1, Gen: gen, TS: time.Now().UTC().Format(time.RFC3339), Writer: "kpr-unlock"}
+	payload := sentinel.Payload{V: 1, Gen: gen, ID: useID, TS: now.Format(time.RFC3339), Writer: "kpr-unlock"}
 	md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
 	if err != nil {
 		return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
@@ -40,7 +98,7 @@ func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath strin
 	if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
 		return fmt.Errorf("kpr does not share this registry's store: %v", err)
 	}
-	if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: time.Now().UTC(), Actor: payload.Writer}); err != nil {
+	if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
 		return fmt.Errorf("proof held but the generation went untracked: %w", err)
 	}
 	if err := st.SetUnlocked(ctx, true); err != nil {

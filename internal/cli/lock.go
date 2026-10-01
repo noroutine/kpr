@@ -36,17 +36,20 @@ var unlockCmd = &cobra.Command{
 	Short: "Prove the shared store and allow kpr writes",
 	Long: `Mint a fresh sentinel generation onto the shared store, read
 it back through the API, and record the intent to allow
-registry-store writes (gc and future writers). Refuses on a
-stranger's store or no store at all — the marker never opens
-without proof. Fresh stores start locked: unlock once per deploy,
-lock to revoke.`,
+registry-store writes (gc and future writers). Reads first
+through the same verdict gc uses: foreign, unpaired, stale, and
+identity-less lineages refuse with the ceremony named (as does a
+skewed clock — fix NTP and retry, there is no --force here).
+Silence establishes the pairing. The marker never opens without
+proof. Fresh stores start locked: unlock once per deploy, lock
+to revoke.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()
 		if err != nil {
 			return err
 		}
 		defer d.close()
-		return gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, unlockConfigPath, d.store, d.store)
+		return gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, unlockConfigPath, d.store, d.store, d.store, d.store, d.cfg.NTPServer)
 	},
 }
 

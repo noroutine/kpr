@@ -19,12 +19,15 @@ import (
 )
 
 // Payload is the structured info in the sentinel config blob: schema
-// version, writer-side generation, wall timestamp, writer name. Blobs
-// are never validated on read, so any JSON serves — the version
-// keeps future readers honest.
+// version, writer-side generation, lineage identity, wall timestamp,
+// writer name. Blobs are never validated on read, so any JSON serves
+// — the version keeps future readers honest. The identity names the
+// registry lineage the mint belongs to; payloads without one predate
+// pairing and count as silence at verdict time, never as proof.
 type Payload struct {
 	V      int    `json:"v"`
 	Gen    string `json:"gen"`
+	ID     string `json:"id,omitempty"`
 	TS     string `json:"ts,omitempty"`
 	Writer string `json:"writer,omitempty"`
 }

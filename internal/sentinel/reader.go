@@ -3,9 +3,28 @@ package sentinel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"net/http"
 	"time"
 )
+
+// Absent reports read silence: the tag serves nothing — a 404 from
+// the registry, or a missing file behind a fake. Silence means
+// establish-or-refuse-dry, never corruption (unparseable bytes) and
+// never transport failure: both refuse everywhere. A nil error is
+// never absence.
+func Absent(err error) bool {
+	if err == nil {
+		return false
+	}
+	var sc interface{ StatusCode() int }
+	if errors.As(err, &sc) {
+		return sc.StatusCode() == http.StatusNotFound
+	}
+	return errors.Is(err, fs.ErrNotExist)
+}
 
 // API is the read-back half of the sentinel: the manifest a tag
 // serves, the blob a digest serves. internal/registry carries the

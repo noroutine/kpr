@@ -134,13 +134,30 @@ const ociManifestType = "application/vnd.oci.image.manifest.v1+json"
 // GetManifest returns the exact manifest bytes a tag serves. Any
 // non-200 is an error with the registry's status — absence of proof
 // is never an empty manifest.
+// StatusError reports a non-200 registry answer with its status:
+// callers classify absence (404) without parsing messages. The text
+// keeps the historical shape so logs and asserted outputs don't move.
+type StatusError struct {
+	Op     string
+	Status int
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("%s: registry status %d", e.Op, e.Status)
+}
+
+// StatusCode exposes the answer for classifier interfaces: callers
+// match `interface{ StatusCode() int }` instead of importing the
+// client for one type.
+func (e *StatusError) StatusCode() int { return e.Status }
+
 func (c *Client) GetManifest(ctx context.Context, repo, ref string) ([]byte, error) {
 	status, body, err := c.getAccept(ctx, "/v2/"+repo+"/manifests/"+ref, ociManifestType)
 	if err != nil {
 		return nil, err
 	}
 	if status != http.StatusOK {
-		return nil, fmt.Errorf("manifest %s:%s: registry status %d", repo, ref, status)
+		return nil, &StatusError{Op: fmt.Sprintf("manifest %s:%s", repo, ref), Status: status}
 	}
 	return body, nil
 }
@@ -153,7 +170,7 @@ func (c *Client) GetBlob(ctx context.Context, repo, digest string) ([]byte, erro
 		return nil, err
 	}
 	if status != http.StatusOK {
-		return nil, fmt.Errorf("blob %s@%s: registry status %d", repo, digest, status)
+		return nil, &StatusError{Op: fmt.Sprintf("blob %s@%s", repo, digest), Status: status}
 	}
 	return body, nil
 }

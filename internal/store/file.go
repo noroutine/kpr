@@ -59,6 +59,11 @@ func (s *FileStore) currentFile() string { return filepath.Join(s.dir, "current.
 // proved the shared store and opened it. Empty file — presence is
 // the whole state, like the lock files it sits beside.
 func (s *FileStore) unlockedFile() string { return filepath.Join(s.dir, "unlocked") }
+
+// identityFile holds the lineage pairing as JSON: absent means the
+// store never paired, unlike the unlocked marker where presence is
+// the whole state.
+func (s *FileStore) identityFile() string { return filepath.Join(s.dir, "identity.json") }
 func (s *FileStore) activityFile() string {
 	return filepath.Join(s.dir, "activity.json")
 }
@@ -502,6 +507,35 @@ func (s *FileStore) SetUnlocked(_ context.Context, unlocked bool) error {
 		return nil
 	}
 	return putFile(s.unlockedFile(), []byte{})
+}
+
+// GetIdentity reads the pairing: missing file (fresh stores
+// included) is unpaired. A read failure other than not-exist, or
+// unparseable JSON, refuses — a pairing nobody can read is no
+// pairing to compare against.
+func (s *FileStore) GetIdentity(_ context.Context) (Identity, error) {
+	raw, err := os.ReadFile(s.identityFile())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Identity{}, nil
+		}
+		return Identity{}, err
+	}
+	var id Identity
+	if err := json.Unmarshal(raw, &id); err != nil {
+		return Identity{}, fmt.Errorf("filestore: identity.json unparseable: %w", err)
+	}
+	return id, nil
+}
+
+// SetIdentity writes the pairing outright, ensuring the dir like
+// the marker does.
+func (s *FileStore) SetIdentity(_ context.Context, id Identity) error {
+	raw, err := json.Marshal(id)
+	if err != nil {
+		return err
+	}
+	return putFile(s.identityFile(), raw)
 }
 
 // Close releases every held lock file: clean shutdown hands nothing

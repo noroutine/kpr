@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,28 @@ func testCtx() context.Context {
 	c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	_ = cancel
 	return c
+}
+
+// Non-200 manifest/blob reads report a typed status: callers tell
+// absence (404) from failure without parsing messages. If this
+// fails, silence and corruption collapse into one bucket and every
+// verdict guesses.
+func TestGetNotFoundTyped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	_, merr := c.GetManifest(testCtx(), "app", "v1")
+	var mse *StatusError
+	if !errors.As(merr, &mse) || mse.Status != http.StatusNotFound {
+		t.Fatalf("GetManifest err = %v, want *StatusError 404", merr)
+	}
+	_, berr := c.GetBlob(testCtx(), "app", "sha256:abc")
+	var bse *StatusError
+	if !errors.As(berr, &bse) || bse.Status != http.StatusNotFound {
+		t.Fatalf("GetBlob err = %v, want *StatusError 404", berr)
+	}
 }
 
 // A confirmed delete must hit DELETE /v2/<repo>/manifests/<ref> and

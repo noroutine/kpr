@@ -17,6 +17,7 @@ type MemStore struct {
 	activity []Outcome
 	locks    map[string]bool
 	unlocked bool
+	identity Identity
 }
 
 // NewMemStore builds an empty MemStore.
@@ -127,6 +128,21 @@ func (m *MemStore) SetUnlocked(_ context.Context, unlocked bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.unlocked = unlocked
+	return nil
+}
+
+// GetIdentity returns the paired lineage: zero means unpaired.
+func (m *MemStore) GetIdentity(context.Context) (Identity, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.identity, nil
+}
+
+// SetIdentity records the pairing outright.
+func (m *MemStore) SetIdentity(_ context.Context, id Identity) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.identity = id
 	return nil
 }
 

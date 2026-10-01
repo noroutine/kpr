@@ -62,6 +62,7 @@ func newSweeper(s store.Store, url string, dryRun bool) *Sweeper {
 	return &Sweeper{
 		Store:    s,
 		Registry: registry.NewClient(url),
+		Sentinel: pairGround(s),
 		DryRun:   dryRun,
 		Now:      func() time.Time { return sweepNow },
 	}
@@ -100,7 +101,7 @@ func TestSweeperDeletesViaStubRegistry(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 	sum := sw.RunPass(testCtx(), "test")
 	if sum.Performed != 1 {
 		t.Errorf("summary = %+v, want 1 performed", sum)
@@ -123,7 +124,7 @@ func TestDryRunPlansWithoutDeleting(t *testing.T) {
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
-	sw := &Sweeper{Store: s, Registry: stub, DryRun: true, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), DryRun: true, Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "POST")
 	if sum.Planned != 1 || sum.Performed != 0 || sum.Failed != 0 {
@@ -156,7 +157,7 @@ func TestArmedPassDeletesByDigest(t *testing.T) {
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 
 	if sum := sw.RunPass(testCtx(), "tick"); sum.Performed != 1 {
 		t.Fatalf("summary = %+v, want Performed 1", sum)
@@ -214,7 +215,7 @@ func TestFloorHoldsEarlyTTLMark(t *testing.T) {
 	r.Reason = "ttl:10m elapsed"
 	_ = s.Record(testCtx(), r)
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "tick")
 	if sum.Performed != 0 || sum.Failed != 0 {
@@ -241,7 +242,7 @@ func TestRegistryFailureKeepsRowForRetry(t *testing.T) {
 	_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted,
 		failFirst: true, err: errors.New("delete app/v1: registry status 500")}
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "tick")
 	if sum.Failed != 1 || sum.Performed != 0 {
@@ -271,7 +272,7 @@ func TestLockedTriggerSkips(t *testing.T) {
 	}
 	defer func() { _ = s.ReleaseLock(testCtx(), store.LockKey) }()
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "POST")
 	if !sum.Skipped {
@@ -292,7 +293,7 @@ func TestLockedTriggerSkips(t *testing.T) {
 func TestEmptyDueSkips(t *testing.T) {
 	s := store.NewMemStore()
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "tick")
 	if !sum.Skipped {
@@ -353,7 +354,7 @@ func TestPassEmitsActivityLogRecords(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 	sink := &recordSink{}
 	sw.Log = sink.log
 
@@ -397,7 +398,8 @@ func TestPassEmitsActivityLogRecords(t *testing.T) {
 // sweeper that stopped ticking.
 func TestSkippedPassLogsSummary(t *testing.T) {
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
-	sw := &Sweeper{Store: store.NewMemStore(), Registry: stub, Now: func() time.Time { return sweepNow }}
+	s := store.NewMemStore()
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 	sink := &recordSink{}
 	sw.Log = sink.log
 
@@ -421,7 +423,7 @@ func TestFailedRowLogsError(t *testing.T) {
 	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted,
 		failFirst: true, err: errors.New("delete app/v1: registry status 500")}
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 	sink := &recordSink{}
 	sw.Log = sink.log
 
@@ -441,7 +443,7 @@ func TestRunPassDefaultsToWallClock(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
 		PushedAt: time.Now().UTC().Add(-time.Hour), Due: true, Reason: "ttl:10m elapsed"})
-	sw := &Sweeper{Store: s, DryRun: true}
+	sw := &Sweeper{Store: s, Sentinel: pairGround(s), DryRun: true}
 	if sum := sw.RunPass(testCtx(), "tick"); sum.Planned != 1 {
 		t.Errorf("summary = %+v, want 1 planned on wall clock", sum)
 	}
@@ -493,7 +495,7 @@ func TestPassSurvivesEventWriteFailure(t *testing.T) {
 
 	s := &errCurrentStore{MemStore: store.NewMemStore()}
 	_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
-	sw := &Sweeper{Store: s, DryRun: true}
+	sw := &Sweeper{Store: s, Sentinel: pairGround(s), DryRun: true}
 	if sum := sw.RunPass(testCtx(), "tick"); sum.Planned != 1 {
 		t.Errorf("summary = %+v, want the pass to complete despite event-path errors", sum)
 	}
@@ -518,7 +520,7 @@ func TestConfirmedDeleteWithFailedResolution(t *testing.T) {
 		s := &errDeleteStore{MemStore: store.NewMemStore()}
 		_ = s.Record(testCtx(), duerow("app", "v1", 200*24*time.Hour))
 		stub := &stubRegistry{outcome: outcome}
-		sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+		sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 
 		var buf bytes.Buffer
 		old := log.Writer()
@@ -554,7 +556,7 @@ func TestSweeperFailedDeleteKeepsRowDue(t *testing.T) {
 	_ = s.Record(testCtx(), mkrow("v2", "sha256:bbb"))
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted,
 		failFirst: true, err: errors.New("registry down")}
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 	sink := &recordSink{}
 	sw.Log = sink.log
 	sum := sw.RunPass(testCtx(), "test")
@@ -588,7 +590,7 @@ func TestSweeperHeldDeleteUntracksRow(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
 	stub := &stubRegistry{outcome: registry.OutcomeHeld}
-	sw := &Sweeper{Store: s, Registry: stub, Now: func() time.Time { return sweepNow }}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 	sum := sw.RunPass(testCtx(), "test")
 	if sum.Untracked != 1 {
 		t.Errorf("summary = %+v, want 1 untracked", sum)

@@ -80,7 +80,7 @@ revokes.`,
 		cfg := d.cfg
 		out := cmd.OutOrStdout()
 		dryRun := !gcNoDryRun && !cfg.CLINoDryRun
-		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, registry.NewClient(cfg.RegistryURL), cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, gc.Options{
+		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, registry.NewClient(cfg.RegistryURL), cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, cfg.NTPServer, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			Force:          gcForce,
 			DryRun:         dryRun,

@@ -36,9 +36,14 @@ func TestFloaterTagIsLatest(t *testing.T) {
 // layer, revision, and two tag links (floater and generation) —
 // nothing else. If this fails, the API serves 404s or the collector
 // trips over the residue.
+// testIdentity is the lineage every test mint belongs to: Write
+// carries whatever the minter sets, so tests set it like a paired
+// minter would.
+const testIdentity = "0193abcd-0000-7000-8000-0000000000aa"
+
 func TestWriteLaysOutExactFiles(t *testing.T) {
 	root := t.TempDir()
-	md, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007", TS: "2026-09-30T11:00:00Z", Writer: "test"})
+	md, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007", ID: testIdentity, TS: "2026-09-30T11:00:00Z", Writer: "test"})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -101,6 +106,9 @@ func TestWriteLaysOutExactFiles(t *testing.T) {
 	if err := json.Unmarshal(payRaw, &pay); err != nil || pay.Gen != "0193abcd-0000-7000-8000-000000000007" || pay.V != 1 {
 		t.Errorf("payload = %q, want generation 7 as JSON", payRaw)
 	}
+	if pay.ID != testIdentity {
+		t.Errorf("payload id = %q, want the lineage identity the mint recorded", pay.ID)
+	}
 	if man.Config.Size != len(payRaw) {
 		t.Errorf("config.size = %d, want payload bytes %d", man.Config.Size, len(payRaw))
 	}
@@ -119,11 +127,11 @@ func TestWriteLaysOutExactFiles(t *testing.T) {
 // and the proof reads a stale generation.
 func TestWriteRepointMovesTag(t *testing.T) {
 	root := t.TempDir()
-	md1, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000001"})
+	md1, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000001", ID: testIdentity})
 	if err != nil {
 		t.Fatalf("Write gen1: %v", err)
 	}
-	md2, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000002"})
+	md2, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000002", ID: testIdentity})
 	if err != nil {
 		t.Fatalf("Write gen2: %v", err)
 	}
@@ -156,7 +164,7 @@ func TestWriteRepointMovesTag(t *testing.T) {
 func TestWriteLinksGenerationTag(t *testing.T) {
 	root := t.TempDir()
 	gen := "0193abcd-0000-7000-8000-000000000007"
-	md, err := Write(root, Repo, Tag, Payload{V: 1, Gen: gen})
+	md, err := Write(root, Repo, Tag, Payload{V: 1, Gen: gen, ID: testIdentity})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -183,7 +191,7 @@ func TestWriteLinksGenerationTag(t *testing.T) {
 // writes outside the root — or a valid tag refuses a generation.
 func TestWriteValidatesNames(t *testing.T) {
 	root := t.TempDir()
-	gen := Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007"}
+	gen := Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007", ID: testIdentity}
 	for _, tag := range []string{
 		"live", "v1", "_", "a", "z", "A", "Z", "0", "9",
 		"aZ09_.-b", strings.Repeat("a", 128),

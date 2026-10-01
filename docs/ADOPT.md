@@ -1,5 +1,9 @@
 # Adopting kpr: bolting the keeper onto an existing registry (+ Traefik)
 
+> Not to be confused with `kpr adopt` — the lineage-pairing ceremony
+> (`docs/SENTINELS.md`: whose registry is this). This guide attaches
+> kpr to your registry; that command pairs a store to a lineage.
+
 You already run `distribution` (maybe behind Traefik, maybe with redis
 blob-descriptor cache) and you want ephemeral tags without migrating
 to Harbor. kpr attaches as a sidecar: no registry fork, no data

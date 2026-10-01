@@ -33,6 +33,9 @@ const (
 	// and opened it. Absent (fresh stores included) reads locked —
 	// default-deny, never default-allow.
 	UnlockedKey = "kpr:store:unlocked"
+	// IdentityKey holds the lineage pairing as JSON: which registry
+	// lineage this store belongs to. Absent means unpaired.
+	IdentityKey = "kpr:identity"
 )
 
 // ActivityCap bounds the outcome ring: state, not a stream.
@@ -111,4 +114,21 @@ type Store interface {
 	// SetUnlocked records or clears the intent: true after `kpr
 	// unlock` proves the shared store, false on `kpr lock`.
 	SetUnlocked(ctx context.Context, unlocked bool) error
+	// GetIdentity reports the paired lineage: empty ID means fresh,
+	// unpaired — nothing to compare served generations against. A
+	// read failure is an error, never a guess.
+	GetIdentity(ctx context.Context) (Identity, error)
+	// SetIdentity records the pairing: the lineage just established
+	// or adopted, with its baseline generation. Overwrites outright
+	// — only `kpr adopt` invokes it, never inference.
+	SetIdentity(ctx context.Context, id Identity) error
+}
+
+// Identity is the lineage pairing: which registry lineage this
+// store belongs to, the adopted baseline generation, and when the
+// pairing was recorded. Zero value is unpaired.
+type Identity struct {
+	ID          string    `json:"id"`
+	BaselineGen string    `json:"baseline_gen,omitempty"`
+	AdoptedAt   time.Time `json:"adopted_at,omitempty"`
 }

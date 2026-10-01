@@ -7,6 +7,8 @@ import (
 	"io"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/clock"
+	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -72,7 +74,7 @@ type Options struct {
 // with --force the operator presumed to know and the run passes
 // warned. A dead post-probe only warns. Flipping readonly stays with
 // the operator; this command never rewrites registry config.
-func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, opts Options) error {
+func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, ntpServer string, opts Options) error {
 	gcStarted := time.Now()
 	unlocked, err := lock.IsUnlocked(ctx)
 	if err != nil {
@@ -90,6 +92,24 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	}
 	if err := CacheReady(ctx, configPath); err != nil {
 		return err
+	}
+	// Mint timestamps come from a checked clock: skew beyond
+	// tolerance refuses unless forced; an unreachable NTP warns and
+	// proceeds on local time (air-gapped sites stay working).
+	if cerr := clock.Check(ctx, ntpServer, clock.Tolerance); cerr != nil {
+		var skew *clock.SkewError
+		if errors.As(cerr, &skew) {
+			if !opts.Force {
+				return fmt.Errorf("clock skew %s exceeds %s against %s: fix NTP or re-run with --force",
+					skew.Offset.Round(time.Second), skew.Tolerance, ntpServer)
+			}
+			if _, err := fmt.Fprintf(w, "Warning: clock skew %s exceeds %s; collecting anyway (--force)\n",
+				skew.Offset.Round(time.Second), skew.Tolerance); err != nil {
+				return err
+			}
+		} else if _, err := fmt.Fprintf(w, "Warning: NTP %s unreachable (%v); proceeding with local clock\n", ntpServer, cerr); err != nil {
+			return err
+		}
 	}
 	held, err := lock.AcquireLock(ctx, store.GCLockKey, lockTTL)
 	if err != nil {
@@ -115,30 +135,77 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	if mode == ModeWritable && !opts.DryRun && !opts.Force {
 		return errors.New("registry is writable: enable storage.maintenance.readonly and restart it first, or re-run with --force accepting the risk")
 	}
+	now := time.Now().UTC()
 	switch mode {
 	case ModeWritable, ModeReadonly:
-		// Dry-run previews without proving: a preview changes
-		// nothing, so it mints nothing and records nothing. Only
-		// armed runs pay for the proof they act on.
-		if !opts.DryRun {
-			gen, err := sentinel.NewGen()
-			if err != nil {
+		pay, digest, rerr := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
+		allRows, err := rows.All(ctx)
+		if err != nil {
+			return fmt.Errorf("tracked state unreadable: %w", err)
+		}
+		ident, err := ids.GetIdentity(ctx)
+		if err != nil {
+			return fmt.Errorf("lineage unreadable: %w", err)
+		}
+		v := lineage.Judge(
+			lineage.Served{Payload: pay, Digest: digest, Err: rerr},
+			lineage.Local{Ident: ident, Rows: allRows},
+			lineage.Ask{DryRun: opts.DryRun, Force: opts.Force, Now: now})
+		if !v.Proceed && !v.Establish {
+			return fmt.Errorf("%s — %s", v.Reason, v.Action)
+		}
+		if v.Stale {
+			if _, err := fmt.Fprintf(w, "Warning: %s — %s\n", v.Reason, v.Action); err != nil {
 				return err
 			}
-			payload := sentinel.Payload{V: 1, Gen: gen, TS: time.Now().UTC().Format(time.RFC3339), Writer: "kpr-gc"}
-			md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
-			if err != nil {
-				return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
+		}
+		if opts.DryRun {
+			break
+		}
+		useID := ident.ID
+		if v.Establish {
+			est := store.Identity{ID: useID, BaselineGen: ident.BaselineGen, AdoptedAt: now}
+			if useID == "" {
+				newID, err := sentinel.NewGen()
+				if err != nil {
+					return err
+				}
+				useID = newID
+				est.ID = useID
+			} else {
+				// Re-minting, not re-pairing: the acceptance the
+				// operator recorded (baseline, adopted-at) survives.
+				est.AdoptedAt = ident.AdoptedAt
+				if _, err := fmt.Fprintf(w, "Warning: store paired to %s but nothing served — re-minting the baseline (check the mount if unintended)\n", useID); err != nil {
+					return err
+				}
 			}
-			if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
-				return fmt.Errorf("kpr does not share this registry's store: %v", err)
+			if err := ids.SetIdentity(ctx, est); err != nil {
+				return fmt.Errorf("lineage unrecordable: %w", err)
 			}
-			if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: time.Now().UTC(), Actor: payload.Writer}); err != nil {
-				return fmt.Errorf("proof held but the generation went untracked: %w", err)
+		}
+		gen, err := sentinel.NewGen()
+		if err != nil {
+			return err
+		}
+		payload := sentinel.Payload{V: 1, Gen: gen, ID: useID, TS: now.Format(time.RFC3339), Writer: "kpr-gc"}
+		md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
+		if err != nil {
+			return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
+		}
+		if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
+			return fmt.Errorf("kpr does not share this registry's store: %v", err)
+		}
+		if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
+			return fmt.Errorf("proof held but the generation went untracked: %w", err)
+		}
+		if v.Heal != nil {
+			if err := rec.Record(ctx, *v.Heal); err != nil {
+				return fmt.Errorf("adopted generation went untracked: %w", err)
 			}
-			if _, err := fmt.Fprintf(w, "shared store proven via %s:%s generation %s\n", sentinel.Repo, sentinel.Tag, gen); err != nil {
-				return err
-			}
+		}
+		if _, err := fmt.Fprintf(w, "shared store proven via %s:%s generation %s\n", sentinel.Repo, sentinel.Tag, gen); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("sentinel inconclusive for %s", registryURL)

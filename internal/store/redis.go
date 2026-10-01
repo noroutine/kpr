@@ -32,7 +32,7 @@ func (s *RedisStore) Close() error { return s.rdb.Close() }
 // Flush drops every kpr key. Tests only: a clean slate per subtest so
 // contract cases never see each other's rows.
 func (s *RedisStore) Flush(ctx context.Context) error {
-	return s.rdb.Del(ctx, RowsKey, CurrentKey, ActivityKey, LockKey, UnlockedKey).Err()
+	return s.rdb.Del(ctx, RowsKey, CurrentKey, ActivityKey, LockKey, UnlockedKey, IdentityKey).Err()
 }
 
 func (s *RedisStore) Ping(ctx context.Context) error {
@@ -57,6 +57,33 @@ func (s *RedisStore) SetUnlocked(ctx context.Context, unlocked bool) error {
 		return s.rdb.Del(ctx, UnlockedKey).Err()
 	}
 	return s.rdb.Set(ctx, UnlockedKey, "1", 0).Err()
+}
+
+// GetIdentity reads the pairing: missing key (fresh included) is
+// unpaired. A redis error refuses, never guesses.
+func (s *RedisStore) GetIdentity(ctx context.Context) (Identity, error) {
+	raw, err := s.rdb.Get(ctx, IdentityKey).Bytes()
+	if err == redis.Nil {
+		return Identity{}, nil
+	}
+	if err != nil {
+		return Identity{}, err
+	}
+	var id Identity
+	if err := json.Unmarshal(raw, &id); err != nil {
+		return Identity{}, err
+	}
+	return id, nil
+}
+
+// SetIdentity writes the pairing outright as JSON (no expiry —
+// pairing persists until `kpr adopt` re-pairs).
+func (s *RedisStore) SetIdentity(ctx context.Context, id Identity) error {
+	raw, err := json.Marshal(id)
+	if err != nil {
+		return err
+	}
+	return s.rdb.Set(ctx, IdentityKey, raw, 0).Err()
 }
 
 func encodeRow(r policy.Row) string {

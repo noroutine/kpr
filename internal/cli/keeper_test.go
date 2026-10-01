@@ -679,12 +679,31 @@ func TestReapDryRunSurfacesWriteError(t *testing.T) {
 // wait after a restart) and keeps ticking until shutdown: exactly the
 // two server-side triggers, no queue. If this fails, restarts sleep
 // through due rows or the loop outlives serve.
+// loopSentinel serves one paired generation over the read port so
+// the loop test ticks on paired ground (the live stub answers 200
+// with no body, which parses as nothing).
+type loopSentinel struct{}
+
+func (loopSentinel) GetManifest(context.Context, string, string) ([]byte, error) {
+	return []byte(`{"schemaVersion":2,"config":{"digest":"sha256:stub"}}`), nil
+}
+
+func (loopSentinel) GetBlob(context.Context, string, string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"v": 1, "gen": "cli-gen", "id": "cli-lineage",
+		"ts": time.Now().UTC().Format(time.RFC3339), "writer": "kpr-gc",
+	})
+}
+
 func TestSweeperLoopStartupAndTick(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour),
 		Due: true, Reason: "ttl:10m elapsed"})
-	sw := &sweep.Sweeper{Store: s, Registry: liveRegistryClient(t), DryRun: true}
+	if err := s.SetIdentity(context.Background(), store.Identity{ID: "cli-lineage", BaselineGen: "cli-gen"}); err != nil {
+		t.Fatalf("pair store: %v", err)
+	}
+	sw := &sweep.Sweeper{Store: s, Registry: liveRegistryClient(t), Sentinel: loopSentinel{}, DryRun: true}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
