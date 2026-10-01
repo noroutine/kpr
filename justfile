@@ -536,9 +536,12 @@ image-hub-test:
     curl -sf localhost:9301/health
     echo "HUB IMAGE OK: {{HUB_IMAGE}}:{{HUB_TAG}}"
 
-# Push the tested sha tag to Docker Hub (needs `docker login`)
+# Push the sha tag multiplatform to Docker Hub (needs `docker login`).
+# Same Dockerfile and sources as the tested image, so the local-arch
+# slice is the proven bytes; the other arches share them.
 image-hub-push:
-    docker push {{HUB_IMAGE}}:{{HUB_TAG}}
+    docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 \
+        -f Dockerfile -t {{HUB_IMAGE}}:{{HUB_TAG}} --push .
 
 # Stack backend: file (default) or redis. One knob switches every
 # compose recipe below: `COMPOSE=redis just up` brings up the
