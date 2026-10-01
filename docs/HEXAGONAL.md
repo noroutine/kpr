@@ -15,6 +15,7 @@ doesn't get cut.
 - [Standing rules](#standing-rules)
 - [Settled questions](#settled-questions)
 - [How hexagonal is it](#how-hexagonal-is-it)
+- [Focused study: rm --untag and the bypass](#focused-study-rm---untag-and-the-bypass)
 - [Future attacks](#future-attacks)
 
 ## Where we are
@@ -130,6 +131,67 @@ Accepted review findings, recorded so they stay decided:
 - Sweep-only `Delete` stays convention-held (plus TTL floor and
   contract tests), not interface-held — sense over rulebook at
   this size.
+
+## Focused study: rm --untag and the three misses
+
+`store rm --untag` shipped deleting manifests straight from `cli`.
+Review found three misses, one slice each.
+
+### Miss 1 — the bypass
+
+What happened: `cli` cut its own `manifestDeleter`, a
+byte-for-byte duplicate of `sweep.Registry`, and called the
+registry port directly.
+
+Why it's a problem: the driving adapter reached past the use case
+to the outbound port, and the tree grew a second deleter beside
+the sweeper — contradicting ARCHITECTURE.md's "sole owner".
+
+What's the fix: no new port (the port rule demands a second
+differing implementation, and there is none). A second method on
+the same use case (`Sweeper.Untag` beside `RunPass`, the way `gc`
+carries `Run`/`Unlock`/`Adopt`): reuse the `Registry` port,
+drop-on-confirm, activity records, and the lineage gate; skip the
+due-mark requirement, the TTL floor, dry-run, and `Current`
+staging. The cli duplicate dies, which pays for the method.
+Rejected: mark-due plus trigger-a-pass.
+
+### Miss 2 — no generation
+
+What happened: the delete ties to no proven generation — no mint,
+no read-back.
+
+Why it's a problem: nothing distinguishes the registry it
+verified from the one it deletes from. A misconfigured
+`KPR_REGISTRY_URL` plus a valid digest deletes someone else's
+tags with no refusal anywhere.
+
+What's the fix: lineage read-gate inside `Untag`, no mint — an
+explicit operator action needs identity, not freshness. Refuse
+foreign/unpaired/identity-less/stale outright with the ceremony
+named (`rm` carries no `--force`; the remedy is `store adopt`).
+
+### Miss 3 — lock unchecked
+
+What happened: `store lock` denies registry-store writes, but a
+manifest DELETE touches no store bytes, so it sails past the lock.
+
+Why it's a problem: undecided whether that's correct. Narrowly
+the lock guards mount bytes (and the sweeper's own deletes never
+check it either); broadly the lock means "don't mutate my
+registry", and a locked operator would be surprised by `--untag`.
+
+What's the fix: decision first, then slice — either extend the
+lock to registry deletes, or declare API deletes out of lock
+scope in SENTINELS.md and STORES.md. Silent is the only wrong
+answer.
+
+Terminology, internalized: `cli`/`web` are driving adapters
+(parse, call, render); `keeper`/`gc`/`sweep` are use cases (pure
+orchestration over ports); `store`/`registry`/`clock` are outbound
+adapters. Adapters never skip the use case to touch a port —
+except the one published bypass (redis due-marks), which stays
+documented, not repeated.
 
 ## Future attacks
 

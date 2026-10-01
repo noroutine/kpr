@@ -17,7 +17,7 @@
 
 ## Success Criteria
 
-- Backfilled rows carry link-mtime push times and manifest digests, `actor=backfill`, not due; TTL/keep-N reason about them as real age.
+- Backfilled rows carry link-mtime push times and manifest digests, `actor=kpr-backfill`, not due; TTL/keep-N reason about them as real age.
 - Locked refuses naming `kpr store unlock`; stranger store refuses; stale snapshot warns and still records (not-due) instead of refusing.
 - Re-running over receiver-tracked rows changes nothing.
 - `backfill <repo-glob>` touches only matching repos; dry-run default with explicit `--no-dry-run` (decided).

@@ -48,7 +48,14 @@ so compose always sets it absolute (the file stack mounts
   preserves the due mark, newer push restarts it).
 - `current.json` — the one pass record, overwritten.
 - `activity.json` — the capped outcome ring (newest
-  first, trimmed to `ActivityCap`).
+  first, trimmed to `ActivityCap`). One record per due row the
+  sweeper attempts: repo, tag, reason, outcome (`deleted` /
+  `planned` / `failed` / `untracked`), timestamp. The sweeper is
+  the only writer; the console Activity section, the
+  performed/planned/failed counters (counted straight from the
+  ring), and `kpr store status` (tail of 10, full ring under
+  `--json`) are the readers. A journal of outcomes, not a log
+  stream — verbose operational logs stay on stdout/OTLP.
 - `locks/<name>.lock` — the lock file IS the lock JSON
   (`holder`, `since` for the operator's `cat`). Truth
   stays with the flock, never the file: a claim without

@@ -33,7 +33,7 @@ type statusRegistry interface {
 	sentinel.API
 }
 
-func runStatus(ctx context.Context, w io.Writer, s store.Store, reg statusRegistry, storeLine string, armed bool) error {
+func runStatus(ctx context.Context, w io.Writer, s store.Store, reg statusRegistry, armed bool) error {
 	st := keeper.FetchStatus(ctx, s, reg)
 	if !st.StoreOK {
 		return fmt.Errorf("%s unreachable: no tracked state to report", storeName(s))
@@ -46,8 +46,8 @@ func runStatus(ctx context.Context, w io.Writer, s store.Store, reg statusRegist
 	if armed {
 		arming = "armed"
 	}
-	_, err := fmt.Fprintf(w, "registry: %s\nstore: %s\nstore-lock: %s\nproof: %s\nsweeper: %s\ntracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\npass: %s (%s)\n",
-		registryState, storeLine, lockState(ctx, s), proofState(ctx, reg), arming, st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, st.Current.Stage, st.Current.Trigger)
+	_, err := fmt.Fprintf(w, "registry: %s\nsweeper: %s\ntracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\npass: %s (%s)\n",
+		registryState, arming, st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, st.Current.Stage, st.Current.Trigger)
 	return err
 }
 
@@ -293,16 +293,15 @@ func consoleURL(cfg *config.Config) string {
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show keeper banner, store, proof, and counters as text",
-	Long:  `Banner plus counters from tracked state, for scripts and ssh. Needs state; fails fast without it. Names the wired backend, the store lock, and the live proof generation alongside.`,
+	Short: "Show keeper banner and counters as text",
+	Long:  `Banner plus counters from tracked state, for scripts and ssh. Needs state; fails fast without it. Store facts (backend, lock, proof, identity) live under 'store status'.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()
 		if err != nil {
 			return err
 		}
 		defer d.close()
-		cfg, s := d.cfg, d.store
-		return runStatus(cmd.Context(), cmd.OutOrStdout(), s, d.reg, describeStore(s, cfg), cfg.SweeperNoDryRun)
+		return runStatus(cmd.Context(), cmd.OutOrStdout(), d.store, d.reg, d.cfg.SweeperNoDryRun)
 	},
 }
 

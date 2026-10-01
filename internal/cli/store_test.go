@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
 
 func seedRows(s *store.MemStore) {
@@ -21,38 +23,98 @@ func seedRows(s *store.MemStore) {
 		Due: true, Reason: "ttl:10m elapsed"})
 }
 
-// ls is the lay of the field: every tracked row, not just the due
-// ones plan shows. If this fails, operators cannot see what the
-// store actually holds.
-func TestStoreLsListsAllRows(t *testing.T) {
+func seedSentinel(s *store.MemStore) {
+	_ = s.Record(cliCtx(), policy.Row{Repo: "noroutine/kpr-sentinel", Tag: "019-gen",
+		Digest: "sha256:ccc", PushedAt: cliNow.Add(-30 * time.Minute), Actor: "kpr-unlock"})
+}
+
+// ls is the lay of the field: tracked rows, short columns, no
+// machinery. Sentinels stay out by default (semantically
+// different); `ls sentinels` shows only them. If this fails,
+// operators cannot see what the store actually holds.
+func TestStoreLsListsRowsShort(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
+	seedSentinel(s)
+	// Same namespace, not machinery: must stay visible.
+	_ = s.Record(cliCtx(), policy.Row{Repo: "noroutine/kpr-web", Tag: "v2", Digest: "sha256:ddd",
+		PushedAt: cliNow.Add(-10 * time.Minute), Actor: "receiver"})
 	var out bytes.Buffer
-	if err := runStoreLs(cliCtx(), &out, s, false); err != nil {
+	if err := runStoreLs(cliCtx(), &out, s, storeLsOpts{now: cliNow}); err != nil {
 		t.Fatalf("runStoreLs: %v", err)
 	}
-	for _, want := range []string{"app:v1", "scratch:10m", "sha256:aaa", "sha256:bbb", "due: ttl:10m elapsed", "not due"} {
+	for _, want := range []string{"REPO:TAG", "AGE", "DUE", "app:v1", "2h0m0s ago",
+		"scratch:10m", "1h0m0s ago", "ttl:10m elapsed", "not due", "noroutine/kpr-web:v2"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("ls missing %q:\n%s", want, out.String())
 		}
+	}
+	for _, gone := range []string{"kpr-sentinel", "sha256:aaa", "receiver", "pushed=", "actor="} {
+		if strings.Contains(out.String(), gone) {
+			t.Errorf("ls leaks %q (sentinel/digest/actor/prefix):\n%s", gone, out.String())
+		}
+	}
+}
+
+func TestStoreLsSentinelsOnly(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	seedSentinel(s)
+	var out bytes.Buffer
+	if err := runStoreLs(cliCtx(), &out, s, storeLsOpts{now: cliNow, sentinels: true}); err != nil {
+		t.Fatalf("runStoreLs sentinels: %v", err)
+	}
+	if !strings.Contains(out.String(), "noroutine/kpr-sentinel:019-gen") {
+		t.Errorf("sentinels view missing the generation:\n%s", out.String())
+	}
+	for _, gone := range []string{"app:v1", "scratch:10m"} {
+		if strings.Contains(out.String(), gone) {
+			t.Errorf("sentinels view leaks user row %q:\n%s", gone, out.String())
+		}
+	}
+}
+
+func TestStoreLsLong(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	seedSentinel(s)
+	var out bytes.Buffer
+	if err := runStoreLs(cliCtx(), &out, s, storeLsOpts{now: cliNow, long: true}); err != nil {
+		t.Fatalf("runStoreLs long: %v", err)
+	}
+	for _, want := range []string{"DIGEST", "PUSHED", "ACTOR", "sha256:aaa", "receiver", "2026-09-27T10:00:00Z"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("long ls missing %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "kpr-sentinel") {
+		t.Errorf("long ls leaks sentinels by default:\n%s", out.String())
 	}
 }
 
 func TestStoreLsEmpty(t *testing.T) {
 	var out bytes.Buffer
-	if err := runStoreLs(cliCtx(), &out, store.NewMemStore(), false); err != nil {
+	if err := runStoreLs(cliCtx(), &out, store.NewMemStore(), storeLsOpts{now: cliNow}); err != nil {
 		t.Fatalf("runStoreLs: %v", err)
 	}
 	if !strings.Contains(out.String(), "no tracked rows") {
 		t.Errorf("empty ls should say so:\n%s", out.String())
+	}
+	var sout bytes.Buffer
+	if err := runStoreLs(cliCtx(), &sout, store.NewMemStore(), storeLsOpts{now: cliNow, sentinels: true}); err != nil {
+		t.Fatalf("runStoreLs sentinels: %v", err)
+	}
+	if !strings.Contains(sout.String(), "no sentinel rows") {
+		t.Errorf("empty sentinels view should say so:\n%s", sout.String())
 	}
 }
 
 func TestStoreLsJSON(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
+	seedSentinel(s)
 	var out bytes.Buffer
-	if err := runStoreLs(cliCtx(), &out, s, true); err != nil {
+	if err := runStoreLs(cliCtx(), &out, s, storeLsOpts{now: cliNow, json: true}); err != nil {
 		t.Fatalf("runStoreLs json: %v", err)
 	}
 	var rows []map[string]any
@@ -60,7 +122,7 @@ func TestStoreLsJSON(t *testing.T) {
 		t.Fatalf("ls json unparseable: %v\n%s", err, out.String())
 	}
 	if len(rows) != 2 {
-		t.Fatalf("ls json has %d rows, want 2", len(rows))
+		t.Fatalf("ls json has %d rows, want 2 (sentinels excluded)", len(rows))
 	}
 }
 
@@ -110,7 +172,7 @@ func TestStoreWildcardRefuses(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "exact") {
 		t.Errorf("glob refusal should say exact, got: %v", err)
 	}
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:*"}); err == nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:*"}, false, nil); err == nil {
 		t.Error("rm with a glob should refuse")
 	} else if !strings.Contains(err.Error(), "exact") {
 		t.Errorf("glob refusal should say exact, got: %v", err)
@@ -121,6 +183,157 @@ func TestStoreWildcardRefuses(t *testing.T) {
 	}
 }
 
+// `store status` owns the store card the banner gave up: backend,
+// intent, live proof, and the lineage pairing the verdicts judge
+// against. If this fails, operators cannot see what the store is
+// paired to — or whether gc will run at all.
+func TestStoreStatusShowsLockProofIdentity(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	if err := s.SetUnlocked(cliCtx(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	if err := s.SetIdentity(cliCtx(), store.Identity{ID: "01a0f825-lineage", BaselineGen: "019-proof"}); err != nil {
+		t.Fatalf("stage identity: %v", err)
+	}
+	ts := time.Now().UTC().Format(time.RFC3339)
+	if err := s.PushActivity(cliCtx(), store.Outcome{Repo: "scratch", Tag: "10m",
+		Reason: "ttl:10m elapsed", Outcome: "deleted", At: cliNow}); err != nil {
+		t.Fatalf("stage activity: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runStoreStatus(cliCtx(), &out, s, stubProofAPI{ts: ts}, "mem (tests only)", false); err != nil {
+		t.Fatalf("runStoreStatus: %v", err)
+	}
+	for _, want := range []string{"store: mem (tests only)", "store-lock: unlocked",
+		"proof: 019-proof", "ago)", "identity: 01a0f825-lineage", "baseline 019-proof",
+		"activity (last 1 of 1):", "scratch:10m — deleted (ttl:10m elapsed)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("store status missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestStoreStatusFreshStore(t *testing.T) {
+	var out bytes.Buffer
+	if err := runStoreStatus(cliCtx(), &out, store.NewMemStore(), nil, "mem (tests only)", false); err != nil {
+		t.Fatalf("runStoreStatus: %v", err)
+	}
+	for _, want := range []string{"store-lock: locked", "proof: unproven", "identity: unpaired", "activity: none recorded"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("fresh store status missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestStoreStatusJSON(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	if err := s.SetIdentity(cliCtx(), store.Identity{ID: "01a0f825-lineage"}); err != nil {
+		t.Fatalf("stage identity: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runStoreStatus(cliCtx(), &out, s, nil, "mem (tests only)", true); err != nil {
+		t.Fatalf("runStoreStatus json: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("store status json unparseable: %v\n%s", err, out.String())
+	}
+	if got["identity"] != "01a0f825-lineage" || got["lock"] != "locked" {
+		t.Errorf("store status json = %v, want identity + lock", got)
+	}
+}
+
+// untagStub is the registry half of `rm --untag`: canned outcome
+// per call, with the refs it saw (untouched on refusal).
+type untagStub struct {
+	outcome string
+	err     error
+	calls   []string
+}
+
+func (s *untagStub) DeleteManifest(_ context.Context, repo, ref string) (string, error) {
+	s.calls = append(s.calls, repo+":"+ref)
+	return s.outcome, s.err
+}
+
+// flipStub succeeds once, then holds: partial success must still
+// print the confirmed row before the error returns.
+type flipStub struct {
+	calls []string
+	n     int
+}
+
+func (s *flipStub) DeleteManifest(_ context.Context, repo, ref string) (string, error) {
+	s.calls = append(s.calls, repo+":"+ref)
+	s.n++
+	if s.n == 1 {
+		return "deleted", nil
+	}
+	return "held", nil
+}
+
+func TestStoreRmUntagPartialPrintsDone(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	stub := &flipStub{}
+	var out bytes.Buffer
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "scratch:10m"}, true,
+		&sweep.Sweeper{Store: s, Registry: stub}); err == nil {
+		t.Fatal("partial untag succeeded, want the held failure")
+	}
+	if !strings.Contains(out.String(), "untagged app:v1") {
+		t.Errorf("partial untag hid the confirmed row:\n%s", out.String())
+	}
+	rows, _ := s.All(cliCtx())
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want the 1 held row kept", len(rows))
+	}
+}
+
+// --untag deletes the manifest by digest first and drops the row
+// only on confirm — the sweeper's order, without the due mark.
+// If this fails, rm either orphans registry tags or drops rows
+// for tags that survive.
+func TestStoreRmUntagDeletesThenDropsRow(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	stub := &untagStub{outcome: "deleted"}
+	var out bytes.Buffer
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}); err != nil {
+		t.Fatalf("runStoreRm untag: %v", err)
+	}
+	if len(stub.calls) != 1 || stub.calls[0] != "app:sha256:aaa" {
+		t.Errorf("untag calls = %v, want [app:sha256:aaa] (by digest, not tag)", stub.calls)
+	}
+	rows, _ := s.All(cliCtx())
+	for _, r := range rows {
+		if r.Repo == "app" && r.Tag == "v1" {
+			t.Error("untagged row left behind")
+		}
+	}
+	if !strings.Contains(out.String(), "untagged") {
+		t.Errorf("rm should say untagged:\n%s", out.String())
+	}
+}
+
+// A held delete (tag fallback on distribution:3, denied configs)
+// keeps the row: dropping it would untrack a live tag silently.
+func TestStoreRmUntagHeldKeepsRowLoud(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	stub := &untagStub{outcome: "held"}
+	var out bytes.Buffer
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}); err == nil {
+		t.Fatal("held untag succeeded, want a loud failure")
+	}
+	rows, _ := s.All(cliCtx())
+	if len(rows) != 2 {
+		t.Errorf("held untag dropped the row: %d left, want 2", len(rows))
+	}
+}
+
 // rm drops the tracked row only: the registry tag survives,
 // untracked until a re-push or backfill re-tracks it. The warning
 // is the point — a silent rm would look like a delete.
@@ -128,7 +341,7 @@ func TestStoreRmDropsRowWarnsTagStays(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}); err != nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, false, nil); err != nil {
 		t.Fatalf("runStoreRm: %v", err)
 	}
 	if !strings.Contains(out.String(), "untracked") {
@@ -154,7 +367,7 @@ func TestStoreRmUnknownRefusesBeforeDeleting(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "app:nope"}); err == nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "app:nope"}, false, nil); err == nil {
 		t.Fatal("rm with an unknown ref should refuse")
 	} else if !strings.Contains(err.Error(), "app:nope") {
 		t.Errorf("refusal should name the unknown row, got: %v", err)

@@ -28,7 +28,7 @@ the file alternative is in [docs/STORES.md](STORES.md).
 ```mermaid
 flowchart TB
     dev[docker push] --> dist[distribution\nstock registry]
-    dist -- notifications --> recv[receiver\nin kpr serve]
+    dist -- notifications --> recv{{receiver\nin kpr serve}}
     recv -- records rows --> redis[(redis\nthe shared state)]
     sweep[sweeper\nin kpr serve] <-- reads due rows --> redis
     sweep -- DELETE manifests --> dist
@@ -38,11 +38,11 @@ flowchart TB
     reap[kpr reap\npolicies live here] -- marks rows due --> redis
     reap -- reads catalog for keep-N and untagged --> dist
     sweepcmd[kpr sweep\npuppeteers sweeper] -- POST trigger, watches pass --> console
-    gc[kpr gc\nsentinel + stock collector] -- reclaims blob bytes --> dist
+    gc{{kpr gc\nsentinel + stock collector}} -- reclaims blob bytes --> dist
     status[kpr status] --- redis
     plan[kpr plan\nadd, remove, discard] --- redis
-    store[kpr store\nls, inspect, rm] --- redis
-    ceremony[kpr store\nlock/unlock/adopt\nlineage ceremony] --- redis
+    store[kpr store\nls, inspect, rm, status] --- redis
+    ceremony{{kpr store\nlock/unlock/adopt\nlineage ceremony}} --- redis
     human((human)) --> console
     human --> status
     human --> plan
@@ -53,8 +53,16 @@ flowchart TB
     human --> ceremony
 ```
 
-Sweeping has one owner: the sweeper in `serve`, the only writer that
-deletes from the registry. The CLI splits along the decision line:
+Hexagons are the recording paths: the receiver signs
+`kpr-receiver`, `gc` signs `kpr-gc` (mints) and `kpr-heal`
+(adopt-recorded generations land via gc runs), the ceremony signs
+`kpr-unlock`. (`kpr-backfill` gets its node when backfill lands —
+full vocabulary in Data below.)
+
+Sweeping has one owner: the sweeper in `serve`, the only deleter —
+`store rm --untag` calls into it (`Sweeper.Untag`, a specific sweep
+going around the plan) instead of deleting past it. The CLI splits
+along the decision line:
 `reap` marks, `sweep` puppeteers, `plan` edits, `gc` reclaims. `reap`
 evaluates the policies (reading candidates from redis, and the catalog
 from the registry for keep-N and untagged) and marks rows due with a
@@ -172,6 +180,16 @@ only after the registry confirms.
 | `kpr:store:unlocked` | intent marker (`unlock` sets after proof, `lock` drops; file backend: `<dir>/unlocked`) |
 | `kpr:identity` | lineage pairing as JSON (file backend: `<dir>/identity.json`; absent = unpaired) |
 
+Row actors name the recording component, never the pusher (the
+notification's `actor.name` — basic-auth username or nothing —
+carries no retention meaning): `kpr-receiver` signs notification
+rows, `kpr-unlock` / `kpr-gc` sign their generation mints,
+`kpr-heal` signs an adopted untracked generation whose payload
+predates writers, `kpr-backfill` will sign backfill rows. The
+vocabulary is closed at five: every recording path runs through a
+hexagon above. (Old rows may still carry `""` or a pusher name —
+re-push restamps them.)
+
 ## Surfaces
 
 Console (server-rendered, no SPA) shows only what kpr tracks — never
@@ -185,12 +203,17 @@ CLI, next to `serve` and `env`:
 - `kpr status` — banner + counters as text, for scripts and ssh.
 - `kpr plan` — pending candidates, optionally JSON for piping, plus
   `add` / `remove` / `discard`.
-- `kpr store` — the rows themselves: `ls` (all rows, `--json`),
+- `kpr store` — the rows themselves: `ls` (short columns, `--long`,
+  `--json`; sentinels take `ls sentinels`),
   `inspect <repo:tag>` (one full row), `rm` (drop rows; tag stays,
-  untracked — exact spellings, all-or-nothing, no dry-run);
+  untracked — exact spellings, all-or-nothing, no dry-run;
+  `--untag` deletes the manifest by digest first, row drops on
+  confirm);
   `lock` / `unlock` set / drop the intent marker (proof first);
   `adopt [IDENT] [--gen]` — the only pairing writer: pairs the
   store to the served lineage. Full ceremony in `docs/SENTINELS.md`.
+  `status` shows the card: backend, lock, proof, identity, and the
+  activity tail (`--json` for piping).
 - `kpr reap [policy]` — evaluates one policy or all and marks rows
   due. Dry-run unless `--no-dry-run`.
 - `kpr sweep` — triggers a sweep pass and watches it to the summary.

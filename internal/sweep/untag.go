@@ -1,0 +1,79 @@
+package sweep
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"strings"
+
+	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/store"
+)
+
+// resolveRow records one outcome in the redis ring and on the
+// activity log together: the console and Quickwit never diverge.
+// Shared by the pass loop and directed deletes.
+func (s *Sweeper) resolveRow(ctx context.Context, passID string, r policy.Row, outcome string, rerr error) {
+	if err := s.Store.PushActivity(ctx, store.Outcome{
+		Repo: r.Repo, Tag: r.Tag, Reason: r.Reason, Outcome: outcome, At: s.now(),
+	}); err != nil {
+		log.Printf("sweeper: activity write failed: %v", err)
+	}
+	args := []any{
+		"pass_id", passID,
+		"repo", r.Repo, "tag", r.Tag, "reason", r.Reason, "outcome", outcome,
+	}
+	if rerr != nil {
+		args = append(args, "err", rerr.Error())
+	}
+	s.emit(ctx, "sweep row", args...)
+}
+
+// deleteManifest deletes one row's manifest by digest: modern
+// registries (distribution:3) reject tag deletes outright, while a
+// digest delete is confirmed and universal. Digest-less rows fall
+// back to the tag and fail visibly where unsupported.
+func (s *Sweeper) deleteManifest(ctx context.Context, r policy.Row) (string, error) {
+	ref := r.Digest
+	if ref == "" {
+		ref = r.Tag
+	}
+	return s.Registry.DeleteManifest(ctx, r.Repo, ref)
+}
+
+// Untag deletes the given rows' manifests without requiring due
+// marks: the operator-directed delete (`store rm --untag`), a
+// specific sweep going around the plan. Each row drops only on
+// confirm (deleted or already gone); held and failed deletes keep
+// their rows and fail loudly in aggregate. No lineage gate yet and
+// no lock check — the two open misses, owned by the use case now
+// instead of the CLI.
+func (s *Sweeper) Untag(ctx context.Context, rows []policy.Row) ([]policy.Row, error) {
+	id := fmt.Sprintf("%d", s.now().UnixNano())
+	var done []policy.Row
+	var failed []string
+	for _, r := range rows {
+		outcome, derr := s.deleteManifest(ctx, r)
+		switch {
+		case derr != nil:
+			s.resolveRow(ctx, id, r, "failed", derr)
+			failed = append(failed, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, derr))
+		case outcome == registry.OutcomeHeld:
+			herr := errors.New("registry held the delete")
+			s.resolveRow(ctx, id, r, "failed", herr)
+			failed = append(failed, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, herr))
+		default: // deleted or already gone: confirmed, resolve.
+			s.resolveRow(ctx, id, r, "deleted", nil)
+			if err := s.Store.Delete(ctx, r.Repo, r.Tag); err != nil {
+				return done, err
+			}
+			done = append(done, r)
+		}
+	}
+	if len(failed) > 0 {
+		return done, fmt.Errorf("untag failed for %d (%s): rows kept", len(failed), strings.Join(failed, "; "))
+	}
+	return done, nil
+}

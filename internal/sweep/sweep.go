@@ -117,19 +117,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	// resolve records the outcome in the redis ring and on the
 	// activity log together: the console and Quickwit never diverge.
 	resolve := func(r policy.Row, outcome string, rerr error) {
-		if err := s.Store.PushActivity(ctx, store.Outcome{
-			Repo: r.Repo, Tag: r.Tag, Reason: r.Reason, Outcome: outcome, At: s.now(),
-		}); err != nil {
-			log.Printf("sweeper: activity write failed: %v", err)
-		}
-		args := []any{
-			"pass_id", sum.PassID,
-			"repo", r.Repo, "tag", r.Tag, "reason", r.Reason, "outcome", outcome,
-		}
-		if rerr != nil {
-			args = append(args, "err", rerr.Error())
-		}
-		s.emit(ctx, "sweep row", args...)
+		s.resolveRow(ctx, sum.PassID, r, outcome, rerr)
 	}
 
 	// Lineage before lock: no point holding single-flight for a
@@ -217,15 +205,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			done++
 			continue
 		}
-		// Delete by digest: modern registries (distribution:3) reject
-		// tag deletes outright, while a digest delete is confirmed and
-		// universal. Digest-less rows fall back to the tag and fail
-		// visibly where unsupported, staying due.
-		ref := r.Digest
-		if ref == "" {
-			ref = r.Tag
-		}
-		outcome, derr := s.Registry.DeleteManifest(ctx, r.Repo, ref)
+		outcome, derr := s.deleteManifest(ctx, r)
 		switch {
 		case derr != nil:
 			sum.Failures = append(sum.Failures, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, derr))

@@ -59,15 +59,21 @@ func liveRegistryClient(t *testing.T) *registry.Client {
 // operators cannot tell a healthy keeper from a blind one.
 func TestStatusRendersBannerAndCounters(t *testing.T) {
 	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, cliStore(), liveRegistryClient(t), "mem (tests only)", false); err != nil {
+	if err := runStatus(cliCtx(), &out, cliStore(), liveRegistryClient(t), false); err != nil {
 		t.Fatalf("runStatus: %v", err)
 	}
 	// Exact line: "unreachable" contains "reachable", so a bare
 	// substring check would pass on a red banner.
-	for _, want := range []string{"dry-run", "registry: reachable\n", "tracked: 2", "due: 1", "performed: 1", "planned: 1", "failed: 1",
-		"store: mem (tests only)", "store-lock: locked", "proof: unproven"} {
+	for _, want := range []string{"dry-run", "registry: reachable\n", "tracked: 2", "due: 1", "performed: 1", "planned: 1", "failed: 1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("status missing %q:\n%s", want, out.String())
+		}
+	}
+	// Store facts live under `store status` now — the banner must
+	// not duplicate them.
+	for _, gone := range []string{"store-lock:", "proof:", "identity:"} {
+		if strings.Contains(out.String(), gone) {
+			t.Errorf("status leaks %q, owned by store status:\n%s", gone, out.String())
 		}
 	}
 	if strings.Contains(out.String(), "redis: reachable") {
@@ -81,37 +87,16 @@ func TestStatusRendersBannerAndCounters(t *testing.T) {
 // either hides a down registry or invents numbers with no backend.
 func TestStatusDegradesAndFailsFast(t *testing.T) {
 	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, cliStore(), registry.NewClient("http://127.0.0.1:1"), "mem (tests only)", false); err != nil {
+	if err := runStatus(cliCtx(), &out, cliStore(), registry.NewClient("http://127.0.0.1:1"), false); err != nil {
 		t.Fatalf("registry down must not fail status: %v", err)
 	}
 	if !strings.Contains(out.String(), "unreachable") {
 		t.Errorf("status hides dead registry:\n%s", out.String())
 	}
-	if err := runStatus(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), "mem (tests only)", false); err == nil {
+	if err := runStatus(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), false); err == nil {
 		t.Error("redis down succeeded, want a fast clear error")
 	} else if !strings.Contains(err.Error(), "redis") {
 		t.Errorf("error = %q, want it to name redis", err.Error())
-	}
-}
-
-// An unlocked store with a live generation reports both: intent open
-// and the proof with its age. If this fails, the banner hides the
-// two facts that decide whether gc will run.
-func TestStatusShowsLockAndLiveProof(t *testing.T) {
-	s := cliStore()
-	if err := s.SetUnlocked(context.Background(), true); err != nil {
-		t.Fatalf("stage unlock: %v", err)
-	}
-	ts := time.Now().UTC().Format(time.RFC3339)
-	api := stubProofAPI{ts: ts}
-	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, s, api, "mem (tests only)", false); err != nil {
-		t.Fatalf("runStatus: %v", err)
-	}
-	for _, want := range []string{"store-lock: unlocked", "proof: 019-proof", "ago)"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("status missing %q:\n%s", want, out.String())
-		}
 	}
 }
 
@@ -476,7 +461,7 @@ func TestCatalogOnDeadRegistryFails(t *testing.T) {
 // nil client panics the status path instead of reddening it.
 func TestStatusNilRegistry(t *testing.T) {
 	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, cliStore(), nil, "mem (tests only)", false); err != nil {
+	if err := runStatus(cliCtx(), &out, cliStore(), nil, false); err != nil {
 		t.Fatalf("runStatus with nil registry: %v", err)
 	}
 	if !strings.Contains(out.String(), "unreachable") {

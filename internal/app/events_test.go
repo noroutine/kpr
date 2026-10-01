@@ -63,8 +63,31 @@ func TestEventsHandlerRecordsPush(t *testing.T) {
 	if !r.PushedAt.Equal(eventsNow) {
 		t.Errorf("PushedAt = %v, want the event timestamp (push-time anchor)", r.PushedAt)
 	}
-	if r.Actor != "dev" || r.MediaType == "" {
-		t.Errorf("row = %+v, want actor and media type recorded", r)
+	if r.Actor != "kpr-receiver" || r.MediaType == "" {
+		t.Errorf("row = %+v, want the receiver actor and media type recorded", r)
+	}
+}
+
+// The notification's actor name is nobody's business here: basic
+// auth or anonymous, the row signs the recording component. If
+// this fails, pusher names (or blanks) leak into a field that
+// means "who recorded this".
+func TestEventsHandlerActorNamesComponent(t *testing.T) {
+	for _, body := range []string{
+		`{"events":[{"action":"push","target":{"repository":"scratch","tag":"a","digest":"sha256:x"},"timestamp":"2026-09-27T12:00:00Z","actor":{"name":"dev"}}]}`,
+		`{"events":[{"action":"push","target":{"repository":"scratch","tag":"b","digest":"sha256:y"},"timestamp":"2026-09-27T12:00:00Z"}]}`,
+	} {
+		s := store.NewMemStore()
+		if rr := postEvents(t, s, body); rr.Code != http.StatusAccepted {
+			t.Fatalf("status = %d, want 202", rr.Code)
+		}
+		rows, err := s.All(context.Background())
+		if err != nil {
+			t.Fatalf("All: %v", err)
+		}
+		if len(rows) != 1 || rows[0].Actor != "kpr-receiver" {
+			t.Errorf("rows = %+v, want one row signed kpr-receiver", rows)
+		}
 	}
 }
 

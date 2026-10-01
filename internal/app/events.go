@@ -26,9 +26,8 @@ type notificationEvent struct {
 		Digest     string `json:"digest"`
 		MediaType  string `json:"mediaType"`
 	} `json:"target"`
-	Actor struct {
-		Name string `json:"name"`
-	} `json:"actor"`
+	// No actor: the notification's actor name carries no retention
+	// meaning, so it is not even decoded.
 }
 
 // EventsHandler records distribution push notifications as tracked
@@ -55,13 +54,16 @@ func EventsHandler(s store.Store) http.HandlerFunc {
 			if ts, err := time.Parse(time.RFC3339, e.Timestamp); err == nil {
 				pushedAt = ts.UTC()
 			}
+			// The actor is the recording component, never the pusher:
+			// the notification's actor name (basic-auth username, or
+			// nothing when anonymous) carries no retention meaning.
 			row := policy.Row{
 				Repo:      e.Target.Repository,
 				Tag:       e.Target.Tag,
 				Digest:    e.Target.Digest,
 				MediaType: e.Target.MediaType,
 				PushedAt:  pushedAt,
-				Actor:     e.Actor.Name,
+				Actor:     "kpr-receiver",
 			}
 			if err := s.Record(r.Context(), row); err != nil {
 				log.Printf("receiver: failed to record %s:%s, push stays untracked: %v",

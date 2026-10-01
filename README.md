@@ -118,12 +118,14 @@ kpr plan discard  # drop the whole plan (clear due marks, no dry-run)
 kpr plan add <pattern>...     # mark tracked repo:tag by glob, regex: or
                              # exact image (exact names must match; no dry-run)
 kpr plan remove <pattern>...  # unmark due rows by glob, regex: or exact image (no dry-run)
-kpr store ls  # every tracked row, not just due (--json for piping)
+kpr store ls  # tracked rows, short columns (--long, --json; ls sentinels)
 kpr store inspect <repo:tag>  # one full row (exact spelling)
 kpr store rm <repo:tag>...  # drop rows; tag stays, untracked (no dry-run)
+kpr store rm --untag <repo:tag>...  # delete the manifest too, row drops on confirm
 kpr store unlock   # prove the shared store, set the intent marker
 kpr store lock     # drop the intent marker
 kpr store adopt [IDENT] [--gen]  # pair the store to the served lineage
+kpr store status  # backend, lock, proof, identity, activity tail (--json)
 kpr reap [policy]  # evaluate one policy (expired, partial, untagged,
                    # keep-n) or all; marks accumulate until sweep or
                    # plan discard (--no-dry-run to mark, repeat --exclude
