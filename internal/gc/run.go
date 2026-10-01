@@ -110,6 +110,11 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	pre := Timed(StagePreProbe, gcStarted)
 	pre.Message = ModeName(mode)
 	Emit(opts.Report, pre)
+	// A writable run without --force refuses before the proof: no
+	// point minting a generation the gate will reject.
+	if mode == ModeWritable && !opts.DryRun && !opts.Force {
+		return errors.New("registry is writable: enable storage.maintenance.readonly and restart it first, or re-run with --force accepting the risk")
+	}
 	switch mode {
 	case ModeWritable, ModeReadonly:
 		gen, err := sentinel.NewGen()
@@ -135,14 +140,13 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	}
 	switch mode {
 	case ModeWritable:
+		// Unforced armed runs refused above, before the proof: what
+		// reaches here is a preview or an accepted risk.
 		if opts.DryRun {
 			if _, err := io.WriteString(w, "Warning: registry is writable; dry-run mode, nothing will be deleted\n"); err != nil {
 				return err
 			}
 		} else {
-			if !opts.Force {
-				return errors.New("registry is writable: enable storage.maintenance.readonly and restart it first, or re-run with --force accepting the risk")
-			}
 			if _, err := io.WriteString(w, "Warning: registry is writable; collecting anyway (--force)\n"); err != nil {
 				return err
 			}

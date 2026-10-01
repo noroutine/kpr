@@ -79,5 +79,4 @@ refusal when the issuer won't grant catalog scope.
 
 - **Risk: the mark must be definitive, not weather.** Only 404 / missing-unparseable-digest on an otherwise-healthy registry marks; timeouts, 5xx, refused connections skip with a count. A registry mid-restart 404s everything briefly — indistinguishable from real breakage in one pass; the plan-review gate (dry-run default, human reads `kpr plan`) absorbs the false positive.
 - **Open: scan placement.** Standalone command vs backfill flag vs reap-side full pass — decide at implementation; no new enumeration machinery either way.
-- **Known: refused runs still mint.** The proof (mint + verify + row) runs before the writable-without-force refusal gate — pre-existing ordering, so a refused `kpr gc` leaves one tracked generation. Bounded by keep-N (it ages out past ten), not silent; moving the gate ahead of the proof is a follow-up, not this milestone.
 - **Non-goals:** digest-less sweep support (the API can't do it — gc's filesystem pass is the answer), Online GC.

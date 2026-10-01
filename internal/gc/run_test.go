@@ -287,6 +287,38 @@ func TestRunFlipRefusesUnlessForced(t *testing.T) {
 	}
 }
 
+// A writable run without --force refuses before the proof: no
+// generation is minted, no row recorded — refusing work must not
+// leave the litter it refused to collect. If this fails, every
+// refused run costs a tracked generation.
+func TestRunWritableRefusalMintsNothing(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeWritable, "", nil
+	})
+	var collected [][]string
+	var out strings.Builder
+	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s,
+		Options{DryRun: false, Report: func(Event) {}})
+	if err == nil || !strings.Contains(err.Error(), "registry is writable") {
+		t.Fatalf("writable run = %v, want the writable refusal", err)
+	}
+	if len(collected) != 0 {
+		t.Fatalf("refused run reached the collector")
+	}
+	rows, rerr := s.All(context.Background())
+	if rerr != nil {
+		t.Fatalf("All: %v", rerr)
+	}
+	if len(rows) != 0 {
+		t.Errorf("refused run recorded %d rows, want none", len(rows))
+	}
+	if _, serr := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", sentinel.Repo)); !os.IsNotExist(serr) {
+		t.Errorf("refused run laid the sentinel repo, want untouched root")
+	}
+}
+
 // A dead post-probe only warns: the collect already happened against
 // proven ground, and refusing now would lie about work done. If this
 // fails, a transient probe blip fails a good run.
