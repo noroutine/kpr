@@ -5,6 +5,13 @@ the base `docker compose up` is untouched. Quickwit stores logs and
 traces (single OTLP/gRPC backend), Jaeger UI reads traces back from it,
 Prometheus scrapes metrics, Grafana shows the dashboard.
 
+## Contents
+
+- [Run it](#run-it)
+- [What you get](#what-you-get)
+- [Notes](#notes)
+- [Follow-ups](#follow-ups)
+
 ## Run it
 
 ```bash

@@ -1,61 +1,56 @@
-# kpr — project goals (outline)
+# kpr — project goals
 
-kpr ("keeper") is a lightweight companion sidecar for an OCI
-distribution registry. It plugs into a plain `distribution` deployment
-(running next to it in docker compose) and adds the lifecycle behavior
-a bare registry lacks — without becoming Harbor or Nexus.
+kpr ("keeper") is a lightweight companion sidecar for a stock OCI
+`distribution` registry: ephemeral images plus lightweight
+retention cleanups, without the weight of Harbor or Nexus.
+Inspired by ttl.sh. The design lives in `docs/ARCHITECTURE.md`;
+this page is the backdrop — what it is, what it won't become,
+and what's still open.
 
-Status: starter skeleton. The design lives in `docs/ARCHITECTURE.md`; the goals below are the backdrop.
+## What it is
 
-## 1. What it is
+- A single small Go binary beside stock `distribution`
+  (`registry:3`), talking to it over its public API plus its
+  notification hooks. No registry fork: stock, configured —
+  never patched.
+- Drops into an existing compose setup: `kpr` + state +
+  `registry`, nothing else required. State is redis or plain
+  files (`KPR_STORE=file` — no redis required).
+- Two angles:
+  1. **Ephemeral images** — push `repo/image:<ttl>`, kpr deletes
+     the tag when the TTL lapses. CI artifacts, previews,
+     scratch builds.
+  2. **Lightweight retention cleanups** — small declarative
+     policies for long-lived repos (age expiry, keep-last-N,
+     include/exclude). Dry-run first, delete second.
 
-- A single small Go binary that runs beside stock `distribution`
-  (`registry:3`) and talks to it over its public API plus its
-  notification hooks.
-- Drops into an existing docker compose setup: `kpr` + `redis` +
-  `registry`, nothing else required.
-- `redis` is the only state backend: TTL tracking, retention
-  bookkeeping, nothing that needs a real database.
+## Principles
 
-## 2. Inspiration: ttl.sh
+- Small and boring: one binary, one state store, stdlib-first.
+  Opinions written as plain code — no policy engine.
+- Safe defaults: policies opt-in, deletions logged and
+  dry-runnable before real. Loud refusals, never silent runs.
+- Observable: console with health/metrics; every deletion
+  explainable (which policy, why).
 
-- ttl.sh showed the core trick: encode expiry in the image name/tag,
-  learn about pushes through the registry's notification endpoint, and
-  track expiries in redis until a reaper deletes them.
-- kpr adopts the same mechanism (notification receiver + redis +
-  background reaper) but as a reusable sidecar for anyone's private
-  registry, not a hosted service.
-
-## 3. Two angles
-
-1. **Ephemeral images** — push `repo/image:<ttl>`, kpr deletes the tag
-   when the TTL lapses. For CI artifacts, previews, scratch builds.
-2. **Lightweight retention cleanups** — declarative lightweight
-   policies for long-lived repos: age-based expiry, keep-last-N tags,
-   include/exclude by regexp. Dry-run first, delete second.
-
-## 4. Principles
-
-- Small and boring: one binary, one state store (redis), stdlib-first.
-- Safe defaults: policies are opt-in, deletions are logged and
-  dry-runnable before they are real.
-- No registry fork: stock `distribution`, configured — never patched.
-- Observable: management console with health/metrics stays from the
-  skeleton; every deletion is explainable (which policy, why).
-
-## 5. Non-goals
+## Non-goals
 
 - Not a registry itself; no image storage, no authn/authz server.
 - No enterprise surface: no RBAC UI, no replication, no signing
   infrastructure, no Harbor/Nexus parity.
 - No hosted multi-tenant service; single-team self-hosted scope.
+- No policy/workflow engine, scheduler, per-repo rule sets,
+  cloud integrations, online registry GC.
 
-## 6. Open questions
+## Open questions
 
-- Notification payload differences between distribution v2/v3 APIs.
-- Garbage collection story: tag deletes vs blob reclamation
-  (`registry garbage-collect` needs coordination / read-only windows).
-- TTL encoding format in tag names; limits and validation.
-- Redis schema for TTLs, policy cursors, and delete audit log.
-- Whether retention policies live in a config file, env, or a small API.
 - Multi-registry support: one kpr per registry, or one-to-many?
+- Token-auth registries: same credential pair exchanged at the
+  issuer per scope (client-side only — kpr never verifies JWT).
+  Design sketched in `docs/GC.md`; unbuilt.
+- Backfill for pre-kpr tags: unknown-age rows default keep
+  today (`docs/BACKFILL.md` is the working surface).
+- Detached operation over the console HTTP surface (the CLI
+  talks to state directly today and runs colocated).
+- Dangling tag links (dead links from crashed deletes): design
+  in `docs/GC.md`; unbuilt.

@@ -6,16 +6,22 @@ files with `KPR_STORE=file`), opinionated behaviors written as
 plain code — no policy engine. This page draws the redis deployment;
 the file alternative is in [docs/STORES.md](STORES.md).
 
-Placement rule: the behaviors are client-side — they live in the
-`reap` command (or any script), not in `serve`. `serve` is a dumb
-executor: the receiver records rows, the sweeper deletes due rows.
-Marking a row due with a sweep reason **is** the interface: `reap`
-holds the programmatic policies, but anything that can write the mark
-(a shell script, a cron job, a human with redis-cli, `plan add`)
-decides how and when to clean what. Tunings live next to the policy
-code (package-level consts at the top of the policy file), **not** in
-the main config — `internal/config` stays wiring-only (ports, redis
-addr, registry URL).
+## Contents
+
+- [Components](#components)
+- [Layering](#layering)
+- [Behaviors](#behaviors)
+- [The plan](#the-plan)
+- [Garbage collection](#garbage-collection)
+- [Data](#data)
+- [Surfaces](#surfaces)
+- [Failure modes](#failure-modes)
+- [Sweeper events](#sweeper-events)
+- [Feedback, not log streaming](#feedback-not-log-streaming)
+- [Deliberately out](#deliberately-out)
+- [Background: why a sidecar](#background-why-a-sidecar)
+- [Current state](#current-state)
+- [Open, in no order](#open-in-no-order)
 
 ## Components
 
@@ -35,12 +41,14 @@ flowchart TB
     gc[kpr gc\nsentinel + stock collector] -- reclaims blob bytes --> dist
     status[kpr status] --- redis
     plan[kpr plan\nadd, remove, discard] --- redis
+    ceremony[kpr unlock/lock/adopt\nlineage ceremony] --- redis
     human((human)) --> console
     human --> status
     human --> plan
     human --> reap
     human --> sweepcmd
     human --> gc
+    human --> ceremony
 ```
 
 Sweeping has one owner: the sweeper in `serve`, the only writer that
@@ -60,7 +68,7 @@ exists.
 
 Hexagonal, taken to heart: behaviors live in use cases behind
 ports, adapters only translate. The full story is in
-`docs/HEXAGONAL.md` (how it got there, slice by slice) and
+`docs/HEXAGONAL.md` (the current port map) and
 `docs/HEXAGONAL_WISDOMS.md` (the port-cutting rules learned along
 the way).
 
@@ -70,8 +78,8 @@ the way).
   `gc` (`Run` behind `Probe`/`Collector`/`Locker`), `sweep`
   (pass loop behind `Registry`). Pure orchestration, substitutable
   in tests with no HTTP server, binary, or redis.
-- **Outbound adapters**: `store` (redis + mem behind one pinned
-  contract), `registry`, `otel`.
+- **Outbound adapters**: `store` (redis + mem + file behind one pinned
+  contract), `registry`, `clock` (local/https/ntp time sources), `otel`.
 - **Driving adapters**: `cli`, `web` — parse, call, render.
   `cli.openDeps` is the composition root.
 - **Inbound bypass, by design**: the redis due-mark is a public
@@ -95,8 +103,8 @@ and never counts into keep-N.
 | `keep-n` | everything past the freshest N tags per repo | `KeepN` 10, fixed; `reap --exclude` regex spares release lines; catalog-only tags default keep |
 
 keep-N is intentionally fixed: N is a const (10), include is unset,
-excludes arrive via the reap flag. Tested and running; per-repo
-tuning stays out by decision (see Deliberately out).
+excludes arrive via the reap flag. Per-repo tuning stays out by
+decision (see Deliberately out).
 
 Dry-run is implicit: `reap` prints unless `--no-dry-run`, the sweeper
 plans unless armed, `gc` previews unless `--no-dry-run`. Direct plan
@@ -159,6 +167,8 @@ only after the registry confirms.
 | `kpr:sweep:activity` | capped outcome ring (100, newest first) |
 | `kpr:sweep:lock` | sweeper single-flight lock (5m bound) |
 | `kpr:gc:lock` | collector single-flight lock (30m bound) |
+| `kpr:store:unlocked` | intent marker (`unlock` sets after proof, `lock` drops; file backend: `<dir>/unlocked`) |
+| `kpr:identity` | lineage pairing as JSON (file backend: `<dir>/identity.json`; absent = unpaired) |
 
 ## Surfaces
 
@@ -178,6 +188,9 @@ CLI, next to `serve` and `env`:
 - `kpr sweep` — triggers a sweep pass and watches it to the summary.
   No opinions, no marks: only rows already marked due are processed.
 - `kpr gc` — previews by default; `--no-dry-run` collects for real.
+- `kpr unlock` / `kpr lock` — set / drop the intent marker (proof first).
+- `kpr adopt [IDENT] [--gen]` — the only pairing writer: pairs the
+  store to the served lineage. Full ceremony in `docs/SENTINELS.md`.
 
 Colocation constraint: the CLI talks to redis directly, so it runs in
 the same environment as `serve` (same network, same redis auth). An
@@ -205,8 +218,8 @@ auth provider, only a client of the registry's.
   which was always the backstop.
 - **gc unproven anything**: missing mounts, non-filesystem store,
   inconclusive sentinel, unproven shared store, foreign lineage,
-  dead cache, held lock — every one refuses with the remedy, never
-  collects blind.
+  skewed clock, dead cache, held lock — every one refuses with the
+  remedy, never collects blind.
 
 ## Sweeper events
 
@@ -286,96 +299,27 @@ of scope: it would need our own registry engine, not a sidecar —
 offline `kpr gc` is the reclaim mechanism, and soft-deleted blobs
 dedupe re-pushes until it runs.
 
-## Background: ttl.sh and zot
+## Background: why a sidecar
 
-What the two projects do today, and what kpr takes from each. Sources:
-upstream `replicatedhq/ttl.sh` main branch and `project-zot` docs, read September 2026.
-
-### 1. ttl.sh
-
-Then (a year ago): plain `distribution` registry, a couple of notification
-hooks, redis for expiry bookkeeping. That version is gone.
-
-Now: the registry was swapped to **zot**, and the companion is a real Go
-service, `sidecar/zot-ephemeral-ttl`. Its mechanism, piece by piece:
-
-- **Ingest** — zot's events extension pushes CloudEvents
-  (`zotregistry.image.updated`, binary or structured mode) to the sidecar.
-  No polling.
-- **TTL parsing** (`internal/ttl`) — expiry is encoded in the tag:
-  `^\d+(s|m|h|d|w)$`. Non-matching tags get a default TTL, everything is
-  clamped to a max, and integer overflow saturates instead of wrapping
-  (a wrapped-negative duration would expire immediately — the opposite of
-  a huge TTL's intent).
-- **Store** (`internal/store`) — redis with exactly two keys: a HASH of
-  `(repo, tag, digest, expires_at)` rows and a ZSET expiry index, members
-  joined with a NUL separator, written transactionally. Rows carry **no
-  redis key TTL**: the reaper must see an expired row to issue the delete,
-  and removes the row only after the registry confirms.
-- **Reaper** (`internal/reaper`) — sweep loop with a sweep-on-start (a
-  restart doesn't wait a full interval). Failed deletes retry next tick.
-  Already-gone (`NAME_UNKNOWN`/`MANIFEST_UNKNOWN`) counts as success.
-  Manifests held by an index (`405 DENIED`, despite the wording) are
-  untracked rather than retried forever — zot's untagged retention
-  collects the child.
-- **Registry client** (`internal/registry`) — `DELETE /v2/<repo>/manifests/<tag>`
-  against the OCI API, bounded contexts, body-matched error codes so a
-  genuinely malformed request stays retryable and visible.
-- Every package has tests, plus golangci config and a Makefile.
-- Timing semantics: expiry anchors at event receipt
-  (`expires_at = event_time + TTL`), the reaper ticks every 30s, so a
-  `1h` tag lives its hour plus up to half a minute of tick slack. kpr
-  departs here: the tag is a minimal promise (never wiped before),
-  expiry is a GC signal collected whenever `reap` runs.
-
-Complexity added since the simple version: CloudEvents parsing in two
-modes, multi-arch index reference handling, cosign `.sig` tags outliving
-their image, interplay with zot's own untagged retention. None of it is
-gratuitous — it is the edge-case load of running the trick in production
-as a public service. Around the core sits hosted-service scaffolding kpr
-doesn't need: Ansible/Hetzner deploys, nginx tuning, a Next.js site,
-zot metadb experiments (later removed), GC time windows.
-
-### 2. zot
-
-An OCI-native registry (CNCF Sandbox) with the lifecycle features
-`distribution` lacks, built in:
-
-- **Retention policies** in config: per-repo globs, keep N
-  most-recently-pushed/pulled, pushed/pulled-within windows, regex
-  patterns, `deleteUntagged` with activity-based `keepUntagged`,
-  `deleteReferrers`, `dryRun`, grace `delay`. Defaults already delete
-  untagged manifests; tags are retained unless a policy says otherwise.
-- **Online GC** in a daily UTC window, Prometheus metrics, scrub,
-  search/UI, sync — extensions in the same binary (with a `zot-minimal`
-  build that strips them).
-- Proper OCI semantics: artifacts, referrers, cosign flows.
-
-Sharp edges: defining one `keepTags` rule removes everything not
-matching (their docs insist on a catch-all default policy); untagged
-deletion is default-on; retention evaluation has subtle behaviors around
-digest statistics. And the structural gap: retention is
-activity/count/window-based — there is **no tag-encoded TTL**. Even on
-zot, per-tag expiry-by-name needs the sidecar.
-
-### 3. Fit assessment
-
-Neither is a fit for "dead simple but maintainable local registry that
-doesn't become a pig":
-
-- ttl.sh is a **hosted service codebase**. The absorbable part is the
-  sidecar's mechanism (event → redis row → sweep → confirmed delete),
-  not the Ansible/nginx/Next.js shell around it.
-- zot is a **registry replacement with a policy engine**. Adopting it
-  trades distribution's missing features for a config surface of
-  retention policies, extensions, and GC windows — exactly the bloat
-  the project wants to avoid. Its CloudEvents/metrics/scrub shape is
-  useful reference, not a dependency to take.
+Two prior-art projects fixed kpr's position (surveyed September
+2026: upstream `replicatedhq/ttl.sh` main, `project-zot` docs).
+ttl.sh's companion started as plain `distribution` + notification
+hooks + redis bookkeeping, then moved to zot with a real Go sidecar
+(`sidecar/zot-ephemeral-ttl`): event → redis row → sweep →
+confirmed delete, rows carrying no redis key TTL (the reaper must
+see an expired row; the row drops only after the registry
+confirms) — the mechanism kpr absorbs, minus the hosted-service
+load (deploys, CloudEvents modes, cosign edge cases, retention
+interplay). zot itself is a registry replacement with retention
+policies in config — adopting it trades missing features for a
+policy-engine surface, exactly the bloat kpr avoids — but even
+zot has no tag-encoded TTL: per-tag expiry-by-name needs a
+sidecar on either backend.
 
 kpr's position: stay a dumb-registry companion. Speak the plain
-distribution API (keeps zot working as a backend for free), keep all
-policy in testable Go with colocated tunings, absorb ttl.sh's sidecar
-semantics minus the hosted-service load.
+distribution API (keeps zot working as a backend for free), keep
+all policy in testable Go with colocated tunings, absorb ttl.sh's
+sidecar semantics minus the hosted-service load.
 
 ## Current state
 
@@ -383,16 +327,21 @@ Built on `master`, CI green, full unit suite + lint clean, e2e green
 in compose. Proven live: push → receiver tracks → `reap --no-dry-run`
 marks (one policy via `reap <name>`, hand-picked via `plan add`,
 pruned via `plan remove`) → `sweep` deletes by digest → `kpr gc`
-previews by default, `--no-dry-run` collects (48M → 1.1M on the test
-repo).
+previews by default, `--no-dry-run` collects.
 
 - All four policies live and selectable; `latest` spared everywhere
   (10+latest); ensure-survivor tripwires per tag style plus the
   `isBareHash` a/f boundary pins.
-- keep-N caveat stands: N fixed at 10, excludes via `reap --exclude`.
-- Mutation testing (gremlins, local): scoped efficacy 90.30%,
-  mutator coverage 88.74%; survivors are timing mutants, equivalents,
-  and live-redis branches that only die under `-tags e2e`.
+- keep-N is live with N fixed at 10, excludes via `reap --exclude`;
+  per-repo tuning declined by decision.
+- Sentinel generations tagged with keep-N reaping, lineage-gated
+  altering paths (`gc`/`unlock`/sweeper) with the explicit
+  `kpr adopt` pairing ceremony; checked clock (local default,
+  compose pins `https`) opens every altering path.
+- Mutation testing (gremlins, local): efficacy 93.28% on the
+  pre-clock tree (569 killed, 41 lived); survivors are timing
+  mutants, provable equivalents, and live-redis branches that
+  only die under `-tags e2e`. Re-run for the clock tree pending.
 - GC lock verified advisory against the distribution source
   (`MarkAndSweep` at v3.1.2 sets none).
 

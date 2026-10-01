@@ -14,6 +14,25 @@ the sweeper in `kpr serve` deletes it by digest. Design lives in
 of that file. State backends (including the redis-less file mode):
 [docs/STORES.md](docs/STORES.md).
 
+## Docs map
+
+| Doc | Answers |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | components, policies, gc, data keys, current state, open items |
+| [docs/SENTINELS.md](docs/SENTINELS.md) | same-store proof, locality, lock, lineage verdicts, `kpr adopt` |
+| [docs/TIMESTAMPS.md](docs/TIMESTAMPS.md) | checked clock: transports, wiring, skew semantics |
+| [docs/ADOPT.md](docs/ADOPT.md) | bolting kpr onto your own registry + Traefik |
+| [docs/GC.md](docs/GC.md) | gc behavior, keep-N over generations, future gc work |
+| [docs/STORES.md](docs/STORES.md) | redis/mem/file backends, layouts, invariants |
+| [docs/CONFIG.md](docs/CONFIG.md) | config machinery (developer reference) |
+| [docs/TESTING.md](docs/TESTING.md) | unit, e2e, coverage, mutation gates |
+| [docs/BUILD.md](docs/BUILD.md) | builds, releases, cross-compilation |
+| [docs/HEXAGONAL.md](docs/HEXAGONAL.md) / [docs/HEXAGONAL_WISDOMS.md](docs/HEXAGONAL_WISDOMS.md) | port map / port-cutting rules |
+| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Quickwit/Jaeger/Prometheus/Grafana overlay |
+| [docs/REGISTRY_LAYOUT.md](docs/REGISTRY_LAYOUT.md) | registry:3 filesystem layout, observed |
+| [docs/goals.md](docs/goals.md) | what kpr is and won't become, open questions |
+| [docs/REVIEWER_CONTEXT.md](docs/REVIEWER_CONTEXT.md) | review loop contract (Claude) |
+
 ## How it works
 
 1. `docker push` → the registry notifies the receiver in `kpr serve`,
@@ -71,7 +90,7 @@ in `internal/policy`, not in the main config.
 | Bare hashes (`abc1234`): no suffix, 48h default for next-day triage | `ttl:48h0m0s elapsed` | `HashTTL` 48h | Done, proven live |
 | Digest-less rows older than max age (push residue) | `partial:older than 24h` | `StaleUploadMaxAge` 24h | Wired; rarely fires (receiver records digests) |
 | Tag vanished from catalog past grace | `untagged:past grace 168h` | `UntaggedGrace` 168h | Wired; needs catalog reads |
-| All but N freshest tags per repo | `keep-n:exceeds 10` | `KeepN` 10, **fixed** | Selector tested and runs, but N and include/exclude are not exposed — not a usable policy surface yet (see plan status) |
+| All but N freshest tags per repo | `keep-n:exceeds 10` | `KeepN` 10, **fixed**; `reap --exclude` spares release lines | Live, e2e-pinned; per-repo tuning declined by decision |
 
 Hash forms never match (default keep):
 
@@ -105,6 +124,9 @@ kpr reap [policy]  # evaluate one policy (expired, partial, untagged,
 kpr sweep    # POST the sweep trigger, print the pass summary
 kpr gc       # garbage-collect the shared store (dry-run preview by
              # default; --no-dry-run collects, readonly probe first)
+kpr unlock   # prove the shared store, set the intent marker
+kpr lock     # drop the intent marker
+kpr adopt [IDENT] [--gen]  # pair the store to the served lineage
 kpr env      # resolved configuration
 ```
 
@@ -160,6 +182,8 @@ Wiring only (ports, redis addr, registry URL, arming); see
 | `KPR_REGISTRY_URL` | registry peer (dev default `http://localhost:5000`) |
 | `KPR_SWEEPER_NO_DRY_RUN=true` | arm the serve loop sweeper (anything else keeps implicit dry-run) |
 | `KPR_CLI_NO_DRY_RUN=true` | arm one-shot commands (gc collects, reap marks) |
+| `KPR_TIME_METHOD` | checked-clock transport: `local` (default), `https`, `ntp` (see [docs/TIMESTAMPS.md](docs/TIMESTAMPS.md); compose pins `https`) |
+| `KPR_TIME_SERVER` | time source host (default `zeitstempel.dfn.de`; air-gapped sites point at their own) |
 
 The local compose arms by default (comment the line out to go back
 to planning). Recreating the kpr container can pause sweeping for up

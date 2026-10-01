@@ -18,6 +18,7 @@ it. The rule, then the receipt. Two megawisdoms up top, then the checklist.
 - [W11: Re-read the receiving file after a move](#w11-re-read-the-receiving-file-after-a-move)
 - [W12: Coverage gaps: name them, don't hide them](#w12-coverage-gaps-name-them-dont-hide-them)
 - [W13: Seams are proto-ports](#w13-seams-are-proto-ports)
+- [W14: A declined port can earn its way back](#w14-a-declined-port-can-earn-its-way-back)
 
 ## W1: Ports hide partners, not steps
 
@@ -201,3 +202,17 @@ push them to the boundary: `RunCollector` still bottoms out in the
 seam, because something must finally call `exec`.
 
 — [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
+
+## W14: A declined port can earn its way back
+
+`Clock` was correctly dropped — time-as-an-argument covered
+the pure core, and one implementation is a seam, not a port.
+Then three transports arrived differing in a way someone
+uses: managed-time hosts wanting no check (`local`), sandboxed
+egress where UDP never leaves (`https`), precise sync where
+it does (`ntp`). Same rule as W2, run in reverse: the second
+*differing* implementation is the event, not the calendar.
+A "never" in the standing rules is a verdict on the evidence
+at the time; new evidence re-opens exactly that verdict, not
+every neighboring one (the core still takes time as an
+argument — only the mint path grew the port).

@@ -58,6 +58,9 @@ so compose always sets it absolute (the file stack mounts
 - `unlocked` — the intent marker (empty file, presence is the
   state): `kpr unlock` creates it after proving the shared
   store, `kpr lock` removes it. Missing reads locked.
+- `identity.json` — the lineage pairing (redis: `kpr:identity`
+  key): which registry lineage this store belongs to. Absent
+  means unpaired; `kpr adopt` is the only writer.
 
 `Ping` proves the dir exists *and* writable with a probe
 file (banner red, sweeper skips) — a Stat would lie about

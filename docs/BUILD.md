@@ -2,6 +2,20 @@
 
 kpr supports multiarch builds for Linux and macOS on amd64 and arm64.
 
+## Contents
+
+- [Quick Start](#quick-start)
+- [Build Tools](#build-tools)
+- [Build Outputs](#build-outputs)
+- [Version Information](#version-information)
+- [Release Process](#release-process)
+- [Cross-Compilation](#cross-compilation)
+- [Build Flags](#build-flags)
+- [Docker Build (Optional)](#docker-build-optional)
+- [Binary Size](#binary-size)
+- [Troubleshooting](#troubleshooting)
+- [CI/CD Integration](#cicd-integration)
+
 ## Quick Start
 
 ```bash
@@ -20,9 +34,11 @@ just build-darwin-arm64
 
 ## Build Tools
 
-You can use either **justfile** or **Makefile**:
+You can use either **justfile** (local development) or **Makefile**
+(CI standardizes on `make`). Every recipe exists in both files; keep
+them in sync when adding a new one.
 
-### Using just (recommended)
+### Using just
 
 ```bash
 # Show all commands

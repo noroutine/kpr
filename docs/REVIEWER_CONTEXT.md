@@ -53,7 +53,8 @@ records pushes → `reap` marks rows due → sweeper deletes →
 
 Ports, adapters, and use cases: `docs/HEXAGONAL.md`. State
 backends and their invariants: `docs/STORES.md`. Same-store
-proofs and locality: `docs/SENTINELS.md`. Landed slices stay
+proofs, lineage, and the pairing ceremony: `docs/SENTINELS.md`.
+Checked clock: `docs/TIMESTAMPS.md`. Landed slices stay
 landed; items flagged deferred in those docs stay deferred —
 don't relitigate, don't request.
 

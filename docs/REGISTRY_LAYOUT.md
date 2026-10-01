@@ -3,6 +3,13 @@
 Filesystem driver, `registry:3` lineage. Paths below read live off
 the dev stack (`docker exec kpr-registry …`), not quoted from source.
 
+## Contents
+
+- [Root](#root)
+- [The chain (observed, `noroutine/kpr-sentinel:latest`)](#the-chain-observed-noroutinekpr-sentinellatest)
+- [Who keeps what alive](#who-keeps-what-alive)
+- [API gap that follows](#api-gap-that-follows)
+
 ## Root
 
 `<root>/docker/registry/v2/` holds two things:

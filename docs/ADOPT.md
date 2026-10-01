@@ -10,6 +10,17 @@ to Harbor. kpr attaches as a sidecar: no registry fork, no data
 migration, three wires. Start disarmed — it only plans until you say
 otherwise.
 
+## Contents
+
+- [The three wires](#the-three-wires)
+- [Step 0 — pin the image](#step-0--pin-the-image)
+- [Step 1 — redis: one free DB](#step-1--redis-one-free-db)
+- [Step 2 — registry config: notify + allow deletes](#step-2--registry-config-notify--allow-deletes)
+- [Step 3 — the kpr service](#step-3--the-kpr-service)
+- [Step 4 — Traefik checklist](#step-4--traefik-checklist)
+- [Step 5 — first run, still disarmed](#step-5--first-run-still-disarmed)
+- [What to expect (and what not to)](#what-to-expect-and-what-not-to)
+
 ## The three wires
 
 ```mermaid
@@ -181,10 +192,11 @@ only; GC needs the registry stopped, so schedule the downtime.
   FileStore state (`./kpr`) survives on its bind mount while the
   registry volume is fresh: `unlock` then warns it is re-minting
   under an existing pairing — expected, not a stranger.
-- **NTP unreachable warning is harmless.** Sandboxed hosts without
-  UDP egress can't reach the clock source; gc and unlock warn and
-  proceed on local time. Skew (a wrong clock, not an unreachable
-  one) still refuses — fix NTP, then retry.
+- **Clock-source unreachable warning is harmless.** The default
+  `local` method checks nothing; with `https`/`ntp` selected, a
+  host that can't reach the source warns and proceeds on local
+  time (see `docs/TIMESTAMPS.md`). Skew (a wrong clock, not an
+  unreachable one) still refuses — fix the clock, then retry.
 - **macOS dev only**: AirPlay Receiver squats `localhost:5000`.
   Production Linux hosts don't have it; `make up` and serve boot warn
   when they see `Server: AirTunes` anyway.

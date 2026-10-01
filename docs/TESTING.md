@@ -1,7 +1,17 @@
 # Testing Guide
 
-Unit tests today; this is also where integration test setup/notes will
-land once the registry/redis-backed work starts (see `docs/goals.md`).
+Unit suite plus container-backed end-to-end scenarios (`test/e2e`,
+`e2e` build tag) plus periodic mutation runs. What each layer
+covers, and the gates each must pass.
+
+## Contents
+
+- [Quick Start](#quick-start)
+- [Test Tools](#test-tools)
+- [Coverage](#coverage)
+- [CI Integration](#ci-integration)
+- [Mutation testing](#mutation-testing)
+- [End-to-end scenarios (`test/e2e`, `e2e` build tag)](#end-to-end-scenarios-teste2e-e2e-build-tag)
 
 ## Quick Start
 
@@ -75,6 +85,15 @@ live in e2e now): `coverage-e2e` runs both suites with
 against the total. The union — not the unit number — is the bar
 that must stay above 90%.
 
+`internal/storetest` is excluded from the unit roll-up in the
+Makefile (filtered out of the profile before reporting): it is
+shared contract scaffolding imported by the store suites —
+exercised only under docker-backed runs — not product code,
+same reason `*_test.go` files never count. Filtering it moves
+the unit total from ~80% to ~86% with zero product code
+touched. `coverage-e2e` keeps it: under that profile the
+helpers genuinely execute.
+
 ## CI Integration
 
 Workflows live in `.forgejo/workflows/` and call `make` targets rather
@@ -144,7 +163,7 @@ catch both loudly). Trust a failing hand-mutant over the label.
 Accepted survivors (equivalent or untestable-by-construction — every
 one earned, none by neglect):
 
-- `policy.go` clamp guards (`59`, `77`): the boundary inputs evaluate
+- `internal/policy/policy.go` clamp guards: the boundary inputs evaluate
   to exactly `MaxTTL` on both sides, so the mutants are provably
   equivalent — no test can distinguish them.
 - Sort-comparator boundaries (`web/keeper.go` plan order, `cli/keeper.go`
@@ -186,9 +205,17 @@ Two rules carry over from the fixture days:
 Covered so far: TTL expiry, keep-N retention, stale-upload
 tag-fallback, untagged-after-grace, a seven-client push matrix
 (ggcr, crane, docker daemon, regclient, oras typed artifacts,
-skopeo copy, podman), multi-arch index sweeps, and referrer
+skopeo copy, podman), multi-arch index sweeps, referrer
 precision (an expired signature artifact sweeps while its subject
-stays listed and fetchable).
+stays listed and fetchable), the sentinel round-trip
+(write layout → API read → repoint serves fresh) and keep-N over
+generations (twelve mints → two marked → swept, ten survivors,
+floater serving newest), the lineage verdict matrix live
+(establish on silence, foreign refuses then `adopt` heals,
+rollback heals via `adopt --gen`, sweeper skips foreign
+dry-run), and the lock gate (`unlock` opens, unshared refuses).
+Clock checks run against a hermetic `httptest` time server —
+never the real network.
 
 Client homes: Go-library clients (ggcr, crane, regclient) run
 in-process. Binary-only clients (oras, skopeo) run in one toolbox
