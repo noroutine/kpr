@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -20,7 +21,7 @@ func TestRunRefusesLockedStore(t *testing.T) {
 	err := Run(context.Background(), &out,
 		Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
 		store.NewMemStore(), okCollector(&collected), fileAPI{root},
-		"http://registry:5000", cfg, "/bin/sh",
+		"http://registry:5000", cfg, "/bin/sh", store.NewMemStore(),
 		Options{DryRun: true, Report: func(Event) {}})
 	if err == nil || !strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("locked run = %v, want the locked refusal", err)
@@ -34,7 +35,7 @@ func TestUnlockProvesAndRecords(t *testing.T) {
 	cfg, root, _ := stageProvenRun(t)
 	s := store.NewMemStore()
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s); err != nil {
+	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	if ok, err := s.IsUnlocked(context.Background()); err != nil || !ok {
@@ -42,6 +43,13 @@ func TestUnlockProvesAndRecords(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "store unlocked: shared store proven via") {
 		t.Errorf("unlock names no proof:\n%s", out.String())
+	}
+	rows, err := s.All(context.Background())
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Tag == sentinel.Tag || rows[0].Actor != "kpr-unlock" {
+		t.Errorf("tracked rows = %+v, want the one unlock generation", rows)
 	}
 }
 
@@ -53,7 +61,7 @@ func TestUnlockRefusesStrangerStore(t *testing.T) {
 	cfg, _, _ := stageProvenRun(t)
 	s := store.NewMemStore()
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{t.TempDir()}, cfg, s); err == nil {
+	if err := Unlock(context.Background(), &out, fileAPI{t.TempDir()}, cfg, s, s); err == nil {
 		t.Fatal("unlock on a stranger store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
 		t.Errorf("refusal names no cause: %v", err)

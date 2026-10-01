@@ -91,6 +91,47 @@ func okCollector(collected *[][]string) Collector {
 	}
 }
 
+// A verified mint records its generation row for keep-N: repo, gen
+// tag, digest, actor. If this fails, generations go untracked and
+// keep-N can never reap them — the litter returns silently.
+func TestRunRecordsMintedGeneration(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	var collected [][]string
+	var out strings.Builder
+	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s,
+		Options{DryRun: true, Report: func(Event) {}})
+	if err != nil {
+		t.Fatalf("stub-port run: %v", err)
+	}
+	rows, err := s.All(context.Background())
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("tracked rows = %d, want exactly the minted generation", len(rows))
+	}
+	r := rows[0]
+	if r.Repo != sentinel.Repo {
+		t.Errorf("row repo = %q, want %q", r.Repo, sentinel.Repo)
+	}
+	if r.Tag == "" || r.Tag == sentinel.Tag {
+		t.Errorf("row tag = %q, want the gen tag, never the floater", r.Tag)
+	}
+	if !strings.HasPrefix(r.Digest, "sha256:") || len(r.Digest) != 7+64 {
+		t.Errorf("row digest = %q, want sha256:<64hex>", r.Digest)
+	}
+	if r.Actor != "kpr-gc" {
+		t.Errorf("row actor = %q, want kpr-gc", r.Actor)
+	}
+	if r.PushedAt.IsZero() {
+		t.Error("row PushedAt is zero, keep-N orders by it")
+	}
+}
+
 // The orchestration runs behind stub ports: a fixed readonly probe,
 // a file-backed fake registry, and a recording collector drive a
 // full pass with no network and no binary. If this fails, Run reaches
@@ -103,7 +144,7 @@ func TestRunBehindStubPorts(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, lock, okCollector(&collected), fileAPI{root},
-		"http://registry:5000", cfg, "/bin/sh",
+		"http://registry:5000", cfg, "/bin/sh", lock,
 		Options{DryRun: true, Report: func(Event) {}})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
@@ -111,7 +152,7 @@ func TestRunBehindStubPorts(t *testing.T) {
 	if len(collected) != 1 || !hasArg(collected[0], "--dry-run") {
 		t.Errorf("collector got %v, want one --dry-run invocation", collected)
 	}
-	if !strings.Contains(out.String(), "shared store proven via noroutine/kpr-sentinel:live generation ") {
+	if !strings.Contains(out.String(), "shared store proven via noroutine/kpr-sentinel:latest generation ") {
 		t.Errorf("output lacks the proof line:\n%s", out.String())
 	}
 	if !strings.HasSuffix(strings.TrimRight(out.String(), "\n"), "dry-run complete: nothing was deleted (collect for real with --no-dry-run)") {
@@ -130,7 +171,7 @@ func TestRunStrangerStoreRefuses(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, lock, okCollector(&collected), fileAPI{t.TempDir()},
-		"http://registry:5000", cfg, "/bin/sh",
+		"http://registry:5000", cfg, "/bin/sh", lock,
 		Options{DryRun: true, Force: true, Report: func(Event) {}})
 	if err == nil {
 		t.Fatal("gc on a stranger's store succeeded, want refusal")
@@ -174,7 +215,7 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	err = Run(context.Background(), &out, probe, lock, okCollector(&collected), frozen,
-		"http://registry:5000", cfg, "/bin/sh",
+		"http://registry:5000", cfg, "/bin/sh", lock,
 		Options{DryRun: true, Force: true, Report: func(Event) {}})
 	if err == nil {
 		t.Fatal("gc on a stale snapshot succeeded, want refusal")
@@ -193,7 +234,7 @@ func TestRunWarnsOnReleaseFailure(t *testing.T) {
 	err := Run(context.Background(), &out,
 		Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
 		releaseFailLocker{s}, okCollector(&collected), fileAPI{root},
-		"http://registry:5000", cfg, "/bin/sh",
+		"http://registry:5000", cfg, "/bin/sh", s,
 		Options{DryRun: true, Report: func(Event) {}})
 	if err != nil {
 		t.Fatalf("release-failed run: %v", err)
@@ -230,14 +271,14 @@ func TestRunFlipRefusesUnlessForced(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	err := Run(context.Background(), &out, flipProbe(), s, okCollector(&collected), fileAPI{root},
-		"http://registry:5000", cfg, "/bin/sh",
+		"http://registry:5000", cfg, "/bin/sh", s,
 		Options{DryRun: true, Report: func(Event) {}})
 	if err == nil || !strings.Contains(err.Error(), "mode changed") {
 		t.Fatalf("flipped run = %v, want the mode-change refusal", err)
 	}
 	out.Reset()
 	if err := Run(context.Background(), &out, flipProbe(), s, okCollector(&collected), fileAPI{root},
-		"http://registry:5000", cfg, "/bin/sh",
+		"http://registry:5000", cfg, "/bin/sh", s,
 		Options{DryRun: true, Force: true, Report: func(Event) {}}); err != nil {
 		t.Fatalf("forced flipped run: %v", err)
 	}
@@ -262,7 +303,7 @@ func TestRunDeadPostProbeWarns(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
-		"http://registry:5000", cfg, "/bin/sh",
+		"http://registry:5000", cfg, "/bin/sh", s,
 		Options{DryRun: true, Report: func(Event) {}})
 	if err != nil {
 		t.Fatalf("dead-post-probe run: %v", err)

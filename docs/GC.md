@@ -1,6 +1,7 @@
 ## Contents
 
 - [Garbage collection today](#garbage-collection-today)
+- [Per-repo collection: keep-N over gen tags](#per-repo-collection-keep-n-over-gen-tags)
 - [Future: dangling tags](#future-dangling-tags)
 - [Future: token-auth registries](#future-token-auth-registries)
 - [Risks / Open Questions](#risks--open-questions)
@@ -12,11 +13,28 @@ Manifest deletes drop references only; blob bytes need the stock collector again
 Current behavior in short:
 
 - **Offline.** The collector needs the registry stopped or readonly; kpr proves the mode via sentinel (cancelled blob-upload initiate under a probe repo — 202 writable, 405 maintenance readonly) and refuses anything else.
-- **Same-store proof per run, stored nothing.** Every run writes a fresh `noroutine/kpr-sentinel:live` generation to the local mount and reads it back through the API — both modes, no tracked rows, an empty redis proves fine. A real run on writable refuses unless `--force`. Old generations go untagged and die in `--delete-untagged` runs.
+- **Same-store proof per run, one tracked row.** Every run writes a fresh `noroutine/kpr-sentinel:latest` generation to the local mount — linked at its uuid tag beside the floater — and reads it back through the API: both modes, an empty redis proves fine. The verified mint records one row (gen tag, digest, writer); the floater is never tracked. A real run on writable refuses unless `--force`. Overflow generations die by keep-N (below), not by `--delete-untagged` runs.
 - **Advisory lock.** The shared `kpr:gc:lock` (30m bound) serializes kpr-driven runs; distribution's `MarkAndSweep` sets none, so never run a manual `garbage-collect` alongside.
 - **Evented runner.** The collector streams through a subprocess with pipe capture, line streaming, and drain discipline; pre/post sentinel events; a mode flip mid-run fails loudly unless `--force`.
 - **Dry-run default.** `kpr gc` previews; `--no-dry-run` collects for real.
 - **Out of scope: Online GC.** Needs a registry engine; soft-deleted blobs dedupe re-pushes until then.
+
+## Per-repo collection: keep-N over gen tags (done)
+
+The stock collector marks globally; it cannot scope to one repo —
+so the sentinel repo scopes itself. Each generation carries its own
+uuid tag with a tracked row; `reap keep-n` marks all but the ten
+freshest (the `latest` floater is spared by name, no excludes
+needed); the sweep deletes overflow docs by digest and drops the
+rows; a global *default* collect reaps the dangling blobs. Blast
+radius confined to a repo kpr owns; user repos and the
+`--delete-untagged` flows never involved. E2e-pinned
+(`test/e2e/sentinel_keepn_test.go`): the digest delete unlinks
+referencing tags server-side, so reaped gens leave neither doc nor
+tag link — no dangling-tag residue on this path (crashed deletes
+are the dead-link pass's job, below). Per-run cost stays +2 blobs,
++1 tag, +1 row; steady state is ten tagged generations. Full design
+in `docs/SENTINELS.md`.
 
 ## Future: dangling tags
 
@@ -61,4 +79,5 @@ refusal when the issuer won't grant catalog scope.
 
 - **Risk: the mark must be definitive, not weather.** Only 404 / missing-unparseable-digest on an otherwise-healthy registry marks; timeouts, 5xx, refused connections skip with a count. A registry mid-restart 404s everything briefly — indistinguishable from real breakage in one pass; the plan-review gate (dry-run default, human reads `kpr plan`) absorbs the false positive.
 - **Open: scan placement.** Standalone command vs backfill flag vs reap-side full pass — decide at implementation; no new enumeration machinery either way.
+- **Known: refused runs still mint.** The proof (mint + verify + row) runs before the writable-without-force refusal gate — pre-existing ordering, so a refused `kpr gc` leaves one tracked generation. Bounded by keep-N (it ages out past ten), not silent; moving the gate ahead of the proof is a follow-up, not this milestone.
 - **Non-goals:** digest-less sweep support (the API can't do it — gc's filesystem pass is the answer), Online GC.

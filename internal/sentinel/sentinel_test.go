@@ -21,10 +21,21 @@ func TestNewGenOrdersByTime(t *testing.T) {
 	}
 }
 
+// The floater tag is "latest" on purpose: every policy selector
+// spares that exact name, so keep-N can run over the sentinel repo
+// with no excludes and never mark the proof due. If this fails, the
+// proof is one unexcluded reap away from collection.
+func TestFloaterTagIsLatest(t *testing.T) {
+	if Tag != "latest" {
+		t.Errorf("Tag = %q, want \"latest\" (the policy-spared name)", Tag)
+	}
+}
+
 // Writing a generation must lay out exactly the files distribution
 // serves: two global blobs (payload as config, manifest) plus the
-// layer, revision, and tag links — nothing else. If this fails, the
-// API serves 404s or the collector trips over the residue.
+// layer, revision, and two tag links (floater and generation) —
+// nothing else. If this fails, the API serves 404s or the collector
+// trips over the residue.
 func TestWriteLaysOutExactFiles(t *testing.T) {
 	root := t.TempDir()
 	md, err := Write(root, Repo, Tag, Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007", TS: "2026-09-30T11:00:00Z", Writer: "test"})
@@ -36,9 +47,11 @@ func TestWriteLaysOutExactFiles(t *testing.T) {
 	}
 	mhex := strings.TrimPrefix(md, "sha256:")
 	want := map[string]string{
-		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "revisions", "sha256", mhex, "link"):             md,
-		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "live", "current", "link"):               md,
-		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "live", "index", "sha256", mhex, "link"): md,
+		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "revisions", "sha256", mhex, "link"):                                             md,
+		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", Tag, "current", "link"):                                                  md,
+		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", Tag, "index", "sha256", mhex, "link"):                                    md,
+		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "0193abcd-0000-7000-8000-000000000007", "current", "link"):               md,
+		filepath.Join("docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "0193abcd-0000-7000-8000-000000000007", "index", "sha256", mhex, "link"): md,
 	}
 	var payloadDigest string
 	for path, wantBody := range want {
@@ -117,7 +130,7 @@ func TestWriteRepointMovesTag(t *testing.T) {
 	if md1 == md2 {
 		t.Fatalf("generations share digest %q, want distinct", md1)
 	}
-	cur, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "live", "current", "link"))
+	cur, err := os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", Tag, "current", "link"))
 	if err != nil {
 		t.Fatalf("read current link: %v", err)
 	}
@@ -131,8 +144,35 @@ func TestWriteRepointMovesTag(t *testing.T) {
 			t.Errorf("revision %q missing: %v", md, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", "live", "index", "sha256", strings.TrimPrefix(md1, "sha256:"), "link")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", Tag, "index", "sha256", strings.TrimPrefix(md1, "sha256:"), "link")); err != nil {
 		t.Errorf("gen1 index entry missing: %v", err)
+	}
+}
+
+// Every mint links its generation as a tag beside the floater:
+// <gen>/current resolves the same digest, so history is enumerable
+// from tags/list and keep-N can reap it. If this fails, old
+// generations go untagged and the litter is unmanageable again.
+func TestWriteLinksGenerationTag(t *testing.T) {
+	root := t.TempDir()
+	gen := "0193abcd-0000-7000-8000-000000000007"
+	md, err := Write(root, Repo, Tag, Payload{V: 1, Gen: gen})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	mhex := strings.TrimPrefix(md, "sha256:")
+	for _, path := range []string{
+		filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", gen, "current", "link"),
+		filepath.Join(root, "docker", "registry", "v2", "repositories", Repo, "_manifests", "tags", gen, "index", "sha256", mhex, "link"),
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("read %s: %v", path, err)
+			continue
+		}
+		if string(raw) != md {
+			t.Errorf("%s = %q, want %q", path, raw, md)
+		}
 	}
 }
 
@@ -143,11 +183,12 @@ func TestWriteRepointMovesTag(t *testing.T) {
 // writes outside the root — or a valid tag refuses a generation.
 func TestWriteValidatesNames(t *testing.T) {
 	root := t.TempDir()
+	gen := Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007"}
 	for _, tag := range []string{
 		"live", "v1", "_", "a", "z", "A", "Z", "0", "9",
 		"aZ09_.-b", strings.Repeat("a", 128),
 	} {
-		if _, err := Write(root, "kpr", tag, Payload{V: 1}); err != nil {
+		if _, err := Write(root, "kpr", tag, gen); err != nil {
 			t.Errorf("Write(kpr, %q) refused, want accept", tag)
 		}
 	}
@@ -165,8 +206,15 @@ func TestWriteValidatesNames(t *testing.T) {
 		{"kpr", "a{b"},
 		{"kpr", strings.Repeat("a", 129)},
 	} {
-		if _, err := Write(root, tc.repo, tc.tag, Payload{V: 1}); err == nil {
+		if _, err := Write(root, tc.repo, tc.tag, gen); err == nil {
 			t.Errorf("Write(%q, %q) accepted, want refusal", tc.repo, tc.tag)
+		}
+	}
+	// The generation is a tag too: empty or escaping gens refuse even
+	// when repo and tag are fine.
+	for _, bad := range []string{"", "../escape", "a b", strings.Repeat("a", 129)} {
+		if _, err := Write(root, "kpr", "v1", Payload{V: 1, Gen: bad}); err == nil {
+			t.Errorf("Write(gen %q) accepted, want refusal", bad)
 		}
 	}
 }

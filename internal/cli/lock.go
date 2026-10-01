@@ -46,7 +46,7 @@ lock to revoke.`,
 			return err
 		}
 		defer d.close()
-		return gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, unlockConfigPath, d.store)
+		return gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, unlockConfigPath, d.store, d.store)
 	},
 }
 

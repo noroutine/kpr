@@ -55,7 +55,7 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 	}
 
 	var out strings.Builder
-	err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, gc.Options{DryRun: true, Report: func(gc.Event) {}})
+	err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, gc.Options{DryRun: true, Report: func(gc.Event) {}})
 	if err == nil || !strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("locked gc = %v, want the locked refusal", err)
 	}
@@ -64,7 +64,7 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := gc.Unlock(ctx, &out, api, cfg, state); err != nil {
+	if err := gc.Unlock(ctx, &out, api, cfg, state, state); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	if ok, err := state.IsUnlocked(ctx); err != nil || !ok {
@@ -72,7 +72,7 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, gc.Options{DryRun: true, Report: func(gc.Event) {}}); err != nil {
+	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, gc.Options{DryRun: true, Report: func(gc.Event) {}}); err != nil {
 		t.Fatalf("unlocked gc: %v", err)
 	}
 	if !strings.Contains(out.String(), "shared store proven via") {
@@ -86,7 +86,7 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 		t.Fatalf("re-lock: %v", err)
 	}
 	out.Reset()
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, gc.Options{DryRun: true, Report: func(gc.Event) {}}); err == nil ||
+	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, gc.Options{DryRun: true, Report: func(gc.Event) {}}); err == nil ||
 		!strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("re-locked gc = %v, want the locked refusal", err)
 	}
@@ -105,7 +105,7 @@ func TestUnlockRefusesUnsharedRegistry(t *testing.T) {
 	state := store.NewFileStore(t.TempDir())
 
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state); err == nil ||
+	if err := gc.Unlock(ctx, &out, api, cfg, state, state); err == nil ||
 		!strings.Contains(err.Error(), "does not share") {
 		t.Fatalf("stranger unlock = %v, want the no-shared-store refusal", err)
 	}

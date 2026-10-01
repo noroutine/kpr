@@ -46,7 +46,9 @@ func NewGen() (string, error) {
 // GET 500s and the collector aborts its mark phase), references may
 // point anywhere.
 const (
-	manifestMediaType = "application/vnd.oci.image.manifest.v1+json"
+	// ManifestMediaType is the media type of the crafted manifest:
+	// rows recorded for keep-N carry it so reap never fetches.
+	ManifestMediaType = "application/vnd.oci.image.manifest.v1+json"
 	configMediaType   = "application/vnd.oci.image.config.v1+json"
 )
 
@@ -59,7 +61,7 @@ const (
 // the tag; old revisions go untagged for the collector.
 const (
 	Repo = "noroutine/kpr-sentinel"
-	Tag  = "live"
+	Tag  = "latest"
 )
 
 type descriptor struct {
@@ -135,17 +137,22 @@ func putFile(path string, data []byte) error {
 
 // Write crafts one sentinel generation under root: payload blob,
 // manifest blob, layer/revision/tag links, and returns the manifest
-// digest. Order is crash-safe: blobs and side links first, the tag
-// switch last via atomic rename — an interrupted write leaves
-// unreferenced blobs (the collector sweeps those), never a tag
-// pointing at a half-written generation. Writes are idempotent:
-// same payload rewrites identical bytes.
+// digest. Every mint links two tags at the digest: the generation
+// (history, keep-N reaps it) and the floater (the proof). Order is
+// crash-safe: blobs and side links first, the floater switch last
+// via atomic rename — an interrupted write leaves unreferenced blobs
+// (the collector sweeps those), never a floater pointing at a
+// half-written generation. Writes are idempotent: same payload
+// rewrites identical bytes.
 func Write(root, repo, tag string, p Payload) (string, error) {
 	if !validRepo(repo) {
 		return "", fmt.Errorf("sentinel: bad repo %q", repo)
 	}
 	if !validTag(tag) {
 		return "", fmt.Errorf("sentinel: bad tag %q", tag)
+	}
+	if !validTag(p.Gen) {
+		return "", fmt.Errorf("sentinel: bad generation %q", p.Gen)
 	}
 	payload, err := json.Marshal(p)
 	if err != nil {
@@ -154,7 +161,7 @@ func Write(root, repo, tag string, p Payload) (string, error) {
 	pDigest := digestOf(payload)
 	man, err := json.Marshal(manifest{
 		SchemaVersion: 2,
-		MediaType:     manifestMediaType,
+		MediaType:     ManifestMediaType,
 		Config:        descriptor{MediaType: configMediaType, Digest: pDigest, Size: len(payload)},
 		Layers:        []descriptor{},
 		Annotations:   map[string]string{"kpr.sentinel": "1", "kpr.gen": p.Gen},
@@ -179,6 +186,8 @@ func Write(root, repo, tag string, p Payload) (string, error) {
 		{filepath.Join(base, "_layers", "sha256", pHex, "link"), pDigest},
 		{filepath.Join(base, "_manifests", "revisions", "sha256", mHex, "link"), mDigest},
 		{filepath.Join(base, "_manifests", "tags", tag, "index", "sha256", mHex, "link"), mDigest},
+		{filepath.Join(base, "_manifests", "tags", p.Gen, "index", "sha256", mHex, "link"), mDigest},
+		{filepath.Join(base, "_manifests", "tags", p.Gen, "current", "link"), mDigest},
 	} {
 		if err := putFile(link.path, []byte(link.body)); err != nil {
 			return "", err

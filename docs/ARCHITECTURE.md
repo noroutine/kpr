@@ -129,7 +129,7 @@ classifiable mode, and the local mount is the registry's own store.
 
 - **Sentinel**: a cancelled blob-upload initiate under a probe repo —
   202 means writable, 405 means maintenance readonly, anything else
-  refuses. Same-store proof is a fresh `noroutine/kpr-sentinel:live` generation
+  refuses. Same-store proof is a fresh `noroutine/kpr-sentinel:latest` generation
   written to the local mount and read back through the API — both
   modes, no tracked rows, no API writes. A real run on writable
   refuses unless `--force`; a dry-run preview proceeds warned.

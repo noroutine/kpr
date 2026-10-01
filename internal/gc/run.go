@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -34,6 +35,13 @@ type Locker interface {
 	AcquireLock(ctx context.Context, name string, ttl time.Duration) (bool, error)
 	ReleaseLock(ctx context.Context, name string) error
 	IsUnlocked(ctx context.Context) (bool, error)
+}
+
+// Recorder tracks minted generations for keep-N: the one method
+// minting needs after a verified proof. store.Store satisfies it;
+// the use case declares only this.
+type Recorder interface {
+	Record(ctx context.Context, r policy.Row) error
 }
 
 // Options tunes a gc run: the operator's flags plus the event
@@ -64,7 +72,7 @@ type Options struct {
 // with --force the operator presumed to know and the run passes
 // warned. A dead post-probe only warns. Flipping readonly stays with
 // the operator; this command never rewrites registry config.
-func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, opts Options) error {
+func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, opts Options) error {
 	gcStarted := time.Now()
 	unlocked, err := lock.IsUnlocked(ctx)
 	if err != nil {
@@ -109,11 +117,15 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			return err
 		}
 		payload := sentinel.Payload{V: 1, Gen: gen, TS: time.Now().UTC().Format(time.RFC3339), Writer: "kpr-gc"}
-		if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload); err != nil {
+		md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
+		if err != nil {
 			return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
 		}
 		if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
 			return fmt.Errorf("kpr does not share this registry's store: %v", err)
+		}
+		if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: time.Now().UTC(), Actor: payload.Writer}); err != nil {
+			return fmt.Errorf("proof held but the generation went untracked: %w", err)
 		}
 		if _, err := fmt.Fprintf(w, "shared store proven via %s:%s generation %s\n", sentinel.Repo, sentinel.Tag, gen); err != nil {
 			return err

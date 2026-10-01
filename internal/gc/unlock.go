@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
 
@@ -22,7 +23,7 @@ type UnlockStore interface {
 // writable and readonly registries alike. Anything unproven —
 // unwritten or unreadable generation — refuses and the store stays
 // locked: unlock on a stranger's (or no) store never opens writes.
-func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath string, st UnlockStore) error {
+func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath string, st UnlockStore, rec Recorder) error {
 	root, err := StoreRoot(configPath)
 	if err != nil {
 		return err
@@ -32,11 +33,15 @@ func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath strin
 		return err
 	}
 	payload := sentinel.Payload{V: 1, Gen: gen, TS: time.Now().UTC().Format(time.RFC3339), Writer: "kpr-unlock"}
-	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload); err != nil {
+	md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
+	if err != nil {
 		return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
 	}
 	if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
 		return fmt.Errorf("kpr does not share this registry's store: %v", err)
+	}
+	if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: time.Now().UTC(), Actor: payload.Writer}); err != nil {
+		return fmt.Errorf("proof held but the generation went untracked: %w", err)
 	}
 	if err := st.SetUnlocked(ctx, true); err != nil {
 		return fmt.Errorf("proof held but the intent marker failed: %w", err)

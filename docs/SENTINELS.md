@@ -162,7 +162,13 @@ object doubles as a snapshot marker (store shared but
 content old = stale snapshot, the backfill blind spot) and
 a generic diagnostic vehicle.
 
-Shape (fixed): repo `noroutine/kpr-sentinel`, tag `live`. Config blob
+Shape (fixed): repo `noroutine/kpr-sentinel`, floater tag `latest`
+(the policy-spared name — keep-N runs over this repo with no
+excludes and never marks the proof). Every mint links two tags at
+the digest: the generation uuid itself (history, keep-N reaps past
+ten) and the floater. The minter records one row per generation
+(repo, gen tag, digest, push time, writer); the floater is never
+tracked. Config blob
 = payload JSON `{"v":1,"gen":"<uuid7>","ts":"…","writer":"…"}` —
 the generation is time-ordered, so two observed generations
 compare without parsing timestamps. Nested under `kpr/` so one
@@ -179,10 +185,13 @@ a tagged manifest is kept by the collector forever.
 minimal OCI image manifest, `config` pointing at the real
 payload digest, payload digest repeated in
 `annotations{kpr.sentinel:1, kpr.gen:N}` for tag-level
-reads. Update = write new blobs + links, atomic rename of
-`tags/live/current/link`. Old generations go untagged and
-die in `--delete-untagged` runs — the collector kpr already
-drives cleans up after the sentinel by itself.
+reads. Update = write new blobs + links, atomic rename of the
+floater (`tags/latest/current/link`); the gen tag is written once
+and never repointed. Past-ten keep-N marks overflow generations
+due, the sweep deletes their docs by digest (the registry unlinks
+referencing tags server-side — e2e-pinned), and default collects
+reap the dangling blobs. Steady state: ten tagged generations of
+readable proof history, zero `--delete-untagged` needed.
 
 ### M0 spike: hand-crafted round-trip (done)
 
@@ -246,20 +255,38 @@ Absence (read before write) refuses.
 
 ### M3: gc same-store proof on sentinel (done)
 
-`gc Run` writes a fresh `noroutine/kpr-sentinel:live` generation per
+`gc Run` writes a fresh `noroutine/kpr-sentinel:latest` generation per
 run and reads it back through the API — same proof both
-modes, no tracked rows, empty redis proves fine. `Run`
-dropped the `Store` port entirely (no `FirstDigestRow`,
-no `SameStoreUpload`/`SameStoreTagLink` — deleted with
+modes, an empty redis proves fine. `Run`
+dropped the old identity ports (`FirstDigestRow`,
+`SameStoreUpload`/`SameStoreTagLink` — deleted with
 their tests); it keeps `Probe` (mode), `Locker`, and
-`Collector`, and gains the `sentinel.API` port the
-registry client carries. Unit tests run behind a
+`Collector`, gains the `sentinel.API` port the registry
+client carries, and a narrow `Recorder` (one `Record`
+method) the store backends satisfy. Unit tests run behind a
 file-backed fake registry (`fileAPI` over the staged
 root) plus a frozen-generation fake for the stale case;
 cli tests serve sentinel files from disk over httptest.
 Stranger store and stale snapshot both refuse with "does
 not share", before the collector spawns. The write probe
 keeps classifying mode only.
+
+### Tagged generations, keep-N reaped (done)
+
+Every mint links its uuid as a tag beside the floater and, after a
+verified read-back, records one row (repo, gen tag, digest, push
+time, writer) — never a row for the floater. keep-N marks all but
+the ten freshest; the sweep deletes overflow docs by digest and
+drops the rows; default collects reap the dangling blobs. Pinned
+end to end (`test/e2e/sentinel_keepn_test.go`): twelve mints → two
+marked `keep-n:exceeds 10` → swept with zero failures → old docs
+404, ten survivors serve, the floater serves the newest, no floater
+row exists. Per-run residue is +2 blobs, +1 tag, +1 row; steady
+state is ten tagged generations. A mint that fails to record
+refuses ("proof held but the generation went untracked") — an
+untracked gen is a permanent tag, never silent litter. The
+`--delete-untagged` flows stay untouched; this route never needs
+them for sentinel history.
 
 ## Locality: shared store unlocks, its absence degrades
 
