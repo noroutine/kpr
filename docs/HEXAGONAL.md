@@ -137,7 +137,7 @@ Accepted review findings, recorded so they stay decided:
 `store rm --untag` shipped deleting manifests straight from `cli`.
 Review found three misses, one slice each.
 
-### Miss 1 — the bypass
+### Miss 1 — the bypass (landed in `ba7e27f`)
 
 What happened: `cli` cut its own `manifestDeleter`, a
 byte-for-byte duplicate of `sweep.Registry`, and called the
