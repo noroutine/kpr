@@ -137,54 +137,44 @@ Accepted review findings, recorded so they stay decided:
 `store rm --untag` shipped deleting manifests straight from `cli`.
 Review found three misses, one slice each.
 
-### Miss 1 — the bypass (landed in `ba7e27f`)
+### Miss 1 — the bypass
 
-What happened: `cli` cut its own `manifestDeleter`, a
-byte-for-byte duplicate of `sweep.Registry`, and called the
-registry port directly.
+What happened: `cli` cut its own `manifestDeleter` (duplicate of
+`sweep.Registry`) and called the registry port directly.
 
-Why it's a problem: the driving adapter reached past the use case
-to the outbound port, and the tree grew a second deleter beside
-the sweeper — contradicting ARCHITECTURE.md's "sole owner".
+Problem: driving adapter reaching past the use case — a second
+deleter beside the sweeper, against "sole owner".
 
-What's the fix: no new port (the port rule demands a second
-differing implementation, and there is none). A second method on
-the same use case (`Sweeper.Untag` beside `RunPass`, the way `gc`
-carries `Run`/`Unlock`/`Adopt`): reuse the `Registry` port,
-drop-on-confirm, activity records, and the lineage gate; skip the
-due-mark requirement, the TTL floor, dry-run, and `Current`
-staging. The cli duplicate dies, which pays for the method.
-Rejected: mark-due plus trigger-a-pass.
+Fix: no new port. `Sweeper.Untag` / `Sweeper.Untrack` beside
+`RunPass`; reuse port, drop-on-confirm, activity; skip due marks,
+TTL floor, dry-run, `Current` staging. Duplicate dies.
 
-### Miss 2 — no generation
+Landed:
+- `ba7e27f` — `Untag`, cli delegates, duplicate dies.
+- (next) — `Untrack` (bare `rm` delegates, journals `untracked`),
+  partial-output fix, row-drop-failure continuation.
 
-What happened: the delete ties to no proven generation — no mint,
-no read-back.
+### Miss 2 — no generation (open)
 
-Why it's a problem: nothing distinguishes the registry it
-verified from the one it deletes from. A misconfigured
-`KPR_REGISTRY_URL` plus a valid digest deletes someone else's
-tags with no refusal anywhere.
+What happened: the delete ties to no proven generation.
 
-What's the fix: lineage read-gate inside `Untag`, no mint — an
-explicit operator action needs identity, not freshness. Refuse
-foreign/unpaired/identity-less/stale outright with the ceremony
-named (`rm` carries no `--force`; the remedy is `store adopt`).
+Problem: a misconfigured `KPR_REGISTRY_URL` plus a valid digest
+deletes someone else's tags with no refusal anywhere.
 
-### Miss 3 — lock unchecked
+Fix: lineage read-gate inside `Untag`, no mint. Refuse
+foreign/unpaired/identity-less/stale outright; remedy is
+`store adopt` (`rm` carries no `--force`).
 
-What happened: `store lock` denies registry-store writes, but a
-manifest DELETE touches no store bytes, so it sails past the lock.
+### Miss 3 — lock unchecked (open)
 
-Why it's a problem: undecided whether that's correct. Narrowly
-the lock guards mount bytes (and the sweeper's own deletes never
-check it either); broadly the lock means "don't mutate my
-registry", and a locked operator would be surprised by `--untag`.
+What happened: manifest DELETE touches no store bytes, so it sails
+past `store lock`.
 
-What's the fix: decision first, then slice — either extend the
-lock to registry deletes, or declare API deletes out of lock
-scope in SENTINELS.md and STORES.md. Silent is the only wrong
-answer.
+Problem: undecided if correct — narrowly the lock guards mount
+bytes; broadly it means "don't mutate my registry".
+
+Fix: decide, then slice — extend the lock to registry deletes, or
+declare API deletes out of scope in SENTINELS.md and STORES.md.
 
 Terminology, internalized: `cli`/`web` are driving adapters
 (parse, call, render); `keeper`/`gc`/`sweep` are use cases (pure

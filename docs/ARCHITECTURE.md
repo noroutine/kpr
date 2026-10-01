@@ -59,10 +59,11 @@ Hexagons are the recording paths: the receiver signs
 `kpr-unlock`. (`kpr-backfill` gets its node when backfill lands —
 full vocabulary in Data below.)
 
-Sweeping has one owner: the sweeper in `serve`, the only deleter —
-`store rm --untag` calls into it (`Sweeper.Untag`, a specific sweep
-going around the plan) instead of deleting past it. The CLI splits
-along the decision line:
+Deletes have one owner: the sweeper is the only deleter of
+registry manifests and tracked rows — `store rm` calls into it
+(`Sweeper.Untrack` for rows, `Sweeper.Untag` for manifests, a
+specific sweep going around the plan) instead of deleting past it.
+The CLI splits along the decision line:
 `reap` marks, `sweep` puppeteers, `plan` edits, `gc` reclaims. `reap`
 evaluates the policies (reading candidates from redis, and the catalog
 from the registry for keep-N and untagged) and marks rows due with a

@@ -43,6 +43,31 @@ func (s *Sweeper) deleteManifest(ctx context.Context, r policy.Row) (string, err
 	return s.Registry.DeleteManifest(ctx, r.Repo, ref)
 }
 
+// Untrack drops the given rows without touching the registry:
+// bare `rm`. The tags survive untracked (until a re-push or
+// backfill re-tracks them); the outcome journals as untracked,
+// the same meaning the pass loop records when the registry holds
+// a delete. A row-drop failure continues the batch and fails
+// loudly in aggregate — like Untag, the confirmed rows print
+// before the error returns.
+func (s *Sweeper) Untrack(ctx context.Context, rows []policy.Row) ([]policy.Row, error) {
+	id := fmt.Sprintf("%d", s.now().UnixNano())
+	var done []policy.Row
+	var failed []string
+	for _, r := range rows {
+		if err := s.Store.Delete(ctx, r.Repo, r.Tag); err != nil {
+			failed = append(failed, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, err))
+			continue
+		}
+		s.resolveRow(ctx, id, r, "untracked", nil)
+		done = append(done, r)
+	}
+	if len(failed) > 0 {
+		return done, fmt.Errorf("untrack failed for %d (%s)", len(failed), strings.Join(failed, "; "))
+	}
+	return done, nil
+}
+
 // Untag deletes the given rows' manifests without requiring due
 // marks: the operator-directed delete (`store rm --untag`), a
 // specific sweep going around the plan. Each row drops only on
@@ -67,7 +92,12 @@ func (s *Sweeper) Untag(ctx context.Context, rows []policy.Row) ([]policy.Row, e
 		default: // deleted or already gone: confirmed, resolve.
 			s.resolveRow(ctx, id, r, "deleted", nil)
 			if err := s.Store.Delete(ctx, r.Repo, r.Tag); err != nil {
-				return done, err
+				// Like the pass loop: a local store failure must not
+				// abandon the batch — the manifest is already gone, a
+				// re-untag converges on `gone`.
+				log.Printf("sweeper: untag row delete failed: %v", err)
+				failed = append(failed, fmt.Sprintf("%s:%s: row drop failed: %v", r.Repo, r.Tag, err))
+				continue
 			}
 			done = append(done, r)
 		}

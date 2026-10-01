@@ -206,16 +206,18 @@ func runStoreRm(ctx context.Context, w io.Writer, s store.Store, refs []string, 
 		}
 	}
 	if !untag {
+		var targets []policy.Row
 		for _, k := range keys {
-			if err := s.Delete(ctx, k.repo, k.tag); err != nil {
-				return err
-			}
+			targets = append(targets, byKey[k])
+		}
+		done, uerr := sw.Untrack(ctx, targets)
+		for _, r := range done {
 			if _, err := fmt.Fprintf(w, "removed %s:%s (registry tag left untracked — re-push or backfill re-tracks)\n",
-				k.repo, k.tag); err != nil {
+				r.Repo, r.Tag); err != nil {
 				return err
 			}
 		}
-		return nil
+		return uerr
 	}
 	var targets []policy.Row
 	for _, k := range keys {
@@ -404,10 +406,7 @@ still need 'kpr gc'. A direct store edit: no dry-run.`,
 		}
 		defer d.close()
 		untag, _ := cmd.Flags().GetBool("untag")
-		var sw *sweep.Sweeper
-		if untag {
-			sw = &sweep.Sweeper{Store: d.store, Registry: d.reg}
-		}
+		sw := &sweep.Sweeper{Store: d.store, Registry: d.reg}
 		return runStoreRm(cmd.Context(), cmd.OutOrStdout(), d.store, args, untag, sw)
 	},
 }

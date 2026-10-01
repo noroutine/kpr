@@ -172,7 +172,7 @@ func TestStoreWildcardRefuses(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "exact") {
 		t.Errorf("glob refusal should say exact, got: %v", err)
 	}
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:*"}, false, nil); err == nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:*"}, false, &sweep.Sweeper{Store: s}); err == nil {
 		t.Error("rm with a glob should refuse")
 	} else if !strings.Contains(err.Error(), "exact") {
 		t.Errorf("glob refusal should say exact, got: %v", err)
@@ -341,7 +341,7 @@ func TestStoreRmDropsRowWarnsTagStays(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, false, nil); err != nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, false, &sweep.Sweeper{Store: s}); err != nil {
 		t.Fatalf("runStoreRm: %v", err)
 	}
 	if !strings.Contains(out.String(), "untracked") {
@@ -367,7 +367,7 @@ func TestStoreRmUnknownRefusesBeforeDeleting(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "app:nope"}, false, nil); err == nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "app:nope"}, false, &sweep.Sweeper{Store: s}); err == nil {
 		t.Fatal("rm with an unknown ref should refuse")
 	} else if !strings.Contains(err.Error(), "app:nope") {
 		t.Errorf("refusal should name the unknown row, got: %v", err)
