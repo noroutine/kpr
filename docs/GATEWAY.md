@@ -36,7 +36,8 @@ registry: fencing (HOLD for finalize, DENY for lock) at the
 proxy replaces the readonly flip with edge enforcement, and
 the cache is handled by config, not ceremony (no descriptor
 cache on the file stack; restart/flush matrix for cached
-deployments — full story in `docs/GC.md`).
+deployments — full story in `docs/GC.md`; the deferred
+redis-alike design space in `docs/BLOBCACHE.md`).
 
 ## Layer decisions
 
@@ -142,19 +143,6 @@ not a mint.
   restart is as visible as a collect, through the same keys.
 - **Observed tracking.** Receiver rows derived from seen
   manifest PUTs; webhook degrades to corroboration.
-- **Persistent descriptor cache (out of this spike;
-  s3-backed only).** Turning the cache off is the answer here;
-  this survives only for cloud-backed deployments that need
-  warm restarts. Full findings in `docs/BLOBCACHE.md`.
-  kpr speaks the registry's descriptor-cache RESP subset from a
-  persistent local map, making redis optional. Values are
-  immutable (digest→metadata, true forever) so every failure
-  degrades to slowness; the one correctness burden is
-  gc-victim invalidation, closed-loop in the ceremony kpr
-  already runs. Preconditions: verify distribution fails open
-  on cache errors, descriptor-only endpoint with loud refusal
-  outside the subset, wipe-and-cold-start recovery.
-  Filesystem deployments keep no-cache regardless.
 
 ## Non-goals
 
