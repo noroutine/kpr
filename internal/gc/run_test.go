@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -20,6 +21,27 @@ var (
 	errReleaseFailed = errors.New("release failed")
 	errProbeDead     = errors.New("probe dead")
 )
+
+// acceptRisk mints one acceptance the way the command does for an
+// --accept-* flag on an armed run. Each test holds only the token
+// its gate needs — a fully-accepted run spells all five fields,
+// never a shared umbrella.
+func acceptRisk() proof.AcceptedRisk {
+	return proof.Force(proof.Arm(true, false), true)
+}
+
+// acceptAll spells every acceptance: for runs that must refuse (or
+// pass) with nothing left unaccepted, so the verdict pins the
+// gate under test, not a missing token.
+func acceptAll() Accepts {
+	return Accepts{
+		Cache:     acceptRisk(),
+		Fence:     acceptRisk(),
+		ClockSkew: acceptRisk(),
+		Rollback:  acceptRisk(),
+		ModeFlip:  acceptRisk(),
+	}
+}
 
 // fileAPI serves sentinel generations straight from the staged root:
 // tag link to revision blob, manifest to config blob, layer link
@@ -121,7 +143,7 @@ func TestRunRecordsMintedGeneration(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: false, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: false, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -164,7 +186,7 @@ func TestRunBehindStubPorts(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -194,7 +216,7 @@ func TestRunArmedCollectFailureSurfaces(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, lock, failCollector, fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{DryRun: false, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: false, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "collector exploded") {
 		t.Fatalf("armed collect failure = %v, want the collector error surfaced", err)
 	}
@@ -231,7 +253,7 @@ func TestRunDryRunTailWriteFailureSurfaces(t *testing.T) {
 	out := &tailFailWriter{}
 	err := Run(context.Background(), out, probe, lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("dry-run with failing verdict write succeeded, want the write error")
 	}
@@ -251,7 +273,7 @@ func TestRunStrangerStoreRefuses(t *testing.T) {
 		var out strings.Builder
 		err := Run(context.Background(), &out, probe, lock, okCollector(&collected), fileAPI{t.TempDir()},
 			"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-			Options{DryRun: dry, Report: func(Event) {}}, nil, nil)
+			Options{DryRun: dry, Report: func(Event) {}}, Accepts{})
 		want := "does not share"
 		if dry {
 			// A preview cannot establish pairing: nothing served
@@ -295,7 +317,7 @@ func TestRunRefusesUnattributableLineage(t *testing.T) {
 			var out strings.Builder
 			err := Run(ctx, &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 				"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-				Options{Report: func(Event) {}}, nil, nil)
+				Options{Report: func(Event) {}}, Accepts{})
 			if err == nil {
 				t.Fatalf("gc over %s lineage succeeded, want refusal", tc.name)
 			} else if !strings.Contains(err.Error(), tc.want) {
@@ -341,7 +363,7 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 	var out strings.Builder
 	err = Run(context.Background(), &out, probe, lock, okCollector(&collected), frozen,
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{DryRun: false, Force: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: false, Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("gc on a stale snapshot succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
@@ -361,7 +383,7 @@ func TestRunWarnsOnReleaseFailure(t *testing.T) {
 		Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
 		releaseFailLocker{s}, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("release-failed run: %v", err)
 	}
@@ -380,9 +402,9 @@ func (releaseFailLocker) ReleaseLock(context.Context, string) error {
 
 // A mode flip between pre- and post-probe fails the run: writes may
 // have raced the mark phase, and silence would bless the collect.
-// --force passes warned instead — the operator presumed to know. If
-// this fails, mid-run writes go unnoticed either way.
-func TestRunFlipRefusesUnlessForced(t *testing.T) {
+// --accept-mode-flip passes warned instead — the operator presumed
+// to know. If this fails, mid-run writes go unnoticed either way.
+func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	stagePairedGen(t, s, root)
 	flipProbe := func() Probe {
@@ -399,18 +421,20 @@ func TestRunFlipRefusesUnlessForced(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, flipProbe(), s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "mode changed") {
 		t.Fatalf("flipped run = %v, want the mode-change refusal", err)
+	} else if !strings.Contains(err.Error(), "--accept-mode-flip") {
+		t.Errorf("refusal names no override: %v", err)
 	}
 	out.Reset()
 	if err := Run(context.Background(), &out, flipProbe(), s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Force: true, Report: func(Event) {}}, nil, nil); err != nil {
-		t.Fatalf("forced flipped run: %v", err)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{ModeFlip: acceptRisk()}); err != nil {
+		t.Fatalf("mode-flip-accepted run: %v", err)
 	}
 	if !strings.Contains(out.String(), "WARNING") {
-		t.Errorf("forced flip lacks the WARNING:\n%s", out.String())
+		t.Errorf("accepted flip lacks the WARNING:\n%s", out.String())
 	}
 }
 
@@ -427,7 +451,7 @@ func TestRunDryRunRefusesWithoutSentinel(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "no sentinel served") {
 		t.Fatalf("dry-run on silence = %v, want the no-shared-store refusal", err)
 	}
@@ -451,7 +475,7 @@ func TestRunDryRunSkipsProof(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
@@ -479,8 +503,8 @@ func TestRunDryRunSkipsProof(t *testing.T) {
 	}
 }
 
-// A writable run without --force refuses before the proof: no
-// generation is minted, no row recorded — refusing work must not
+// A writable run without online clearance refuses before the proof:
+// no generation is minted, no row recorded — refusing work must not
 // leave the litter it refused to collect. If this fails, every
 // refused run costs a tracked generation.
 // An armed run against a serving registry clears the online
@@ -498,7 +522,7 @@ func TestRunWritableRefusalMintsNothing(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: false, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: false, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "gateway") || !strings.Contains(err.Error(), "--accept-unfenced") {
 		t.Fatalf("writable run = %v, want the gateway refusal with override", err)
 	}
@@ -535,7 +559,7 @@ func TestRunDeadPostProbeWarns(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("dead-post-probe run: %v", err)
 	}
@@ -596,10 +620,10 @@ func readonlyProbe() Probe {
 }
 
 // A foreign lineage — the registry serves an ID the store never
-// paired to — refuses even forced: --force accepts clock skew and a
-// writable registry, never a stranger's store. Nothing mints (the
-// served generation still reads back) and nothing records. If this
-// fails, gc clobbers registries mounted by mistake.
+// paired to — refuses even fully accepted: no acceptance names a
+// stranger's store, so all five minted still refuse. Nothing mints
+// (the served generation still reads back) and nothing records. If
+// this fails, gc clobbers registries mounted by mistake.
 func TestRunForeignLineageRefusesBeforeMint(t *testing.T) {
 	cfg, root, _, gen, lock := stagePairedRun(t)
 	foreign := newGenID(t)
@@ -611,7 +635,7 @@ func TestRunForeignLineageRefusesBeforeMint(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Force: true, Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, acceptAll())
 	if err == nil {
 		t.Fatal("gc over a foreign lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "foreign lineage") {
@@ -646,7 +670,7 @@ func TestRunSilenceEstablishesPairing(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("first run on silence: %v", err)
 	}
@@ -669,40 +693,44 @@ func TestRunSilenceEstablishesPairing(t *testing.T) {
 	}
 }
 
-// Skew beyond tolerance refuses without --force and warns through
-// it: mint timestamps come from a checked clock. If this fails, a
-// host with a drifting clock mints generations that sort wrong.
-func TestRunClockSkewRefusesUnlessForced(t *testing.T) {
+// Skew beyond tolerance refuses without --accept-clock-skew and
+// warns through it: mint timestamps come from a checked clock. If
+// this fails, a host with a drifting clock mints generations that
+// sort wrong.
+func TestRunClockSkewRefusesUnlessAccepted(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
 	var out strings.Builder
 	var refused [][]string
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&refused), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{off: time.Hour}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("skewed clock run succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "clock skew") {
 		t.Errorf("refusal names no cause: %v", err)
+	} else if !strings.Contains(err.Error(), "--accept-clock-skew") {
+		t.Errorf("refusal names no override: %v", err)
 	}
-	var forced [][]string
+	var accepted [][]string
 	out.Reset()
-	err = Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&forced), fileAPI{root},
+	err = Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&accepted), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{off: time.Hour}, "time.example.com",
-		Options{Force: true, Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{ClockSkew: acceptRisk()})
 	if err != nil {
-		t.Fatalf("forced skewed run: %v", err)
+		t.Fatalf("skew-accepted run: %v", err)
 	}
 	if !strings.Contains(out.String(), "clock skew") {
-		t.Errorf("forced run warns nothing about the skew it accepted:\n%s", out.String())
+		t.Errorf("accepted run warns nothing about the skew it accepted:\n%s", out.String())
 	}
-	if len(forced) != 1 {
-		t.Errorf("forced run collected %d times, want one", len(forced))
+	if len(accepted) != 1 {
+		t.Errorf("accepted run collected %d times, want one", len(accepted))
 	}
 }
 
 // A served generation older than tracked refuses armed without
-// --force: the registry may have been restored, and minting past a
-// rollback without an explicit accept hides the incident. The live
+// --accept-rollback: the registry may have been restored, and
+// minting past a rollback without an explicit accept hides the
+// incident. The live
 // matrix proves the ceremony around this; here the refusal itself
 // is pinned (live registries are writable, which would refuse
 // first). If this fails, gc mints over rollbacks silently.
@@ -733,12 +761,12 @@ func TestRunStaleRollbackRefusesArmed(t *testing.T) {
 	var out strings.Builder
 	err := Run(ctx, &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("gc over a rollback succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "older than tracked") {
 		t.Errorf("refusal names no cause: %v", err)
-	} else if !strings.Contains(err.Error(), "--force") {
+	} else if !strings.Contains(err.Error(), "--accept-rollback") {
 		t.Errorf("refusal names no override: %v", err)
 	}
 	if len(collected) != 0 {
@@ -746,10 +774,11 @@ func TestRunStaleRollbackRefusesArmed(t *testing.T) {
 	}
 }
 
-// A forced run over a rollback warns the incident away instead of
-// hiding it: the mint proceeds, but the output keeps the evidence.
-// If this fails, --force also silences the audit trail.
-func TestRunStaleForceWarns(t *testing.T) {
+// An accepted run over a rollback warns the incident away instead
+// of hiding it: the mint proceeds, but the output keeps the
+// evidence. If this fails, acceptance also silences the audit
+// trail.
+func TestRunRollbackAcceptWarns(t *testing.T) {
 	cfg, root, localID, gen, lock := stagePairedRun(t)
 	ctx := context.Background()
 	if err := lock.SetIdentity(ctx, store.Identity{ID: localID}); err != nil {
@@ -766,12 +795,12 @@ func TestRunStaleForceWarns(t *testing.T) {
 	var out strings.Builder
 	err := Run(ctx, &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Force: true, Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{Rollback: acceptRisk()})
 	if err != nil {
-		t.Fatalf("forced run over a rollback: %v", err)
+		t.Fatalf("rollback-accepted run: %v", err)
 	}
 	if !strings.Contains(out.String(), "older than tracked") {
-		t.Errorf("forced run warns nothing about the rollback it accepted:\n%s", out.String())
+		t.Errorf("accepted run warns nothing about the rollback it accepted:\n%s", out.String())
 	}
 	if len(collected) != 1 {
 		t.Errorf("forced run collected %d times, want one", len(collected))
@@ -794,7 +823,7 @@ func TestRunEstablishPairedWarns(t *testing.T) {
 	var out strings.Builder
 	err := Run(ctx, &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("re-establish: %v", err)
 	}
@@ -833,7 +862,7 @@ func TestRunNTPUnreachableWarnsProceeds(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{err: errClockUnreachable}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("run with unreachable NTP: %v", err)
 	}
@@ -894,7 +923,7 @@ func TestRunLockUnreadableRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable lock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "store lock unreadable") {
@@ -911,7 +940,7 @@ func TestRunMissingBinaryRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/nonexistent-registry", s, s, s, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with missing binary succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "registry binary not found") {
@@ -932,7 +961,7 @@ func TestRunS3ConfigRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{t.TempDir()},
 		"http://registry:5000", s3cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with s3 config succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "no filesystem storage root") {
@@ -949,7 +978,7 @@ func TestRunAcquireFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with dead lock backend succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "redis unreachable") {
@@ -966,7 +995,7 @@ func TestRunContendedLockRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run under a held lock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "another gc run holds the lock") {
@@ -989,7 +1018,7 @@ func TestRunDeadPreProbeRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, dead, lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if !errors.Is(err, errProbeDead) {
 		t.Fatalf("dead-probe run = %v, want the probe error surfaced", err)
 	}
@@ -1009,7 +1038,7 @@ func TestRunReadonlyCacheOutageRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", redisCfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with dead cache succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "blobdescriptor cache unreachable") {
@@ -1017,17 +1046,18 @@ func TestRunReadonlyCacheOutageRefuses(t *testing.T) {
 	}
 }
 
-// A forced skew warning that cannot print fails the run: the
-// --force audit trail is mandatory, not best-effort. If this fails,
-// a forced run over a skewed clock leaves no trace it did.
+// An accepted skew warning that cannot print fails the run: the
+// acceptance audit trail is mandatory, not best-effort. If this
+// fails, an accepted run over a skewed clock leaves no trace it
+// did.
 func TestRunSkewWarnWriteFailureSurfaces(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
 	w := errWriter{errTestStoreDown}
 	err := Run(context.Background(), w, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{off: time.Hour}, "time.example.com",
-		Options{Force: true, Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{ClockSkew: acceptRisk()})
 	if err == nil {
-		t.Fatal("skewed forced run with dead output succeeded, want failure")
+		t.Fatal("skewed accepted run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("failure names no output cause: %v", err)
 	}
@@ -1040,7 +1070,7 @@ func TestRunUnreachableWarnWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	err := Run(context.Background(), w, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{err: errClockUnreachable}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
@@ -1058,7 +1088,7 @@ func TestRunTrackedStateFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, rows, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable rows succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "tracked state unreadable") {
@@ -1076,7 +1106,7 @@ func TestRunLineageFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, ids, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unreadable") {
@@ -1094,7 +1124,7 @@ func TestRunLineageWriteFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, ids, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unrecordable lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
@@ -1111,7 +1141,7 @@ func TestRunMintRecordFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", rec, lock, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with failing keep-N log succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "generation went untracked") {
@@ -1138,9 +1168,9 @@ func TestRunStaleWarnWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	err := Run(ctx, w, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Force: true, Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{Rollback: acceptRisk()})
 	if err == nil {
-		t.Fatal("stale forced run with dead output succeeded, want failure")
+		t.Fatal("stale accepted run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("failure names no output cause: %v", err)
 	}
@@ -1157,7 +1187,7 @@ func TestRunEstablishWarnWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	err := Run(ctx, w, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}}, nil, nil)
+		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("re-establish with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {

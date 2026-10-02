@@ -119,7 +119,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	// or holding single-flight for a pass that must not act, and a
 	// refused pass must not resolve (let alone delete) anything.
 	// Locked refuses runs outright, previews included (a pass is a
-	// run, not a read). The sweeper carries no --force: stale armed
+	// run, not a read). The sweeper carries no accept flags: stale armed
 	// refuses; stale dry-run proceeds to plan, which deletes nothing.
 	// Heal rows are the mint path's job (gc adopt-records); the sweep
 	// acts on due rows only.

@@ -64,7 +64,7 @@ func liveRun(t *testing.T, ctx context.Context, out *strings.Builder, collected 
 		fenceAccept = proof.Force(proof.Arm(true, false), true)
 	}
 	return gc.Run(ctx, out, gc.ProbeRegistry, state, lineageCollect(collected), api, url, cfg, bin,
-		state, state, state, clock.HTTPS{}, stageTimeServer(t), opts, nil, fenceAccept)
+		state, state, state, clock.HTTPS{}, stageTimeServer(t), opts, gc.Accepts{Fence: fenceAccept})
 }
 
 func freshPayload(gen, id string) sentinel.Payload {
@@ -108,7 +108,7 @@ func TestE2ELineageUnlockEstablishesLive(t *testing.T) {
 	}
 }
 
-// A foreign generation served to a paired store refuses even forced:
+// A foreign generation served to a paired store refuses even accepted:
 // the served bytes read back untouched. `kpr adopt` re-pairs (and
 // prunes the old epoch's rows), and the next run mints under the
 // adopted lineage. If this fails, gc clobbers live registries.
@@ -125,7 +125,7 @@ func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 	var collected [][]string
 	out.Reset()
 	err := liveRun(t, ctx, &out, &collected, api, url, cfg, bin, state,
-		gc.Options{Force: true, Report: func(gc.Event) {}})
+		gc.Options{Report: func(gc.Event) {}})
 	if err == nil {
 		t.Fatal("gc over a foreign lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "foreign lineage") {
@@ -160,7 +160,7 @@ func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 	out.Reset()
 	collected = nil
 	if err := liveRun(t, ctx, &out, &collected, api, url, cfg, bin, state,
-		gc.Options{Force: true, Report: func(gc.Event) {}}); err != nil {
+		gc.Options{Report: func(gc.Event) {}}); err != nil {
 		t.Fatalf("gc after adopt: %v", err)
 	}
 	served, _, err := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
@@ -190,7 +190,7 @@ func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
 	}
 	var collected [][]string
 	if err := liveRun(t, ctx, &out, &collected, api, url, cfg, bin, state,
-		gc.Options{Force: true, Report: func(gc.Event) {}}); err != nil {
+		gc.Options{Report: func(gc.Event) {}}); err != nil {
 		t.Fatalf("second mint: %v", err)
 	}
 	gen2, _, err := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
@@ -226,7 +226,7 @@ func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
 	out.Reset()
 	collected = nil
 	if err := liveRun(t, ctx, &out, &collected, api, url, cfg, bin, state,
-		gc.Options{Force: true, Report: func(gc.Event) {}}); err != nil {
+		gc.Options{Report: func(gc.Event) {}}); err != nil {
 		t.Fatalf("gc after accept: %v", err)
 	}
 	if strings.Contains(out.String(), "older than tracked") {

@@ -65,8 +65,8 @@ unreachable source warns, garbage method falls back warned.
 ## Verdict semantics
 
 The exchange succeeded and the clock is wrong past tolerance
-(`SkewError`) → refuse unless overridden. Forced runs warn;
-`unlock` carries no `--force`, so a skewed clock refuses
+(`SkewError`) → refuse unless overridden. Accepted runs warn;
+`unlock` carries no accept flags, so a skewed clock refuses
 there outright. The exchange itself failed (unreachable
 source) → warn and proceed on local time: an unreachable
 server is not evidence of a wrong clock, and air-gapped

@@ -195,7 +195,7 @@ deletes someone else's tags with no refusal anywhere.
 
 Fix: lineage read-gate inside `Untag`, no mint — evaluation
 below. Refuse foreign/unpaired/identity-less/stale outright;
-remedy is `store adopt` (`rm` carries no `--force`).
+remedy is `store adopt` (`rm` carries no accept flags).
 
 Landed as an arc, not a commit: the fix grew into the sealed
 proof package and a structural threading of every delete-adjacent

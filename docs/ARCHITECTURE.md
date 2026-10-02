@@ -178,7 +178,8 @@ classifiable mode, and the local mount is the registry's own store.
   (pipe capture, line streaming, fd drain discipline, cancel kills,
   failures carry the last line) with pre/post sentinel events. A mode
   flip mid-run is loud but never a panic — it fails the run unless
-  `--force`, which presumes the operator knows. Flipping readonly
+  `--accept-mode-flip`, which presumes the operator verified pulls
+  after the run. Flipping readonly
   stays with the operator; the command never rewrites registry
   config.
 

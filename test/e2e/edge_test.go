@@ -318,7 +318,7 @@ func TestEdgeHoldDelaysManifestPutDuringArmedGC(t *testing.T) {
 		var out strings.Builder
 		return gc.Run(ctx, &out, gc.ProbeRegistry, st, collect, api, backend, cfg, bin,
 			st, st, st, clock.HTTPS{}, stageTimeServer(t),
-			gc.Options{DryRun: dryRun, Report: func(gc.Event) {}, EdgeAddr: edgeAddr, Fence: fence}, nil, nil)
+			gc.Options{DryRun: dryRun, Report: func(gc.Event) {}, EdgeAddr: edgeAddr, Fence: fence}, gc.Accepts{})
 	}
 
 	previewFence := &recordFence{inner: edge.HoldFile{Dir: dir}}

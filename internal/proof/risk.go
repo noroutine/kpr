@@ -23,7 +23,7 @@ type acceptedRisk struct{}
 func (acceptedRisk) sealed() {}
 
 // acceptedRiskFromFlag builds acceptance from an explicit
-// --force / --accept-* flag, granted only to an already-armed
+// --accept-* flag, granted only to an already-armed
 // caller. Unexported on purpose: acceptance is produced by the
 // Force prover below, never crafted at a call site.
 func acceptedRiskFromFlag(ArmedRun) AcceptedRisk { return acceptedRisk{} }

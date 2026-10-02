@@ -31,8 +31,8 @@ type UnlockStore interface {
 // identity; foreign, unpaired-facing-served, identity-less, stale,
 // and unreadable lineages refuse with the ceremony named. The
 // proof's timestamp comes from a checked clock: skew refuses
-// (unlock is manual — fix the clock and retry, there is no --force to
-// hide behind), an unreachable NTP warns and proceeds. Anything
+// (unlock is manual — fix the clock and retry, there is no accept
+// flag to hide behind), an unreachable NTP warns and proceeds. Anything
 // unproven refuses and the store stays locked.
 func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath string, st UnlockStore, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string) error {
 	root, err := StoreRoot(configPath)
@@ -45,7 +45,7 @@ func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath strin
 	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, timeServer)); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
-			return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock and retry (unlock carries no --force)",
+			return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock and retry (unlock carries no accept flags)",
 				skew.Offset.Round(time.Second), skew.Tolerance, timeServer)
 		}
 		if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", timeServer, cerr); err != nil {

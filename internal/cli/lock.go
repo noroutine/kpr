@@ -39,7 +39,7 @@ it back through the API, and record the intent to allow
 registry-store writes (gc and future writers). Reads first
 through the same verdict gc uses: foreign, unpaired, stale, and
 identity-less lineages refuse with the ceremony named (as does a
-skewed clock — fix the clock and retry, there is no --force here).
+skewed clock — fix the clock and retry, there are no accept flags here).
 Silence establishes the pairing. The marker never opens without
 proof. Fresh stores start locked: unlock once per deploy, lock
 to revoke.`,

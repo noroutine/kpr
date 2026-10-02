@@ -198,7 +198,7 @@ func TestRunPassRefusesSilence(t *testing.T) {
 	}
 }
 
-// A rollback served to an armed sweeper refuses: only --force (gc)
+// A rollback served to an armed sweeper refuses: only --accept-rollback (gc)
 // or an explicit adopt accepts it. If this fails, a restored
 // registry gets swept against stale evidence.
 func TestRunPassRefusesStaleArmed(t *testing.T) {

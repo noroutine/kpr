@@ -108,10 +108,10 @@ func TestJudgeMatrix(t *testing.T) {
 		{
 			name:   "stale refuses armed",
 			served: vserved(vident, vgen1), local: paired,
-			ask: Ask{Now: vnow}, proceed: false, action: "--force",
+			ask: Ask{Now: vnow}, proceed: false, action: "--accept-rollback",
 		},
 		{
-			name:   "stale force proceeds warned",
+			name:   "stale rollback-accepted proceeds warned",
 			served: vserved(vident, vgen1), local: paired,
 			ask: Ask{Force: true, Now: vnow}, proceed: true, stale: true,
 		},

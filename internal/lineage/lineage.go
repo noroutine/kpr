@@ -157,7 +157,7 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 			return Verdict{Proceed: true, Stale: true, Reason: reason,
 				Action: "run `kpr store adopt --gen " + p.Gen + "` to accept the rollback as baseline"}
 		}
-		return refuse(reason, "re-run with --force if the registry was intentionally restored")
+		return refuse(reason, "re-run with --accept-rollback if the registry was intentionally restored")
 	}
 	if !known[p.Gen] {
 		actor := p.Writer

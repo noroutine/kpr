@@ -11,7 +11,7 @@ establishes something different; they compose by weakening only.
 | Clock check (NTP/HTTPS/local vs tolerance) | skew is bounded, so timestamps mean something | one RTT | `gc`, `unlock` | the clock source (NTP/HTTPS/local) | `BoundedClock` (`checked.go`) |
 | Intent (unlock marker present) | the operator opened this store, after proving it | one read | `gc`, writers | the unlock ceremony, via the marker | `UnlockedStore` (`unlocked.go`) |
 | Armed run | the mutation was earned, under the matching proof above | whichever proof its row names | `gc`, sweep loop, `rm --untag`, `unlock` | the human, via flag or env at the boundary | `ArmedRun` (`armed.go`) |
-| Accepted risk | leave to proceed despite a loud refusal (skewed clock, restored lineage, post-run flip — `--force`; blob cache, missing fence — `--accept-*`) | one flag per risk, on an armed run | `gc` | the human, via `--force` / `--accept-<slug>` at the boundary | `AcceptedRisk` (`risk.go`) |
+| Accepted risk | leave to proceed despite a loud refusal (skewed clock — `--accept-clock-skew`; restored lineage — `--accept-rollback`; post-run flip — `--accept-mode-flip`; blob cache — `--accept-blob-cache`; missing fence — `--accept-unfenced`) | one flag per risk, on an armed run, no umbrella | `gc` | the human, via `--accept-<slug>` at the boundary | `AcceptedRisk` (`risk.go`) |
 | Blob cache off (config carries no blobdescriptor redis) | online deletes reclaim immediately, not vouched till restart | one config parse | `gc` online preflight | the registry config, via the prover | `BlobCacheOff` (`blob_cache_off.go`) |
 | Gateway fencing (proven edge listening, HOLD lease configured) | the fence the collect engages actually pins pushes | one config parse + one dial | `gc` online preflight | the registry config + the edge addr, via the prover | `GatewayFencing` (`gateway_fencing.go`) |
 
@@ -79,7 +79,7 @@ Example — `gc` sketched as evidence per stage:
 |---|---|---|
 | preview (dry-run) | none | — |
 | arm | `ArmedRun` | `--no-dry-run` / `KPR_CLI_NO_DRY_RUN` |
-| accepted risk | `AcceptedRisk` (requires `ArmedRun` — force without arming is meaningless) | `--force` |
+| accepted risk | `AcceptedRisk` (requires `ArmedRun` — acceptance without arming is meaningless) | `--accept-<slug>`, one per risk |
 | clock bound | `BoundedClock` | `clock.Check` |
 | intent | `UnlockedStore` | the store marker |
 | lineage | `SameStore` | the prover |

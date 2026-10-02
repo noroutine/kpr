@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// Acceptance is granted, never assumed: --force on an armed run
-// proceeds, anything else does not compile. If this fails,
-// accepted risk stopped meaning leave.
+// Acceptance is granted, never assumed: an --accept-* flag on an
+// armed run proceeds, anything else does not compile. If this
+// fails, accepted risk stopped meaning leave.
 func TestAcceptedRiskNeedsArmed(t *testing.T) {
 	arm := armedFromFlag()
 	collectWritable(acceptedRiskFromFlag(arm))
@@ -22,9 +22,9 @@ func TestAcceptedRiskZeroIsNothing(t *testing.T) {
 	}
 }
 
-// Leave needs both intent and the flag: --force on a preview,
-// or arming without --force, mints nothing. If this fails,
-// force stopped composing with intent.
+// Leave needs both intent and the flag: a flag on a preview,
+// or arming without the flag, mints nothing. If this fails,
+// acceptance stopped composing with intent.
 func TestForceNeedsArmedAndFlag(t *testing.T) {
 	armed := Arm(true, false)
 	if f := Force(armed, true); f == nil {

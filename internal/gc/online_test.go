@@ -210,7 +210,7 @@ func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, writableProbe(), s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("writable preview: %v", err)
 	}
@@ -224,19 +224,21 @@ func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
 	}
 }
 
-// --force no longer opens the writable collect: clock skew,
-// restored lineage, post-run flips are its remaining jobs, and the
-// online gate does not consult it. If this fails, force re-entered
-// the gate it was retired from.
-func TestRunForceAloneOpensNothingOnline(t *testing.T) {
+// The ex-force risks open nothing online: clock skew, rollback,
+// and mode-flip acceptances are scoped to their own gates, and the
+// online preflight consults none of them. If this fails, an
+// acceptance leaked across gates and the per-risk split is a lie.
+func TestRunExForceRisksOpenNothingOnline(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	var collected [][]string
 	var out strings.Builder
+	accept := proof.Force(proof.Arm(true, false), true)
 	err := Run(context.Background(), &out, writableProbe(), s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: false, Force: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: false, Report: func(Event) {}},
+		Accepts{ClockSkew: accept, Rollback: accept, ModeFlip: accept})
 	if err == nil {
-		t.Fatal("forced uncleared run succeeded, want the preflight refusal")
+		t.Fatal("risk-accepted uncleared run succeeded, want the preflight refusal")
 	} else if !strings.Contains(err.Error(), "gateway") {
 		t.Errorf("refusal is not the preflight:\n%v", err)
 	}
@@ -264,7 +266,7 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 	var out strings.Builder
 	err := Run(ctx, &out, writableProbe(), s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", onlineCfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, nil, nil)
+		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("cleared online run: %v", err)
 	}
@@ -292,7 +294,7 @@ func TestRunOnlineRefusalReportWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	err := Run(context.Background(), w, writableProbe(), s, okCollector(nil), fileAPI{root},
 		"http://registry:5000", stageOnlineConfig(t, root, false), "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Fence: fence, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Fence: fence, Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("uncleared preview with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
@@ -318,7 +320,7 @@ func TestRunOnlineClearReportWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	err := Run(ctx, w, writableProbe(), s, okCollector(nil), fileAPI{root},
 		"http://registry:5000", onlineCfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, nil, nil)
+		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("cleared online run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {

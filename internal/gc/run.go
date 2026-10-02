@@ -62,15 +62,8 @@ type Recorder interface {
 // Options tunes a gc run: the operator's flags plus the event
 // reporter the CLI renders loud. DryRun previews (the default) —
 // only an explicit --no-dry-run collects for real.
-//
-// The trailing accept tokens travel beside Options, not inside
-// it: evidence is not flags. The CLI mints each from its
-// --accept-* flag on an armed run (nil otherwise); the online
-// preflight consumes one per risk, and the delete boundary
-// re-checks the pair the preflight cleared.
 type Options struct {
 	DeleteUntagged bool
-	Force          bool
 	DryRun         bool
 	Report         Reporter
 	// EdgeAddr is where the edge listens: the gateway prover
@@ -81,6 +74,21 @@ type Options struct {
 	// refuses the run: collecting unfenced when fencing was
 	// requested is unknown safety.
 	Fence Fencer
+}
+
+// Accepts groups the sealed risk acceptances beside Options, not
+// inside it: evidence is not flags. Named fields, never trailing
+// positionals — five same-typed tokens in a row would compile
+// swapped and silently misattribute risk. The CLI mints each from
+// its --accept-* flag on an armed run (nil otherwise); the online
+// preflight consumes the pair it clears, the clock gate, the
+// lineage judge, and the post-run flip gate one each.
+type Accepts struct {
+	Cache     proof.AcceptedRisk
+	Fence     proof.AcceptedRisk
+	ClockSkew proof.AcceptedRisk
+	Rollback  proof.AcceptedRisk
+	ModeFlip  proof.AcceptedRisk
 }
 
 // Run probes the registry writable/readonly, proves the local mount
@@ -101,11 +109,12 @@ type Options struct {
 // Anything unproven — inconclusive probe, unwritten or unreadable
 // generation — refuses always. After the collect the sentinel
 // re-probes: a mode flip mid-run is loud but never a panic — without
-// --force it fails the run (writes may have raced the mark phase),
-// with --force the operator presumed to know and the run passes
-// warned. A dead post-probe only warns. Flipping readonly stays with
-// the operator; this command never rewrites registry config.
-func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string, opts Options, cacheAccept, fenceAccept proof.AcceptedRisk) error {
+// --accept-mode-flip it fails the run (writes may have raced the
+// mark phase), with it the operator presumed to know and the run
+// passes warned. A dead post-probe only warns. Flipping readonly
+// stays with the operator; this command never rewrites registry
+// config.
+func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string, opts Options, accepts Accepts) error {
 	gcStarted := time.Now()
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
@@ -130,18 +139,18 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// it (cache must be absent) in the online preflight below, so
 	// this moves past the probe that tells the paths apart.
 	// Mint timestamps come from a checked clock: skew beyond
-	// tolerance refuses unless forced; an unreachable NTP warns and
+	// tolerance refuses unless accepted (--accept-clock-skew); an unreachable NTP warns and
 	// proceeds on local time (air-gapped sites stay working). The
 	// run consumes the gate — refusals pass through untouched, so
 	// every message below reads exactly as before.
 	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, timeServer)); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
-			if !opts.Force {
-				return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock or re-run with --force",
+			if accepts.ClockSkew == nil {
+				return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock or re-run with --accept-clock-skew",
 					skew.Offset.Round(time.Second), skew.Tolerance, timeServer)
 			}
-			if _, err := fmt.Fprintf(w, "Warning: clock skew %s exceeds %s; collecting anyway (--force)\n",
+			if _, err := fmt.Fprintf(w, "Warning: clock skew %s exceeds %s; collecting anyway (--accept-clock-skew)\n",
 				skew.Offset.Round(time.Second), skew.Tolerance); err != nil {
 				return err
 			}
@@ -185,7 +194,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		// point minting a generation the gate will reject. Armed
 		// refuses on unaccepted misses; dry-run prints the same
 		// checklist as information and previews on.
-		cache, fence, report, perr := onlinePreflight(ctx, configPath, opts.EdgeAddr, opts.Fence != nil, cacheAccept, fenceAccept)
+		cache, fence, report, perr := onlinePreflight(ctx, configPath, opts.EdgeAddr, opts.Fence != nil, accepts.Cache, accepts.Fence)
 		if perr != nil {
 			if opts.DryRun {
 				if _, err := io.WriteString(w, report+"\n"); err != nil {
@@ -214,7 +223,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		v := lineage.Judge(
 			lineage.Served{Payload: pay, Digest: digest, Err: rerr},
 			lineage.Local{Ident: ident, Rows: allRows},
-			lineage.Ask{DryRun: opts.DryRun, Force: opts.Force, Now: now})
+			lineage.Ask{DryRun: opts.DryRun, Force: accepts.Rollback != nil, Now: now})
 		if !v.Proceed && !v.Establish {
 			return fmt.Errorf("%s — %s", v.Reason, v.Action)
 		}
@@ -348,8 +357,8 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", ModeName(mode), ModeName(post)); werr != nil {
 			return werr
 		}
-		if !opts.Force {
-			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run", ModeName(mode), ModeName(post))
+		if accepts.ModeFlip == nil {
+			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run, or re-run with --accept-mode-flip", ModeName(mode), ModeName(post))
 		}
 	}
 	// The verdict goes last: the marking flood buries everything

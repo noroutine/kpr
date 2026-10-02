@@ -24,7 +24,7 @@ func TestRunRefusesLockedStore(t *testing.T) {
 		Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
 		store.NewMemStore(), okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", store.NewMemStore(), store.NewMemStore(), store.NewMemStore(), stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("locked run = %v, want the locked refusal", err)
 	}
@@ -189,7 +189,7 @@ func TestUnlockRefusesStaleRollback(t *testing.T) {
 
 // The proof's timestamp comes from a checked clock here too: skew
 // refuses (unlock is a manual ceremony — fix NTP and retry, there
-// is no --force to hide behind), an unreachable NTP warns through.
+// is no accept flag to hide behind), an unreachable NTP warns through.
 func TestUnlockClockSkewRefuses(t *testing.T) {
 	cfg, root, _ := stageProvenRun(t)
 	s := store.NewMemStore()

@@ -206,7 +206,7 @@ beside the first generation); every altering path — `gc`,
 judges it against the paired identity plus tracked rows
 (`internal/lineage`: pure, no network; the table below mirrors
 its cases one to one, e2e-pinned in `test/e2e/lineage_test.go`).
-No TOFU, no `--force` re-pairing: a pairing is set by an explicit
+No TOFU, no acceptance re-pairing: a pairing is set by an explicit
 ceremony or not at all, and HA means one shared kpr store —
 separate stores fork lineages and refuse by design.
 
@@ -217,8 +217,8 @@ separate stores fork lineages and refuse by design.
 | unreadable / unparseable / future timestamp | any | refuse |
 | identity-less (pre-pairing) | any | refuse, never auto-adopted — wipe the volume or remove stale tags (even explicit `adopt` won't bless it) |
 | identity, store unpaired | — | refuse — `kpr store adopt` pairs, optionally pinned to an expected id |
-| foreign identity | paired elsewhere | refuse, `--force` never overrides — `kpr store adopt` re-pairs (prunes the old epoch's sentinel rows) |
-| generation older than tracked | paired | refuse armed (`--force` if the restore was intentional); warn through dry-run and `--force`; proceed clean once accepted via `kpr store adopt --gen` |
+| foreign identity | paired elsewhere | refuse, no acceptance overrides — `kpr store adopt` re-pairs (prunes the old epoch's sentinel rows) |
+| generation older than tracked | paired | refuse armed (`--accept-rollback` if the restore was intentional); warn through dry-run and `--accept-rollback`; proceed clean once accepted via `kpr store adopt --gen` |
 | untracked generation, own identity | paired | proceed — adopt-recorded for keep-N (armed runs only) |
 | tracked newest | paired | proceed |
 
@@ -226,20 +226,20 @@ Clock: mint timestamps come from a checked clock —
 `KPR_TIME_METHOD` `local` (default) / `https` / `ntp`,
 `KPR_TIME_SERVER` defaulting to `zeitstempel.dfn.de`, compose
 pinning `https`. Full approach in `docs/TIMESTAMPS.md`; in
-short: skew past 30s refuses unless forced (forced runs
-warn), an unreachable source warns and proceeds on local
+short: skew past 30s refuses unless `--accept-clock-skew`
+(accepted runs warn), an unreachable source warns and proceeds on local
 time — air-gapped sites stay working.
 
 Gates, in order per operation: clock check → lock → mode
-(writable refuses pre-proof unless forced — no point minting a
+(writable refuses pre-proof unless cache- and fence-accepted — no point minting a
 generation the gate will reject) → lineage verdict → proof mint
 (id-bearing) → verify → record → collect. Dry-run reads
 presence, not freshness; refused runs mint nothing. `kpr store unlock`
 judges through the same verdict: foreign/unpaired-served/
 identity-less/stale refuse with the ceremony named (plus a
-skewed clock — unlock carries no `--force`); silence
+skewed clock — unlock carries no accept flags); silence
 establishes, warning loud under an already-paired store. The sweeper
-carries no `--force` and never mints, so silence and stale-armed
+carries no accept flags and never mints, so silence and stale-armed
 refuse there; its refusal is a skipped pass with the cause in
 `failures`, before the sweep lock. `kpr store adopt [IDENT] [--gen]`
 is the only pairing writer: follow the served id, pin an

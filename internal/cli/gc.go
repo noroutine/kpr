@@ -20,11 +20,15 @@ var gcConfigPath string
 
 var gcDeleteUntagged bool
 
-var gcForce bool
-
 var gcAcceptBlobCache bool
 
 var gcAcceptUnfenced bool
+
+var gcAcceptClockSkew bool
+
+var gcAcceptRollback bool
+
+var gcAcceptModeFlip bool
 
 var gcNoDryRun bool
 
@@ -82,12 +86,16 @@ the classic offline collect; serving (writable) takes the online
 path — an armed run clears the blob cache and the gateway fence
 up front (each overridable with --accept-blob-cache /
 --accept-unfenced), a preview prints the same checklist and
-proceeds warned, inconclusive always refuses. Then gc proves
+proceeds warned, inconclusive always refuses. Three further risks
+each refuse with their own --accept-* flag and no umbrella:
+clock skew past tolerance (--accept-clock-skew), a restored older
+generation (--accept-rollback), and a registry mode flip mid-run
+(--accept-mode-flip). Then gc proves
 the store shared with a fresh generation it reads back through the
 API. After the
 collect the sentinel re-probes: a mode flip mid-run is loud but
-never a panic — it fails the run unless --force (which presumes you
-know). Flipping readonly stays with the operator — this command
+never a panic — it fails the run unless --accept-mode-flip
+(which presumes you verified pulls after the run). Flipping readonly stays with the operator — this command
 never rewrites registry config. The store starts locked (fresh
 stores included): a locked run refuses before probing — 'kpr
 store unlock' proves the shared store and opens writes, 'kpr store lock'
@@ -105,38 +113,44 @@ revokes.`,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
 		dryRun := gcDryRun(armedRun)
-		cacheAccept, fenceAccept := gcAccepts(armedRun)
+		accepts := gcAccepts(armedRun)
 		backend, dir, berr := resolveStoreBackend()
 		fence := fenceForBackend(backend, dir, berr, dryRun, out)
 		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
-			Force:          gcForce,
 			DryRun:         dryRun,
 			Report:         renderGCEvent(out, dryRun),
 			EdgeAddr:       cfg.EdgeAddr,
 			Fence:          fence,
-		}, cacheAccept, fenceAccept)
+		}, accepts)
 	},
 }
 
 func init() {
 	gcCmd.Flags().StringVar(&gcConfigPath, "config", "/etc/distribution/config.yml", "Registry config file (shared store paths come from it)")
 	gcCmd.Flags().BoolVar(&gcDeleteUntagged, "delete-untagged", false, "Also drop orphaned manifests (same flag as registry garbage-collect)")
-	gcCmd.Flags().BoolVar(&gcForce, "force", false, "Accept clock skew, restored lineage, and post-run mode flips (presumes you know)")
 	gcCmd.Flags().BoolVar(&gcAcceptBlobCache, "accept-blob-cache", false, "Collect with a blobdescriptor cache configured (deletes stay vouched until restart)")
 	gcCmd.Flags().BoolVar(&gcAcceptUnfenced, "accept-unfenced", false, "Collect without the gateway HOLD fence (a push mid-collect corrupts)")
+	gcCmd.Flags().BoolVar(&gcAcceptClockSkew, "accept-clock-skew", false, "Collect with clock skew past tolerance (mint timestamps may misorder)")
+	gcCmd.Flags().BoolVar(&gcAcceptRollback, "accept-rollback", false, "Collect against a restored older generation (a rollback may have resurrected blobs)")
+	gcCmd.Flags().BoolVar(&gcAcceptModeFlip, "accept-mode-flip", false, "Trust a collect the registry flipped writable mid-run (writes may have raced the mark phase)")
 	gcCmd.Flags().BoolVar(&gcNoDryRun, "no-dry-run", false, "Collect for real (default previews with the collector's --dry-run)")
 	RootCmd.AddCommand(gcCmd)
 }
 
-// gcAccepts mints one acceptance per online risk from the same
-// armed run: --accept-blob-cache clears the cache, --accept-
-// unfenced clears the gateway. --force is deliberately absent —
-// it keeps its other jobs (clock skew, restored lineage,
-// post-run flip) and no longer opens the writable collect. If
-// this fails, force re-entered the gate it was retired from.
-func gcAccepts(armed proof.ArmedRun) (proof.AcceptedRisk, proof.AcceptedRisk) {
-	return proof.Force(armed, gcAcceptBlobCache), proof.Force(armed, gcAcceptUnfenced)
+// gcAccepts mints one acceptance per named risk from the same
+// armed run: each --accept-* flag clears exactly its own gate,
+// nothing else. There is no umbrella — a test below pins that no
+// single flag mints the whole set. If this fails, an umbrella
+// re-entered through a shared mint.
+func gcAccepts(armed proof.ArmedRun) gc.Accepts {
+	return gc.Accepts{
+		Cache:     proof.Force(armed, gcAcceptBlobCache),
+		Fence:     proof.Force(armed, gcAcceptUnfenced),
+		ClockSkew: proof.Force(armed, gcAcceptClockSkew),
+		Rollback:  proof.Force(armed, gcAcceptRollback),
+		ModeFlip:  proof.Force(armed, gcAcceptModeFlip),
+	}
 }
 
 // gcDryRun reads the mode off the mint: dry-run is the absence of
