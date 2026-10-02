@@ -4,7 +4,7 @@ Status: spike branch. Identity shift accepted — kpr grows from
 companion sidecar into the registry control plane: edge proxy,
 config renderer, process supervisor. Each layer below is
 independently useful and unlocks the next; none is committed
-beyond the spike (slice 1) until it proves out. Multiple
+beyond the spike (slices 1–2) until each proves out. Multiple
 registries under one kpr (multiplexer) are explicitly out —
 their own spike, later. Downstream is filesystem-store only;
 s3-backed registries are out for the same reason. Mode scope:
@@ -64,6 +64,32 @@ Assertions before anything else:
   broken-pipe parity with direct access.
 - Overhead measured; if audible, stop here.
 
+## Slice 2 — live fencing (this branch)
+
+Two fence modes at the proxy, both identity-blind:
+
+- **HOLD** (gc finalize): delay manifest PUTs for seconds on a
+  self-expiring lease, fail-open. Blob uploads never held —
+  they reference nothing.
+- **DENY** (store locked): refuse manifest PUT/DELETE fast
+  while the lock marker is set — loud status, remedy naming
+  `store unlock`. Blob uploads and reads pass: uploads alone
+  create no references (orphans are gc-reaped); the lock guards
+  semantic mutation, not bytes.
+
+`store lock`/`unlock` extend to live fencing: lock engages DENY
+at the proxy besides marking the store (kpr's own use cases
+keep refusing on the marker as today); unlock's proof ceremony
+is unchanged and stays the sole releaser. The proxy reads the
+marker per mutating request — local read, no cache, no
+staleness. Enforcement mints nothing: proofs still govern kpr's
+own actions; the fence governs everyone else's. Both modes are
+identity-blind (route+method, never credentials; internal vs
+external told topologically, direct vs proxied) — registry auth
+puts no constraint on this slice. Auth headers pass through
+opaque; per-identity fencing belongs to the tenancy world, out
+of scope.
+
 ## Later slices (not this branch)
 
 - **Generated config.** kpr renders the registry config it
@@ -85,17 +111,6 @@ Assertions before anything else:
   per completed action into the activity ring
   (`FileStore.PushActivity`, what `store status` shows). A
   restart is as visible as a collect, through the same keys.
-- **Fenced finalize.** gc holds manifest PUTs on a
-  self-expiring lease (seconds, fail-open) during final
-  verify. Blob uploads never held — they reference nothing.
-  kpr-internal traffic bypasses. This *enables* online GC
-  (the missing mechanism) without delivering it. The fence is
-  identity-blind: it matches route+method, never credentials,
-  and tells internal from external traffic topologically
-  (direct vs proxied), not by auth — so registry auth puts no
-  constraint on this slice. Auth headers pass through opaque;
-  per-identity fencing belongs to the tenancy world, out of
-  scope.
 - **Observed tracking.** Receiver rows derived from seen
   manifest PUTs; webhook degrades to corroboration.
 
