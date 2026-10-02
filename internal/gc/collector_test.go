@@ -3,6 +3,7 @@ package gc
 import (
 	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"strings"
 	"testing"
@@ -207,4 +208,47 @@ func hasArg(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// The writable-armed collect demands acceptance at the delete
+// boundary: without the token it refuses before the collector
+// port is even called. If this fails, the variant stopped
+// deciding.
+func TestCollectWritableArmedRefusesWithoutRisk(t *testing.T) {
+	called := false
+	collect := func(context.Context, io.Writer, string, []string, Reporter) error {
+		called = true
+		return nil
+	}
+	var out strings.Builder
+	err := collectWritableArmed(context.Background(), &out, collect,
+		"/bin/sh", []string{"garbage-collect"}, func(Event) {}, nil)
+	if err == nil {
+		t.Fatal("writable collect without risk succeeded, want the blind refusal")
+	} else if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("err = %q, want the remedy named", err.Error())
+	}
+	if called {
+		t.Error("refused collect reached the collector port")
+	}
+}
+
+// With the token the variant is a straight delegation: same args,
+// same port, nothing added and nothing hidden. If this fails, the
+// variant edits the run it only gates.
+func TestCollectWritableArmedDelegatesWithRisk(t *testing.T) {
+	var got [][]string
+	collect := func(_ context.Context, _ io.Writer, _ string, args []string, _ Reporter) error {
+		got = append(got, args)
+		return nil
+	}
+	var out strings.Builder
+	args := []string{"garbage-collect", "/etc/distribution/config.yml"}
+	if err := collectWritableArmed(context.Background(), &out, collect,
+		"/bin/sh", args, func(Event) {}, forcedRisk()); err != nil {
+		t.Fatalf("writable collect with risk: %v", err)
+	}
+	if len(got) != 1 || strings.Join(got[0], " ") != strings.Join(args, " ") {
+		t.Errorf("delegated args = %v, want %v untouched", got, args)
+	}
 }

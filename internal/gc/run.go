@@ -10,6 +10,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -49,6 +50,13 @@ type Recorder interface {
 // Options tunes a gc run: the operator's flags plus the event
 // reporter the CLI renders loud. DryRun previews (the default) —
 // only an explicit --no-dry-run collects for real.
+//
+// The trailing risk token travels beside Options, not inside it:
+// evidence is not flags. The three stay consistent by construction
+// at the single production call site (cli mines ArmedRun, DryRun,
+// and risk from the same readings) — risk != nil means armed and
+// forced. Any other caller must hold the same triple; the writable
+// gate trusts it, the variant re-checks it.
 type Options struct {
 	DeleteUntagged bool
 	Force          bool
@@ -74,14 +82,18 @@ type Options struct {
 // with --force the operator presumed to know and the run passes
 // warned. A dead post-probe only warns. Flipping readonly stays with
 // the operator; this command never rewrites registry config.
-func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string, opts Options) error {
+func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string, opts Options, risk proof.AcceptedRisk) error {
 	gcStarted := time.Now()
-	unlocked, err := lock.IsUnlocked(ctx)
-	if err != nil {
+	// Intent opens the run: the marker read through the prover, so
+	// a locked store refuses with the identical words — only the
+	// place guaranteeing them moved. The run consumes the gate;
+	// nothing downstream takes the token (re-checking mid-run
+	// belongs to the lock-scope decision, Miss 3).
+	if _, err := proof.ProveUnlockedStore(ctx, lock); err != nil {
+		if errors.Is(err, proof.ErrLocked) {
+			return err
+		}
 		return fmt.Errorf("store lock unreadable: %w", err)
-	}
-	if !unlocked {
-		return errors.New("store is locked: registry-store writes are denied — run `kpr store unlock` to prove the shared store and allow them")
 	}
 	if err := Ready(binPath, configPath); err != nil {
 		return err
@@ -95,8 +107,10 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	}
 	// Mint timestamps come from a checked clock: skew beyond
 	// tolerance refuses unless forced; an unreachable NTP warns and
-	// proceeds on local time (air-gapped sites stay working).
-	if cerr := clock.Check(ctx, clk, timeServer, clock.Tolerance); cerr != nil {
+	// proceeds on local time (air-gapped sites stay working). The
+	// run consumes the gate — refusals pass through untouched, so
+	// every message below reads exactly as before.
+	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, timeServer)); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
 			if !opts.Force {
@@ -130,9 +144,11 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	pre := Timed(StagePreProbe, gcStarted)
 	pre.Message = ModeName(mode)
 	Emit(opts.Report, pre)
-	// A writable run without --force refuses before the proof: no
-	// point minting a generation the gate will reject.
-	if mode == ModeWritable && !opts.DryRun && !opts.Force {
+	// A writable run without accepted risk refuses before the proof:
+	// no point minting a generation the gate will reject. Only the
+	// armed path consults the token — previews bypass (they warn
+	// below), and under an armed run risk==nil is exactly !Force.
+	if mode == ModeWritable && !opts.DryRun && risk == nil {
 		return errors.New("registry is writable: enable storage.maintenance.readonly and restart it first, or re-run with --force accepting the risk")
 	}
 	now := time.Now().UTC()
@@ -189,12 +205,9 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			return err
 		}
 		payload := sentinel.Payload{V: 1, Gen: gen, ID: useID, TS: now.Format(time.RFC3339), Writer: "kpr-gc"}
-		md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
+		md, err := writeVerifiedGeneration(ctx, api, root, payload)
 		if err != nil {
-			return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
-		}
-		if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
-			return fmt.Errorf("kpr does not share this registry's store: %v", err)
+			return err
 		}
 		if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
 			return fmt.Errorf("proof held but the generation went untracked: %w", err)
@@ -228,8 +241,24 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		// tracked rows needed, an empty redis proves as well as
 		// a full one.
 	}
-	if err := collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, opts.DryRun), opts.Report); err != nil {
-		return err
+	// The dispatch, not a flag, decides which collect runs: previews
+	// take the bare collect (nothing proven, nothing needed), armed
+	// readonly the same (the mint above is the whole gate), and only
+	// the writable-armed path carries the extra demand — which is why
+	// only it has a variant.
+	switch {
+	case opts.DryRun:
+		if err := collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, true), opts.Report); err != nil {
+			return err
+		}
+	case mode == ModeWritable:
+		if err := collectWritableArmed(ctx, w, collect, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report, risk); err != nil {
+			return err
+		}
+	default:
+		if err := collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report); err != nil {
+			return err
+		}
 	}
 	post, _, perr := probe(ctx, registryURL)
 	if perr != nil {

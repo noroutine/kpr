@@ -84,12 +84,13 @@ revokes.`,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
 		dryRun := armedRun == nil
+		risk := proof.Force(armedRun, gcForce)
 		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			Force:          gcForce,
 			DryRun:         dryRun,
 			Report:         renderGCEvent(out, dryRun),
-		})
+		}, risk)
 	},
 }
 

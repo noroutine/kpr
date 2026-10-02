@@ -10,6 +10,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -38,7 +39,10 @@ func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath strin
 	if err != nil {
 		return err
 	}
-	if cerr := clock.Check(ctx, clk, timeServer, clock.Tolerance); cerr != nil {
+	// Same funnel as gc runs: refusals pass through untouched, so
+	// the skew message and the unreachable warning below read
+	// exactly as before. The ceremony consumes the gate.
+	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, timeServer)); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
 			return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock and retry (unlock carries no --force)",
@@ -91,12 +95,9 @@ func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath strin
 		return err
 	}
 	payload := sentinel.Payload{V: 1, Gen: gen, ID: useID, TS: now.Format(time.RFC3339), Writer: "kpr-unlock"}
-	md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
+	md, err := writeVerifiedGeneration(ctx, api, root, payload)
 	if err != nil {
-		return fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
-	}
-	if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, gen); err != nil {
-		return fmt.Errorf("kpr does not share this registry's store: %v", err)
+		return err
 	}
 	if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
 		return fmt.Errorf("proof held but the generation went untracked: %w", err)

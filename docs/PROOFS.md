@@ -1,6 +1,6 @@
 # Proofs
 
-Every claim kpr acts on is backed by one of five proofs. Each
+Every claim kpr acts on is backed by a proof. Each
 establishes something different; they compose by weakening only.
 
 | Proof | Establishes | Cost | Used by | Provided by | Sealed as |

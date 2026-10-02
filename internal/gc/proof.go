@@ -2,13 +2,48 @@ package gc
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"go.yaml.in/yaml/v3"
+
+	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
+
+// writeVerifiedGeneration is the shared tail of every mint ceremony
+// (armed gc runs, unlock): one generation written and read back,
+// refusing identically everywhere — one funnel, no copies. Returns
+// the manifest digest for keep-N. The future FreshGeneration token
+// is minted here, beside the Write and Verify it names; until its
+// first consumer arrives it stays parked, not faked.
+func writeVerifiedGeneration(ctx context.Context, api sentinel.API, root string, payload sentinel.Payload) (string, error) {
+	md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
+	if err != nil {
+		return "", fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
+	}
+	if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, payload.Gen); err != nil {
+		return "", fmt.Errorf("kpr does not share this registry's store: %v", err)
+	}
+	return md, nil
+}
+
+// collectWritableArmed runs the collector for real against a
+// writable registry: acceptance is demanded at the delete boundary,
+// not just at the pre-mint gate (a run that arrives here without it
+// refuses instead of collecting blind). Previews and readonly runs
+// take the bare collect — only the writable-armed path carries the
+// extra demand, which is why only it has a variant.
+func collectWritableArmed(ctx context.Context, out io.Writer, collect Collector, binPath string, args []string, report Reporter, risk proof.AcceptedRisk) error {
+	if risk == nil {
+		return errors.New("registry is writable: enable storage.maintenance.readonly and restart it first, or re-run with --force accepting the risk")
+	}
+	return collect(ctx, out, binPath, args, report)
+}
 
 // Ready infers at runtime whether this container can collect at all:
 // the stock binary and the registry config it reads store paths from

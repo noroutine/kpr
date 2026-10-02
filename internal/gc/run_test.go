@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -84,6 +85,13 @@ func (s stubClock) Offset(context.Context, string) (time.Duration, error) {
 
 var errClockUnreachable = errors.New("no route to time source")
 
+// forcedRisk mints the way the cli does for --force on an armed run:
+// tests that claim force hold the token. If this fails to mint, the
+// proof package (not the run) is broken.
+func forcedRisk() proof.AcceptedRisk {
+	return proof.Force(proof.Arm(true, false), true)
+}
+
 func stageProvenRun(t *testing.T) (string, string, *store.MemStore) {
 	t.Helper()
 	root := t.TempDir()
@@ -121,7 +129,7 @@ func TestRunRecordsMintedGeneration(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: false, Report: func(Event) {}})
+		Options{DryRun: false, Report: func(Event) {}}, nil)
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -164,7 +172,7 @@ func TestRunBehindStubPorts(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}})
+		Options{DryRun: true, Report: func(Event) {}}, nil)
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -210,7 +218,7 @@ func TestRunDryRunTailWriteFailureSurfaces(t *testing.T) {
 	out := &tailFailWriter{}
 	err := Run(context.Background(), out, probe, lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}})
+		Options{DryRun: true, Report: func(Event) {}}, nil)
 	if err == nil {
 		t.Fatal("dry-run with failing verdict write succeeded, want the write error")
 	}
@@ -230,7 +238,7 @@ func TestRunStrangerStoreRefuses(t *testing.T) {
 		var out strings.Builder
 		err := Run(context.Background(), &out, probe, lock, okCollector(&collected), fileAPI{t.TempDir()},
 			"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-			Options{DryRun: dry, Report: func(Event) {}})
+			Options{DryRun: dry, Report: func(Event) {}}, nil)
 		want := "does not share"
 		if dry {
 			// A preview cannot establish pairing: nothing served
@@ -274,7 +282,7 @@ func TestRunRefusesUnattributableLineage(t *testing.T) {
 			var out strings.Builder
 			err := Run(ctx, &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 				"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-				Options{Report: func(Event) {}})
+				Options{Report: func(Event) {}}, nil)
 			if err == nil {
 				t.Fatalf("gc over %s lineage succeeded, want refusal", tc.name)
 			} else if !strings.Contains(err.Error(), tc.want) {
@@ -320,7 +328,7 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 	var out strings.Builder
 	err = Run(context.Background(), &out, probe, lock, okCollector(&collected), frozen,
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{DryRun: false, Force: true, Report: func(Event) {}})
+		Options{DryRun: false, Force: true, Report: func(Event) {}}, forcedRisk())
 	if err == nil {
 		t.Fatal("gc on a stale snapshot succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
@@ -340,7 +348,7 @@ func TestRunWarnsOnReleaseFailure(t *testing.T) {
 		Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
 		releaseFailLocker{s}, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}})
+		Options{DryRun: true, Report: func(Event) {}}, nil)
 	if err != nil {
 		t.Fatalf("release-failed run: %v", err)
 	}
@@ -378,14 +386,14 @@ func TestRunFlipRefusesUnlessForced(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, flipProbe(), s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}})
+		Options{DryRun: true, Report: func(Event) {}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "mode changed") {
 		t.Fatalf("flipped run = %v, want the mode-change refusal", err)
 	}
 	out.Reset()
 	if err := Run(context.Background(), &out, flipProbe(), s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Force: true, Report: func(Event) {}}); err != nil {
+		Options{DryRun: true, Force: true, Report: func(Event) {}}, forcedRisk()); err != nil {
 		t.Fatalf("forced flipped run: %v", err)
 	}
 	if !strings.Contains(out.String(), "WARNING") {
@@ -406,7 +414,7 @@ func TestRunDryRunRefusesWithoutSentinel(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}})
+		Options{DryRun: true, Report: func(Event) {}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "no sentinel served") {
 		t.Fatalf("dry-run on silence = %v, want the no-shared-store refusal", err)
 	}
@@ -430,7 +438,7 @@ func TestRunDryRunSkipsProof(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}})
+		Options{DryRun: true, Report: func(Event) {}}, nil)
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
@@ -471,7 +479,7 @@ func TestRunWritableRefusalMintsNothing(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: false, Report: func(Event) {}})
+		Options{DryRun: false, Report: func(Event) {}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "registry is writable") {
 		t.Fatalf("writable run = %v, want the writable refusal", err)
 	}
@@ -508,7 +516,7 @@ func TestRunDeadPostProbeWarns(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}})
+		Options{DryRun: true, Report: func(Event) {}}, nil)
 	if err != nil {
 		t.Fatalf("dead-post-probe run: %v", err)
 	}
@@ -584,7 +592,7 @@ func TestRunForeignLineageRefusesBeforeMint(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Force: true, Report: func(Event) {}})
+		Options{Force: true, Report: func(Event) {}}, forcedRisk())
 	if err == nil {
 		t.Fatal("gc over a foreign lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "foreign lineage") {
@@ -619,7 +627,7 @@ func TestRunSilenceEstablishesPairing(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}})
+		Options{Report: func(Event) {}}, nil)
 	if err != nil {
 		t.Fatalf("first run on silence: %v", err)
 	}
@@ -651,7 +659,7 @@ func TestRunClockSkewRefusesUnlessForced(t *testing.T) {
 	var refused [][]string
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&refused), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{off: time.Hour}, "time.example.com",
-		Options{Report: func(Event) {}})
+		Options{Report: func(Event) {}}, nil)
 	if err == nil {
 		t.Fatal("skewed clock run succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "clock skew") {
@@ -661,7 +669,7 @@ func TestRunClockSkewRefusesUnlessForced(t *testing.T) {
 	out.Reset()
 	err = Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&forced), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{off: time.Hour}, "time.example.com",
-		Options{Force: true, Report: func(Event) {}})
+		Options{Force: true, Report: func(Event) {}}, forcedRisk())
 	if err != nil {
 		t.Fatalf("forced skewed run: %v", err)
 	}
@@ -706,7 +714,7 @@ func TestRunStaleRollbackRefusesArmed(t *testing.T) {
 	var out strings.Builder
 	err := Run(ctx, &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}})
+		Options{Report: func(Event) {}}, nil)
 	if err == nil {
 		t.Fatal("gc over a rollback succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "older than tracked") {
@@ -739,7 +747,7 @@ func TestRunStaleForceWarns(t *testing.T) {
 	var out strings.Builder
 	err := Run(ctx, &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Force: true, Report: func(Event) {}})
+		Options{Force: true, Report: func(Event) {}}, forcedRisk())
 	if err != nil {
 		t.Fatalf("forced run over a rollback: %v", err)
 	}
@@ -767,7 +775,7 @@ func TestRunEstablishPairedWarns(t *testing.T) {
 	var out strings.Builder
 	err := Run(ctx, &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
-		Options{Report: func(Event) {}})
+		Options{Report: func(Event) {}}, nil)
 	if err != nil {
 		t.Fatalf("re-establish: %v", err)
 	}
@@ -806,7 +814,7 @@ func TestRunNTPUnreachableWarnsProceeds(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{err: errClockUnreachable}, "time.example.com",
-		Options{Report: func(Event) {}})
+		Options{Report: func(Event) {}}, nil)
 	if err != nil {
 		t.Fatalf("run with unreachable NTP: %v", err)
 	}

@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 )
 
@@ -68,16 +66,14 @@ func TestUnlockedStoreZeroIsNothing(t *testing.T) {
 	}
 }
 
-// The seal moves the guarantee, never the words: ErrLocked reads
-// exactly like the runtime refusal in gc/run.go. If this fails,
-// the refusal drifted between the two places.
-func TestErrLockedMatchesGcRefusal(t *testing.T) {
-	raw, err := os.ReadFile("../gc/run.go")
-	if err != nil {
-		t.Skip("gc source unreadable")
-	}
-	if !strings.Contains(string(raw), ErrLocked.Error()) {
-		t.Errorf("ErrLocked %q not found verbatim in gc/run.go", ErrLocked.Error())
+// The seal moves the guarantee, never the words: gc returns this
+// exact value (errors.Is), so the operator-facing refusal has one
+// source of truth. If this fails, someone reworded a refusal
+// operators match on — say why, loudly, in the commit.
+func TestErrLockedKeepsItsWords(t *testing.T) {
+	const want = "store is locked: registry-store writes are denied — run `kpr store unlock` to prove the shared store and allow them"
+	if ErrLocked.Error() != want {
+		t.Errorf("ErrLocked = %q, want %q", ErrLocked.Error(), want)
 	}
 }
 
