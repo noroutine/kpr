@@ -142,7 +142,10 @@ not a mint.
   restart is as visible as a collect, through the same keys.
 - **Observed tracking.** Receiver rows derived from seen
   manifest PUTs; webhook degrades to corroboration.
-- **Persistent descriptor cache (later, s3-backed only).**
+- **Persistent descriptor cache (out of this spike;
+  s3-backed only).** Turning the cache off is the answer here;
+  this survives only for cloud-backed deployments that need
+  warm restarts.
   kpr speaks the registry's descriptor-cache RESP subset from a
   persistent local map, making redis optional. Values are
   immutable (digest→metadata, true forever) so every failure
