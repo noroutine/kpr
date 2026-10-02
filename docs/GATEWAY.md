@@ -1,15 +1,17 @@
-# kpr as registry gateway (spike)
+# kpr as registry gateway
 
-Status: spike branch. Identity shift accepted — kpr grows from
-companion sidecar into the registry control plane: edge proxy,
-config renderer, process supervisor. Each layer below is
-independently useful and unlocks the next; none is committed
-beyond the spike (slices 1–2) until each proves out. Multiple
-registries under one kpr (multiplexer) are explicitly out —
-their own spike, later. Downstream is filesystem-store only;
-s3-backed registries are out for the same reason. Mode scope:
+Status: delivered. Identity shift accepted — kpr grew from
+companion sidecar into the registry control plane: the edge
+proxy rides inside `serve`, HOLD/DENY fencing is live, and
+online gc collects under the fence (slices 1–3 below, each
+proven live before the next). What stays future lives at the
+bottom: generated config and observed tracking (this doc), the
+child registry (`docs/CHILD_REGISTRY.md`). Multiple registries
+under one kpr (multiplexer) are explicitly out — their own
+spike, later. Downstream is filesystem-store only; s3-backed
+registries are out for the same reason. Mode scope:
 `--registry=external` — kpr proxies a separately-run registry.
-The child/supervisor mode is a later spike, not this branch.
+The child/supervisor mode is a separate effort, not this doc.
 
 ## Thesis
 
@@ -67,7 +69,7 @@ Compose-wise a port move: kpr takes the edge, the registry
 loses its published port. `KPR_REGISTRY_URL` already names the
 backend; the new bit is the frontend listener.
 
-## Slice 1 — transparent spike (this branch)
+## Slice 1 — transparent proxy (delivered)
 
 Forward everything, zero policy. DELETEs pass straight through
 mid-flight — the sweeper stays the sole owner of delete
@@ -116,7 +118,7 @@ byte-identical blob+manifest through the edge, relative
 `Location` off the wire, absolute config refused at open, no
 audible overhead (50 HEADs: 0.38s direct vs 0.35s via edge).
 
-## Slice 2 — live fencing (this branch)
+## Slice 2 — live fencing (delivered)
 
 Two fence modes at the proxy, both identity-blind:
 
@@ -176,39 +178,55 @@ and the proxy's fencing) — token discarded, evaluation shared.
 Tokens stay in use-case signatures; the fence needs a boolean,
 not a mint.
 
-## Later slices (not this branch)
+## Slice 3 — online gc under the fence (delivered)
+
+The sentinel probe derives the path — stopped collects
+classic, serving collects fenced; there is no `--online` flag
+to forget. The online preflight clears two risks up front,
+each with its own `--accept-*` override on an armed run and
+every miss listed at once: the blobdescriptor cache (none
+configured — with a redis cache, deletes stay vouched until
+restart) and the gateway (proven edge listening, HOLD lease
+configured). The collect engages the HOLD lease around
+finalize; a fence that fails to engage refuses instead of
+collecting unfenced. Three run-wide risks refuse with their
+own flags everywhere, no umbrella: clock skew past tolerance
+(`--accept-clock-skew`), a restored older generation
+(`--accept-rollback`), a registry mode flip mid-run
+(`--accept-mode-flip`, re-probed after the collect). After the
+collect the sentinel re-probes: a flip fails loudly, a dead
+post-probe only warns. Full spec in `docs/GC.md`.
+
+Implemented: `gc.Fencer` port + `Options.Fence` (armed
+collects hold, previews never, failed fence refuses),
+`edge.HoldFile` lease wired in `kpr gc` on file backends,
+`gc.Accepts` grouping the five sealed risk acceptances beside
+`Options` (evidence is not flags; named fields, never trailing
+positionals). Proven live: serving-registry collect fenced
+end to end, preflight refusals naming each miss with its
+override, flip banner failing the run unless accepted.
+
+## Later (not this doc's delivered slices)
 
 - **Generated config.** kpr renders the registry config it
   already resolves — drift dies, `relativeurls` enforced, and
   the PROOFS.md config-proof future gets its foundation
   (assume what you rendered).
-- **Supervisor (later spike, not this branch).** `registry
-  serve` as kpr's child process. Kills the control-channel
-  question: stop/collect/flush/start become one ceremony with
-  rollback, no socket. This branch stays external — the proxy,
-  the fence, and control events work against a registry kpr
-  doesn't launch.
-- **Control events.** Registry control speaks the gc event
-  mechanism, nothing new: lifecycle `Event`s on the existing
-  `Reporter` port (`internal/gc/collector.go` — `Timed` stages,
-  nil-safe `Emit`, same JSON-lines transport), with control
-  stages beside the gc ones (spawn/stop/restart,
-  fence-hold/fence-release, ceremony phases), and an `Outcome`
-  per completed action into the activity ring
-  (`FileStore.PushActivity`, what `store status` shows). A
-  restart is as visible as a collect, through the same keys.
-- **Observed tracking.** Receiver rows derived from seen
-  manifest PUTs; webhook degrades to corroboration.
+- **Observed tracking (future effort, stays here).**
+  Receiver rows derived from seen manifest PUTs; webhook
+  degrades to corroboration.
+- **Child registry (future effort, moved out).** Supervisor
+  mode, control events, and everything about a kpr-launched
+  registry live in `docs/CHILD_REGISTRY.md`.
 
 ## Non-goals
 
-Online GC itself (enabled, not delivered), backend
-provisioning (buckets, redis instances — the PaaS line),
-general-purpose S3/RESP-compat servers, authn/authz per slice, multiple
-registries under one kpr (multiplexer — own spike, later),
-s3-backed downstream registries (redirect flows, driver
-mechanics — own spike, later), and the child/supervisor mode
-(own spike, later).
+Backend provisioning (buckets, redis instances — the PaaS
+line), general-purpose S3/RESP-compat servers, authn/authz per
+slice, multiple registries under one kpr (multiplexer — own
+spike, later), s3-backed downstream registries (redirect
+flows, driver mechanics — own spike, later), and the
+child/supervisor mode (`docs/CHILD_REGISTRY.md`, later).
 
 ## Appendix: where Location headers come from
 
