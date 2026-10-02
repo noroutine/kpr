@@ -9,6 +9,9 @@ import (
 
 // airPlayProbeTimeout bounds the AirPlay squat preflight: a black-holed
 // peer must not stall serve boot or an up recipe.
+// NOTE(mutants): arithmetic here only moves the deadline — a hung peer
+// is indistinguishable from a slow one inside a unit run, so no test
+// observes the bound. The fingerprint table tests pin the logic.
 const airPlayProbeTimeout = 2 * time.Second
 
 // DetectAirPlay reports whether baseURL answers like macOS AirPlay

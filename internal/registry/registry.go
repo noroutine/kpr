@@ -32,7 +32,12 @@ type Client struct {
 // NewClient builds a client for a registry base URL.
 func NewClient(baseURL string) *Client {
 	return &Client{
-		base:   strings.TrimSuffix(baseURL, "/"),
+		base: strings.TrimSuffix(baseURL, "/"),
+		// NOTE(mutants): the 10s bound is liveness, not logic — no
+		// test observes it (a hung peer is indistinguishable from a
+		// slow one inside a unit run). Arithmetic here only moves the
+		// deadline; every response classification is pinned by the
+		// DeleteManifest table tests.
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }

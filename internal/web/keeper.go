@@ -15,6 +15,9 @@ import (
 
 // probeTimeout bounds backend probes behind the dashboard: a down
 // redis or registry makes the banner red, never the page slow.
+// NOTE(mutants): arithmetic here only moves the deadline — a hung
+// backend is indistinguishable from a slow one inside a unit run, so
+// no test observes the bound. The red-banner tests pin the logic.
 const probeTimeout = 2 * time.Second
 
 // keeperData is everything the console shows about what kpr tracks —

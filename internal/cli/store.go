@@ -102,6 +102,8 @@ func runStoreLs(ctx context.Context, w io.Writer, s store.Store, opts storeLsOpt
 		if rows[i].Repo != rows[j].Repo {
 			return rows[i].Repo < rows[j].Repo
 		}
+		// NOTE(mutants): <= is equivalent — rows key on repo:tag,
+		// so equal elements cannot occur and strictness is free.
 		return rows[i].Tag < rows[j].Tag
 	})
 	if opts.json {

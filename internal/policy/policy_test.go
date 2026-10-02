@@ -134,11 +134,14 @@ func TestParseTTLToleratesShortSubmatch(t *testing.T) {
 // of a huge TTL's intent). If this fails, one fat-fingered tag wipes a
 // repo on the next reap.
 func TestEffectiveTTLClampsToMax(t *testing.T) {
-	if ttl, ok := EffectiveTTL("100000h"); !ok || ttl != MaxTTL {
-		t.Errorf("EffectiveTTL(100000h) = (%v, %v), want (%v, true)", ttl, ok, MaxTTL)
+	// Literals, not MaxTTL: a symbolic assert moves with the tuning
+	// and pins nothing. The max is thirty days.
+	const max = 30 * 24 * time.Hour
+	if ttl, ok := EffectiveTTL("100000h"); !ok || ttl != max {
+		t.Errorf("EffectiveTTL(100000h) = (%v, %v), want (%v, true)", ttl, ok, max)
 	}
-	if ttl, ok := EffectiveTTL("99999999999999999999w"); !ok || ttl != MaxTTL {
-		t.Errorf("EffectiveTTL(huge) = (%v, %v), want (%v, true)", ttl, ok, MaxTTL)
+	if ttl, ok := EffectiveTTL("99999999999999999999w"); !ok || ttl != max {
+		t.Errorf("EffectiveTTL(huge) = (%v, %v), want (%v, true)", ttl, ok, max)
 	}
 }
 
@@ -146,11 +149,25 @@ func TestEffectiveTTLClampsToMax(t *testing.T) {
 // the clamp boundary must be exact, not approximate. If this fails,
 // a max-sized TTL either shrinks silently or an over-max one slips by.
 func TestEffectiveTTLMaxBoundaryExact(t *testing.T) {
-	if ttl, ok := EffectiveTTL("720h"); !ok || ttl != MaxTTL {
-		t.Errorf("EffectiveTTL(720h) = (%v, %v), want (%v, true) unclamped", ttl, ok, MaxTTL)
+	// Literals, not MaxTTL: a symbolic assert moves with the tuning
+	// and pins nothing. The max is thirty days.
+	const max = 30 * 24 * time.Hour
+	if ttl, ok := EffectiveTTL("720h"); !ok || ttl != max {
+		t.Errorf("EffectiveTTL(720h) = (%v, %v), want (%v, true) unclamped", ttl, ok, max)
 	}
-	if ttl, ok := EffectiveTTL("721h"); !ok || ttl != MaxTTL {
-		t.Errorf("EffectiveTTL(721h) = (%v, %v), want (%v, true) clamped", ttl, ok, MaxTTL)
+	if ttl, ok := EffectiveTTL("721h"); !ok || ttl != max {
+		t.Errorf("EffectiveTTL(721h) = (%v, %v), want (%v, true) clamped", ttl, ok, max)
+	}
+}
+
+// Four weeks is 672h — under the max, so no clamping: the clamp
+// quotient truncates, and exactly-quotient units pass through whole.
+// The literal pins the > (not >=) boundary: with >=, 4w would clamp
+// to the 720h max instead of its own 672h. If this fails, whole
+// sub-max durations shrink or grow at the clamp edge.
+func TestEffectiveTTLWholeWeeksPassThrough(t *testing.T) {
+	if ttl, ok := EffectiveTTL("4w"); !ok || ttl != 4*7*24*time.Hour {
+		t.Errorf("EffectiveTTL(4w) = (%v, %v), want (672h, true)", ttl, ok)
 	}
 }
 

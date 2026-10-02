@@ -59,6 +59,9 @@ const (
 	Tolerance = 30 * time.Second
 	// Timeout bounds one exchange: a silent server must not stall a
 	// refusal path.
+	// NOTE(mutants): arithmetic here only moves the deadline — the
+	// silent-server test bounds the wait from above, so a shorter
+	// timeout still passes and a longer one only wastes test time.
 	Timeout = 3 * time.Second
 	// ntpPort is appended when the server names no port.
 	ntpPort = "123"

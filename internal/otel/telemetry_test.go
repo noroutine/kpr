@@ -84,6 +84,32 @@ func TestRequestTelemetryLogsTraceIDs(t *testing.T) {
 	}
 }
 
+// A healthy meter stays silent: the unavailable-metrics warn fires
+// only when init fails, never on the success path. If this fails,
+// every request logs a bogus warning — or the guard inverted and a
+// real init failure goes quiet while serving degrades.
+func TestRequestTelemetrySilentOnHealthyMeter(t *testing.T) {
+	var buf bytes.Buffer
+	prev := accessLogger
+	accessLogger = slog.New(slog.NewTextHandler(&buf, nil))
+	t.Cleanup(func() { accessLogger = prev })
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	})
+	h := RequestTelemetry(next, true)
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/x", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", rr.Code)
+	}
+	if strings.Contains(buf.String(), "otel metrics unavailable") {
+		t.Errorf("healthy meter warned: %q", buf.String())
+	}
+}
+
 // Production nesting puts RequestTelemetry INSIDE HTTPMiddleware so
 // the span is already in context. If this fails, a refactor flipped
 // the nesting and every access log silently loses its trace IDs.

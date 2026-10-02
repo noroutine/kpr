@@ -39,9 +39,12 @@ func TestSelectExpiredMarksOnlyDue(t *testing.T) {
 // fails, push-interrupt storms accumulate forever (or fresh uploads
 // get flagged while still retrying).
 func TestSelectStaleUploadsNeedsMissingDigestAndAge(t *testing.T) {
+	// The 2h literal pins the 24h tuning: any arithmetic shrinking
+	// the window toward an hour flags this row. A symbolic bound
+	// would move with the mutant and pin nothing.
 	rows := []Row{
 		{Repo: "app", Tag: "wip", PushedAt: sliceNow.Add(-25 * time.Hour)},
-		{Repo: "app", Tag: "retrying", PushedAt: sliceNow.Add(-time.Hour)},
+		{Repo: "app", Tag: "retrying", PushedAt: sliceNow.Add(-2 * time.Hour)},
 		mkrow("app", "v1", 30*24*time.Hour),
 	}
 	got := SelectStaleUploads(rows, sliceNow)
@@ -97,9 +100,14 @@ func TestSelectUntaggedSkipsUnknownRepo(t *testing.T) {
 // still in the catalog stays even when ancient. If this fails, reap
 // either leaks deleted-tag manifests or deletes live tags' manifests.
 func TestSelectUntaggedNeedsCatalogAbsenceAndGrace(t *testing.T) {
+	// The 2h freshly-gone literal pins the 168h tuning: absent from
+	// the catalog but inside grace, it stays. Any arithmetic
+	// shrinking grace toward an hour marks it. A symbolic bound would
+	// move with the mutant and pin nothing.
 	rows := []Row{
 		mkrow("app", "gone", 200*24*time.Hour),
 		mkrow("app", "recently-gone", 24*time.Hour),
+		mkrow("app", "freshly-gone", 2*time.Hour),
 		mkrow("app", "live", 200*24*time.Hour),
 	}
 	catalog := map[string][]string{"app": {"live", "recently-gone"}}

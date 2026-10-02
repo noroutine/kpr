@@ -747,6 +747,79 @@ func TestStoreCommandTailsRunAgainstFileBackend(t *testing.T) {
 	if err := storeLsCmd.Args(storeLsCmd, []string{"bogus"}); err == nil {
 		t.Error("ls with curious spelling validated, want refusal")
 	}
+	// The two valid spellings validate clean: bare and sentinels.
+	// If this fails, a boundary tweak refuses the documented
+	// invocation while misspellings still error.
+	for _, args := range [][]string{nil, {"sentinels"}} {
+		if err := storeLsCmd.Args(storeLsCmd, args); err != nil {
+			t.Errorf("ls %v refused: %v, want acceptance", args, err)
+		}
+	}
+}
+
+// The ls flag plumbing splits at the command, not just the unit:
+// `ls sentinels` through RunE shows machinery, bare ls shows
+// inventory. If this fails, the flag misroutes the view.
+func TestStoreLsCommandSplitsSentinels(t *testing.T) {
+	dir := t.TempDir()
+	srv := serveRegistry(t, t.TempDir(), false)
+	defer srv.Close()
+	func() {
+		t.Setenv(config.EnvStore, "file")
+		t.Setenv(config.EnvStoreDir, dir)
+		s, err := OpenStore(config.NewBuilder().FromEnv().Build())
+		if err != nil {
+			t.Fatalf("open file store: %v", err)
+		}
+		defer func() { _ = s.Close() }()
+		c := context.Background()
+		_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:a", PushedAt: cliNow})
+		_ = s.Record(c, policy.Row{Repo: "noroutine/kpr-sentinel", Tag: "019-gen",
+			Digest: "sha256:b", PushedAt: cliNow})
+	}()
+	plain, err := runCmdWithArgs(t, dir, srv.URL, storeLsCmd, nil)
+	if err != nil {
+		t.Fatalf("ls: %v", err)
+	}
+	if !strings.Contains(plain, "app:v1") || strings.Contains(plain, "kpr-sentinel") {
+		t.Errorf("ls through the command mixes the views:\n%s", plain)
+	}
+	mach, err := runCmdWithArgs(t, dir, srv.URL, storeLsCmd, []string{"sentinels"})
+	if err != nil {
+		t.Fatalf("ls sentinels: %v", err)
+	}
+	if !strings.Contains(mach, "kpr-sentinel") || strings.Contains(mach, "app:v1") {
+		t.Errorf("ls sentinels through the command mixes the views:\n%s", mach)
+	}
+}
+
+// ls splits inventory from machinery: default shows tracked rows
+// without sentinels, `ls sentinels` shows only them. If this
+// fails, the split the console depends on collapses to one view.
+func TestStoreLsSplitsSentinels(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	seedSentinel(s)
+	var plain bytes.Buffer
+	if err := runStoreLs(cliCtx(), &plain, s, storeLsOpts{now: cliNow}); err != nil {
+		t.Fatalf("ls: %v", err)
+	}
+	if !strings.Contains(plain.String(), "app:v1") {
+		t.Errorf("ls lacks the tracked row:\n%s", plain.String())
+	}
+	if strings.Contains(plain.String(), "kpr-sentinel") {
+		t.Errorf("ls leaks machinery:\n%s", plain.String())
+	}
+	var mach bytes.Buffer
+	if err := runStoreLs(cliCtx(), &mach, s, storeLsOpts{now: cliNow, sentinels: true}); err != nil {
+		t.Fatalf("ls sentinels: %v", err)
+	}
+	if !strings.Contains(mach.String(), "kpr-sentinel") {
+		t.Errorf("ls sentinels lacks the generation:\n%s", mach.String())
+	}
+	if strings.Contains(mach.String(), "app:v1") {
+		t.Errorf("ls sentinels leaks inventory:\n%s", mach.String())
+	}
 }
 
 // runCmdWithArgs drives one command RunE with args against a file

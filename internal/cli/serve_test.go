@@ -307,6 +307,17 @@ func TestSweepProofFreshVoicesStaleness(t *testing.T) {
 	if fresh, note := sweepProofFresh(ctx, stubProofAPI{ts: old}); fresh || !strings.Contains(note, "stale") {
 		t.Errorf("ancient proof fresh=%v note=%q, want stale", fresh, note)
 	}
+	// The staleness window is 7 days, not 31 hours: a 3-day-old
+	// proof is fresh, an 8-day-old one stale. If this fails, the
+	// "recently proven" window moved without the docs.
+	threeDays := time.Now().Add(-72 * time.Hour).UTC().Format(time.RFC3339)
+	if fresh, _ := sweepProofFresh(ctx, stubProofAPI{ts: threeDays}); !fresh {
+		t.Error("3-day-old proof reads stale, want fresh inside the 7-day window")
+	}
+	eightDays := time.Now().Add(-192 * time.Hour).UTC().Format(time.RFC3339)
+	if fresh, _ := sweepProofFresh(ctx, stubProofAPI{ts: eightDays}); fresh {
+		t.Error("8-day-old proof reads fresh, want stale past the 7-day window")
+	}
 	recent := time.Now().UTC().Format(time.RFC3339)
 	if fresh, note := sweepProofFresh(ctx, stubProofAPI{ts: recent}); !fresh || !strings.Contains(note, "fresh") {
 		t.Errorf("recent proof fresh=%v note=%q, want fresh", fresh, note)

@@ -81,6 +81,22 @@ func TestDeleteManifestUnknownCountsAsGone(t *testing.T) {
 	}
 }
 
+// An unrecognized status is an error even with a parseable body: only
+// the three known classifications resolve, everything else surfaces.
+// If this fails, a novel registry refusal reads as a resolution.
+func TestDeleteManifestUnexpectedStatusErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"UNKNOWN","message":"boom"}]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	if outcome, err := c.DeleteManifest(testCtx(), "app", "sick"); err == nil {
+		t.Errorf("DeleteManifest(403) = (%q, nil), want error", outcome)
+	}
+}
+
 // A manifest held by an index (zot-style 405 DENIED) is untracked, not
 // retried forever — the index owner collects the child. If this fails,
 // the sweeper hammers an un-deletable manifest every tick.

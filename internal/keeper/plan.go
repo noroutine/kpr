@@ -46,6 +46,9 @@ func ListPlan(ctx context.Context, s store.Store) ([]policy.Row, error) {
 	if err != nil {
 		return nil, fmt.Errorf("redis unreachable: %w", err)
 	}
+	// NOTE(mutants): <= is equivalent on both legs — repo:tag pairs
+	// are unique, so equal elements never compare and the order is
+	// total either way.
 	sort.Slice(due, func(i, j int) bool {
 		if due[i].Repo != due[j].Repo {
 			return due[i].Repo < due[j].Repo

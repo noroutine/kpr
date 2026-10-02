@@ -924,6 +924,22 @@ func TestKeeperCommandsRefuseBadBackend(t *testing.T) {
 	}
 }
 
+// Every store and plan-edit command refuses without state too:
+// the open failure belongs to all RunEs, not just the keeper's.
+// If this fails, one command renders without a backend.
+func TestStoreCommandsRefuseBadBackend(t *testing.T) {
+	t.Setenv(config.EnvStore, "bogus-backend")
+	for _, target := range []*cobra.Command{storeLsCmd, storeStatusCmd, storeInspectCmd, storeRmCmd, planAddCmd, planRemoveCmd, unlockCmd, adoptCmd} {
+		var buf bytes.Buffer
+		target.SetOut(&buf)
+		defer target.SetOut(nil)
+		target.SetContext(context.Background())
+		if err := target.RunE(target, nil); err == nil {
+			t.Errorf("%s on bad backend succeeded, want refusal", target.Use)
+		}
+	}
+}
+
 // Execute exits 1 on usage failure: the production entrypoint's
 // failure mode, pinned via a child process (the parent only asserts
 // the exit). If this fails, CLI misuse exits 0 and scripts proceed.

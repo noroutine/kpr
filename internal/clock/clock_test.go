@@ -318,6 +318,20 @@ func TestCheckAcceptsExactTolerance(t *testing.T) {
 	}
 }
 
+// Five seconds of skew still proceeds: the bound is thirty seconds,
+// not one — NTP over the internet lands in milliseconds, so single
+// seconds are noise, not breakage. The literal pins the tuning: any
+// arithmetic on Tolerance refuses this. If this fails, ordinary drift
+// blocks every mint path.
+func TestCheckAcceptsSingleDigitSkew(t *testing.T) {
+	ctx := context.Background()
+	for _, off := range []time.Duration{5 * time.Second, -5 * time.Second} {
+		if err := Check(ctx, fixedSource{off}, "time.example.com", Tolerance); err != nil {
+			t.Errorf("offset %v refused: %v", off, err)
+		}
+	}
+}
+
 func TestCheckEnforcesTolerance(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -85,6 +85,9 @@ func FetchStatus(ctx context.Context, s store.Store, reg Prober) Status {
 		st.StoreOK = false
 		return st
 	}
+	// NOTE(mutants): <= is equivalent on both legs — repo:tag pairs
+	// are unique, so equal elements never compare and the order is
+	// total either way.
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Repo != rows[j].Repo {
 			return rows[i].Repo < rows[j].Repo
@@ -172,6 +175,9 @@ func evalOne(name string, rows []policy.Row, catalogs map[string][]string, now t
 // sortMarks orders marks repo-major for stable plan output: the
 // keep-n selector walks a map, so its order is random without this.
 func sortMarks(out []policy.Row) {
+	// NOTE(mutants): <= is equivalent on both legs — repo:tag pairs
+	// are unique, so equal elements never compare and the order is
+	// total either way.
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Repo != out[j].Repo {
 			return out[i].Repo < out[j].Repo

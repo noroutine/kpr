@@ -38,6 +38,19 @@ type wireScript struct {
 	mu   sync.Mutex
 	kv   map[string]string
 	hash map[string]map[string]string
+	// calls records the argument vectors of bound-carrying
+	// commands: the trim window and the scan range are the
+	// driver's promises, and the wire must show them.
+	calls map[string][][]string
+}
+
+func (s *wireScript) record(cmd string, args []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.calls == nil {
+		s.calls = map[string][][]string{}
+	}
+	s.calls[cmd] = append(s.calls[cmd], args)
 }
 
 func (s *wireScript) get(key string) (string, bool) {
@@ -172,6 +185,9 @@ func serveWireConn(c net.Conn, script *wireScript) {
 		if script.fail[cmd] {
 			_, _ = c.Write([]byte("-ERR injected " + cmd + " failure\r\n"))
 			continue
+		}
+		if cmd == "LTRIM" || cmd == "LRANGE" {
+			script.record(cmd, args[1:])
 		}
 		switch cmd {
 		case "HELLO":
@@ -373,6 +389,32 @@ func TestRedisCorruptValuesRefuseOrSkip(t *testing.T) {
 		t.Fatalf("IsUnlocked: %v", err)
 	} else if ok {
 		t.Error("IsUnlocked with exists 0 = true, want false")
+	}
+}
+
+// Pushes trim the ring to the cap on the wire: LTRIM carries
+// 0..ActivityCap-1, and a full scan reads 0..-1. The bounds are
+// the driver's promises — an off-by-one grows the ring forever
+// or pages the scan. If this fails, the ring is unbounded (or
+// the scan partial) while the driver claims otherwise.
+func TestRedisWireCarriesRingBounds(t *testing.T) {
+	script := &wireScript{}
+	s := wireStore(t, script)
+	ctx := context.Background()
+	if err := s.PushActivity(ctx, store.Outcome{Repo: "app"}); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if _, err := s.Activity(ctx); err != nil {
+		t.Fatalf("activity: %v", err)
+	}
+	trims := script.calls["LTRIM"]
+	wantStop := strconv.Itoa(store.ActivityCap - 1)
+	if len(trims) != 1 || len(trims[0]) != 3 || trims[0][1] != "0" || trims[0][2] != wantStop {
+		t.Errorf("LTRIM calls = %v, want one [key 0 %s]", trims, wantStop)
+	}
+	ranges := script.calls["LRANGE"]
+	if len(ranges) != 1 || len(ranges[0]) != 3 || ranges[0][1] != "0" || ranges[0][2] != "-1" {
+		t.Errorf("LRANGE calls = %v, want one [key 0 -1]", ranges)
 	}
 }
 

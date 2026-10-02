@@ -255,6 +255,9 @@ const (
 	// tuning, still Config fields (seeded here by defaultConfig) so every
 	// knob is read the same way — config.Current().Field — and tests can
 	// shrink them via With* setters instead of waiting out real seconds.
+	// NOTE(mutants): arithmetic here only moves deadlines — a hung peer
+	// is indistinguishable from a slow one inside a unit run, so no
+	// test observes these bounds. The With* setters pin the plumbing.
 	HTTPReadTimeout  = 10 * time.Second
 	HTTPWriteTimeout = 10 * time.Second
 	HTTPIdleTimeout  = 60 * time.Second

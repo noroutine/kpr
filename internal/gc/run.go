@@ -17,6 +17,8 @@ import (
 
 // lockTTL bounds a collector run: a crashed gc releases at expiry
 // instead of wedging every later run.
+// NOTE(mutants): bound arithmetic is equivalent — no test waits
+// out 30 minutes to distinguish the bound, and none should.
 const lockTTL = 30 * time.Minute
 
 // holdLease bounds the proxy HOLD around an armed collect: a
@@ -25,6 +27,8 @@ const lockTTL = 30 * time.Minute
 // small registries; collects outrunning it flow unfenced and
 // loud (the edge says hold_expired) — a renewing heartbeat is
 // the real answer for big ones, and it is future work.
+// NOTE(mutants): bound arithmetic is equivalent — no test waits
+// out 5 minutes to distinguish the bound, and none should.
 const holdLease = 5 * time.Minute
 
 // Probe classifies the registry via the write sentinel: writable,
