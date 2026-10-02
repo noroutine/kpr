@@ -111,7 +111,8 @@ Implemented: `internal/edge` (proxy + Location guard, proof-gated
 handler), `RelativeURLs` in `internal/proof`, `kpr edge`
 (`--edge-addr`, `KPR_EDGE_ADDR`, `--config`). Proven live:
 byte-identical blob+manifest through the edge, relative
-`Location` off the wire, absolute config refused at open.
+`Location` off the wire, absolute config refused at open, no
+audible overhead (50 HEADs: 0.38s direct vs 0.35s via edge).
 
 ## Slice 2 — live fencing (this branch)
 
