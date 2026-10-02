@@ -66,6 +66,9 @@ func TestPutFileRefusesBlockedStages(t *testing.T) {
 		}
 	})
 	t.Run("create", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root ignores permission bits, nothing is unwritable")
+		}
 		root := t.TempDir()
 		dir := filepath.Join(root, "ro")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -138,6 +141,9 @@ func TestReadRowRefusesDirectory(t *testing.T) {
 // exclusion that cannot exclude must fail loud, never pretend.
 // If this fails, two writers believe each holds the lock.
 func TestDirLockRefusesBlockedLockFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores permission bits, nothing is unwritable")
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Fatalf("stage readonly: %v", err)
