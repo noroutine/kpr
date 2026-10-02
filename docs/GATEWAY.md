@@ -2,9 +2,11 @@
 
 Status: spike branch. Identity shift accepted — kpr grows from
 companion sidecar into the registry control plane: edge proxy,
-config renderer, process supervisor, eventually multiplexer.
-Each layer below is independently useful and unlocks the next;
-none is committed beyond the spike (slice 1) until it proves out.
+config renderer, process supervisor. Each layer below is
+independently useful and unlocks the next; none is committed
+beyond the spike (slice 1) until it proves out. Multiple
+registries under one kpr (multiplexer) are explicitly out —
+their own spike, later.
 
 ## Thesis
 
@@ -93,14 +95,10 @@ else:
   (the missing mechanism) without delivering it.
 - **Observed tracking.** Receiver rows derived from seen
   manifest PUTs; webhook degrades to corroboration.
-- **Multiplexer.** Static namespace→backend routes; same-slice
-  mounts fast, cross-slice mounts fail soft to full upload;
-  merged `_catalog`; placement of unknown repos as new durable
-  state (fenced — the deepest new requirement); per-slice gc
-  ceremonies. Dynamic slice API much later.
 
 ## Non-goals
 
 Online GC itself (enabled, not delivered), backend
 provisioning (buckets, redis instances — the PaaS line),
-S3/RESP-compat servers, authn/authz per slice.
+S3/RESP-compat servers, authn/authz per slice, and multiple
+registries under one kpr (multiplexer — own spike, later).
