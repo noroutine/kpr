@@ -7,11 +7,14 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -186,6 +189,44 @@ func TestServeRunDegradesWithoutRedis(t *testing.T) {
 }
 
 // A server that fails to bind at startup must take `serve` down with a
+// An edge bind failure reports and stops: the proven gate cannot
+// listen, so the error must reach the select — a swallowed bind
+// leaves serve running unfenced. If this fails, the edge goroutine
+// drops real errors (or reports clean shutdowns as failures).
+func TestServeRunReportsEdgeBindFailure(t *testing.T) {
+	blocker, err := net.Listen("tcp", "127.0.0.1:18237")
+	if err != nil {
+		t.Fatalf("occupy edge port: %v", err)
+	}
+	defer func() { _ = blocker.Close() }()
+
+	proven := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(proven, []byte("http:\n  relativeurls: true\n"), 0o600); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	oldConfig := serveConfigPath
+	serveConfigPath = proven
+	t.Cleanup(func() { serveConfigPath = oldConfig })
+	t.Setenv("KPR_EDGE_ADDR", "127.0.0.1:18237")
+	setServeAddrs(t, 18235, 18236)
+	logs := captureLog(t)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		serveCmd.Run(serveCmd, nil)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("serve did not stop after edge bind failure")
+	}
+	if out := logs.String(); !strings.Contains(out, "Server error") {
+		t.Errorf("no server error logged for the edge bind failure:\n%s", out)
+	}
+}
+
 // logged error rather than hanging or serving half. If this fails, a
 // port conflict at boot leaves the process wedged instead of reporting
 // the problem.
@@ -255,6 +296,40 @@ func (s stubProofAPI) GetBlob(context.Context, string, string) ([]byte, error) {
 // does too — mirroring err, so an errored stub reddens every card.
 func (s stubProofAPI) Reachable(context.Context) error {
 	return s.err
+}
+
+// The edge assembly pins the HOLD lease dir to the backend — the
+// file store's dir, nothing on redis — and relays proof refusal as
+// nils for serve's loud skip. If this fails, HOLD leases land in the
+// wrong dir, or serve boots an unfenced edge thinking it proved one.
+func TestAssembleEdgeHoldDirFollowsBackend(t *testing.T) {
+	proven := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(proven, []byte("http:\n  relativeurls: true\n"), 0o600); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	cfg := config.NewBuilder().WithRegistryURL("http://127.0.0.1:9").Build()
+	fileGate, _, err := assembleEdge(cfg, "file", "/state", store.NewMemStore(), proven, nil)
+	if err != nil {
+		t.Fatalf("assembleEdge(file): %v", err)
+	}
+	if fileGate.Dir != "/state" {
+		t.Errorf("file gate dir = %q, want the store dir", fileGate.Dir)
+	}
+	redisGate, _, err := assembleEdge(cfg, "redis", "", store.NewMemStore(), proven, nil)
+	if err != nil {
+		t.Fatalf("assembleEdge(redis): %v", err)
+	}
+	if redisGate.Dir != "" {
+		t.Errorf("redis gate dir = %q, want empty (no lease file)", redisGate.Dir)
+	}
+	missing := filepath.Join(t.TempDir(), "absent.yml")
+	gate, h, err := assembleEdge(cfg, "file", "/state", store.NewMemStore(), missing, nil)
+	if err == nil {
+		t.Error("assembleEdge(missing) error = nil, want the proof refusal")
+	}
+	if gate != nil || h != nil {
+		t.Error("assembleEdge(missing) built a gate, want nothing")
+	}
 }
 
 // serve runs no automatic passes: booting the servers must leave the

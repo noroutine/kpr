@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -104,6 +105,16 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 	if body := render(&Server{Edge: &edge.Gate{Store: locked}, Store: locked}); !strings.Contains(body, "deny") {
 		t.Error("dashboard with a locked store must read deny before any traffic")
 	}
+	// The other side of the same branch: an unlocked store with an
+	// open gate reads pass, never deny. If this fails, the fence
+	// posture cannot tell open from closed.
+	open := store.NewMemStore()
+	if err := open.SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	if body := render(&Server{Edge: &edge.Gate{Store: open}, Store: open}); !strings.Contains(body, "pass") || strings.Contains(body, "deny") {
+		t.Error("dashboard with an unlocked store must read pass, not deny")
+	}
 }
 
 // Activity ages read human beside the exact stamp: the operator
@@ -135,6 +146,10 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 		_ = s.PushActivity(c, store.Outcome{Repo: "app", Tag: "v1",
 			Reason: "untag", Outcome: "deleted", At: time.Now().UTC()})
 	}
+	// A row-less control event (a fence flip) rides the same ring:
+	// no repo:tag prefix, the outcome alone. If this fails, control
+	// events render as malformed rows.
+	_ = s.PushActivity(c, store.Outcome{Reason: "gc-fence", Outcome: "held", At: time.Now().UTC()})
 	srv := &Server{Store: s, Registry: liveRegistry(t)}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
@@ -143,11 +158,17 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"<pre>", "last 10 of 12", "/api/activity",
-		"app:v1 — deleted (untag), "} {
+	for _, want := range []string{"<pre>", "last 10 of 13", "/api/activity",
+		"app:v1 — deleted (untag), ", "held (gc-fence), "} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard activity missing %q", want)
 		}
+	}
+	// The control event must not wear a row prefix: ": — held" is
+	// the row branch misfiring on an empty repo:tag. If this fails,
+	// row-less events render as malformed rows.
+	if strings.Contains(body, ": — held") {
+		t.Errorf("control event rendered with a row prefix:\n%s", body)
 	}
 	section := body[strings.Index(body, ">Activity</div>"):]
 	if end := strings.Index(section, "</pre>"); end >= 0 {
@@ -177,8 +198,8 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 	if err := json.Unmarshal(apiRR.Body.Bytes(), &got); err != nil {
 		t.Fatalf("activity api unparseable: %v", err)
 	}
-	if len(got.Activity) != 12 {
-		t.Fatalf("activity api holds %d records, want all 12 (uncapped)", len(got.Activity))
+	if len(got.Activity) != 13 {
+		t.Fatalf("activity api holds %d records, want all 13 (uncapped)", len(got.Activity))
 	}
 	if _, err := time.Parse(time.RFC3339, got.Activity[0].At); err != nil {
 		t.Errorf("activity api at = %q, want a precise stamp", got.Activity[0].At)
@@ -190,6 +211,33 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 	bare.activityHandler(bareRR, bareReq)
 	if bareRR.Code != http.StatusServiceUnavailable {
 		t.Errorf("storeless activity api = %d, want 503", bareRR.Code)
+	}
+}
+
+// A broken pipe on the activity feed must not panic the console:
+// the encode error is logged and the handler returns. If this
+// fails, one wedged watcher takes the console down with it.
+func TestActivityEndpointToleratesWriteError(t *testing.T) {
+	testConfig(t)
+	logs := captureLog(t)
+	s := &Server{Store: keeperStore(t)}
+	req := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
+	s.activityHandler(errWriter{header: http.Header{}}, req)
+	if n := strings.Count(logs.String(), "Error"); n != 1 {
+		t.Errorf("logged %d write errors, want 1 (activity feed)", n)
+	}
+}
+
+// The redis card names addr and DB even degraded: the operator
+// must see which redis is unreachable, not just red. If this
+// fails, the card hides the backend it complains about.
+func TestRedisStoreCardNamesAddrAndDB(t *testing.T) {
+	testConfig(t)
+	rs := store.NewRedisStore("redis:6379", "", 0)
+	defer func() { _ = rs.Close() }()
+	got := storeSnapshot(context.Background(), rs, false, config.Current(), false)
+	if got.Name != "redis" || got.Detail != "redis:6379 db 0" {
+		t.Errorf("redis card = %q/%q, want redis with addr and DB", got.Name, got.Detail)
 	}
 }
 
@@ -256,21 +304,106 @@ func TestFileStoreFsNoteGatedOnProof(t *testing.T) {
 }
 
 // Byte tiers stay operator-shaped: whole units above ten, one
-// decimal below, MB under a gig. If this fails, the capacity
-// glance reads like a raw byte count.
+// decimal below, MB under a gig — boundaries included, so a tier
+// edge never flips units. If this fails, the capacity glance reads
+// like a raw byte count.
 func TestFmtBytesTiers(t *testing.T) {
+	const kb = 1024
 	for _, tc := range []struct {
 		n    uint64
 		want string
 	}{
 		{500 * 1024 * 1024, "500 MB"},
+		{1024 * 1024 * 1024, "1.0 GB"},
 		{5 * 1024 * 1024 * 1024, "5.0 GB"},
+		{10 * 1024 * 1024 * 1024, "10 GB"},
 		{91 * 1024 * 1024 * 1024, "91 GB"},
+		{1024 * 1024 * 1024 * 1024, "1.0 TB"},
+		{10 * 1024 * 1024 * 1024 * 1024, "10 TB"},
 		{6300 * 1024 * 1024 * 1024, "6.2 TB"},
+		{10*1024*1024*1024*1024 - kb, "10.0 TB"},
 	} {
 		if got := fmtBytes(tc.n); got != tc.want {
 			t.Errorf("fmtBytes(%d) = %q, want %q", tc.n, got, tc.want)
 		}
+	}
+}
+
+// The percent math is the only unprobed part of the capacity card:
+// whole percent used, free==total reading zero. If this fails, the
+// card's percent lies while free and total read true.
+func TestUsedPercent(t *testing.T) {
+	for _, tc := range []struct {
+		total, free uint64
+		want        uint64
+	}{
+		{100, 30, 70},
+		{100, 100, 0},
+		{100, 0, 100},
+		{3, 1, 66},
+	} {
+		if got := usedPercent(tc.total, tc.free); got != tc.want {
+			t.Errorf("usedPercent(%d, %d) = %d, want %d", tc.total, tc.free, got, tc.want)
+		}
+	}
+}
+
+// Nonsense sizes never reach the card: zero total, or free above
+// total — including the free==total edge a looser check would let
+// through. If this fails, a corrupt Statfs voices petabytes as
+// capacity.
+func TestSaneSizes(t *testing.T) {
+	for _, tc := range []struct {
+		total, free uint64
+		want        bool
+	}{
+		{0, 0, false},
+		{100, 101, false},
+		{100, 100, true},
+		{100, 30, true},
+	} {
+		if got := saneSizes(tc.total, tc.free); got != tc.want {
+			t.Errorf("saneSizes(%d, %d) = %v, want %v", tc.total, tc.free, got, tc.want)
+		}
+	}
+	// The live path over a real dir stays sane: block math that
+	// underflows units reads zero total and refuses.
+	if total, free, ok := fsSizes(t.TempDir()); !ok || total == 0 || free > total {
+		t.Errorf("fsSizes(tempdir) = %d/%d/%v, want sane sizes", total, free, ok)
+	}
+}
+
+// fsSizes voices block math, not block counts: totals are raw
+// blocks times the fragment unit. If this fails, the card sizes
+// block counts as bytes.
+func TestFsSizesMultipliesByUnit(t *testing.T) {
+	dir := t.TempDir()
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(dir, &fs); err != nil {
+		t.Fatalf("statfs: %v", err)
+	}
+	unit := fsBlockUnit(&fs)
+	total, free, ok := fsSizes(dir)
+	if !ok {
+		t.Fatal("fsSizes refused a plain temp dir")
+	}
+	if total != uint64(fs.Blocks)*unit || free != uint64(fs.Bavail)*unit {
+		t.Errorf("fsSizes = %d/%d, want blocks×unit %d/%d",
+			total, free, uint64(fs.Blocks)*unit, uint64(fs.Bavail)*unit)
+	}
+}
+
+// Skew voices its sign: ahead +, behind -. If this fails, the card
+// flips behind/ahead.
+func TestFormatOffset(t *testing.T) {
+	if got := formatOffset(5 * time.Second); got != "+5s" {
+		t.Errorf("formatOffset(+5s) = %q, want +5s", got)
+	}
+	if got := formatOffset(-5 * time.Second); got != "-5s" {
+		t.Errorf("formatOffset(-5s) = %q, want -5s", got)
+	}
+	if got := formatOffset(0); got != "+0s" {
+		t.Errorf("formatOffset(0) = %q, want +0s", got)
 	}
 }
 

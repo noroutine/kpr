@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // A missing registry config refuses before anything listens: no
@@ -36,6 +37,20 @@ func TestOpenEdgeRefusesAbsoluteConfig(t *testing.T) {
 	}
 	if !errors.Is(err, proof.ErrRelativeURLsOff) {
 		t.Errorf("openEdge(absolute) error = %v, want ErrRelativeURLsOff", err)
+	}
+}
+
+// buildEdge relays the proof refusal: a missing config fails gate
+// assembly, never a nil gate with a nil error. If this fails,
+// serve boots an unfenced edge thinking it proved one.
+func TestBuildEdgeRelaysProofRefusal(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent.yml")
+	gate, h, err := buildEdge(store.NewMemStore(), "http://127.0.0.1:9", missing, "", nil)
+	if err == nil {
+		t.Error("buildEdge(missing) error = nil, want the read error")
+	}
+	if gate != nil || h != nil {
+		t.Error("buildEdge(missing) built a gate, want nothing")
 	}
 }
 

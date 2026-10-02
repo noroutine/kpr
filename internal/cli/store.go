@@ -92,6 +92,10 @@ func runStoreLs(ctx context.Context, w io.Writer, s store.Store, opts storeLsOpt
 		}
 		rows = append(rows, r)
 	}
+	// NOTE(mutants): < is equivalent — the != guard above means
+	// the operands always differ, where < and <= agree. A test
+	// distinguishing them would need equal repos, which never
+	// reach this line.
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Repo != rows[j].Repo {
 			return rows[i].Repo < rows[j].Repo
@@ -284,6 +288,11 @@ func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentine
 			Identity string         `json:"identity"`
 			Activity []activityJSON `json:"activity"`
 		}{Store: storeLine, Lock: lock, Proof: proof, Identity: ident}
+		// NOTE(mutants): == is equivalent — every backend returns
+		// nil rows with a read error (redis/file) or never errors
+		// (mem), so ranging on the error path appends nothing either
+		// way. A test feeding rows+error together would enshrine a
+		// combination no backend produces.
 		if actErr == nil {
 			for _, a := range acts {
 				out.Activity = append(out.Activity, activityJSON{Repo: a.Repo, Tag: a.Tag,

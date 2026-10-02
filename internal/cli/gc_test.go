@@ -24,6 +24,21 @@ func forcedRisk() proof.AcceptedRisk {
 	return proof.Force(proof.Arm(true, false), true)
 }
 
+// Dry-run is the absence of the mint: flag or env arms, silence
+// previews. If this fails, gc collects on nothing or previews when
+// armed.
+func TestGcDryRunFollowsTheMint(t *testing.T) {
+	if !gcDryRun(proof.Arm(false, false)) {
+		t.Error("disarmed gc not dry-run, want preview")
+	}
+	if gcDryRun(proof.Arm(true, false)) {
+		t.Error("flag-armed gc dry-run, want collect")
+	}
+	if gcDryRun(proof.Arm(false, true)) {
+		t.Error("env-armed gc dry-run, want collect")
+	}
+}
+
 // stageGCStore writes a registry config pointing at root and returns
 // the config path: every gc run test collects against staged ground,
 // never the host's.

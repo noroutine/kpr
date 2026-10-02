@@ -99,11 +99,7 @@ var serveCmd = &cobra.Command{
 		var edgeGate *edge.Gate
 		var edgeHandler http.Handler
 		if cfg.EdgeEnabled {
-			holdDir := ""
-			if backend == "file" {
-				holdDir = storeDir
-			}
-			gate, h, gerr := buildEdge(keeperStore, cfg.RegistryURL, serveConfigPath, holdDir, func(e gc.Event) {
+			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, serveConfigPath, func(e gc.Event) {
 				log.Printf("edge fence: %s %s", e.Stage, e.Message)
 			})
 			if gerr != nil {

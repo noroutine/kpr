@@ -150,6 +150,8 @@ func humanAge(at time.Time) string {
 		return "unknown"
 	}
 	d := time.Since(at)
+	// NOTE(mutants): < is equivalent — the two sides differ only
+	// at exactly zero, where the clamp body is identity anyway.
 	if d < 0 {
 		d = 0
 	}
@@ -173,12 +175,18 @@ func clockSnapshot(ctx context.Context) (method, server, skew, note string) {
 	if err != nil {
 		return method, server, "unreachable", "tolerance " + clock.Tolerance.String()
 	}
+	return method, server, formatOffset(offset),
+		"tolerance " + clock.Tolerance.String()
+}
+
+// formatOffset voices a clock skew with its sign: ahead reads +,
+// behind reads -. If this fails, the card flips behind/ahead.
+func formatOffset(offset time.Duration) string {
 	sign := "+"
 	if offset < 0 {
 		sign = "-"
 	}
-	return method, server, sign + offset.Round(time.Millisecond).Abs().String(),
-		"tolerance " + clock.Tolerance.String()
+	return sign + offset.Round(time.Millisecond).Abs().String()
 }
 
 // clockSourceFor mirrors the CLI composition root (see clockSource

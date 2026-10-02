@@ -239,6 +239,10 @@ func OpenStore(cfg *config.Config) (store.StoreCloser, error) {
 	if err != nil {
 		return nil, err
 	}
+	// NOTE(mutants): the 5s bound is timing, not logic — no test
+	// distinguishes it from any other positive bound without a
+	// stopwatch, and file Ping ignores ctx entirely. A mutant here
+	// survives by being unobservable, not by being correct.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if backend == "file" {
@@ -336,7 +340,7 @@ whose repo:tag matches (registry stripped).`,
 		}
 		defer d.close()
 		cfg, s := d.cfg, d.store
-		armed := reapNoDryRun || cfg.CLINoDryRun
+		armed := reapArmed(cfg)
 		name := "all"
 		if len(args) == 1 {
 			name = args[0]
@@ -390,6 +394,14 @@ func init() {
 	reapCmd.Flags().StringSliceVar(&reapExclude, "exclude", nil, "Spare keep-N for rows whose repo:tag matches (repeatable regex, registry stripped)")
 	sweepCmd.Flags().BoolVar(&sweepNoDryRun, "no-dry-run", false, "Delete due rows for real (default plans only)")
 	RootCmd.AddCommand(statusCmd, planCmd, reapCmd, sweepCmd)
+}
+
+// reapArmed is the same wiring as sweepArmed: the flag arms one
+// invocation, KPR_CLI_NO_DRY_RUN arms every one-shot. If this fails,
+// `reap` answers to the wrong var — the blind spot the sweep review
+// found, mirrored here before it bites.
+func reapArmed(cfg *config.Config) bool {
+	return reapNoDryRun || cfg.CLINoDryRun
 }
 
 // sweepArmed is the command's arming wiring, factored for test: the

@@ -364,10 +364,11 @@ func TestReapArmedMarksAllSorted(t *testing.T) {
 type sweepStub struct {
 	stubProofAPI
 	outcome string
+	delErr  error
 }
 
 func (s sweepStub) DeleteManifest(context.Context, string, string) (string, error) {
-	return s.outcome, nil
+	return s.outcome, s.delErr
 }
 
 // pairedSweepStore stages one due row on paired, unlocked ground
@@ -429,7 +430,7 @@ func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 func TestKeeperCommandsRefuseWithoutRedis(t *testing.T) {
 	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
 	for _, args := range [][]string{
-		{"status"}, {"plan"}, {"reap"}, {"sweep"},
+		{"status"}, {"plan"}, {"plan", "discard"}, {"reap"}, {"reap", "expired"}, {"sweep"},
 	} {
 		RootCmd.SetArgs(args)
 		defer RootCmd.SetArgs(nil)
@@ -437,6 +438,24 @@ func TestKeeperCommandsRefuseWithoutRedis(t *testing.T) {
 			t.Errorf("kpr %s without redis succeeded, want a fast error", args[0])
 		} else if !strings.Contains(err.Error(), "redis") {
 			t.Errorf("kpr %s error = %q, want it to name redis", args[0], err.Error())
+		}
+	}
+}
+
+// The reap command runs dry against a file store with no registry:
+// policy selection ("all" vs one name) is command plumbing the
+// runReap tests never touch — the registry is dead, so catalog
+// reads skip and the plan stays empty. If this fails, `reap
+// <policy>` names a policy the command never passes down.
+func TestReapCommandSelectsPolicy(t *testing.T) {
+	clearStoreEnv(t)
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
+	for _, args := range [][]string{{"reap"}, {"reap", "expired"}} {
+		RootCmd.SetArgs(args)
+		defer RootCmd.SetArgs(nil)
+		if err := RootCmd.Execute(); err != nil {
+			t.Errorf("kpr %v on empty file store: %v, want a clean dry plan", args, err)
 		}
 	}
 }
@@ -671,6 +690,27 @@ func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
 	}
 }
 
+// A pipe breaking on a failure line surfaces the error too: the
+// summary line already printed, so only the failures-line check
+// catches it. If this fails, a truncated failure list reads as a
+// clean pass.
+func TestSweepSurfacesFailureLineWriteError(t *testing.T) {
+	s, stub := pairedSweepStore(t)
+	stub.delErr = errors.New("registry: 500")
+	var ok bytes.Buffer
+	if err := runSweep(cliCtx(), &ok, s, stub, true); err != nil {
+		t.Fatalf("armed failing sweep: %v", err)
+	}
+	if !strings.Contains(ok.String(), "failed:") {
+		t.Fatalf("no failure lines to break on:\n%s", ok.String())
+	}
+	fs, fstub := pairedSweepStore(t)
+	fstub.delErr = errors.New("registry: 500")
+	if err := runSweep(cliCtx(), &failAfterWriter{n: 1}, fs, fstub, true); err == nil {
+		t.Error("sweep failing on the failures line succeeded, want an error")
+	}
+}
+
 // The sweep command arms from its own flag or the one-shot env var —
 // never the dead serve loop's. The flag binding and the env half are
 // both wired here: RunE only sees sweepArmed. If this fails, `sweep`
@@ -694,6 +734,43 @@ func TestSweepArmingWiring(t *testing.T) {
 	}()
 	if !sweepArmed(plain) {
 		t.Error("--no-dry-run parsed but sweep stayed disarmed, want armed")
+	}
+}
+
+// `reap` shares the one-shot arming: flag or KPR_CLI_NO_DRY_RUN,
+// same wiring, same test. If this fails, reap drifted off the var
+// the other one-shots answer to.
+func TestReapArmingWiring(t *testing.T) {
+	plain := config.NewBuilder().Build()
+	if reapArmed(plain) {
+		t.Error("reap armed by default, want implicit dry-run")
+	}
+	envArmed := config.NewBuilder().WithCLINoDryRun(true).Build()
+	if !reapArmed(envArmed) {
+		t.Error("KPR_CLI_NO_DRY_RUN=true left reap disarmed, want armed")
+	}
+	if err := reapCmd.Flags().Set("no-dry-run", "true"); err != nil {
+		t.Fatalf("set --no-dry-run: %v", err)
+	}
+	defer func() {
+		_ = reapCmd.Flags().Set("no-dry-run", "false")
+	}()
+	if !reapArmed(plain) {
+		t.Error("--no-dry-run parsed but reap stayed disarmed, want armed")
+	}
+}
+
+// describeStore voices the backend in one line: file with its dir,
+// redis with addr and DB. If this fails, the store card names the
+// wrong backend — the operator fixes the wrong state.
+func TestDescribeStoreNamesBackend(t *testing.T) {
+	cfg := config.NewBuilder().WithRedisAddr("r:6379").WithRedisDB(4).Build()
+	if got := describeStore(store.NewMemStore(), cfg); got != "redis (r:6379 db 4)" {
+		t.Errorf("mem store described as %q, want the redis line", got)
+	}
+	fs := store.NewFileStore(t.TempDir())
+	if got := describeStore(fs, cfg); got != "file ("+fs.Dir()+")" {
+		t.Errorf("file store described as %q, want file with dir", got)
 	}
 }
 

@@ -98,7 +98,7 @@ revokes.`,
 		// of Armed. The adapter feeds raw readings (flag var,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
-		dryRun := armedRun == nil
+		dryRun := gcDryRun(armedRun)
 		risk := proof.Force(armedRun, gcForce)
 		backend, dir, berr := resolveStoreBackend()
 		fence := fenceForBackend(backend, dir, berr, dryRun, out)
@@ -119,3 +119,8 @@ func init() {
 	gcCmd.Flags().BoolVar(&gcNoDryRun, "no-dry-run", false, "Collect for real (default previews with the collector's --dry-run)")
 	RootCmd.AddCommand(gcCmd)
 }
+
+// gcDryRun reads the mode off the mint: dry-run is the absence of
+// Armed, never a second flag. If this fails, gc's preview/collect
+// split answers to something other than the mint.
+func gcDryRun(a proof.ArmedRun) bool { return a == nil }

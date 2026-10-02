@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
@@ -27,6 +28,19 @@ func buildEdge(st edge.GateStore, backendURL, configPath, holdDir string, report
 	}
 	gate := &edge.Gate{Store: st, Dir: holdDir, Report: report}
 	return gate, gate.Wrap(h), nil
+}
+
+// assembleEdge is serve's edge wiring, factored for test: the HOLD
+// lease dir follows the backend (the file store's dir, nothing on
+// redis — HOLD needs the lease file), and proof refusal comes back
+// as nils for the loud skip. If this fails, HOLD leases land in the
+// wrong dir, or serve boots an unfenced edge thinking it proved one.
+func assembleEdge(cfg *config.Config, backend, storeDir string, st edge.GateStore, configPath string, report gc.Reporter) (*edge.Gate, http.Handler, error) {
+	holdDir := ""
+	if backend == "file" {
+		holdDir = storeDir
+	}
+	return buildEdge(st, cfg.RegistryURL, configPath, holdDir, report)
 }
 
 // openEdge proves RelativeURLs over the registry config and builds

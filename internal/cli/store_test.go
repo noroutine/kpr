@@ -351,6 +351,22 @@ func (s *flipStub) DeleteManifest(_ context.Context, repo, ref string) (string, 
 	return "held", nil
 }
 
+// A pipe breaking mid-list surfaces the error: the first removed
+// line already printed, so only the per-row check catches it. If
+// this fails, a truncated removal list reads as complete.
+func TestStoreRmSurfacesRowLineWriteError(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	if err := s.SetUnlocked(cliCtx(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	if err := runStoreRm(cliCtx(), &failAfterWriter{n: 1}, s,
+		[]string{"app:v1", "scratch:10m"}, false,
+		&sweep.Sweeper{Store: s}, nil, unlockedProof(t, s)); err == nil {
+		t.Error("rm failing on the row line succeeded, want an error")
+	}
+}
+
 func TestStoreRmUntagPartialPrintsDone(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)

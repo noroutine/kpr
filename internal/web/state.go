@@ -89,8 +89,14 @@ func fsStats(dir string) string {
 	if !ok {
 		return ""
 	}
-	used := 100 * (total - free) / total
-	return fmt.Sprintf("%s free of %s (%d%% used)", fmtBytes(free), fmtBytes(total), used)
+	return fmt.Sprintf("%s free of %s (%d%% used)", fmtBytes(free), fmtBytes(total), usedPercent(total, free))
+}
+
+// usedPercent is the glance math behind the capacity card: whole
+// percent used. If this fails, the card's percent lies while free
+// and total read true.
+func usedPercent(total, free uint64) uint64 {
+	return 100 * (total - free) / total
 }
 
 // fsSizes returns the filesystem's total and free bytes for dir.
@@ -106,10 +112,17 @@ func fsSizes(dir string) (total, free uint64, ok bool) {
 	unit := fsBlockUnit(&fs)
 	total = uint64(fs.Blocks) * unit
 	free = uint64(fs.Bavail) * unit
-	if total == 0 || free > total {
+	if !saneSizes(total, free) {
 		return 0, 0, false
 	}
 	return total, free, true
+}
+
+// saneSizes refuses nonsense before it reaches the card: zero
+// total, or free above total. If this fails, a corrupt Statfs
+// voices petabytes as capacity.
+func saneSizes(total, free uint64) bool {
+	return total != 0 && free <= total
 }
 
 // fmtBytes renders byte counts in operator units: whole TB/GB
