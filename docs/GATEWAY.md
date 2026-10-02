@@ -89,7 +89,13 @@ Assertions before anything else:
   self-expiring lease (seconds, fail-open) during final
   verify. Blob uploads never held — they reference nothing.
   kpr-internal traffic bypasses. This *enables* online GC
-  (the missing mechanism) without delivering it.
+  (the missing mechanism) without delivering it. The fence is
+  identity-blind: it matches route+method, never credentials,
+  and tells internal from external traffic topologically
+  (direct vs proxied), not by auth — so registry auth puts no
+  constraint on this slice. Auth headers pass through opaque;
+  per-identity fencing belongs to the tenancy world, out of
+  scope.
 - **Observed tracking.** Receiver rows derived from seen
   manifest PUTs; webhook degrades to corroboration.
 
