@@ -75,6 +75,18 @@ operations, no extra processing no matter how tempting. Write
 proof semantics are unaffected: the proxy forwards bytes, it
 neither mints nor alters proofs.
 
+Consequences of the Location research (appendix) for this
+slice: with default config the backend emits absolute
+`Location`s derived from the incoming request — behind a
+`ReverseProxy` that names the unreachable backend, so every
+write flow breaks, not just the fence. Flip `relativeurls: true`
+by hand now (generation enforces it later), and keep a standing
+guard in the proxy asserting every upstream `Location` is
+relative or edge-addressed. Test all five `Location`-bearing
+flows, not just pulls: upload initiate, chunk resume, mount,
+manifest PUT, upload complete. Edge stays at root — subpath
+mounting would shift the builder's base path.
+
 Assertions before anything else:
 
 - Upstream `Location`s are relative (after `relativeurls`;
@@ -113,7 +125,12 @@ identity-blind (route+method, never credentials; internal vs
 external told topologically, direct vs proxied) — registry auth
 puts no constraint on this slice. Auth headers pass through
 opaque; per-identity fencing belongs to the tenancy world, out
-of scope. One evaluation for both: the fence checks the lock
+of scope. No new Location work here, but slice 1's guard
+becomes fence-critical: any absolute backend `Location` is a
+fence bypass, not just a breakage. In-flight chunk URLs from
+before a DENY need no revocation — they can't create
+references alone; the manifest PUT refusal is sufficient.
+One evaluation for both: the fence checks the lock
 through the same proof-package path the use cases mint from
 (same marker, same read, zero drift between kpr's self-gating
 and the proxy's fencing) — token discarded, evaluation shared.
