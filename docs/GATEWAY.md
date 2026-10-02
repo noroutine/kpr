@@ -20,6 +20,24 @@ registry it companions. The gateway moves kpr onto the seams:
 traffic (proxy), assumption (generated config), lifecycle
 (supervisor), placement (multiplexer).
 
+## What drove this
+
+Two gc scars. First, the collector demands the registry
+stopped or readonly — and readonly isn't enough: it's a config
+kpr trusts but can't enforce, the flip-restart-flip-back is
+manual downtime, and the hot process keeps serving stale blob
+descriptors after the collect (HEAD 200 for deleted blobs —
+probes and re-pushes mint dead tags off the lie). Second, that
+stale cache: gc deletes files but never invalidates
+descriptors, and registry:3 offers no flush API.
+
+The gateway answers both without demanding a readonly
+registry: fencing (HOLD for finalize, DENY for lock) at the
+proxy replaces the readonly flip with edge enforcement, and
+the cache is handled by config, not ceremony (no descriptor
+cache on the file stack; restart/flush matrix for cached
+deployments — full story in `docs/GC.md`).
+
 ## Layer decisions
 
 **Not the storage layer.** Proxying S3-compat + RESP under the
