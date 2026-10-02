@@ -157,7 +157,9 @@ edge-triggered flip events + ring outcomes), `gc.Fencer` port +
 fence refuses), `edge.HoldFile` lease wired in `kpr gc` on file
 backends (loud warning otherwise). Proven live: locked PUT→423
 with remedy, uploads/reads pass, 3s hold→423 on a locked store,
-flips in the ring as `kpr-edge`. One live-caught fix:
+flips in the ring as `kpr-edge`, and the full cycle in-container
+(lock→423, unlock→forwarded) against the bind-mounted store.
+One live-caught fix:
 post-hold requests re-evaluate the marker (no blind forward).
 
 No new Location work here, but slice 1's guard
