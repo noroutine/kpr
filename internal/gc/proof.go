@@ -33,14 +33,20 @@ func writeVerifiedGeneration(ctx context.Context, api sentinel.API, root string,
 }
 
 // collectWritableArmed runs the collector for real against a
-// writable registry: acceptance is demanded at the delete boundary,
-// not just at the pre-mint gate (a run that arrives here without it
-// refuses instead of collecting blind). Previews and readonly runs
-// take the bare collect — only the writable-armed path carries the
-// extra demand, which is why only it has a variant.
-func collectWritableArmed(ctx context.Context, out io.Writer, collect Collector, binPath string, args []string, report Reporter, risk proof.AcceptedRisk) error {
-	if risk == nil {
-		return errors.New("registry is writable: enable storage.maintenance.readonly and restart it first, or re-run with --force accepting the risk")
+// writable registry: the preflight clearance is demanded at the
+// delete boundary, not just at the pre-mint gate (a run that
+// arrives here without it refuses instead of collecting blind).
+// Previews and readonly runs take the bare collect — only the
+// writable-armed path carries the extra demand, which is why only
+// it has a variant. Either token nil means the preflight never
+// cleared (or was bypassed): refuse, naming the gate that owns
+// the override.
+func collectWritableArmed(ctx context.Context, out io.Writer, collect Collector, binPath string, args []string, report Reporter, cache proof.BlobCacheOff, fence proof.GatewayFencing) error {
+	if cache == nil {
+		return errors.New("online clearance missing for the blob cache: pass the online preflight (or re-run with --accept-blob-cache)")
+	}
+	if fence == nil {
+		return errors.New("online clearance missing for the gateway: pass the online preflight (or re-run with --accept-unfenced)")
 	}
 	return collect(ctx, out, binPath, args, report)
 }

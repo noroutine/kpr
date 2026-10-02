@@ -131,6 +131,33 @@ func TestStoreLsListsRowsShort(t *testing.T) {
 	}
 }
 
+// Same-repo rows sort by tag: the repo guard routes equal repos
+// to the tag compare, and the tag compare orders them. Seeded
+// backwards, so store order alone would fail. If this fails, ls
+// lists tags in store order — the plan view scrambles.
+func TestStoreLsSortsSameRepoByTag(t *testing.T) {
+	s := store.NewMemStore()
+	c := cliCtx()
+	_ = s.Record(c, policy.Row{Repo: "zzz", Tag: "v9", Digest: "sha256:ddd",
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		PushedAt:  cliNow.Add(-time.Hour), Actor: "receiver"})
+	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v2", Digest: "sha256:ddd",
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		PushedAt:  cliNow.Add(-time.Hour), Actor: "receiver"})
+	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:aaa",
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		PushedAt:  cliNow.Add(-2 * time.Hour), Actor: "receiver"})
+	var out bytes.Buffer
+	if err := runStoreLs(cliCtx(), &out, s, storeLsOpts{now: cliNow}); err != nil {
+		t.Fatalf("runStoreLs: %v", err)
+	}
+	body := out.String()
+	v1, v2, z := strings.Index(body, "app:v1"), strings.Index(body, "app:v2"), strings.Index(body, "zzz:v9")
+	if v1 < 0 || v2 < 0 || z < 0 || v1 > v2 || v2 > z {
+		t.Errorf("rows out of repo-then-tag order:\n%s", body)
+	}
+}
+
 func TestStoreLsSentinelsOnly(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
@@ -257,6 +284,20 @@ func TestStoreWildcardRefuses(t *testing.T) {
 	rows, _ := s.All(cliCtx())
 	if len(rows) != 2 {
 		t.Errorf("refused rm deleted rows: %d left, want 2", len(rows))
+	}
+}
+
+// A pipe breaking on an activity line surfaces the error: the
+// headers already printed, so only the per-row check catches it.
+// If this fails, a truncated activity reads as complete.
+func TestStoreStatusSurfacesActivityLineWriteError(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.PushActivity(cliCtx(), store.Outcome{Repo: "app", Tag: "v1",
+		Reason: "ttl", Outcome: "deleted", At: cliNow})
+	ts := cliNow.Format(time.RFC3339)
+	if err := runStoreStatus(cliCtx(), &failAfterWriter{n: 2}, s,
+		stubProofAPI{id: "test-id", ts: ts}, "mem (tests only)", false); err == nil {
+		t.Error("store status failing on the activity line succeeded, want an error")
 	}
 }
 

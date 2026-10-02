@@ -11,7 +11,9 @@ establishes something different; they compose by weakening only.
 | Clock check (NTP/HTTPS/local vs tolerance) | skew is bounded, so timestamps mean something | one RTT | `gc`, `unlock` | the clock source (NTP/HTTPS/local) | `BoundedClock` (`checked.go`) |
 | Intent (unlock marker present) | the operator opened this store, after proving it | one read | `gc`, writers | the unlock ceremony, via the marker | `UnlockedStore` (`unlocked.go`) |
 | Armed run | the mutation was earned, under the matching proof above | whichever proof its row names | `gc`, sweep loop, `rm --untag`, `unlock` | the human, via flag or env at the boundary | `ArmedRun` (`armed.go`) |
-| Accepted risk | leave to proceed despite a loud refusal (writable registry, skewed clock) | one flag, on an armed run | `gc` | the human, via `--force` at the boundary | `AcceptedRisk` (`risk.go`) |
+| Accepted risk | leave to proceed despite a loud refusal (skewed clock, restored lineage, post-run flip — `--force`; blob cache, missing fence — `--accept-*`) | one flag per risk, on an armed run | `gc` | the human, via `--force` / `--accept-<slug>` at the boundary | `AcceptedRisk` (`risk.go`) |
+| Blob cache off (config carries no blobdescriptor redis) | online deletes reclaim immediately, not vouched till restart | one config parse | `gc` online preflight | the registry config, via the prover | `BlobCacheOff` (`blob_cache_off.go`) |
+| Gateway fencing (proven edge listening, HOLD lease configured) | the fence the collect engages actually pins pushes | one config parse + one dial | `gc` online preflight | the registry config + the edge addr, via the prover | `GatewayFencing` (`gateway_fencing.go`) |
 
 Mint ⊃ read gate: the mint observes everything the gate does
 along the way, plus currency — each step down trades a guarantee

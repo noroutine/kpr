@@ -43,7 +43,7 @@ func TestArmedCollectHoldsFenceAroundCollect(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, collectWithEvents(&events), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: false, Report: func(Event) {}, Fence: stubFencer{events: &events}}, nil)
+		Options{DryRun: false, Report: func(Event) {}, Fence: stubFencer{events: &events}}, nil, nil)
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestPreviewNeverHoldsFence(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, collectWithEvents(&events), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, nil)
+		Options{DryRun: true, Report: func(Event) {}}, nil, nil)
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestArmedCollectRefusesWhenFenceFails(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, probe, s, collectWithEvents(&events), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: false, Report: func(Event) {}, Fence: stubFencer{events: &events, holdErr: errFenceBoom}}, nil)
+		Options{DryRun: false, Report: func(Event) {}, Fence: stubFencer{events: &events, holdErr: errFenceBoom}}, nil, nil)
 	if err == nil {
 		t.Fatal("broken-fence run = nil, want refusal")
 	}

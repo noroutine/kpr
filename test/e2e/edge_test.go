@@ -72,6 +72,22 @@ func stageEdgeProof(t *testing.T) string {
 	return path
 }
 
+// stageOnlineRegistryConfig stages the config gc reads on the
+// online path: the store root plus the relativeurls assertion the
+// gateway prover checks. The edge registry genuinely serves
+// relative Locations (see startEdgeRegistry), so the claim is
+// honest; lock_test's registry does not, and keeps the bare
+// stageRegistryConfig.
+func stageOnlineRegistryConfig(t *testing.T, root string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yml")
+	cfg := "storage:\n  filesystem:\n    rootdirectory: " + root + "\nhttp:\n  relativeurls: true\n"
+	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
+		t.Fatalf("stage online registry config: %v", err)
+	}
+	return path
+}
+
 // serveEdge proves RelativeURLs and serves the HOLD/DENY-gated
 // proxy the way serve wires it: file store underneath (lock marker
 // and lease dir are the same dir), httptest in front. It returns
@@ -280,7 +296,7 @@ func TestEdgeHoldDelaysManifestPutDuringArmedGC(t *testing.T) {
 	manifest := pushViaEdge(t, edgeURL, "test/edge", "hold")
 
 	api := registry.NewClient(backend)
-	cfg := stageRegistryConfig(t, root)
+	cfg := stageOnlineRegistryConfig(t, root)
 	var unlockOut strings.Builder
 	if err := gc.Unlock(ctx, &unlockOut, api, cfg, st, st, st, st, clock.HTTPS{}, stageTimeServer(t)); err != nil {
 		t.Fatalf("pair sentinel: %v", err)
@@ -293,15 +309,20 @@ func TestEdgeHoldDelaysManifestPutDuringArmedGC(t *testing.T) {
 		time.Sleep(5 * time.Second)
 		return nil
 	}
-	run := func(dryRun bool, fence gc.Fencer, risk proof.AcceptedRisk) error {
+	// The world proves everything here, so nothing is accepted:
+	// no cache in the edge registry's env, a proven edge
+	// listening, a configured lease dir. The preflight must clear
+	// on evidence alone.
+	edgeAddr := strings.TrimPrefix(edgeURL, "http://")
+	run := func(dryRun bool, fence gc.Fencer) error {
 		var out strings.Builder
 		return gc.Run(ctx, &out, gc.ProbeRegistry, st, collect, api, backend, cfg, bin,
 			st, st, st, clock.HTTPS{}, stageTimeServer(t),
-			gc.Options{DryRun: dryRun, Report: func(gc.Event) {}, Fence: fence}, risk)
+			gc.Options{DryRun: dryRun, Report: func(gc.Event) {}, EdgeAddr: edgeAddr, Fence: fence}, nil, nil)
 	}
 
 	previewFence := &recordFence{inner: edge.HoldFile{Dir: dir}}
-	if err := run(true, previewFence, nil); err != nil {
+	if err := run(true, previewFence); err != nil {
 		t.Fatalf("preview gc: %v", err)
 	}
 	if previewFence.held.Load() {
@@ -316,10 +337,9 @@ func TestEdgeHoldDelaysManifestPutDuringArmedGC(t *testing.T) {
 	}
 
 	armedFence := &recordFence{inner: edge.HoldFile{Dir: dir}}
-	armed := proof.Arm(true, false)
 	runErr := make(chan error, 1)
 	go func() {
-		runErr <- run(false, armedFence, proof.Force(armed, true))
+		runErr <- run(false, armedFence)
 	}()
 	deadline := time.Now().Add(30 * time.Second)
 	for !armedFence.held.Load() && time.Now().Before(deadline) {

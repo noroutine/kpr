@@ -160,10 +160,11 @@ docker exec kpr kpr gc --no-dry-run --delete-untagged
 
 `kpr gc` previews by default and refuses a real run rather than
 collecting blind: no binary/config mounts, no filesystem store root,
-inconclusive sentinel, writable without `--force` (a preview on
-writable proceeds warned — it deletes nothing), unproven shared
-store, unreachable blobdescriptor cache, another run holding
-`kpr:gc:lock` (`make gc` honors the same key). Collection streams the
+inconclusive sentinel, serving registry without online clearance
+(a preview prints the checklist and proceeds warned — it deletes
+nothing), unproven shared store, unreachable blobdescriptor cache
+(offline path), another run holding `kpr:gc:lock` (`make gc` honors
+the same key). Collection streams the
 stock binary's output with stage events (sentinel verdicts, collector
 pid, post-probe). After collecting it re-probes: a mode flip mid-run
 is loud but never a panic — it fails the run unless `--force`.

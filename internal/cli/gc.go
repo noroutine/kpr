@@ -22,6 +22,10 @@ var gcDeleteUntagged bool
 
 var gcForce bool
 
+var gcAcceptBlobCache bool
+
+var gcAcceptUnfenced bool
+
 var gcNoDryRun bool
 
 // renderGCEvent voices the lifecycle loud: probe verdicts, collector
@@ -73,10 +77,12 @@ var gcCmd = &cobra.Command{
 	Long: `Run the stock registry garbage-collect against the shared store,
 streaming its output and reporting each stage, in dry-run mode unless
 --no-dry-run (or KPR_CLI_NO_DRY_RUN=true), which collects for real.
-The sentinel probes the registry first (readonly collects, a
-real run on writable refuses unless --force — flip
-storage.maintenance.readonly and restart it instead — a preview on
-writable proceeds warned, inconclusive always refuses), then proves
+The sentinel probes the registry first: stopped (readonly) takes
+the classic offline collect; serving (writable) takes the online
+path — an armed run clears the blob cache and the gateway fence
+up front (each overridable with --accept-blob-cache /
+--accept-unfenced), a preview prints the same checklist and
+proceeds warned, inconclusive always refuses. Then gc proves
 the store shared with a fresh generation it reads back through the
 API. After the
 collect the sentinel re-probes: a mode flip mid-run is loud but
@@ -99,7 +105,12 @@ revokes.`,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
 		dryRun := gcDryRun(armedRun)
-		risk := proof.Force(armedRun, gcForce)
+		// Each online risk mints its own acceptance from the same
+		// armed run: --force keeps its other jobs (clock skew,
+		// restored lineage, post-run flip), the writable collect
+		// answers to these two.
+		cacheAccept := proof.Force(armedRun, gcAcceptBlobCache)
+		fenceAccept := proof.Force(armedRun, gcAcceptUnfenced)
 		backend, dir, berr := resolveStoreBackend()
 		fence := fenceForBackend(backend, dir, berr, dryRun, out)
 		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
@@ -107,15 +118,18 @@ revokes.`,
 			Force:          gcForce,
 			DryRun:         dryRun,
 			Report:         renderGCEvent(out, dryRun),
+			EdgeAddr:       cfg.EdgeAddr,
 			Fence:          fence,
-		}, risk)
+		}, cacheAccept, fenceAccept)
 	},
 }
 
 func init() {
 	gcCmd.Flags().StringVar(&gcConfigPath, "config", "/etc/distribution/config.yml", "Registry config file (shared store paths come from it)")
 	gcCmd.Flags().BoolVar(&gcDeleteUntagged, "delete-untagged", false, "Also drop orphaned manifests (same flag as registry garbage-collect)")
-	gcCmd.Flags().BoolVar(&gcForce, "force", false, "Collect even when the sentinel finds the registry writable (presumes you know)")
+	gcCmd.Flags().BoolVar(&gcForce, "force", false, "Accept clock skew, restored lineage, and post-run mode flips (presumes you know)")
+	gcCmd.Flags().BoolVar(&gcAcceptBlobCache, "accept-blob-cache", false, "Collect with a blobdescriptor cache configured (deletes stay vouched until restart)")
+	gcCmd.Flags().BoolVar(&gcAcceptUnfenced, "accept-unfenced", false, "Collect without the gateway HOLD fence (a push mid-collect corrupts)")
 	gcCmd.Flags().BoolVar(&gcNoDryRun, "no-dry-run", false, "Collect for real (default previews with the collector's --dry-run)")
 	RootCmd.AddCommand(gcCmd)
 }

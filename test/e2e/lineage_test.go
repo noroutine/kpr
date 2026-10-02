@@ -54,15 +54,17 @@ func lineageCollect(collected *[][]string) gc.Collector {
 
 func liveRun(t *testing.T, ctx context.Context, out *strings.Builder, collected *[][]string, api *registry.Client, url, cfg, bin string, state *store.FileStore, opts gc.Options) error {
 	t.Helper()
-	// Risk mirrors the CLI: previews need none, armed runs carry
-	// the operator's --force. Without it the armed callers below
-	// refuse on the writable registry.
-	var risk proof.AcceptedRisk
+	// Clearance mirrors the CLI: the collector is a stub (nothing
+	// is really deleted) and the staged config carries no cache,
+	// so armed runs prove the cache off the world and carry
+	// explicit acceptance only for the unfenced gateway (no edge
+	// listens here). Previews need neither.
+	var fenceAccept proof.AcceptedRisk
 	if !opts.DryRun {
-		risk = proof.Force(proof.Arm(true, false), opts.Force)
+		fenceAccept = proof.Force(proof.Arm(true, false), true)
 	}
 	return gc.Run(ctx, out, gc.ProbeRegistry, state, lineageCollect(collected), api, url, cfg, bin,
-		state, state, state, clock.HTTPS{}, stageTimeServer(t), opts, risk)
+		state, state, state, clock.HTTPS{}, stageTimeServer(t), opts, nil, fenceAccept)
 }
 
 func freshPayload(gen, id string) sentinel.Payload {

@@ -23,12 +23,12 @@ type acceptedRisk struct{}
 func (acceptedRisk) sealed() {}
 
 // acceptedRiskFromFlag builds acceptance from an explicit
-// --force, granted only to an already-armed caller. Unexported
-// on purpose: acceptance is produced by the Force prover below,
-// never crafted at a call site.
+// --force / --accept-* flag, granted only to an already-armed
+// caller. Unexported on purpose: acceptance is produced by the
+// Force prover below, never crafted at a call site.
 func acceptedRiskFromFlag(ArmedRun) AcceptedRisk { return acceptedRisk{} }
 
-// Force derives acceptance from intent: --force on an armed run
+// Force derives acceptance from intent: the flag on an armed run
 // mints, anything else mints nothing. Force without arming is
 // meaningless, and the signature is where that is said.
 func Force(armed ArmedRun, flag bool) AcceptedRisk {

@@ -56,7 +56,7 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 	}
 
 	var out strings.Builder
-	err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, state, state, clock.HTTPS{}, stageTimeServer(t), gc.Options{DryRun: true, Report: func(gc.Event) {}}, nil)
+	err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, state, state, clock.HTTPS{}, stageTimeServer(t), gc.Options{DryRun: true, Report: func(gc.Event) {}}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("locked gc = %v, want the locked refusal", err)
 	}
@@ -73,7 +73,7 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, state, state, clock.HTTPS{}, stageTimeServer(t), gc.Options{DryRun: true, Report: func(gc.Event) {}}, nil); err != nil {
+	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, state, state, clock.HTTPS{}, stageTimeServer(t), gc.Options{DryRun: true, Report: func(gc.Event) {}}, nil, nil); err != nil {
 		t.Fatalf("unlocked gc: %v", err)
 	}
 	if strings.Contains(out.String(), "shared store proven via") {
@@ -94,7 +94,7 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 		t.Fatalf("re-lock: %v", err)
 	}
 	out.Reset()
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, state, state, clock.HTTPS{}, stageTimeServer(t), gc.Options{DryRun: true, Report: func(gc.Event) {}}, nil); err == nil ||
+	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, state, state, clock.HTTPS{}, stageTimeServer(t), gc.Options{DryRun: true, Report: func(gc.Event) {}}, nil, nil); err == nil ||
 		!strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("re-locked gc = %v, want the locked refusal", err)
 	}

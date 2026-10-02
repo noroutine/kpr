@@ -217,7 +217,7 @@ drives (signing name in brackets):
 
 | Operation    | Mint?        | Lineage?       | Lock?   | Clock? | Mode? | Driven by          | Drives                                  |
 |--------------|--------------|----------------|---------|--------|-------|--------------------|-----------------------------------------|
-| `gc` armed   | yes, per run | yes            | yes     | yes    | yes   | human (`gc`)       | mount + rows [`kpr-gc`]                 |
+| `gc` armed   | yes, per run | yes            | yes     | yes    | yes²  | human (`gc`)       | mount + rows [`kpr-gc`]                 |
 | `unlock`     | yes          | yes            | sets it | yes    | no    | human (`unlock`)   | mount + marker [`kpr-unlock`]           |
 | sweeper pass | no           | yes, read gate | no¹     | no     | no    | human (`sweep`)       | registry + rows + activity [`kpr-sweep`] |
 | `rm --untag` | no           | yes, token     | no      | no     | no    | human (`rm`)       | registry + rows + activity [`kpr-sweep`] |
@@ -227,6 +227,13 @@ drives (signing name in brackets):
 
 ¹ The sweeper takes the single-flight `LockKey`, not the intent
 marker — different lock, different meaning.
+
+² Serving registries additionally clear the online preflight
+before the mint: `BlobCacheOff` (no blobdescriptor cache, or
+`--accept-blob-cache`) and `GatewayFencing` (proven edge
+listening with a HOLD lease configured, or `--accept-unfenced`) —
+every miss reported at once, tokens threading to the delete
+boundary. Stopped registries take the classic path (mode alone).
 
 Readings:
 

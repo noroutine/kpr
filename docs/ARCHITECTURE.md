@@ -162,8 +162,13 @@ classifiable mode, and the local mount is the registry's own store.
   202 means writable, 405 means maintenance readonly, anything else
   refuses. Same-store proof is a fresh `noroutine/kpr-sentinel:latest` generation
   written to the local mount and read back through the API — both
-  modes, no tracked rows, no API writes. A real run on writable
-  refuses unless `--force`; a dry-run preview proceeds warned.
+  modes, no tracked rows, no API writes. Stopped (readonly) takes
+  the classic offline collect. Serving (writable) takes the online
+  path: the preflight clears the blob cache (none configured) and
+  the gateway fence (proven edge listening, HOLD lease configured)
+  up front — each miss overridable (`--accept-blob-cache`,
+  `--accept-unfenced`), all misses reported at once; a dry-run
+  preview prints the checklist and proceeds warned.
 - **Lock**: the shared `kpr:gc:lock` (30m bound) serializes kpr-driven
   runs. It is advisory by necessity — distribution's `MarkAndSweep`
   (audited at v3.1.2) sets no lock and mark-then-sweep races a

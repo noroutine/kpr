@@ -59,17 +59,19 @@ type Recorder interface {
 // reporter the CLI renders loud. DryRun previews (the default) —
 // only an explicit --no-dry-run collects for real.
 //
-// The trailing risk token travels beside Options, not inside it:
-// evidence is not flags. The three stay consistent by construction
-// at the single production call site (cli mines ArmedRun, DryRun,
-// and risk from the same readings) — risk != nil means armed and
-// forced. Any other caller must hold the same triple; the writable
-// gate trusts it, the variant re-checks it.
+// The trailing accept tokens travel beside Options, not inside
+// it: evidence is not flags. The CLI mints each from its
+// --accept-* flag on an armed run (nil otherwise); the online
+// preflight consumes one per risk, and the delete boundary
+// re-checks the pair the preflight cleared.
 type Options struct {
 	DeleteUntagged bool
 	Force          bool
 	DryRun         bool
 	Report         Reporter
+	// EdgeAddr is where the edge listens: the gateway prover
+	// dials it for the online preflight.
+	EdgeAddr string
 	// Fence, when non-nil, holds the edge around armed collects
 	// (previews never engage). A fence that fails to engage
 	// refuses the run: collecting unfenced when fencing was
@@ -83,11 +85,15 @@ type Options struct {
 // it under the shared collector lock, streaming every line and
 // reporting each stage. The proof needs no tracked rows and no API
 // writes: a generation Write lands on the local mount, and only the
-// registry serving that same store reads it back. A real (non-dry)
-// run on a writable registry refuses: the operator flips
-// storage.maintenance.readonly and restarts first. A dry-run preview
-// on a writable registry proceeds with a loud warning instead —
-// previews delete nothing, so a race only stales the preview.
+// registry serving that same store reads it back. A serving
+// (writable) registry takes the online path: the preflight clears
+// the blob cache and the gateway fence (each overridable), armed
+// refuses on unaccepted misses, and the collect engages the HOLD
+// lease. A stopped (readonly) registry takes the classic offline
+// path. A dry-run preview on a writable registry prints the same
+// preflight checklist as information and proceeds with a loud
+// warning instead — previews delete nothing, so a race only
+// stales the preview.
 // Anything unproven — inconclusive probe, unwritten or unreadable
 // generation — refuses always. After the collect the sentinel
 // re-probes: a mode flip mid-run is loud but never a panic — without
@@ -95,7 +101,7 @@ type Options struct {
 // with --force the operator presumed to know and the run passes
 // warned. A dead post-probe only warns. Flipping readonly stays with
 // the operator; this command never rewrites registry config.
-func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string, opts Options, risk proof.AcceptedRisk) error {
+func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string, opts Options, cacheAccept, fenceAccept proof.AcceptedRisk) error {
 	gcStarted := time.Now()
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
@@ -115,9 +121,10 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	if err != nil {
 		return err
 	}
-	if err := CacheReady(ctx, configPath); err != nil {
-		return err
-	}
+	// CacheReady stays a readonly gate: offline collection needs
+	// the configured cache reachable. The writable path inverts
+	// it (cache must be absent) in the online preflight below, so
+	// this moves past the probe that tells the paths apart.
 	// Mint timestamps come from a checked clock: skew beyond
 	// tolerance refuses unless forced; an unreachable NTP warns and
 	// proceeds on local time (air-gapped sites stay working). The
@@ -157,12 +164,36 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	pre := Timed(StagePreProbe, gcStarted)
 	pre.Message = ModeName(mode)
 	Emit(opts.Report, pre)
-	// A writable run without accepted risk refuses before the proof:
-	// no point minting a generation the gate will reject. Only the
-	// armed path consults the token — previews bypass (they warn
-	// below), and under an armed run risk==nil is exactly !Force.
-	if mode == ModeWritable && !opts.DryRun && risk == nil {
-		return errors.New("registry is writable: enable storage.maintenance.readonly and restart it first, or re-run with --force accepting the risk")
+	// Cleared by the online preflight on the writable path, nil
+	// everywhere else: only the writable-armed dispatch consumes
+	// them, so a nil here never reaches a delete.
+	var onlineCache proof.BlobCacheOff
+	var onlineFence proof.GatewayFencing
+	if mode != ModeWritable {
+		if err := CacheReady(ctx, configPath); err != nil {
+			return err
+		}
+	} else {
+		// The online path: a serving registry collects under the
+		// fence, so writability is the mode, not a risk — the
+		// risks are a vouched cache and a missing fence, each
+		// overridable. The preflight runs before the mint: no
+		// point minting a generation the gate will reject. Armed
+		// refuses on unaccepted misses; dry-run prints the same
+		// checklist as information and previews on.
+		cache, fence, report, perr := onlinePreflight(ctx, configPath, opts.EdgeAddr, opts.Fence != nil, cacheAccept, fenceAccept)
+		if perr != nil {
+			if opts.DryRun {
+				if _, err := io.WriteString(w, report+"\n"); err != nil {
+					return err
+				}
+			} else {
+				return perr
+			}
+		} else if _, err := io.WriteString(w, report+"\n"); err != nil {
+			return err
+		}
+		onlineCache, onlineFence = cache, fence
 	}
 	now := time.Now().UTC()
 	switch mode {
@@ -238,14 +269,15 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	}
 	switch mode {
 	case ModeWritable:
-		// Unforced armed runs refused above, before the proof: what
-		// reaches here is a preview or an accepted risk.
+		// Uncleared armed runs refused at the preflight, before the
+		// proof: what reaches here is a preview or a cleared online
+		// run (proven or per-risk accepted).
 		if opts.DryRun {
 			if _, err := io.WriteString(w, "Warning: registry is writable; dry-run mode, nothing will be deleted\n"); err != nil {
 				return err
 			}
 		} else {
-			if _, err := io.WriteString(w, "Warning: registry is writable; collecting anyway (--force)\n"); err != nil {
+			if _, err := io.WriteString(w, "Warning: registry is writable; collecting under the cleared online preflight\n"); err != nil {
 				return err
 			}
 		}
@@ -261,9 +293,12 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// only it has a variant.
 	// fenced runs an armed collect under the proxy HOLD lease:
 	// engage, collect, release. No fence configured means no fence
-	// (previews never reach here); a fence that fails to engage
-	// refuses instead of collecting unfenced. The lease outlives a
-	// crashed collect by design — expiry, not release, bounds it.
+	// (previews never reach here); an armed run reaches here
+	// fenceless only through an explicit --accept-unfenced — the
+	// preflight refused everything else. A fence that fails to
+	// engage refuses instead of collecting unfenced. The lease
+	// outlives a crashed collect by design — expiry, not release,
+	// bounds it.
 	fenced := func(collect func() error) error {
 		if opts.Fence == nil {
 			return collect()
@@ -283,7 +318,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		}
 	case mode == ModeWritable:
 		if err := fenced(func() error {
-			return collectWritableArmed(ctx, w, collect, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report, risk)
+			return collectWritableArmed(ctx, w, collect, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report, onlineCache, onlineFence)
 		}); err != nil {
 			return err
 		}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
 // Killing a never-started command is a silent no-op: the cancel path
@@ -210,11 +212,11 @@ func hasArg(args []string, want string) bool {
 	return false
 }
 
-// The writable-armed collect demands acceptance at the delete
-// boundary: without the token it refuses before the collector
-// port is even called. If this fails, the variant stopped
-// deciding.
-func TestCollectWritableArmedRefusesWithoutRisk(t *testing.T) {
+// The writable-armed collect demands the preflight clearance at
+// the delete boundary: without either token it refuses before the
+// collector port is even called. If this fails, the variant
+// stopped deciding.
+func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 	called := false
 	collect := func(context.Context, io.Writer, string, []string, Reporter) error {
 		called = true
@@ -222,21 +224,38 @@ func TestCollectWritableArmedRefusesWithoutRisk(t *testing.T) {
 	}
 	var out strings.Builder
 	err := collectWritableArmed(context.Background(), &out, collect,
-		"/bin/sh", []string{"garbage-collect"}, func(Event) {}, nil)
+		"/bin/sh", []string{"garbage-collect"}, func(Event) {}, nil, nil)
 	if err == nil {
-		t.Fatal("writable collect without risk succeeded, want the blind refusal")
-	} else if !strings.Contains(err.Error(), "--force") {
-		t.Errorf("err = %q, want the remedy named", err.Error())
+		t.Fatal("writable collect without clearance succeeded, want the blind refusal")
+	} else if !strings.Contains(err.Error(), "--accept-blob-cache") {
+		t.Errorf("err = %q, want the cache override named", err.Error())
+	}
+	if called {
+		t.Error("refused collect reached the collector port")
+	}
+	// Acceptance mints the kind without the world: the boundary
+	// cannot tell proven from accepted, and must not need to.
+	accept := proof.Force(proof.Arm(true, false), true)
+	cache, err := proof.ProveBlobCacheOff("redis:6379", accept)
+	if err != nil {
+		t.Fatalf("stage cache clearance: %v", err)
+	}
+	err = collectWritableArmed(context.Background(), &out, collect,
+		"/bin/sh", []string{"garbage-collect"}, func(Event) {}, cache, nil)
+	if err == nil {
+		t.Fatal("writable collect with half clearance succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "--accept-unfenced") {
+		t.Errorf("err = %q, want the fence override named", err.Error())
 	}
 	if called {
 		t.Error("refused collect reached the collector port")
 	}
 }
 
-// With the token the variant is a straight delegation: same args,
-// same port, nothing added and nothing hidden. If this fails, the
-// variant edits the run it only gates.
-func TestCollectWritableArmedDelegatesWithRisk(t *testing.T) {
+// With both tokens the variant is a straight delegation: same
+// args, same port, nothing added and nothing hidden. If this
+// fails, the variant edits the run it only gates.
+func TestCollectWritableArmedDelegatesWhenCleared(t *testing.T) {
 	var got [][]string
 	collect := func(_ context.Context, _ io.Writer, _ string, args []string, _ Reporter) error {
 		got = append(got, args)
@@ -244,9 +263,15 @@ func TestCollectWritableArmedDelegatesWithRisk(t *testing.T) {
 	}
 	var out strings.Builder
 	args := []string{"garbage-collect", "/etc/distribution/config.yml"}
+	accept := proof.Force(proof.Arm(true, false), true)
+	cache, cacheErr := proof.ProveBlobCacheOff("redis:6379", accept)
+	fence, fenceErr := proof.ProveGatewayFencing(context.Background(), "/nonexistent.yml", "127.0.0.1:1", false, accept)
+	if cacheErr != nil || fenceErr != nil {
+		t.Fatalf("stage clearance: %v %v", cacheErr, fenceErr)
+	}
 	if err := collectWritableArmed(context.Background(), &out, collect,
-		"/bin/sh", args, func(Event) {}, forcedRisk()); err != nil {
-		t.Fatalf("writable collect with risk: %v", err)
+		"/bin/sh", args, func(Event) {}, cache, fence); err != nil {
+		t.Fatalf("writable collect when cleared: %v", err)
 	}
 	if len(got) != 1 || strings.Join(got[0], " ") != strings.Join(args, " ") {
 		t.Errorf("delegated args = %v, want %v untouched", got, args)

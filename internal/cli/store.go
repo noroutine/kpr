@@ -92,10 +92,12 @@ func runStoreLs(ctx context.Context, w io.Writer, s store.Store, opts storeLsOpt
 		}
 		rows = append(rows, r)
 	}
-	// NOTE(mutants): < is equivalent — the != guard above means
-	// the operands always differ, where < and <= agree. A test
-	// distinguishing them would need equal repos, which never
-	// reach this line.
+	// NOTE(mutants): both comparisons are equivalent — the !=
+	// guard above means the operands always differ here (where <
+	// and <= agree), and duplicate repo:tag rows cannot exist
+	// (Record upserts by key), so the tag line never sees equals
+	// either. A test distinguishing either would need rows the
+	// store cannot hold.
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Repo != rows[j].Repo {
 			return rows[i].Repo < rows[j].Repo
