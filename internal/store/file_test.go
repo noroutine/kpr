@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -339,4 +340,304 @@ func TestFileStoreCloseReleasesLocks(t *testing.T) {
 		t.Errorf("acquire after Close = (%v, %v), want (true, nil)", ok, err)
 	}
 	_ = other.Close()
+}
+
+// blockedStore roots a store under a file: no dir in it can ever
+// come into being, so every mutating op refuses at its own gate.
+func blockedStore(t *testing.T) *store.FileStore {
+	t.Helper()
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatalf("stage blocker: %v", err)
+	}
+	return store.NewFileStore(filepath.Join(blocker, "sub"))
+}
+
+// Mutations against an unmakable dir refuse at their own gate:
+// record, mark, unmark, delete, clear, current, activity, lock,
+// identity, ping — no op invents state it cannot hold. If this
+// fails, one op succeeds on paper while the disk refused.
+func TestFileStoreBlockedDirRefusesEveryOp(t *testing.T) {
+	s := blockedStore(t)
+	ctx := t.Context()
+	row := policyRow("app", "v1")
+	if err := s.Record(ctx, row); err == nil {
+		t.Error("Record on blocked dir succeeded, want refusal")
+	}
+	if err := s.MarkDue(ctx, "app", "v1", "x"); err == nil {
+		t.Error("MarkDue on blocked dir succeeded, want refusal")
+	}
+	if _, err := s.UnmarkDue(ctx, "app", "v1"); err == nil {
+		t.Error("UnmarkDue on blocked dir succeeded, want refusal")
+	}
+	if err := s.Delete(ctx, "app", "v1"); err == nil {
+		t.Error("Delete on blocked dir succeeded, want refusal")
+	}
+	if _, err := s.ClearDue(ctx); err == nil {
+		t.Error("ClearDue on blocked dir succeeded, want refusal")
+	}
+	if err := s.SetCurrent(ctx, store.Current{PassID: "p1"}); err == nil {
+		t.Error("SetCurrent on blocked dir succeeded, want refusal")
+	}
+	if err := s.PushActivity(ctx, store.Outcome{Repo: "app"}); err == nil {
+		t.Error("PushActivity on blocked dir succeeded, want refusal")
+	}
+	if _, err := s.AcquireLock(ctx, "x", time.Minute); err == nil {
+		t.Error("AcquireLock on blocked dir succeeded, want refusal")
+	}
+	if err := s.SetIdentity(ctx, store.Identity{ID: "id"}); err == nil {
+		t.Error("SetIdentity on blocked dir succeeded, want refusal")
+	}
+	if err := s.Ping(ctx); err == nil {
+		t.Error("Ping on blocked dir succeeded, want refusal")
+	}
+}
+
+// Bad names refuse before any I/O: empty tags and traversals never
+// reach the filesystem. If this fails, crafted names escape the
+// rows tree.
+func TestFileStoreBadNamesRefuseBeforeIO(t *testing.T) {
+	s := store.NewFileStore(t.TempDir())
+	ctx := t.Context()
+	if err := s.Record(ctx, policyRow("a/../b", "v1")); err == nil {
+		t.Error("Record with traversal repo succeeded, want refusal")
+	}
+	if err := s.MarkDue(ctx, "app", "", "x"); err == nil {
+		t.Error("MarkDue with empty tag succeeded, want refusal")
+	}
+	if _, err := s.UnmarkDue(ctx, "app", ""); err == nil {
+		t.Error("UnmarkDue with empty tag succeeded, want refusal")
+	}
+	if err := s.Delete(ctx, "..", "v1"); err == nil {
+		t.Error("Delete with traversal repo succeeded, want refusal")
+	}
+}
+
+// Corrupt rows refuse the op that meets them: record, mark, and
+// unmark read before writing, so garbage fails them all. If this
+// fails, one op overwrites corruption silently.
+func TestFileStoreTornRowRefusesReaders(t *testing.T) {
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	ctx := t.Context()
+	rowDir := filepath.Join(dir, "rows", "app")
+	if err := os.MkdirAll(rowDir, 0o755); err != nil {
+		t.Fatalf("stage row dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rowDir, "v1.json"), []byte(`{"half`), 0o644); err != nil {
+		t.Fatalf("stage torn row: %v", err)
+	}
+	if err := s.Record(ctx, policyRow("app", "v1")); err == nil {
+		t.Error("Record over torn row succeeded, want refusal")
+	}
+	if err := s.MarkDue(ctx, "app", "v1", "x"); err == nil {
+		t.Error("MarkDue over torn row succeeded, want refusal")
+	}
+	if _, err := s.UnmarkDue(ctx, "app", "v1"); err == nil {
+		t.Error("UnmarkDue over torn row succeeded, want refusal")
+	}
+	if _, err := s.Due(ctx); err == nil {
+		t.Error("Due over torn row succeeded, want refusal")
+	}
+	if _, err := s.ClearDue(ctx); err == nil {
+		t.Error("ClearDue over torn row succeeded, want refusal")
+	}
+}
+
+// Reading a directory as a row fails with the OS cause: mark meets
+// it on the pre-read. If this fails, layout trouble reads as
+// corruption.
+func TestFileStoreDirAsRowRefuses(t *testing.T) {
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	ctx := t.Context()
+	if err := os.MkdirAll(filepath.Join(dir, "rows", "app", "v1.json"), 0o755); err != nil {
+		t.Fatalf("stage dir at row path: %v", err)
+	}
+	if err := s.MarkDue(ctx, "app", "v1", "x"); err == nil {
+		t.Error("MarkDue over a directory succeeded, want refusal")
+	}
+}
+
+// A missing singleton reads as empty, never as an error — but a
+// directory (or garbage) in its place refuses. Fresh stores are
+// empty by construction. If this fails, first boots error (or
+// corrupt singletons read zero-valued).
+func TestFileStoreSingletonsMissingAndForeign(t *testing.T) {
+	s := store.NewFileStore(t.TempDir())
+	ctx := t.Context()
+	if cur, err := s.GetCurrent(ctx); err != nil || cur != (store.Current{}) {
+		t.Errorf("fresh GetCurrent = (%v, %v), want (empty, nil)", cur, err)
+	}
+	asDir := func(name string) *store.FileStore {
+		d := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(d, name), 0o755); err != nil {
+			t.Fatalf("stage dir singleton: %v", err)
+		}
+		return store.NewFileStore(d)
+	}
+	if _, err := asDir("current.json").GetCurrent(ctx); err == nil {
+		t.Error("GetCurrent over a directory succeeded, want refusal")
+	}
+	if _, err := asDir("activity.json").Activity(ctx); err == nil {
+		t.Error("Activity over a directory succeeded, want refusal")
+	}
+	if _, err := asDir("identity.json").GetIdentity(ctx); err == nil {
+		t.Error("GetIdentity over a directory succeeded, want refusal")
+	}
+	garbageDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(garbageDir, "identity.json"), []byte(`{"half`), 0o644); err != nil {
+		t.Fatalf("stage torn identity: %v", err)
+	}
+	if _, err := store.NewFileStore(garbageDir).GetIdentity(ctx); err == nil {
+		t.Error("GetIdentity over torn file succeeded, want refusal")
+	}
+}
+
+// An unreadable rows tree refuses the scan: collect, due, and
+// clear all fail naming the outage, never an empty world. Skipped
+// for root. If this fails, an unreadable store scans as empty.
+func TestFileStoreUnreadableRowsRefuseScan(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores permission bits, nothing is unreadable")
+	}
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	ctx := t.Context()
+	if err := s.Record(ctx, policyRow("app", "v1")); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	rows := filepath.Join(dir, "rows")
+	if err := os.Chmod(rows, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(rows, 0o755) })
+	if _, err := s.All(ctx); err == nil {
+		t.Error("All over unreadable rows succeeded, want refusal")
+	}
+	if _, err := s.Due(ctx); err == nil {
+		t.Error("Due over unreadable rows succeeded, want refusal")
+	}
+	if _, err := s.ClearDue(ctx); err == nil {
+		t.Error("ClearDue over unreadable rows succeeded, want refusal")
+	}
+}
+
+// The store root voices itself for operators: the one backend
+// detail the dashboard renders. If this fails, the console names
+// the wrong root.
+func TestFileStoreDirVoicesRoot(t *testing.T) {
+	dir := t.TempDir()
+	if got := store.NewFileStore(dir).Dir(); got != dir {
+		t.Errorf("Dir() = %q, want %q", got, dir)
+	}
+}
+
+// A stat failure other than not-exist refuses, never guesses: the
+// marker under an unreadable dir is unknown, not locked. Skipped
+// for root, which ignores permission bits. If this fails, an
+// unreadable marker reads as intent.
+func TestFileStoreUnreadableMarkerRefuses(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores permission bits, nothing is unreadable")
+	}
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	if err := s.SetUnlocked(t.Context(), true); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if _, err := s.IsUnlocked(t.Context()); err == nil {
+		t.Error("IsUnlocked under an unreadable dir succeeded, want refusal")
+	}
+}
+
+// A full disk refuses the lock claim write: the take fails loud
+// with no claim recorded, and no temp stays behind. If this fails,
+// a full disk takes locks it cannot evidence.
+func TestFileStoreAcquireLockOnFullDiskFails(t *testing.T) {
+	var old syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {
+		t.Fatalf("get rlimit: %v", err)
+	}
+	cur := old
+	cur.Cur = 0
+	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &cur); err != nil {
+		t.Fatalf("set rlimit: %v", err)
+	}
+	defer func() { _ = syscall.Setrlimit(syscall.RLIMIT_FSIZE, &old) }()
+
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	if _, err := s.AcquireLock(t.Context(), "k", time.Minute); err == nil {
+		t.Error("AcquireLock over the file-size limit succeeded, want refusal")
+	}
+}
+
+// Re-acquiring a held lock fails closed without touching the held
+// file: flock entries are per-open-description, so even the holder
+// cannot take its own lock twice. If this fails, one process
+// double-holds and the handover logic rots.
+func TestFileStoreReacquireHeldFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	ctx := t.Context()
+	if ok, err := s.AcquireLock(ctx, "k", time.Minute); err != nil || !ok {
+		t.Fatalf("first acquire = (%v, %v), want (true, nil)", ok, err)
+	}
+	defer func() { _ = s.ReleaseLock(ctx, "k") }()
+	if ok, err := s.AcquireLock(ctx, "k", time.Minute); err != nil || ok {
+		t.Errorf("re-acquire held = (%v, %v), want (false, nil)", ok, err)
+	}
+}
+
+// An unwritable rows tree refuses the clear that must rewrite it:
+// collect reads fine, the rewrite fails. Skipped for root. If this
+// fails, a read-only store clears on paper.
+func TestFileStoreClearDueOnReadonlyRowsFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores permission bits, nothing is unwritable")
+	}
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	ctx := t.Context()
+	if err := s.Record(ctx, policyRow("app", "v1")); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if err := s.MarkDue(ctx, "app", "v1", "x"); err != nil {
+		t.Fatalf("MarkDue: %v", err)
+	}
+	leaf := filepath.Join(dir, "rows", "app")
+	if err := os.Chmod(leaf, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(leaf, 0o755) })
+	if _, err := s.ClearDue(ctx); err == nil {
+		t.Error("ClearDue on readonly rows succeeded, want refusal")
+	}
+}
+
+// An unwritable rows tree refuses the lock take: the lock file
+// cannot be created. Skipped for root. If this fails, lock takes
+// succeed on paper where no file can land.
+func TestFileStoreAcquireLockOnReadonlyLocksFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores permission bits, nothing is unwritable")
+	}
+	dir := t.TempDir()
+	locks := filepath.Join(dir, "locks")
+	if err := os.MkdirAll(locks, 0o755); err != nil {
+		t.Fatalf("stage locks dir: %v", err)
+	}
+	if err := os.Chmod(locks, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locks, 0o755) })
+	s := store.NewFileStore(dir)
+	if _, err := s.AcquireLock(t.Context(), "k", time.Minute); err == nil {
+		t.Error("AcquireLock into readonly locks succeeded, want refusal")
+	}
 }

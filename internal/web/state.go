@@ -109,9 +109,15 @@ func fsSizes(dir string) (total, free uint64, ok bool) {
 	if err := syscall.Statfs(dir, &fs); err != nil {
 		return 0, 0, false
 	}
-	unit := fsBlockUnit(&fs)
-	total = uint64(fs.Blocks) * unit
-	free = uint64(fs.Bavail) * unit
+	return sizesFromBlocks(uint64(fs.Blocks), uint64(fs.Bavail), fsBlockUnit(&fs))
+}
+
+// sizesFromBlocks is the pure half of fsSizes: block counts times
+// the fragment unit, refused when nonsense. Split so the guard's
+// truth table is unit-testable without a corrupt filesystem.
+func sizesFromBlocks(blocks, bavail, unit uint64) (total, free uint64, ok bool) {
+	total = blocks * unit
+	free = bavail * unit
 	if !saneSizes(total, free) {
 		return 0, 0, false
 	}

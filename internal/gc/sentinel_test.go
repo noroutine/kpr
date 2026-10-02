@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,33 @@ func TestProbeRegistryModes(t *testing.T) {
 	}
 	if mode, _, err := ProbeRegistry(context.Background(), "http://127.0.0.1:1"); err == nil || mode != ModeUnknown {
 		t.Errorf("down probe = (%v, %v), want (unknown, error)", mode, err)
+	}
+}
+
+// The mode wrapper names the inconclusive: a 500-serving peer is
+// "unknown" with the sentinel named, not a bare error. If this
+// fails, an erroring registry reads as a classified mode.
+func TestProbeRegistryModeNamesInconclusive(t *testing.T) {
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer broken.Close()
+	if mode, err := ProbeRegistryMode(context.Background(), broken.URL); mode != "unknown" || err == nil {
+		t.Fatalf("broken mode = (%q, %v), want (unknown, error)", mode, err)
+	} else if !strings.Contains(err.Error(), "status 500") {
+		t.Errorf("refusal names no probe status: %v", err)
+	}
+	if mode, err := ProbeRegistryMode(context.Background(), "http://127.0.0.1:1"); mode != "unknown" || err == nil {
+		t.Fatalf("down mode = (%q, %v), want (unknown, error)", mode, err)
+	}
+}
+
+// An unbuildable request is unknown too: the probe never left, so
+// no verdict exists. If this fails, a misconfigured registry URL
+// panics path-building instead of refusing.
+func TestProbeRegistryBadURLIsUnknown(t *testing.T) {
+	if mode, _, err := ProbeRegistry(context.Background(), "http://exa\tmple.com"); err == nil || mode != ModeUnknown {
+		t.Errorf("bad-URL probe = (%v, %v), want (unknown, error)", mode, err)
 	}
 }
 

@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -530,6 +533,235 @@ func TestStoreRmUntagHeldKeepsRowLoud(t *testing.T) {
 	if len(rows) != 2 {
 		t.Errorf("held untag dropped the row: %d left, want 2", len(rows))
 	}
+}
+
+// A future push clamps to zero age: the row is odd, the rendering
+// must not be. If this fails, clock-skewed pushes print negative
+// ages.
+func TestShortAgeClampsFuture(t *testing.T) {
+	if got := shortAge(cliNow, cliNow.Add(time.Hour)); got != "0s ago" {
+		t.Errorf("shortAge(future) = %q, want 0s ago", got)
+	}
+}
+
+// Listing against dead state fails naming the outage: an empty
+// table must mean empty, never unreadable. If this fails, an
+// outage prints as no inventory.
+func TestStoreLsOnDeadStoreFails(t *testing.T) {
+	if err := runStoreLs(cliCtx(), io.Discard, deadStore{}, storeLsOpts{now: cliNow}); err == nil {
+		t.Error("ls on dead store succeeded, want an error")
+	}
+}
+
+// Every ls line is a real write: a breaking pipe surfaces the
+// failure at the header or the row, long or short. If this fails,
+// truncated tables read as complete inventory.
+func TestStoreLsWriteFailuresSurface(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	for _, tc := range []struct {
+		name string
+		opts storeLsOpts
+		n    int
+	}{
+		{"long header", storeLsOpts{now: cliNow, long: true}, 0},
+		{"long row", storeLsOpts{now: cliNow, long: true}, 1},
+		{"short header", storeLsOpts{now: cliNow}, 0},
+		{"short row", storeLsOpts{now: cliNow}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := runStoreLs(cliCtx(), &failAfterWriter{n: tc.n}, s, tc.opts); err == nil {
+				t.Errorf("ls %s into breaking pipe succeeded, want an error", tc.name)
+			}
+		})
+	}
+}
+
+// Inspecting against dead state fails, and --json renders the full
+// row for piping. If this fails, outages inspect as absent (or
+// piping inspects nothing).
+func TestStoreInspectDeadAndJSON(t *testing.T) {
+	if err := runStoreInspect(cliCtx(), io.Discard, deadStore{}, "app:v1", false); err == nil {
+		t.Error("inspect on dead store succeeded, want an error")
+	}
+	s := store.NewMemStore()
+	seedRows(s)
+	var out bytes.Buffer
+	if err := runStoreInspect(cliCtx(), &out, s, "app:v1", true); err != nil {
+		t.Fatalf("inspect --json: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("inspect --json is not JSON: %v", err)
+	}
+	if decoded["repo"] != "app" || decoded["tag"] != "v1" {
+		t.Errorf("inspect --json = %v, want the app:v1 row", decoded)
+	}
+}
+
+// Removing against dead state fails before resolution: nothing
+// resolves, nothing drops. If this fails, an outage deletes on
+// paper.
+func TestStoreRmOnDeadStoreFails(t *testing.T) {
+	stub := &untagStub{outcome: "deleted"}
+	if err := runStoreRm(cliCtx(), io.Discard, deadStore{}, []string{"app:v1"}, false,
+		&sweep.Sweeper{Store: deadStore{}, Registry: stub}, nil, unlockedProof(t, mustUnlockedMem(t))); err == nil {
+		t.Error("rm on dead store succeeded, want an error")
+	}
+}
+
+// An untagged row that cannot print still drops: the registry
+// already confirmed, so the failure is loud, not a rollback. If
+// this fails, a breaking pipe resurrects deleted rows.
+func TestStoreRmUntagRowWriteFailureSurfaces(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	stub := &untagStub{outcome: "deleted"}
+	if err := runStoreRm(cliCtx(), &failAfterWriter{}, s, []string{"app:v1"}, true,
+		&sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s), unlockedProof(t, s)); err == nil {
+		t.Error("untag rm into breaking pipe succeeded, want an error")
+	}
+	rows, _ := s.All(cliCtx())
+	if len(rows) != 1 {
+		t.Errorf("rows = %d, want 1 (confirmed drop stands)", len(rows))
+	}
+}
+
+// mustUnlockedMem stages unlocked mem ground for proofs that need
+// a store apart from the row table.
+func mustUnlockedMem(t *testing.T) *store.MemStore {
+	t.Helper()
+	s := store.NewMemStore()
+	mustUnlock(t, s)
+	return s
+}
+
+// An unreadable lineage voices unknown, never unpaired: the card
+// must not invent a pairing. If this fails, an outage reads as
+// never-paired.
+func TestIdentityStateUnknownOnOutage(t *testing.T) {
+	if got := identityState(cliCtx(), deadStore{}); got != "unknown" {
+		t.Errorf("identityState on outage = %q, want unknown", got)
+	}
+	if got := identityState(cliCtx(), store.NewMemStore()); got != "unpaired" {
+		t.Errorf("identityState fresh = %q, want unpaired", got)
+	}
+}
+
+// Status --json with activity renders the ring: the piped card
+// carries what the text card prints. If this fails, --json drops
+// the outcomes the counters count.
+func TestStoreStatusJSONRendersActivity(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	_ = s.PushActivity(cliCtx(), store.Outcome{Repo: "app", Tag: "v1",
+		Reason: "ttl elapsed", Outcome: "deleted", At: cliNow})
+	var out bytes.Buffer
+	if err := runStoreStatus(cliCtx(), &out, s, nil, "file (x)", true); err != nil {
+		t.Fatalf("status --json: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("status --json is not JSON: %v", err)
+	}
+	acts, _ := decoded["activity"].([]any)
+	if len(acts) != 1 {
+		t.Errorf("activity = %v, want the one pushed outcome", decoded["activity"])
+	}
+}
+
+// Every status line is a real write: header, unknown-ring,
+// activity header each surface the break. If this fails, a broken
+// card reads as healthy.
+func TestStoreStatusWriteFailuresSurface(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	_ = s.PushActivity(cliCtx(), store.Outcome{Repo: "app", Tag: "v1",
+		Reason: "ttl elapsed", Outcome: "deleted", At: cliNow})
+	for _, tc := range []struct {
+		name  string
+		store store.Store
+		n     int
+	}{
+		{"header", s, 0},
+		{"unknown ring", deadStore{}, 1},
+		{"activity header", s, 1},
+		{"activity row", s, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := runStoreStatus(cliCtx(), &failAfterWriter{n: tc.n}, tc.store, nil, "file (x)", false); err == nil {
+				t.Errorf("status %s into breaking pipe succeeded, want an error", tc.name)
+			}
+		})
+	}
+}
+
+// Command tails run the real RunE against a file backend: ls
+// (valid and curious spellings), inspect, rm refusals. Refusals
+// are the point here — rm-proof wiring already has success paths —
+// plus one rm tail past the gates. If any fail, the command is
+// unwired.
+func TestStoreCommandTailsRunAgainstFileBackend(t *testing.T) {
+	dir := t.TempDir()
+	regRoot := t.TempDir()
+	srv := serveRegistry(t, regRoot, true)
+	defer srv.Close()
+	cfg := stageGCStore(t, regRoot)
+	setUnlockConfig(t, cfg)
+	if _, err := runLockCmd(t, dir, srv.URL, unlockCmd); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		target  *cobra.Command
+		args    []string
+		wantErr string
+	}{
+		{"ls", storeLsCmd, nil, ""},
+		{"ls sentinels", storeLsCmd, []string{"sentinels"}, ""},
+		{"inspect unknown", storeInspectCmd, []string{"ghost:v1"}, "no tracked row"},
+		{"rm unknown", storeRmCmd, []string{"ghost:v1"}, "no tracked row"},
+		{"rm untag unknown", storeRmCmd, []string{"ghost:v1"}, "no tracked row"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if len(tc.args) > 0 && tc.target == storeRmCmd {
+				if tc.name == "rm untag unknown" {
+					if err := storeRmCmd.Flags().Set("untag", "true"); err != nil {
+						t.Fatalf("set --untag: %v", err)
+					}
+					defer func() { _ = storeRmCmd.Flags().Set("untag", "false") }()
+				}
+			}
+			out, err := runCmdWithArgs(t, dir, srv.URL, tc.target, tc.args)
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Errorf("%s err = %v, want %q (out: %s)", tc.name, err, tc.wantErr, out)
+			}
+		})
+	}
+	if err := storeLsCmd.Args(storeLsCmd, []string{"bogus", "extra"}); err == nil {
+		t.Error("ls with two args validated, want refusal")
+	}
+	if err := storeLsCmd.Args(storeLsCmd, []string{"bogus"}); err == nil {
+		t.Error("ls with curious spelling validated, want refusal")
+	}
+}
+
+// runCmdWithArgs drives one command RunE with args against a file
+// backend: the args-aware twin of runLockCmd.
+func runCmdWithArgs(t *testing.T, dir, regURL string, target *cobra.Command, args []string) (string, error) {
+	t.Helper()
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, dir)
+	t.Setenv(config.EnvRegistryURL, regURL)
+	var buf bytes.Buffer
+	target.SetOut(&buf)
+	defer target.SetOut(nil)
+	target.SetContext(context.Background())
+	err := target.RunE(target, args)
+	return buf.String(), err
 }
 
 // rm drops the tracked row only: the registry tag survives,

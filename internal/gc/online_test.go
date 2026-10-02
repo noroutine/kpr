@@ -280,3 +280,48 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 		t.Errorf("fence events = %v, want hold around the collect and release after", events)
 	}
 }
+
+// A refused preflight checklist that cannot print fails the
+// preview: the dry-run report is the whole point of previewing an
+// uncleared run. If this fails, a preview of a risky run prints
+// nothing and claims nothing.
+func TestRunOnlineRefusalReportWriteFailureSurfaces(t *testing.T) {
+	_, root, s := stageProvenRun(t)
+	var events []string
+	fence := stubFencer{events: &events}
+	w := errWriter{errTestStoreDown}
+	err := Run(context.Background(), w, writableProbe(), s, okCollector(nil), fileAPI{root},
+		"http://registry:5000", stageOnlineConfig(t, root, false), "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{DryRun: true, Fence: fence, Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("uncleared preview with dead output succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("failure names no output cause: %v", err)
+	}
+}
+
+// A cleared preflight checklist that cannot print fails the run
+// before the mint: no proof without the printed clearance. If this
+// fails, a cleared run mints a generation the operator never saw
+// cleared.
+func TestRunOnlineClearReportWriteFailureSurfaces(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, root, s := stageProvenRun(t)
+	onlineCfg := stageOnlineConfig(t, root, false)
+	stagePairedGen(t, s, root)
+	edge, done := loopbackEdge(t)
+	defer done()
+
+	var events []string
+	fence := stubFencer{events: &events}
+	w := errWriter{errTestStoreDown}
+	err := Run(ctx, w, writableProbe(), s, okCollector(nil), fileAPI{root},
+		"http://registry:5000", onlineCfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("cleared online run with dead output succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("failure names no output cause: %v", err)
+	}
+}

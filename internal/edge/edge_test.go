@@ -1,9 +1,11 @@
 package edge
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -147,6 +149,56 @@ func TestProxyRefusesWithoutProof(t *testing.T) {
 func TestNewRefusesBadBackend(t *testing.T) {
 	if _, err := New("://bad"); err == nil {
 		t.Error("New(bad) = nil, want refusal")
+	}
+}
+
+// A schemeless backend refuses at the scheme check: it parses,
+// but names no target. If this fails, relative strings become
+// proxy backends.
+func TestNewRefusesSchemeless(t *testing.T) {
+	if _, err := New("no-scheme-no-host"); err == nil {
+		t.Error("New(schemeless) = nil, want refusal")
+	} else if !strings.Contains(err.Error(), "want scheme://host") {
+		t.Errorf("refusal = %q, want the shape named", err.Error())
+	}
+}
+
+// A nil proof refuses the handler in-package too: the compiler
+// allows it, the gate does not. If this fails, an unproven edge
+// serves.
+func TestHandlerRefusesNilProofInPackage(t *testing.T) {
+	p, err := New("http://127.0.0.1:9")
+	if err != nil {
+		t.Fatalf("New = %v, want proxy", err)
+	}
+	if h, err := p.Handler(nil); err == nil || h != nil {
+		t.Errorf("Handler(nil) = (%v, %v), want ErrNoProof", h, err)
+	}
+}
+
+// An unparseable upstream Location passes through untouched and
+// loud: the guard mangles nothing it cannot parse, but says so.
+// If this fails, corrupt Locations rewrite silently (or crash the
+// guard).
+func TestGuardLeavesUnparseableLocation(t *testing.T) {
+	var logged []string
+	p, err := New("http://127.0.0.1:9")
+	if err != nil {
+		t.Fatalf("New = %v, want proxy", err)
+	}
+	p.Logf = func(format string, args ...any) {
+		logged = append(logged, fmt.Sprintf(format, args...))
+	}
+	resp := &http.Response{Header: http.Header{"Location": {"http://exa\tmple.com/x"}}}
+	resp.Request = &http.Request{URL: &url.URL{Path: "/v2/x/manifests/latest"}}
+	if err := p.guardLocation(resp); err != nil {
+		t.Fatalf("guardLocation = %v, want nil (leave, don't fail)", err)
+	}
+	if got := resp.Header.Get("Location"); got != "http://exa\tmple.com/x" {
+		t.Errorf("Location = %q, want it untouched", got)
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0], "unparseable upstream Location") {
+		t.Errorf("logged = %v, want the loud leave", logged)
 	}
 }
 

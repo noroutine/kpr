@@ -111,9 +111,9 @@ func EffectiveTTL(tag string) (ttl time.Duration, ok bool) {
 		}
 		return DefaultTTL, true
 	}
-	if ttl > MaxTTL {
-		ttl = MaxTTL
-	}
+	// NOTE: no clamp here on purpose — parseTTL saturates at
+	// exactly MaxTTL (overflow and over-bound both return MaxTTL,
+	// never more), so a second clamp would guard nothing.
 	return ttl, true
 }
 

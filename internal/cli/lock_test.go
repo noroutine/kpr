@@ -121,3 +121,49 @@ func TestUnlockRefusesUnsharedStore(t *testing.T) {
 		t.Fatalf("unlock refusal = %v, want the no-shared-store cause", err)
 	}
 }
+
+// Commands without state refuse naming it: one bad backend
+// exercises lock's and unlock's open failures. If this fails, a
+// command invents intent without a backend.
+func TestLockCommandsRefuseBadBackend(t *testing.T) {
+	t.Setenv(config.EnvStore, "bogus-backend")
+	for _, target := range []*cobra.Command{lockCmd, unlockCmd, adoptCmd, gcCmd} {
+		var buf bytes.Buffer
+		target.SetOut(&buf)
+		defer target.SetOut(nil)
+		target.SetContext(context.Background())
+		if err := target.RunE(target, nil); err == nil {
+			t.Errorf("%s on bad backend succeeded, want refusal", target.Use)
+		}
+	}
+}
+
+// Adopt bootstraps the pairing onto silence: a fresh store facing
+// an empty registry pairs to the pinned IDENT without minting. If
+// this fails, the explicit ceremony cannot onboard a fresh deploy.
+func TestAdoptBootstrapsSilence(t *testing.T) {
+	regRoot := t.TempDir()
+	srv := serveRegistry(t, regRoot, true)
+	defer srv.Close()
+	dir := t.TempDir()
+	ident := "0193abcd-0000-7000-8000-0000000000aa"
+	out, err := runCmdWithArgs(t, dir, srv.URL, adoptCmd, []string{ident})
+	if err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if !strings.Contains(out, "paired to "+ident) {
+		t.Errorf("adopt output lacks the pairing:\n%s", out)
+	}
+	s, err := OpenStore(config.NewBuilder().FromEnv().Build())
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	paired, err := s.GetIdentity(context.Background())
+	if err != nil {
+		t.Fatalf("read identity: %v", err)
+	}
+	if paired.ID != ident {
+		t.Errorf("paired = %q, want the pinned %q", paired.ID, ident)
+	}
+}

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -253,6 +254,74 @@ func TestServeRunReportsStartupFailure(t *testing.T) {
 	}
 	if out := logs.String(); !strings.Contains(out, "Server error") {
 		t.Errorf("no server error logged for the bind failure:\n%s", out)
+	}
+}
+
+// One boot voices every degraded default: a bogus app port, redis
+// DB, and time method each warn and fall back, and a closed edge
+// says pushes bypass the fence. If this fails, one degraded
+// default boots silent and the operator never learns.
+func TestServeRunWarnsEveryDegradedDefault(t *testing.T) {
+	t.Setenv("KPR_APP_PORT", "bogus")
+	t.Setenv("KPR_REDIS_DB", "bogus")
+	t.Setenv("KPR_TIME_METHOD", "bogus")
+	t.Setenv("KPR_EDGE", "false")
+	setServeAddrs(t, 18241, 18242)
+	logs := captureLog(t)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		serveCmd.Run(serveCmd, nil)
+	}()
+
+	waitFor(t, "http://127.0.0.1:18241/health")
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("signal self: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("serve did not stop after SIGTERM")
+	}
+	for _, want := range []string{"invalid port", "invalid redis DB", "unknown time method", "edge disabled"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("no %q warning in boot logs:\n%s", want, logs.String())
+		}
+	}
+}
+
+// The freshness voice degrades honestly: unserved, undated, and
+// stale generations all count as not-fresh with the reason named —
+// never fresh, never silent. If this fails, a store with no proof
+// (or an ancient one) reads as recently proven.
+func TestSweepProofFreshVoicesStaleness(t *testing.T) {
+	ctx := context.Background()
+	if _, note := sweepProofFresh(ctx, stubProofAPI{err: errors.New("down")}); !strings.Contains(note, "unserved") {
+		t.Errorf("unserved note = %q, want unserved named", note)
+	}
+	if _, note := sweepProofFresh(ctx, stubProofAPI{ts: "not-a-time"}); !strings.Contains(note, "unreadable") {
+		t.Errorf("undated note = %q, want unreadable named", note)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	if fresh, note := sweepProofFresh(ctx, stubProofAPI{ts: old}); fresh || !strings.Contains(note, "stale") {
+		t.Errorf("ancient proof fresh=%v note=%q, want stale", fresh, note)
+	}
+	recent := time.Now().UTC().Format(time.RFC3339)
+	if fresh, note := sweepProofFresh(ctx, stubProofAPI{ts: recent}); !fresh || !strings.Contains(note, "fresh") {
+		t.Errorf("recent proof fresh=%v note=%q, want fresh", fresh, note)
+	}
+}
+
+// No registry means no proof line and no crash: the async
+// logProofAge fires with whatever serve has, nil included. If this
+// fails, a nil client panics the boot path instead of staying
+// silent.
+func TestLogProofAgeNilIsSilent(t *testing.T) {
+	logs := captureLog(t)
+	logProofAge(context.Background(), nil)
+	if logs.String() != "" {
+		t.Errorf("nil proof logged %q, want silence", logs.String())
 	}
 }
 

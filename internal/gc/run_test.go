@@ -844,3 +844,323 @@ func TestRunNTPUnreachableWarnsProceeds(t *testing.T) {
 		t.Errorf("collected %d times, want one", len(collected))
 	}
 }
+
+// scriptLocker varies the lock port per refusal scenario: an
+// unreadable marker, a dead backend, a held lock. The zero value
+// holds nothing, so each test names what it stages.
+type scriptLocker struct {
+	*store.MemStore
+	unlockErr  error
+	held       bool
+	acquireErr error
+}
+
+func (s scriptLocker) IsUnlocked(ctx context.Context) (bool, error) {
+	if s.unlockErr != nil {
+		return false, s.unlockErr
+	}
+	return s.MemStore.IsUnlocked(ctx)
+}
+
+func (s scriptLocker) AcquireLock(ctx context.Context, name string, ttl time.Duration) (bool, error) {
+	if s.acquireErr != nil {
+		return false, s.acquireErr
+	}
+	return s.held, nil
+}
+
+// errIdentityStore fails the lineage read: the backend-outage
+// stand-in for the pairing record.
+type errIdentityStore struct{ err error }
+
+func (e errIdentityStore) GetIdentity(context.Context) (store.Identity, error) {
+	return store.Identity{}, e.err
+}
+
+func (e errIdentityStore) SetIdentity(context.Context, store.Identity) error { return e.err }
+
+// errRecorder fails the keep-N write: the backend-outage stand-in
+// for the generation log.
+type errRecorder struct{ err error }
+
+func (e errRecorder) Record(context.Context, policy.Row) error { return e.err }
+
+// An unreadable lock marker refuses before anything mints: unknown
+// intent is not unlocked intent. If this fails, a backend outage at
+// the marker reads as permission.
+func TestRunLockUnreadableRefuses(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	lock := scriptLocker{MemStore: s, unlockErr: errTestStoreDown, held: true}
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with unreadable lock succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "store lock unreadable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A missing registry binary refuses at readiness: no mint, no
+// probe, no lock held. If this fails, a bare image mints a proof
+// no collector can redeem.
+func TestRunMissingBinaryRefuses(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	lock := scriptLocker{MemStore: s, held: true}
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/nonexistent-registry", s, s, s, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with missing binary succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "registry binary not found") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A config with no filesystem root refuses before the mint: local
+// collection only understands the shared directory layout. If this
+// fails, gc mints against a store it cannot prove local.
+func TestRunS3ConfigRefuses(t *testing.T) {
+	_, _, s := stageProvenRun(t)
+	s3cfg := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(s3cfg, []byte("storage:\n  s3:\n    bucket: blobs\n"), 0o644); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	lock := scriptLocker{MemStore: s, held: true}
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{t.TempDir()},
+		"http://registry:5000", s3cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with s3 config succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "no filesystem storage root") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A dead lock backend refuses with the remedy: the operator learns
+// redis is down, not that gc is broken. If this fails, a redis
+// outage reports a mystery error.
+func TestRunAcquireFailureRefuses(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	lock := scriptLocker{MemStore: s, held: true, acquireErr: errTestStoreDown}
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with dead lock backend succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "redis unreachable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A held lock refuses without minting: two collectors never mark
+// together. If this fails, concurrent runs double-collect.
+func TestRunContendedLockRefuses(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	lock := scriptLocker{MemStore: s, held: false}
+	var collected [][]string
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run under a held lock succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "another gc run holds the lock") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+	if len(collected) != 0 {
+		t.Errorf("refused run collected %d times, want none", len(collected))
+	}
+}
+
+// A dead pre-probe refuses with the probe error: the mode is input,
+// not a default. If this fails, an unreachable registry collects
+// under an assumed mode.
+func TestRunDeadPreProbeRefuses(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	lock := scriptLocker{MemStore: s, held: true}
+	dead := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeUnknown, "", errProbeDead
+	})
+	var out strings.Builder
+	err := Run(context.Background(), &out, dead, lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if !errors.Is(err, errProbeDead) {
+		t.Fatalf("dead-probe run = %v, want the probe error surfaced", err)
+	}
+}
+
+// A dead blobdescriptor cache refuses the readonly path: without
+// the cache the run would delete what it must keep. If this fails,
+// gc collects blind on a broken cache connection.
+func TestRunReadonlyCacheOutageRefuses(t *testing.T) {
+	_, root, s := stageProvenRun(t)
+	redisCfg := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(redisCfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+
+		"\nredis:\n  addr: 127.0.0.1:1\n"), 0o644); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	lock := scriptLocker{MemStore: s, held: true}
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", redisCfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with dead cache succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "blobdescriptor cache unreachable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A forced skew warning that cannot print fails the run: the
+// --force audit trail is mandatory, not best-effort. If this fails,
+// a forced run over a skewed clock leaves no trace it did.
+func TestRunSkewWarnWriteFailureSurfaces(t *testing.T) {
+	cfg, root, _, _, lock := stagePairedRun(t)
+	w := errWriter{errTestStoreDown}
+	err := Run(context.Background(), w, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{off: time.Hour}, "time.example.com",
+		Options{Force: true, Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("skewed forced run with dead output succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("failure names no output cause: %v", err)
+	}
+}
+
+// An NTP warning that cannot print fails the run for the same
+// reason: air-gapped sites stay working, but never silently.
+func TestRunUnreachableWarnWriteFailureSurfaces(t *testing.T) {
+	cfg, root, _, _, lock := stagePairedRun(t)
+	w := errWriter{errTestStoreDown}
+	err := Run(context.Background(), w, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{err: errClockUnreachable}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with dead output succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("failure names no output cause: %v", err)
+	}
+}
+
+// Untracked state refuses before the verdict: silence means
+// stranger, empty, or down — never proceed. If this fails, a
+// backend outage at the rows reads as a clean store.
+func TestRunTrackedStateFailureRefuses(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	stagePairedGen(t, lock, root)
+	rows := failRows{MemStore: lock, allErr: errTestStoreDown}
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", lock, lock, rows, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with unreadable rows succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "tracked state unreadable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// An unreadable lineage refuses before the verdict for the same
+// reason: unknown pairing is not pairing. If this fails, a backend
+// outage at the lineage reads as unpaired.
+func TestRunLineageFailureRefuses(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	stagePairedGen(t, lock, root)
+	ids := errIdentityStore{errTestStoreDown}
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", lock, ids, lock, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with unreadable lineage succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "lineage unreadable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// An unrecordable pairing refuses after the proof window: the
+// generation is served but the lineage did not record — proceeding
+// would orphan it. If this fails, a backend outage mid-ceremony
+// reads as paired.
+func TestRunLineageWriteFailureRefuses(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	ids := &failIdentityStore{MemStore: store.NewMemStore(), armed: true}
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", lock, ids, lock, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with unrecordable lineage succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A generation the keep-N log cannot take fails the run loudly:
+// the proof is held but untracked, and silence would litter. If
+// this fails, a backend outage at the log reads as collected.
+func TestRunMintRecordFailureRefuses(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	rec := errRecorder{errTestStoreDown}
+	var out strings.Builder
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", rec, lock, lock, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("run with failing keep-N log succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "generation went untracked") {
+		t.Errorf("failure names no cause: %v", err)
+	}
+}
+
+// A stale warning that cannot print fails the armed run: the
+// rollback evidence must land before the mint. If this fails, a
+// forced run over a rollback leaves no audit trail.
+func TestRunStaleWarnWriteFailureSurfaces(t *testing.T) {
+	cfg, root, localID, gen, lock := stagePairedRun(t)
+	ctx := context.Background()
+	if err := lock.SetIdentity(ctx, store.Identity{ID: localID}); err != nil {
+		t.Fatalf("clear baseline: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := lock.Record(ctx, newRow(sentinel.Repo, gen, now.Add(-time.Hour))); err != nil {
+		t.Fatalf("track served generation: %v", err)
+	}
+	if err := lock.Record(ctx, newRow(sentinel.Repo, newGenID(t), now)); err != nil {
+		t.Fatalf("track newer generation: %v", err)
+	}
+	w := errWriter{errTestStoreDown}
+	err := Run(ctx, w, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
+		Options{Force: true, Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("stale forced run with dead output succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("failure names no output cause: %v", err)
+	}
+}
+
+// A re-mint warning that cannot print fails the run for the same
+// reason: a wiped tag is an incident, and the incident must print.
+func TestRunEstablishWarnWriteFailureSurfaces(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	ctx := context.Background()
+	if err := lock.SetIdentity(ctx, store.Identity{ID: newGenID(t)}); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	w := errWriter{errTestStoreDown}
+	err := Run(ctx, w, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
+		Options{Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("re-establish with dead output succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("failure names no output cause: %v", err)
+	}
+}

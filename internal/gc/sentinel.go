@@ -45,13 +45,15 @@ func ModeName(m Mode) string {
 // writable, readonly, or unknown (with the error). Exported so the
 // e2e suite drives the same probe collection runs — one path, never
 // a copy.
+//
+// NOTE: no separate inconclusive branch lives here on purpose —
+// ProbeRegistry never returns (Unknown, nil), so its own error
+// (endpoint + status) IS the inconclusive report. A wrapper message
+// would be dead code guarding a path the probe cannot produce.
 func ProbeRegistryMode(ctx context.Context, baseURL string) (string, error) {
 	mode, _, err := ProbeRegistry(ctx, baseURL)
 	if err != nil {
 		return "unknown", err
-	}
-	if mode == ModeUnknown {
-		return "unknown", fmt.Errorf("sentinel inconclusive for %s", baseURL)
 	}
 	return ModeName(mode), nil
 }

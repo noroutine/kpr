@@ -21,6 +21,22 @@ func runEnv(t *testing.T) string {
 	return buf.String()
 }
 
+// A breaking pipe surfaces at the header or the first var: half an
+// env table must not read as complete. If this fails, truncated env
+// output passes silently.
+func TestEnvCommandWriteFailuresSurface(t *testing.T) {
+	envCmd.SetOut(&failAfterWriter{n: 0})
+	defer envCmd.SetOut(nil)
+	if err := envCmd.RunE(envCmd, nil); err == nil {
+		t.Error("env header into breaking pipe succeeded, want an error")
+	}
+	envCmd.SetOut(&failAfterWriter{n: 1})
+	defer envCmd.SetOut(nil)
+	if err := envCmd.RunE(envCmd, nil); err == nil {
+		t.Error("env vars into breaking pipe succeeded, want an error")
+	}
+}
+
 // Every documented variable must appear on the help screen with its
 // description: a var missing here is invisible to operators despite
 // being read. If this fails, EnvVars grew without envValue/`kpr env`

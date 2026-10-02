@@ -88,6 +88,88 @@ type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 
+type errWriter struct{ err error }
+
+func (w errWriter) Write([]byte) (int, error) { return 0, w.err }
+
+// A cancelled context refuses before spawning: no child outlives
+// the caller that gave up. If this fails, a cancelled gc still
+// forks the collector.
+func TestCollectorCancelledContextSpawnsNothing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, report := collectEvents()
+	var out strings.Builder
+	if err := RunCollector(ctx, &out, "/bin/sh", nil, report); err == nil {
+		t.Fatal("RunCollector on cancelled context succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A missing binary fails at spawn with the cause attached: the
+// operator sees "not found", not a bare exit code. If this fails,
+// a bad collector path reports a mystery failure.
+func TestCollectorMissingBinaryFailsAtSpawn(t *testing.T) {
+	_, report := collectEvents()
+	var out strings.Builder
+	if err := RunCollector(context.Background(), &out, "/nonexistent-collector", nil, report); err == nil {
+		t.Fatal("RunCollector on missing binary succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "collector:") {
+		t.Errorf("failure names no spawn cause: %v", err)
+	}
+}
+
+// Nobody listening kills the child and fails: collecting deaf
+// helps no one. The child prints first and lingers, so the write
+// error lands in the live feed, not the drain. If this fails, a
+// broken status pipe runs the collector to completion unheard.
+func TestCollectorDeadListenerKillsChild(t *testing.T) {
+	old := collectorCommand
+	collectorCommand = stubCollector("echo heard-nothing; sleep 5")
+	defer func() { collectorCommand = old }()
+
+	_, report := collectEvents()
+	if err := RunCollector(context.Background(), errWriter{errors.New("status pipe closed")},
+		"/bin/sh", nil, report); err == nil {
+		t.Fatal("RunCollector with dead listener succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "collector output:") {
+		t.Errorf("failure names no output cause: %v", err)
+	}
+}
+
+// A quiet fast child still walks the drain: the multiplex loop may
+// exit on the reaped child with the channel already closed, or
+// with lines still pending. If this fails, the exit path skips
+// the drain the comments promise.
+func TestCollectorQuietChildDrainsClean(t *testing.T) {
+	old := collectorCommand
+	collectorCommand = stubCollector("echo parting-word")
+	defer func() { collectorCommand = old }()
+
+	_, report := collectEvents()
+	var out strings.Builder
+	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("RunCollector: %v", err)
+	}
+	if !strings.Contains(out.String(), "parting-word") {
+		t.Errorf("drained output lacks the line:\n%s", out.String())
+	}
+}
+
+// The default seam builds the stock binary command untouched: the
+// override exists for tests, production runs the real thing. If
+// this fails, the default points somewhere other than the binary.
+func TestDefaultCollectorCommandTargetsBinary(t *testing.T) {
+	cmd := defaultCollectorCommand(context.Background(), "/usr/bin/registry", []string{"garbage-collect", "x.yml"})
+	if cmd == nil || cmd.Path == "" {
+		t.Fatal("default collector command builds nothing")
+	}
+	if len(cmd.Args) != 3 || cmd.Args[1] != "garbage-collect" {
+		t.Errorf("default collector args = %v, want the stock invocation", cmd.Args)
+	}
+}
+
 // A fast child is reaped while its last lines still sit in the
 // pipe: returning on the exit first drops them (CI caught this as
 // an empty collect). Five thousand lines with an instant exit must

@@ -288,3 +288,112 @@ func TestReachableProbesBase(t *testing.T) {
 		t.Error("Reachable on dead port = nil, want an error")
 	}
 }
+
+// errBody fails mid-read: a registry that headers 200 then dies.
+// The read refuses with the body cause, never with truncated bytes
+// presented as a manifest. If this fails, a cut connection parses
+// as content.
+type errBody struct{ err error }
+
+func (b errBody) Read([]byte) (int, error) { return 0, b.err }
+func (b errBody) Close() error             { return nil }
+
+type errRoundTripper struct{ err error }
+
+func (f errRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &http.Response{StatusCode: http.StatusOK,
+		Body: errBody{errors.New("connection reset")}, Header: http.Header{}}, nil
+}
+
+// A dead peer fails every verb with the transport cause: catalog,
+// delete, manifest, blob — no verb invents an answer. If this
+// fails, one verb guesses where the others refuse.
+func TestDeadPeerFailsEveryVerb(t *testing.T) {
+	c := NewClient("http://127.0.0.1:1")
+	if _, err := c.Catalog(testCtx(), "app"); err == nil {
+		t.Error("catalog on dead peer succeeded, want refusal")
+	}
+	if _, err := c.DeleteManifest(testCtx(), "app", "v1"); err == nil {
+		t.Error("delete on dead peer succeeded, want refusal")
+	}
+	if _, err := c.GetManifest(testCtx(), "app", "v1"); err == nil {
+		t.Error("manifest on dead peer succeeded, want refusal")
+	}
+	if _, err := c.GetBlob(testCtx(), "app", "sha256:abc"); err == nil {
+		t.Error("blob on dead peer succeeded, want refusal")
+	}
+}
+
+// An unbuildable request refuses before dialing: a misconfigured
+// base URL is a wiring error, never a dial. If this fails, a bad
+// base URL dials garbage.
+func TestBadBaseURLRefusesBeforeDial(t *testing.T) {
+	c := NewClient("http://exa\tmple.com")
+	if _, err := c.Catalog(testCtx(), "app"); err == nil {
+		t.Error("catalog on bad URL succeeded, want refusal")
+	}
+	if _, err := c.DeleteManifest(testCtx(), "app", "v1"); err == nil {
+		t.Error("delete on bad URL succeeded, want refusal")
+	}
+}
+
+// A 200 with a dying body refuses at the read: truncation is not
+// content. If this fails, cut connections parse as manifests.
+func TestDyingBodyRefusesAtRead(t *testing.T) {
+	c := NewClient("http://registry:5000")
+	c.client = &http.Client{Transport: errRoundTripper{}}
+	if _, _, err := c.getAccept(testCtx(), "/v2/app/tags/list", ""); err == nil {
+		t.Error("read of dying body succeeded, want refusal")
+	}
+}
+
+// Catalog answers that are not 200, or not JSON, refuse naming the
+// repo: absence of tags is never an empty list. If this fails, a
+// sick registry reads as tagless.
+func TestCatalogBadAnswersRefuse(t *testing.T) {
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer broken.Close()
+	if _, err := NewClient(broken.URL).Catalog(testCtx(), "app"); err == nil {
+		t.Error("catalog on 500 succeeded, want refusal")
+	}
+	garbage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer garbage.Close()
+	if _, err := NewClient(garbage.URL).Catalog(testCtx(), "app"); err == nil {
+		t.Error("catalog on garbage succeeded, want refusal")
+	}
+}
+
+// A 404 with a garbage body is retryable, not gone: no code means
+// no classification. If this fails, an unparseable 404 untracks a
+// row the registry may still serve.
+func TestDeleteGarbage404IsRetryable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+	if _, err := NewClient(srv.URL).DeleteManifest(testCtx(), "app", "v1"); err == nil {
+		t.Error("delete on garbage 404 succeeded, want the retryable error")
+	}
+}
+
+// The status error text keeps its shape (op + status) and exposes
+// the code for classifiers: logs and asserted outputs do not move.
+// If this fails, absence stops classifying.
+func TestStatusErrorShape(t *testing.T) {
+	err := &StatusError{Op: "manifest app:v1", Status: 404}
+	if got := err.Error(); got != "manifest app:v1: registry status 404" {
+		t.Errorf("Error() = %q, want the op + status shape", got)
+	}
+	var _ interface{ StatusCode() int } = err
+	if err.StatusCode() != 404 {
+		t.Errorf("StatusCode() = %d, want 404", err.StatusCode())
+	}
+}

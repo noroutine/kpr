@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -68,5 +69,30 @@ func TestOpenEdgeBuildsWhenProven(t *testing.T) {
 	}
 	if h == nil {
 		t.Fatal("openEdge(proven) built nil, want handler")
+	}
+}
+
+// A schemeless backend refuses before anything listens: guessing
+// backends is worse than not proxying. If this fails, the edge
+// dials garbage.
+func TestOpenEdgeRefusesBadBackend(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(path, []byte("http:\n  relativeurls: true\n"), 0o600); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	if h, err := openEdge("no-scheme-no-host", path, nil); err == nil || h != nil {
+		t.Errorf("openEdge(bad backend) = (%v, %v), want refusal", h, err)
+	}
+}
+
+// A nil proof refuses the handler: the gate never compiles into a
+// listener. If this fails, an unproven edge serves.
+func TestEdgeHandlerRefusesNilProof(t *testing.T) {
+	p, err := edge.New("http://127.0.0.1:9")
+	if err != nil {
+		t.Fatalf("edge backend: %v", err)
+	}
+	if h, err := p.Handler(nil); err == nil || h != nil {
+		t.Errorf("Handler(nil) = (%v, %v), want ErrNoProof", h, err)
 	}
 }

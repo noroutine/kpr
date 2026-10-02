@@ -12,7 +12,10 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -328,6 +331,114 @@ func TestBuildMetricsPropagatesHistogramError(t *testing.T) {
 	}
 	if len(calls) != 2 || calls[0] != "counter" || calls[1] != "histogram" {
 		t.Errorf("calls = %v, want [counter histogram]", calls)
+	}
+}
+
+// A gauge-creation failure must surface even though counter and
+// histogram already exist. If this fails, the example gauge is
+// silently missing while its error is swallowed.
+func TestBuildMetricsPropagatesGaugeError(t *testing.T) {
+	resetInstruments(t)
+	var calls []string
+	if err := buildMetrics(failMeter{failOn: "gauge", calls: &calls}); err == nil {
+		t.Fatal("buildMetrics = nil, want gauge error")
+	}
+	if len(calls) != 3 || calls[2] != "gauge" {
+		t.Errorf("calls = %v, want [counter histogram gauge]", calls)
+	}
+}
+
+// The recorder unwraps to its writer: middleware stacking
+// (ResponseController for flush/hijack) sees through it. If this
+// fails, Flush and Hijack stop working behind telemetry.
+func TestStatusRecorderUnwraps(t *testing.T) {
+	inner := httptest.NewRecorder()
+	r := &statusRecorder{ResponseWriter: inner}
+	if r.Unwrap() != http.ResponseWriter(inner) {
+		t.Error("Unwrap did not return the wrapped writer")
+	}
+}
+
+// Enabled is any-enabled: all-quiet handlers vote false, one loud
+// vote carries. If this fails, a fully-muted fanout still logs (or
+// a live one goes silent).
+func TestFanoutEnabledIsAnyEnabled(t *testing.T) {
+	var a, b bytes.Buffer
+	quiet := fanoutHandler{
+		slog.NewTextHandler(&a, &slog.HandlerOptions{Level: slog.LevelError}),
+		slog.NewJSONHandler(&b, &slog.HandlerOptions{Level: slog.LevelError}),
+	}
+	if quiet.Enabled(context.Background(), slog.LevelDebug) {
+		t.Error("all-muted fanout enabled debug, want false")
+	}
+	if !quiet.Enabled(context.Background(), slog.LevelError) {
+		t.Error("all-muted fanout disabled error, want true")
+	}
+}
+
+// Attrs and groups fan out to every handler: structured fields
+// must not vanish on one leg. If this fails, one output loses
+// fields the other keeps.
+func TestFanoutAttrsAndGroupsFanOut(t *testing.T) {
+	var a, b bytes.Buffer
+	h := fanoutHandler{
+		slog.NewTextHandler(&a, nil),
+		slog.NewJSONHandler(&b, nil),
+	}.WithAttrs([]slog.Attr{slog.String("k", "v")})
+	slog.New(h).Info("hello")
+	if !strings.Contains(a.String(), "k=v") || !strings.Contains(b.String(), `"k":"v"`) {
+		t.Errorf("attrs lost a leg: text=%q json=%q", a.String(), b.String())
+	}
+	var c, d bytes.Buffer
+	g := fanoutHandler{
+		slog.NewTextHandler(&c, nil),
+		slog.NewJSONHandler(&d, nil),
+	}.WithGroup("grp")
+	slog.New(g).Info("hello", "k", "v")
+	if !strings.Contains(c.String(), "grp") || !strings.Contains(d.String(), "grp") {
+		t.Errorf("group lost a leg: text=%q json=%q", c.String(), d.String())
+	}
+}
+
+// A collection cycle observes the demo gauge: the callback fires
+// through a real SDK reader, proving the gauge is wired to the
+// meter (not just constructed). If this fails, the dashboard
+// signal is registered but never moves.
+func TestObserveDemoQueueTagsDemo(t *testing.T) {
+	resetInstruments(t)
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	if err := buildMetrics(provider.Meter("test")); err != nil {
+		t.Fatalf("buildMetrics: %v", err)
+	}
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	var sawGauge bool
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != "kpr.example.queue_depth" {
+				continue
+			}
+			sawGauge = true
+			gauge, ok := m.Data.(metricdata.Gauge[float64])
+			if !ok || len(gauge.DataPoints) != 1 {
+				t.Fatalf("gauge data = %#v, want one float64 point", m.Data)
+			}
+			dp := gauge.DataPoints[0]
+			if dp.Value < 0 || dp.Value >= 100 {
+				t.Errorf("gauge value = %v, want the 0-99 sawtooth", dp.Value)
+			}
+			v, ok := dp.Attributes.Value(attribute.Key("queue"))
+			if !ok || v.AsString() != "demo" {
+				t.Errorf("gauge attrs = %v, want queue=demo", dp.Attributes)
+			}
+		}
+	}
+	if !sawGauge {
+		t.Error("no kpr.example.queue_depth in the collection, want the demo gauge observed")
 	}
 }
 

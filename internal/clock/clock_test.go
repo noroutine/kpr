@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -332,5 +333,203 @@ func TestCheckEnforcesTolerance(t *testing.T) {
 	var skew *SkewError
 	if !errors.As(err, &skew) {
 		t.Fatalf("error = %T, want *SkewError", err)
+	}
+}
+
+// The skew message names both sides: the measured offset and the
+// bound it crossed. If this fails, refusals stop saying how wrong
+// the clock is.
+func TestSkewErrorNamesOffsetAndTolerance(t *testing.T) {
+	err := (&SkewError{Offset: 90 * time.Second, Tolerance: Tolerance}).Error()
+	for _, want := range []string{"1m30s", Tolerance.String()} {
+		if !strings.Contains(err, want) {
+			t.Errorf("skew message %q lacks %q", err, want)
+		}
+	}
+}
+
+// addrOf appends the NTP port only when the server names none: an
+// explicit port is never overridden. If this fails, custom-port
+// time sources get :123 stapled on.
+func TestAddrOfKeepsExplicitPort(t *testing.T) {
+	if got := addrOf("time.example.com:1123"); got != "time.example.com:1123" {
+		t.Errorf("addrOf kept = %q, want the explicit port untouched", got)
+	}
+	if got := addrOf("time.example.com"); got != "time.example.com:123" {
+		t.Errorf("addrOf bare = %q, want :123 appended", got)
+	}
+}
+
+// An undialable server fails at dial: no packet, no wait. If this
+// fails, a misconfigured time source hangs to the timeout.
+func TestNTPOffsetRefusesUndialable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := Offset(ctx, "999.999.999.999:123"); err == nil {
+		t.Error("undialable offset succeeded, want refusal")
+	}
+}
+
+// A caller deadline earlier than the transport timeout wins: the
+// exchange ends at the caller's bound, not the transport's. If this
+// fails, tight callers wait out the full NTP timeout.
+func TestNTPOffsetHonorsCallerDeadline(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen udp: %v", err)
+	}
+	defer func() { _ = pc.Close() }()
+	go func() {
+		buf := make([]byte, 48)
+		for {
+			if _, _, err := pc.ReadFrom(buf); err != nil {
+				return
+			}
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := Offset(ctx, pc.LocalAddr().String()); err == nil {
+		t.Error("silent server accepted, want refusal")
+	} else if took := time.Since(start); took > Timeout {
+		t.Errorf("caller deadline took %v, want under the %v transport timeout", took, Timeout)
+	}
+}
+
+// A server that hears but never answers fails on transport, not on
+// cancellation: the read deadline (not the context) owns the error,
+// so callers warn-and-proceed instead of aborting. If this fails, a
+// blackhole time source aborts the run.
+func TestNTPOffsetSilentServerIsTransportError(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen udp: %v", err)
+	}
+	defer func() { _ = pc.Close() }()
+	go func() {
+		buf := make([]byte, 48)
+		for {
+			if _, _, err := pc.ReadFrom(buf); err != nil {
+				return
+			}
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := Offset(ctx, pc.LocalAddr().String()); err == nil {
+		t.Fatal("silent server accepted, want refusal")
+	} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		t.Errorf("silent server error = %v, want the transport timeout, not cancellation", err)
+	}
+}
+
+// fakeNTPMismatch answers with a corrupted originate echo: a reply
+// that is not for our request. The offset refuses instead of
+// measuring someone else's exchange. If this fails, replayed NTP
+// traffic measures.
+func fakeNTPMismatch(t *testing.T) string {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen udp: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	go func() {
+		buf := make([]byte, 48)
+		for {
+			_, addr, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			resp := make([]byte, 48)
+			resp[0] = 4
+			resp[1] = 1
+			copy(resp[24:32], buf[40:48])
+			resp[24] ^= 0xFF
+			stamp(resp[40:48], time.Now())
+			_, _ = pc.WriteTo(resp, addr)
+		}
+	}()
+	return pc.LocalAddr().String()
+}
+
+func TestOffsetRejectsForeignEcho(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := Offset(ctx, fakeNTPMismatch(t)); err == nil {
+		t.Error("foreign echo accepted, want refusal")
+	} else if !strings.Contains(err.Error(), "originate echo mismatch") {
+		t.Errorf("refusal = %q, want the echo named", err.Error())
+	}
+}
+
+// Bare names mean https: the scheme is added, never guessed from
+// content. The attempt below fails TLS (the hermetic server speaks
+// plain http), which is the point — the failure proves the https
+// scheme was chosen. If this fails, bare time sources dial plain.
+func TestHTTPSOffsetBareMeansHTTPS(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+	bare := strings.TrimPrefix(srv.URL, "http://")
+	if _, err := (HTTPS{}).Offset(ctx, bare); err == nil {
+		t.Error("bare https offset succeeded against plain http, want the TLS refusal")
+	}
+}
+
+// An unbuildable URL refuses before dialing. If this fails, a bad
+// time source dials garbage.
+func TestHTTPSOffsetBadURLRefuses(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := (HTTPS{}).Offset(ctx, "https://exa\tmple.com"); err == nil {
+		t.Error("bad-URL offset succeeded, want refusal")
+	}
+}
+
+// datelessServer answers 200 with no Date: the transport works, the
+// clock input does not. Unparseable dates refuse the same way. If
+// this fails, dateless answers measure as zero skew.
+type datelessRoundTripper struct{ date string }
+
+func (f datelessRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	h := http.Header{}
+	if f.date != "" {
+		h.Set("Date", f.date)
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: h}, nil
+}
+
+func TestHTTPSOffsetDatelessRefuses(t *testing.T) {
+	ctx := context.Background()
+	h := HTTPS{Client: &http.Client{Transport: datelessRoundTripper{}}}
+	if _, err := h.Offset(ctx, "https://time.example.com"); err == nil {
+		t.Error("dateless offset succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "no Date header") {
+		t.Errorf("refusal = %q, want the header named", err.Error())
+	}
+	h = HTTPS{Client: &http.Client{Transport: datelessRoundTripper{date: "not a date"}}}
+	if _, err := h.Offset(ctx, "https://time.example.com"); err == nil {
+		t.Error("garbage-date offset succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "unparseable Date") {
+		t.Errorf("refusal = %q, want the parse named", err.Error())
+	}
+}
+
+// errSource fails the exchange: Check passes transport failures
+// through plain (never typed skew), so callers warn-and-proceed.
+// If this fails, a down time source reads as a wrong clock.
+type errSource struct{ err error }
+
+func (s errSource) Offset(context.Context, string) (time.Duration, error) {
+	return 0, s.err
+}
+
+func TestCheckPassesTransportThrough(t *testing.T) {
+	boom := errors.New("no route to time source")
+	if err := Check(context.Background(), errSource{boom}, "time.example.com", Tolerance); !errors.Is(err, boom) {
+		t.Errorf("transport failure = %v, want it passed through", err)
 	}
 }

@@ -362,3 +362,47 @@ func TestFromEnvEdgeDisables(t *testing.T) {
 		}
 	}
 }
+
+// The builder chain sets every field it names: one pass over the
+// rarely-touched setters (edge placement, observability sinks)
+// pins the contract. If this fails, a setter writes the wrong
+// field (or nothing).
+func TestBuilderSetsRareFields(t *testing.T) {
+	cfg := NewBuilder().
+		WithEdgeAddr("127.0.0.1:9000").
+		WithEdgeEnabled(false).
+		WithQuickwitURL("http://qw:7280").
+		WithJaegerURL("http://jg:4318").
+		WithGrafanaURL("http://gf:3000").
+		WithPrometheusURL("http://pr:9090").
+		Build()
+	if cfg.EdgeAddr != "127.0.0.1:9000" || cfg.EdgeEnabled {
+		t.Errorf("edge = (%q, %v), want the pinned addr and false", cfg.EdgeAddr, cfg.EdgeEnabled)
+	}
+	for _, tc := range []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"quickwit", cfg.QuickwitURL, "http://qw:7280"},
+		{"jaeger", cfg.JaegerURL, "http://jg:4318"},
+		{"grafana", cfg.GrafanaURL, "http://gf:3000"},
+		{"prometheus", cfg.PrometheusURL, "http://pr:9090"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q, want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// The DB warning reads as a sentence naming raw and default: it
+// prints as the startup line, not as a hard error. If this fails,
+// the fallback boots silent about what it ignored.
+func TestDBWarningNamesRawAndDefault(t *testing.T) {
+	err := (&DBWarning{Raw: "bogus", Default: 0}).Error()
+	for _, want := range []string{`"bogus"`, "using default"} {
+		if !strings.Contains(err, want) {
+			t.Errorf("DBWarning = %q, lacks %q", err, want)
+		}
+	}
+}

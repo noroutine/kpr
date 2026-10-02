@@ -149,6 +149,21 @@ func TestSelectKeepNHonorsIncludeExclude(t *testing.T) {
 	}
 }
 
+// A non-empty include scopes candidacy: only matching rows vie,
+// the rest keep regardless of age. An empty include means everybody
+// vies. If this fails, scoping a run to one repo still reaps the
+// others.
+func TestSelectKeepNIncludeScopesCandidacy(t *testing.T) {
+	rows := []Row{
+		mkrow("app", "v1", 30*24*time.Hour),
+		mkrow("other", "v1", 300*24*time.Hour),
+	}
+	got := SelectKeepN(rows, 0, []string{"^app:"}, nil, sliceNow)
+	if len(got) != 1 || got[0].Repo != "app" {
+		t.Fatalf("selected %v, want [app:v1] only (other: out of scope keeps)", got)
+	}
+}
+
 // Include/exclude patterns match the qualified name repo:tag (registry
 // stripped), so one flag scopes whole repos: ^app:release- spares app
 // releases while other:release-1 still vies. A tag-anchored pattern

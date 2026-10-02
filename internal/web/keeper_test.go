@@ -3,14 +3,17 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/policy"
@@ -150,6 +153,10 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 	// no repo:tag prefix, the outcome alone. If this fails, control
 	// events render as malformed rows.
 	_ = s.PushActivity(c, store.Outcome{Reason: "gc-fence", Outcome: "held", At: time.Now().UTC()})
+	// A due row with no push stamp renders "unknown", never epoch:
+	// the plan shows the reason without inventing an age. If this
+	// fails, timeless rows claim 1970.
+	_ = s.Record(c, policy.Row{Repo: "timeless", Tag: "v1", Due: true, Reason: "ttl"})
 	srv := &Server{Store: s, Registry: liveRegistry(t)}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
@@ -159,7 +166,8 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{"<pre>", "last 10 of 13", "/api/activity",
-		"app:v1 — deleted (untag), ", "held (gc-fence), "} {
+		"app:v1 — deleted (untag), ", "held (gc-fence), ",
+		"timeless:v1", "unknown"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard activity missing %q", want)
 		}
@@ -228,6 +236,72 @@ func TestActivityEndpointToleratesWriteError(t *testing.T) {
 	}
 }
 
+// Only GET serves the feed: anything else is 405, never a dump.
+// If this fails, the endpoint answers methods it never defined.
+func TestActivityEndpointRejectsNonGet(t *testing.T) {
+	s := &Server{Store: keeperStore(t)}
+	req := httptest.NewRequest(http.MethodPost, "/api/activity", nil)
+	rr := httptest.NewRecorder()
+	s.activityHandler(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST status = %d, want 405", rr.Code)
+	}
+}
+
+// A dead activity ring reads 503 with its cause, never 500 and
+// never an empty feed pretending health. If this fails, a redis
+// hiccup looks like an idle keeper.
+func TestActivityEndpointDegradesOnRingError(t *testing.T) {
+	testConfig(t)
+	s := &Server{Store: errActivityStore{store.NewMemStore()}}
+	req := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
+	rr := httptest.NewRecorder()
+	s.activityHandler(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "activity unreadable") {
+		t.Errorf("body hides the cause:\n%s", rr.Body.String())
+	}
+}
+
+// errActivityStore fails the ring read: the backend-outage
+// stand-in for the feed.
+type errActivityStore struct {
+	store.Store
+}
+
+func (errActivityStore) Activity(context.Context) ([]store.Outcome, error) {
+	return nil, errors.New("redis: connection refused")
+}
+
+// A zero stamp degrades to words, never January 1, 1970: the ring
+// shows "unknown" beside nothing, the feed likewise. If this
+// fails, unwritten clocks render as epoch.
+func TestActivityZeroStampReadsUnknown(t *testing.T) {
+	testConfig(t)
+	s := store.NewMemStore()
+	_ = s.PushActivity(context.Background(), store.Outcome{Repo: "app", Tag: "v1",
+		Reason: "untag", Outcome: "deleted"})
+	srv := &Server{Store: s, Registry: liveRegistry(t)}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.indexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "unknown") {
+		t.Errorf("dashboard hides the zero stamp:\n%s", rr.Body.String())
+	}
+
+	apiReq := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
+	apiRR := httptest.NewRecorder()
+	srv.activityHandler(apiRR, apiReq)
+	if !strings.Contains(apiRR.Body.String(), `"at":"unknown"`) {
+		t.Errorf("feed hides the zero stamp:\n%s", apiRR.Body.String())
+	}
+}
+
 // The redis card names addr and DB even degraded: the operator
 // must see which redis is unreachable, not just red. If this
 // fails, the card hides the backend it complains about.
@@ -278,6 +352,31 @@ func TestClockSnapshotVoicesLocal(t *testing.T) {
 	method, server, skew, note := clockSnapshot(context.Background())
 	if method != "local" || server != "machine clock" || skew != "—" || note != "unchecked" {
 		t.Errorf("local snapshot = %q/%q/%q/%q, want local transport voiced", method, server, skew, note)
+	}
+}
+
+// An unreadable mount gets no ink, not an error card: Statfs
+// failure reads empty, and the card drops the size line. If this
+// fails, a dead mount breaks the store card.
+func TestFsStatsEmptyOnUnreadableMount(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "absent")
+	if got := fsStats(absent); got != "" {
+		t.Errorf("fsStats(absent) = %q, want empty", got)
+	}
+	if _, _, ok := fsSizes(absent); ok {
+		t.Error("fsSizes(absent) ok, want refusal")
+	}
+}
+
+// A silent sentinel reads unproven, never stale: the proof card
+// shows no generation until the registry serves one. If this
+// fails, a dead sentinel borrows yesterday's generation.
+func TestSentinelSnapshotUnprovenOnError(t *testing.T) {
+	testConfig(t)
+	s := &Server{Sentinel: stubSentinelAPI{err: errors.New("registry: 500")}}
+	got := s.sentinelSnapshot(context.Background())
+	if got.Proven || got.Gen != "" {
+		t.Errorf("snapshot = %+v, want unproven with no generation", got)
 	}
 }
 
@@ -373,6 +472,22 @@ func TestSaneSizes(t *testing.T) {
 	}
 }
 
+// Nonsense blocks refuse without a syscall: zero total and
+// free-above-total never reach the card, whatever the filesystem
+// claims. If this fails, a corrupt Statfs voices petabytes as
+// capacity.
+func TestSizesFromBlocksRefusesNonsense(t *testing.T) {
+	if _, _, ok := sizesFromBlocks(0, 0, 4096); ok {
+		t.Error("sizesFromBlocks(0 blocks) ok, want refusal")
+	}
+	if _, _, ok := sizesFromBlocks(100, 200, 4096); ok {
+		t.Error("sizesFromBlocks(free above total) ok, want refusal")
+	}
+	if total, free, ok := sizesFromBlocks(100, 30, 4096); !ok || total != 409600 || free != 122880 {
+		t.Errorf("sizesFromBlocks = %d/%d/%v, want 409600/122880/true", total, free, ok)
+	}
+}
+
 // fsSizes voices block math, not block counts: totals are raw
 // blocks times the fragment unit. If this fails, the card sizes
 // block counts as bytes.
@@ -390,6 +505,62 @@ func TestFsSizesMultipliesByUnit(t *testing.T) {
 	if total != uint64(fs.Blocks)*unit || free != uint64(fs.Bavail)*unit {
 		t.Errorf("fsSizes = %d/%d, want blocks×unit %d/%d",
 			total, free, uint64(fs.Blocks)*unit, uint64(fs.Bavail)*unit)
+	}
+}
+
+// clockSourceFor mirrors the CLI composition root: same method,
+// same transport, no second wiring. If this fails, the console
+// checks time through a different transport than the mints.
+func TestClockSourceForMirrorsMethods(t *testing.T) {
+	if _, ok := clockSourceFor(clock.MethodNTP).(clock.NTP); !ok {
+		t.Errorf("ntp source = %T, want clock.NTP", clockSourceFor(clock.MethodNTP))
+	}
+	if _, ok := clockSourceFor(clock.MethodHTTPS).(clock.HTTPS); !ok {
+		t.Errorf("https source = %T, want clock.HTTPS", clockSourceFor(clock.MethodHTTPS))
+	}
+	if _, ok := clockSourceFor(clock.MethodLocal).(clock.Local); !ok {
+		t.Errorf("local source = %T, want clock.Local", clockSourceFor(clock.MethodLocal))
+	}
+	if _, ok := clockSourceFor(clock.Method("bogus")).(clock.Local); !ok {
+		t.Errorf("unknown method source = %T, want clock.Local fallback", clockSourceFor(clock.Method("bogus")))
+	}
+}
+
+func httpsConfig(t *testing.T, server string) {
+	t.Helper()
+	t.Setenv(config.EnvTimeMethod, "https")
+	t.Setenv(config.EnvTimeServer, server)
+	t.Cleanup(config.SetCurrent(config.NewBuilder().FromEnv().Build()))
+}
+
+// An https time source the console can read voices its skew: the
+// card shows the same transport the mints check through. If this
+// fails, the clock card cannot read what the proofs rely on.
+func TestClockSnapshotVoicesHTTPSSkew(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+	httpsConfig(t, srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	method, server, skew, _ := clockSnapshot(ctx)
+	if method != "https" || server != srv.URL {
+		t.Errorf("snapshot = %q/%q, want https/%s", method, server, srv.URL)
+	}
+	if !strings.HasPrefix(skew, "+") && !strings.HasPrefix(skew, "-") {
+		t.Errorf("skew = %q, want a signed offset", skew)
+	}
+}
+
+// An unreachable time source reads unreachable, never slow: the
+// caller's probe timeout bounds it. If this fails, a dead time
+// server hangs the dashboard.
+func TestClockSnapshotUnreachableSource(t *testing.T) {
+	httpsConfig(t, "http://127.0.0.1:1")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, _, skew, _ := clockSnapshot(ctx)
+	if skew != "unreachable" {
+		t.Errorf("skew = %q, want unreachable", skew)
 	}
 }
 

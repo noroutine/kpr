@@ -154,6 +154,45 @@ func TestEffectiveTTLMaxBoundaryExact(t *testing.T) {
 	}
 }
 
+// The unit map covers exactly s/m/h/d/w: anything else is no unit,
+// never a default. If this fails, a typo'd unit parses as seconds
+// (or panics the lookup).
+func TestUnitDurMapsKnownUnits(t *testing.T) {
+	for _, tc := range []struct {
+		unit byte
+		want time.Duration
+	}{
+		{'s', time.Second},
+		{'m', time.Minute},
+		{'h', time.Hour},
+		{'d', 24 * time.Hour},
+		{'w', 7 * 24 * time.Hour},
+		{'x', 0},
+		{'S', 0},
+	} {
+		if got := unitDur(tc.unit); got != tc.want {
+			t.Errorf("unitDur(%q) = %v, want %v", tc.unit, got, tc.want)
+		}
+	}
+}
+
+// A regex edit that admits unknown units must degrade to no-match:
+// the unit gate, not the regex, owns the vocabulary. If this fails,
+// a widened regex parses "10x" as a real TTL.
+func TestParseTTLUnknownUnitRefuses(t *testing.T) {
+	old := ttlRe
+	ttlRe = regexp.MustCompile(`^(\d+)([a-z])$`)
+	defer func() { ttlRe = old }()
+	if ttl, ok := parseTTL("10x"); ok {
+		t.Errorf("parseTTL(10x) = (%v, true) under a widened regex, want (0, false)", ttl)
+	}
+}
+
+// NOTE: no test sets a non-zero DefaultTTL — it is a const 0, so
+// the `return DefaultTTL, true` fallback is dormant by build, not
+// by neglect. Flipping the const needs the branch back under test
+// the same day.
+
 // Eligibility anchors at the receiver-stamped push time, not at mark
 // time: app:10m pushed at T is eligible at T+10m however late reap
 // runs. If this fails, a late reap grants extra life (or an early one

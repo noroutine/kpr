@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,8 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
+
+var errTestStoreDown = errors.New("redis: connection refused")
 
 // Adopt pairs the store without minting: the read comes first, the
 // identity follows the evidence. If Adopt is undefined, the ceremony
@@ -91,6 +94,54 @@ func TestAdoptPinMismatchRefuses(t *testing.T) {
 	}
 }
 
+// errSentinelAPI fails every read: the registry-down stand-in for
+// the ceremony.
+type errSentinelAPI struct{ err error }
+
+func (s errSentinelAPI) GetManifest(context.Context, string, string) ([]byte, error) {
+	return nil, s.err
+}
+
+func (s errSentinelAPI) GetBlob(context.Context, string, string) ([]byte, error) {
+	return nil, s.err
+}
+
+// failIdentityStore fails the pairing write once armed: staging
+// pairs through it, the ceremony hits the outage.
+type failIdentityStore struct {
+	*store.MemStore
+	armed bool
+}
+
+func (f *failIdentityStore) SetIdentity(ctx context.Context, id store.Identity) error {
+	if f.armed {
+		return errTestStoreDown
+	}
+	return f.MemStore.SetIdentity(ctx, id)
+}
+
+// failRows fails the prune reads/writes: the backend-outage
+// stand-in for the old-epoch sweep.
+type failRows struct {
+	*store.MemStore
+	allErr error
+	delErr error
+}
+
+func (f failRows) All(ctx context.Context) ([]policy.Row, error) {
+	if f.allErr != nil {
+		return nil, f.allErr
+	}
+	return f.MemStore.All(ctx)
+}
+
+func (f failRows) Delete(ctx context.Context, repo, tag string) error {
+	if f.delErr != nil {
+		return f.delErr
+	}
+	return f.MemStore.Delete(ctx, repo, tag)
+}
+
 func TestAdoptAbsentRefusesWithoutIdent(t *testing.T) {
 	_, root, lock := stageProvenRun(t)
 	var out strings.Builder
@@ -98,6 +149,36 @@ func TestAdoptAbsentRefusesWithoutIdent(t *testing.T) {
 	if err == nil {
 		t.Fatal("adopt on silence succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "nothing served") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A registry that errors (not silence) refuses before pairing:
+// unreadable is not absent. If this fails, a 500 reads as
+// unpaired and adopts over an unknown lineage.
+func TestAdoptUnreadableRefuses(t *testing.T) {
+	_, _, lock := stageProvenRun(t)
+	var out strings.Builder
+	err := Adopt(context.Background(), &out, errSentinelAPI{errTestStoreDown}, lock, lock, "", "")
+	if err == nil {
+		t.Fatal("adopt on erroring sentinel succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "sentinel unreadable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A pairing write failure surfaces, never silent success: the
+// operator must know the lineage did not record. If this fails,
+// an outage during adopt reads as paired.
+func TestAdoptPrePairWriteFailureRefuses(t *testing.T) {
+	_, root, _ := stageProvenRun(t)
+	ids := &failIdentityStore{MemStore: store.NewMemStore(), armed: true}
+	var out strings.Builder
+	err := Adopt(context.Background(), &out, fileAPI{root},
+		ids, store.NewMemStore(), newGenID(t), "")
+	if err == nil {
+		t.Fatal("adopt with failing lineage write succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
 		t.Errorf("refusal names no cause: %v", err)
 	}
 }
@@ -185,6 +266,75 @@ func TestAdoptRepairsForeignLineage(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "pruned 2 rows") {
 		t.Errorf("ceremony counts no prune:\n%s", out.String())
+	}
+}
+
+// An unprunable old epoch refuses loudly: rows the ceremony
+// cannot drop would read as rollback evidence in the next
+// verdict. If this fails, a half-pruned adopt claims a clean
+// epoch.
+func TestAdoptPruneFailuresRefuse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rows failRows
+	}{
+		{"unreadable rows", failRows{allErr: errTestStoreDown}},
+		{"undeletable rows", failRows{delErr: errTestStoreDown}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, root, lock := stageProvenRun(t)
+			ctx := context.Background()
+			oldID := newGenID(t)
+			if err := lock.SetIdentity(ctx, store.Identity{ID: oldID}); err != nil {
+				t.Fatalf("pair old lineage: %v", err)
+			}
+			if err := lock.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: "old",
+				PushedAt: time.Now().UTC()}); err != nil {
+				t.Fatalf("stage row: %v", err)
+			}
+			stageServedGen(t, root)
+			tc.rows.MemStore = lock
+			var out strings.Builder
+			err := Adopt(ctx, &out, fileAPI{root}, lock, tc.rows, "", "")
+			if err == nil {
+				t.Fatal("adopt with failing prune succeeded, want refusal")
+			} else if !strings.Contains(err.Error(), "old epoch unprunable") {
+				t.Errorf("refusal names no cause: %v", err)
+			}
+		})
+	}
+}
+
+// A pairing write failure on re-pair or refresh surfaces, never
+// silent success. If this fails, an outage mid-ceremony reads as
+// re-paired.
+func TestAdoptRepairWriteFailureRefuses(t *testing.T) {
+	_, root, _ := stageProvenRun(t)
+	ctx := context.Background()
+	gen := stageServedGen(t, root)
+	served, _, err := sentinel.Read(ctx, fileAPI{root}, sentinel.Repo, sentinel.Tag)
+	if err != nil {
+		t.Fatalf("read served: %v", err)
+	}
+	ids := &failIdentityStore{MemStore: store.NewMemStore()}
+	if err := ids.SetIdentity(ctx, store.Identity{ID: served.ID, BaselineGen: gen}); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	ids.armed = true
+	var out strings.Builder
+	if err := Adopt(ctx, &out, fileAPI{root}, ids, store.NewMemStore(), "", ""); err == nil {
+		t.Fatal("re-adopt with failing lineage write succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+	// Fresh store, served generation, failing write: the first
+	// pairing records nothing and says so.
+	fresh := &failIdentityStore{MemStore: store.NewMemStore(), armed: true}
+	var freshOut strings.Builder
+	if err := Adopt(ctx, &freshOut, fileAPI{root}, fresh, store.NewMemStore(), "", ""); err == nil {
+		t.Fatal("first pairing with failing lineage write succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
+		t.Errorf("refusal names no cause: %v", err)
 	}
 }
 

@@ -55,14 +55,18 @@ func buildMetrics(m metric.Meter) error {
 	// named example — not a real queue.
 	_, err = m.Float64ObservableGauge("kpr.example.queue_depth",
 		metric.WithDescription("Example synthetic gauge proving the metrics path moves."),
-		metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
-			o.Observe(demoQueueDepth(time.Now()), metric.WithAttributes(
-				attribute.String("queue", "demo"),
-			))
-			return nil
-		}),
+		metric.WithFloat64Callback(observeDemoQueue),
 	)
 	return err
+}
+
+// observeDemoQueue is the gauge callback, named so the observation
+// is unit-testable without a collection cycle.
+func observeDemoQueue(_ context.Context, o metric.Float64Observer) error {
+	o.Observe(demoQueueDepth(time.Now()), metric.WithAttributes(
+		attribute.String("queue", "demo"),
+	))
+	return nil
 }
 
 // demoQueueDepth is the synthetic gauge value: seconds since epoch

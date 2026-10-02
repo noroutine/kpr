@@ -237,6 +237,107 @@ func TestDiscardPlanOnDeadStoreFails(t *testing.T) {
 	}
 }
 
+// Same-repo due rows sort by tag: the comparator's second leg must
+// order deterministically. If this fails, same-repo plans print in
+// insertion order.
+func TestListPlanSortsTagsWithinRepo(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "solo", Tag: "z", Digest: "sha256:1", PushedAt: keeperNow})
+	_ = s.Record(c, policy.Row{Repo: "solo", Tag: "a", Digest: "sha256:2", PushedAt: keeperNow})
+	_ = s.MarkDue(c, "solo", "z", "manual")
+	_ = s.MarkDue(c, "solo", "a", "manual")
+	due, err := ListPlan(c, s)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(due) != 2 || due[0].Tag != "a" || due[1].Tag != "z" {
+		t.Errorf("plan = %v, want tag order a,z", dueNames(t, s))
+	}
+}
+
+// allFailStore loses the row table on read: listing and adding
+// against dead state must fail, never print or mark.
+type allFailStore struct {
+	*store.MemStore
+}
+
+func (allFailStore) All(context.Context) ([]policy.Row, error) {
+	return nil, errTestDown
+}
+
+// planMarkFailStore loses the mark write mid-add.
+type planMarkFailStore struct {
+	*store.MemStore
+}
+
+func (planMarkFailStore) MarkDue(context.Context, string, string, string) error {
+	return errTestDown
+}
+
+// unmarkFailStore loses the unmark write mid-remove.
+type unmarkFailStore struct {
+	*store.MemStore
+}
+
+func (unmarkFailStore) UnmarkDue(context.Context, string, string) (bool, error) {
+	return false, errTestDown
+}
+
+// Adding against dead state fails naming redis: no evaluation
+// without rows. If this fails, a down store adds against the empty
+// world.
+func TestAddPlanOnDeadStoreFails(t *testing.T) {
+	if _, err := AddPlan(context.Background(), &allFailStore{store.NewMemStore()}, []string{"app:*"}); err == nil {
+		t.Error("add on dead store succeeded, want an error")
+	} else if !strings.Contains(err.Error(), "redis unreachable") {
+		t.Errorf("refusal = %q, want redis named", err.Error())
+	}
+}
+
+// A mark write that fails fails the add: partial plans never
+// report success. If this fails, a down store marks on paper.
+func TestAddPlanMarkFailureSurfaces(t *testing.T) {
+	s := &planMarkFailStore{planStage()}
+	if _, err := AddPlan(context.Background(), s, []string{"scratch:*"}); err == nil {
+		t.Error("add with failing marks succeeded, want an error")
+	} else if !strings.Contains(err.Error(), "redis unreachable") {
+		t.Errorf("refusal = %q, want redis named", err.Error())
+	}
+}
+
+// An unparseable pattern refuses before any read: the plan never
+// half-evaluates. If this fails, a typo'd regex lists the world.
+func TestRemovePlanBadPatternRefuses(t *testing.T) {
+	if _, err := RemovePlan(context.Background(), planStage(), []string{"regex:(["}); err == nil {
+		t.Error("remove with bad pattern succeeded, want refusal")
+	}
+}
+
+// Removing against dead state fails naming redis. If this fails, a
+// down store removes from the empty world.
+func TestRemovePlanOnDeadStoreFails(t *testing.T) {
+	if _, err := RemovePlan(context.Background(), &dueFailStore{store.NewMemStore()}, []string{"app:*"}); err == nil {
+		t.Error("remove on dead store succeeded, want an error")
+	} else if !strings.Contains(err.Error(), "redis unreachable") {
+		t.Errorf("refusal = %q, want redis named", err.Error())
+	}
+}
+
+// An unmark write that fails fails the remove: the mark stays and
+// the operator hears it. If this fails, a down store unmarks on
+// paper.
+func TestRemovePlanUnmarkFailureSurfaces(t *testing.T) {
+	s := planStage()
+	c := context.Background()
+	_ = s.MarkDue(c, "scratch", "10m", "manual")
+	if _, err := RemovePlan(c, &unmarkFailStore{s}, []string{"scratch:*"}); err == nil {
+		t.Error("remove with failing unmarks succeeded, want an error")
+	} else if !strings.Contains(err.Error(), "redis unreachable") {
+		t.Errorf("refusal = %q, want redis named", err.Error())
+	}
+}
+
 // Listing against dead state fails naming redis instead of printing
 // an empty plan: "nothing due" must mean empty, never unreadable.
 func TestListPlanOnDeadStoreFails(t *testing.T) {

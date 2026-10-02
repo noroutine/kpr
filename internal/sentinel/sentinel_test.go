@@ -226,3 +226,65 @@ func TestWriteValidatesNames(t *testing.T) {
 		}
 	}
 }
+
+// Each mint stage refuses loudly on a blocked filesystem: a
+// half-laid generation must never read as success. The block moves
+// per stage — blobs, side links, the floater switch, the rename —
+// so every error return proves itself. If this fails, a full disk
+// mints silently.
+func TestWriteRefusesBlockedStages(t *testing.T) {
+	payload := Payload{V: 1, Gen: "0193abcd-0000-7000-8000-000000000007", ID: testIdentity,
+		TS: "2026-09-30T11:00:00Z", Writer: "test"}
+	// block plants a file where a directory must go: every
+	// MkdirAll below it fails, refusing the stage that needs it.
+	block := func(t *testing.T, root, sub string) {
+		t.Helper()
+		p := filepath.Join(root, sub)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage parent: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("in the way"), 0o644); err != nil {
+			t.Fatalf("stage block: %v", err)
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		sabot string
+	}{
+		// A file where the blob tree goes blocks the first blob.
+		{"blobs blocked", filepath.Join("docker", "registry", "v2", "blobs")},
+		// Blobs fine, a file where the layer links go blocks them.
+		{"links blocked", filepath.Join("docker", "registry", "v2", "repositories",
+			Repo, "_layers")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			block(t, root, tc.sabot)
+			if _, err := Write(root, Repo, Tag, payload); err == nil {
+				t.Errorf("Write over %s succeeded, want refusal", tc.sabot)
+			}
+		})
+	}
+	// Blobs and side links fine, the floater switch blocked: the
+	// generation links exist but the tag never moves.
+	t.Run("floater blocked", func(t *testing.T) {
+		root := t.TempDir()
+		block(t, root, filepath.Join("docker", "registry", "v2", "repositories",
+			Repo, "_manifests", "tags", Tag, "current"))
+		if _, err := Write(root, Repo, Tag, payload); err == nil {
+			t.Error("Write with blocked floater succeeded, want refusal")
+		}
+	})
+	// Everything writable, the final rename refused: a directory
+	// where the floater link lands breaks the switch last.
+	t.Run("rename refused", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "docker", "registry", "v2",
+			"repositories", Repo, "_manifests", "tags", Tag, "current", "link"), 0o755); err != nil {
+			t.Fatalf("stage link dir: %v", err)
+		}
+		if _, err := Write(root, Repo, Tag, payload); err == nil {
+			t.Error("Write with unswitchable floater succeeded, want refusal")
+		}
+	})
+}

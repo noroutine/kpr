@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -97,6 +98,60 @@ func TestReadRefusesUnexplained(t *testing.T) {
 	} {
 		if _, _, err := Read(context.Background(), tc.api, Repo, Tag); err == nil {
 			t.Errorf("%s read clean, want refusal", tc.name)
+		}
+	}
+}
+
+// Empty names refuse before any read: no port is touched, nothing
+// is guessed. If this fails, a miswired caller reads the world.
+func TestReadRefusesEmptyNames(t *testing.T) {
+	api := &stubAPI{manifest: []byte(`{}`), blob: []byte(`{}`)}
+	for _, tc := range [][2]string{{"", Tag}, {Repo, ""}, {"", ""}} {
+		if _, _, err := Read(context.Background(), api, tc[0], tc[1]); err == nil {
+			t.Errorf("Read(%q, %q) clean, want refusal", tc[0], tc[1])
+		} else if !strings.Contains(err.Error(), "empty repo or tag") {
+			t.Errorf("refusal = %q, want the names named", err.Error())
+		}
+	}
+}
+
+// blobFailAPI answers manifests but fails blobs: a registry that
+// lists what it cannot serve. The read refuses at the blob leg,
+// not with a parse error for bytes never received. If this fails,
+// a half-serving registry reads as corrupt instead of down.
+type blobFailAPI struct {
+	manifest []byte
+	err      error
+}
+
+func (s *blobFailAPI) GetManifest(context.Context, string, string) ([]byte, error) {
+	return s.manifest, nil
+}
+
+func (s *blobFailAPI) GetBlob(context.Context, string, string) ([]byte, error) {
+	return nil, s.err
+}
+
+func TestReadRefusesBlobFailure(t *testing.T) {
+	api := &blobFailAPI{
+		manifest: []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc","size":1}}`),
+		err:      errors.New("connection reset"),
+	}
+	if _, _, err := Read(context.Background(), api, Repo, Tag); err == nil {
+		t.Fatal("blob failure read clean, want refusal")
+	} else if !strings.Contains(err.Error(), "connection reset") {
+		t.Errorf("refusal = %q, want the blob cause", err.Error())
+	}
+}
+
+// The mismatch message names repo, tag, served, and want: the
+// operator learns what to adopt without re-reading the store. If
+// this fails, mismatch reports degenerate to "wrong".
+func TestMismatchNamesAllFour(t *testing.T) {
+	err := (&Mismatch{Repo: "r", Tag: "t", Got: "g1", Want: "g2"}).Error()
+	for _, want := range []string{"r", "t", "g1", "g2"} {
+		if !strings.Contains(err, want) {
+			t.Errorf("mismatch message %q lacks %q", err, want)
 		}
 	}
 }

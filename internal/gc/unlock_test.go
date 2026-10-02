@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -295,5 +296,140 @@ func TestUnlockMintsStoredIdentity(t *testing.T) {
 	}
 	if served.ID != ident.ID {
 		t.Errorf("unlock proof carries %q, store paired to %q", served.ID, ident.ID)
+	}
+}
+
+// errUnlockStore fails the intent marker: the backend-outage
+// stand-in for the lock flag.
+type errUnlockStore struct{ err error }
+
+func (e errUnlockStore) SetUnlocked(context.Context, bool) error { return e.err }
+
+// A config with no filesystem root refuses before the clock check:
+// unlock proves a local store or nothing. If this fails, unlock
+// mints against a layout it cannot prove local.
+func TestUnlockS3ConfigRefuses(t *testing.T) {
+	_, root, _ := stageProvenRun(t)
+	s3cfg := t.TempDir() + "/config.yml"
+	if err := os.WriteFile(s3cfg, []byte("storage:\n  s3:\n    bucket: blobs\n"), 0o644); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	s := store.NewMemStore()
+	var out strings.Builder
+	if err := Unlock(context.Background(), &out, fileAPI{root}, s3cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
+		t.Fatal("unlock with s3 config succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "no filesystem storage root") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// An NTP warning that cannot print fails unlock: the ceremony is
+// manual, and its warnings are mandatory. If this fails, an
+// air-gapped unlock proceeds with no trace of the missed clock.
+func TestUnlockUnreachableWarnWriteFailureSurfaces(t *testing.T) {
+	cfg, root, _ := stageProvenRun(t)
+	s := store.NewMemStore()
+	stagePairedGen(t, s, root)
+	w := errWriter{errTestStoreDown}
+	if err := Unlock(context.Background(), w, fileAPI{root}, cfg, s, s, s, s, stubClock{err: errClockUnreachable}, "time.example.com"); err == nil {
+		t.Fatal("unlock with dead output succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("failure names no output cause: %v", err)
+	}
+}
+
+// Untracked state refuses before the verdict, same as gc: silence
+// means stranger, empty, or down. If this fails, a backend outage
+// at the rows reads as a clean store.
+func TestUnlockTrackedStateFailureRefuses(t *testing.T) {
+	cfg, root, _ := stageProvenRun(t)
+	s := store.NewMemStore()
+	rows := failRows{MemStore: s, allErr: errTestStoreDown}
+	var out strings.Builder
+	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, s, rows, stubClock{}, "time.example.com"); err == nil {
+		t.Fatal("unlock with unreadable rows succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "tracked state unreadable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// An unreadable lineage refuses before the verdict for the same
+// reason. If this fails, a backend outage at the lineage unlocks
+// against an unknown pairing.
+func TestUnlockLineageFailureRefuses(t *testing.T) {
+	cfg, root, _ := stageProvenRun(t)
+	s := store.NewMemStore()
+	ids := errIdentityStore{errTestStoreDown}
+	var out strings.Builder
+	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, ids, s, stubClock{}, "time.example.com"); err == nil {
+		t.Fatal("unlock with unreadable lineage succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "lineage unreadable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A re-mint warning that cannot print fails unlock: a wiped tag is
+// an incident, and the incident must print. If this fails, the
+// recovery proceeds with no trace of the wipe.
+func TestUnlockEstablishWarnWriteFailureSurfaces(t *testing.T) {
+	cfg, root, _ := stageProvenRun(t)
+	s := store.NewMemStore()
+	ctx := context.Background()
+	if err := s.SetIdentity(ctx, store.Identity{ID: newGenID(t)}); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	w := errWriter{errTestStoreDown}
+	if err := Unlock(ctx, w, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
+		t.Fatal("re-establish with dead output succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("failure names no output cause: %v", err)
+	}
+}
+
+// An unrecordable pairing refuses after the proof window: same
+// orphan rule as gc. If this fails, a backend outage mid-ceremony
+// reads as paired.
+func TestUnlockLineageWriteFailureRefuses(t *testing.T) {
+	cfg, root, _ := stageProvenRun(t)
+	s := store.NewMemStore()
+	ids := &failIdentityStore{MemStore: store.NewMemStore(), armed: true}
+	var out strings.Builder
+	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, ids, s, stubClock{}, "time.example.com"); err == nil {
+		t.Fatal("unlock with unrecordable lineage succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
+		t.Errorf("refusal names no cause: %v", err)
+	}
+}
+
+// A generation the keep-N log cannot take fails unlock loudly: the
+// proof is held but untracked. If this fails, a backend outage at
+// the log litters silently.
+func TestUnlockMintRecordFailureRefuses(t *testing.T) {
+	cfg, root, _ := stageProvenRun(t)
+	s := store.NewMemStore()
+	rec := errRecorder{errTestStoreDown}
+	var out strings.Builder
+	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, rec, s, s, stubClock{}, "time.example.com"); err == nil {
+		t.Fatal("unlock with failing keep-N log succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "generation went untracked") {
+		t.Errorf("failure names no cause: %v", err)
+	}
+}
+
+// An intent marker that cannot flip fails unlock loudly: the proof
+// is held and tracked, but writes stay closed. If this fails, a
+// backend outage at the marker reads as unlocked.
+func TestUnlockMarkerFailureRefuses(t *testing.T) {
+	cfg, root, _ := stageProvenRun(t)
+	s := store.NewMemStore()
+	st := errUnlockStore{errTestStoreDown}
+	var out strings.Builder
+	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, st, s, s, s, stubClock{}, "time.example.com"); err == nil {
+		t.Fatal("unlock with failing marker succeeded, want failure")
+	} else if !strings.Contains(err.Error(), "intent marker failed") {
+		t.Errorf("failure names no cause: %v", err)
+	}
+	if ok, err := s.IsUnlocked(context.Background()); err != nil || ok {
+		t.Fatalf("post-failure IsUnlocked = (%v, %v), want (false, nil)", ok, err)
 	}
 }

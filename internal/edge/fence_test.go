@@ -548,6 +548,105 @@ func putManifest(frontURL string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
+// A lease that cannot land refuses the take: gc must hear the
+// failure instead of collecting unfenced. If this fails, a gc
+// collects while believing pushes are held.
+func TestHoldRefusesBadDir(t *testing.T) {
+	h := HoldFile{Dir: filepath.Join(t.TempDir(), "no-such-dir")}
+	if _, err := h.Hold(context.Background(), time.Now().Add(time.Minute)); err == nil {
+		t.Error("Hold into a missing dir succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "write hold lease") {
+		t.Errorf("refusal = %q, want the write named", err.Error())
+	}
+}
+
+// No HOLD source means no HOLD waits: an empty dir skips the
+// lease logic entirely and goes straight to the lock evaluation.
+// If this fails, sourceless gates consult phantom leases.
+func TestGateWithoutHoldSourceSkipsLease(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer backend.Close()
+
+	st := store.NewMemStore()
+	if err := st.SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	g := &Gate{Store: st}
+	front := httptest.NewServer(gateHandler(t, backend.URL, g))
+	defer front.Close()
+
+	resp, err := putManifest(front.URL)
+	if err != nil {
+		t.Fatalf("PUT = %v, want 201", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("sourceless PUT status = %d, want 201", resp.StatusCode)
+	}
+}
+
+// A gone client stops waiting: the sleeper returns unfenced-false
+// instead of serving the term. If this fails, disconnects pile up
+// behind dead leases.
+func TestWaitReleaseStopsOnDisconnect(t *testing.T) {
+	g := &Gate{Dir: t.TempDir()}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r, err := http.NewRequestWithContext(ctx, http.MethodPut, "/v2/x/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if expired := g.waitRelease(r, time.Now().Add(time.Hour)); expired {
+		t.Error("waitRelease on a gone client reported expired, want false (stop, don't tell)")
+	}
+}
+
+// The expiry re-read consults the file under a divergent clock:
+// the waiter's real clock says past, the gate clock says the lease
+// is still live, and the file breaks the tie toward honoring it.
+// If this fails, clock divergence between waiter and gate reports
+// phantom overruns.
+func TestWaitReleaseRereadsAtExpiry(t *testing.T) {
+	dir := t.TempDir()
+	h := HoldFile{Dir: dir}
+	release, err := h.Hold(context.Background(), time.Now().Add(50*time.Millisecond))
+	if err != nil {
+		t.Fatalf("Hold: %v", err)
+	}
+	defer release()
+	g := &Gate{Dir: dir, Now: func() time.Time { return time.Now().Add(-time.Hour) }}
+	r, err := http.NewRequest(http.MethodPut, "/v2/x/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if expired := g.waitRelease(r, time.Now().Add(50*time.Millisecond)); expired {
+		t.Error("waitRelease with a live lease reported expired, want the lease honored")
+	}
+}
+
+// The default clock is the wall: an unpinned gate reads time.Now.
+// If this fails, gates without pins read zero time and every lease
+// looks expired.
+func TestGateNowDefaultsToWall(t *testing.T) {
+	if got := (&Gate{}).now(); time.Since(got) > time.Minute {
+		t.Errorf("unpinned now = %v, want the wall clock", got)
+	}
+}
+
+// Flip events do not need a store: a storeless gate still emits
+// the flip for the report path, skipping only the ring write. If
+// this fails, storeless gates panic on the ring.
+func TestEmitWithoutStoreSkipsRing(t *testing.T) {
+	var events []gc.Event
+	g := &Gate{Report: func(e gc.Event) { events = append(events, e) }}
+	g.flipHeld(true, "held for test")
+	if len(events) != 1 || events[0].Stage != StageHoldEngage {
+		t.Errorf("events = %v, want the hold_engage flip", events)
+	}
+}
+
 func lockedGate(dir string, report func(e gc.Event)) *Gate {
 	st := store.NewMemStore()
 	if err := st.SetUnlocked(context.Background(), false); err != nil {

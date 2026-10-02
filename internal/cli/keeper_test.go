@@ -1,18 +1,25 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
@@ -687,6 +694,251 @@ func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
 	s, stub := pairedSweepStore(t)
 	if err := runSweep(cliCtx(), &failAfterWriter{}, s, stub, false); err == nil {
 		t.Error("sweep into failing pipe succeeded, want an error")
+	}
+}
+
+// An unreadable marker voices unknown, never locked: the operator
+// must not revoke on a read error. If this fails, an outage reads
+// as intent.
+func TestLockStateUnknownOnOutage(t *testing.T) {
+	if got := lockState(cliCtx(), deadStore{}); got != "unknown" {
+		t.Errorf("lockState on outage = %q, want unknown", got)
+	}
+	if got := lockState(cliCtx(), store.NewMemStore()); got != "locked" {
+		t.Errorf("fresh lockState = %q, want locked (born locked)", got)
+	}
+}
+
+// The backend name voices file with its dir, redis otherwise: the
+// refusal names what the operator must fix. If this fails, outages
+// blame the wrong backend.
+func TestStoreNamesVoiceBackend(t *testing.T) {
+	dir := t.TempDir()
+	if got := storeName(store.NewFileStore(dir)); got != "file store" {
+		t.Errorf("storeName(file) = %q, want file store", got)
+	}
+	if got := storeName(store.NewMemStore()); got != "redis" {
+		t.Errorf("storeName(other) = %q, want redis", got)
+	}
+	if got := describeStore(store.NewFileStore(dir), nil); got != "file ("+dir+")" {
+		t.Errorf("describeStore(file) = %q, want file with dir", got)
+	}
+}
+
+// An unreadable proof voices unproven, and an undated generation
+// voices its name without an age: presence without timing is still
+// presence. If this fails, outages read as proofs (or proofs hide).
+func TestProofStateVoicesUnproven(t *testing.T) {
+	if got := proofState(cliCtx(), nil); got != "unproven" {
+		t.Errorf("proofState(nil) = %q, want unproven", got)
+	}
+	broken := stubProofAPI{err: errors.New("connection refused")}
+	if got := proofState(cliCtx(), broken); got != "unproven" {
+		t.Errorf("proofState(outage) = %q, want unproven", got)
+	}
+	undated := stubProofAPI{ts: "not-a-time", id: "id-1"}
+	if got := proofState(cliCtx(), undated); got != "019-proof" {
+		t.Errorf("proofState(undated) = %q, want the gen without age", got)
+	}
+}
+
+// An empty plan says so: "nothing due" must mean empty, never
+// unreadable. If this fails, clean stores print blank.
+func TestPlanEmptySaysNothingDue(t *testing.T) {
+	var out bytes.Buffer
+	if err := runPlan(cliCtx(), &out, store.NewMemStore(), false); err != nil {
+		t.Fatalf("plan on empty store: %v", err)
+	}
+	if got := out.String(); got != "nothing due\n" {
+		t.Errorf("plan = %q, want the empty line", got)
+	}
+}
+
+// Discarding against dead state fails naming redis: zero must mean
+// empty, never unreadable. If this fails, an outage discards on
+// paper.
+func TestDiscardPlanOnOutageFails(t *testing.T) {
+	if err := runDiscardPlan(cliCtx(), io.Discard, deadStore{}); err == nil {
+		t.Error("discard on outage succeeded, want an error")
+	}
+}
+
+// Conflicting backend env refuses with the conflict named: guessing
+// state wrong is worse than not booting. If this fails, file+redis
+// together pick one silently.
+func TestOpenStoreRefusesConflictingBackend(t *testing.T) {
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
+	cfg := config.NewBuilder().FromEnv().Build()
+	if _, err := OpenStore(cfg); err == nil {
+		t.Error("OpenStore on conflicting backend succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "conflicts") {
+		t.Errorf("refusal = %q, want the conflict named", err.Error())
+	}
+}
+
+// A file backend rooted at a non-directory refuses naming the dir:
+// the operator learns the path is wrong, not that redis is down.
+// If this fails, a bad store dir blames redis.
+func TestOpenStoreRefusesBadFileDir(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, []byte("in the way"), 0o644); err != nil {
+		t.Fatalf("stage blocker: %v", err)
+	}
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, blocker)
+	cfg := config.NewBuilder().FromEnv().Build()
+	if _, err := OpenStore(cfg); err == nil {
+		t.Error("OpenStore on file-backed dir succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), blocker) {
+		t.Errorf("refusal = %q, want the dir named", err.Error())
+	}
+}
+
+// fakeRedis answers just enough RESP for a go-redis Ping: HELLO
+// gets an empty map, PING pongs, anything else oks. A real redis is
+// a test dependency nobody wants; this proves OpenStore dials and
+// selects, not the wire grammar.
+func fakeRedis(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go serveFakeRedisConn(c)
+		}
+	}()
+	return ln.Addr().String()
+}
+
+func serveFakeRedisConn(c net.Conn) {
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	r := bufio.NewReader(c)
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return
+		}
+		if !strings.HasPrefix(line, "*") {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "*")))
+		if err != nil {
+			return
+		}
+		var first string
+		for i := range n {
+			ln, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			m, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(ln, "$")))
+			if err != nil {
+				return
+			}
+			buf := make([]byte, m+2)
+			if _, err := io.ReadFull(r, buf); err != nil {
+				return
+			}
+			if i == 0 {
+				first = string(buf[:m])
+			}
+		}
+		switch strings.ToUpper(first) {
+		case "HELLO":
+			_, _ = c.Write([]byte("%0\r\n"))
+		case "PING":
+			_, _ = c.Write([]byte("+PONG\r\n"))
+			return
+		default:
+			_, _ = c.Write([]byte("+OK\r\n"))
+		}
+	}
+}
+
+// Opening redis state against an answering cache succeeds: the
+// success return is a real path, not a hope. If this fails, every
+// redis deploy refuses at boot.
+func TestOpenStoreRedisSuccess(t *testing.T) {
+	addr := fakeRedis(t)
+	cfg := config.NewBuilder().WithRedisAddr(addr).Build()
+	s, err := OpenStore(cfg)
+	if err != nil {
+		t.Fatalf("OpenStore on answering redis: %v", err)
+	}
+	_ = s.Close()
+}
+
+// Command tails run the real RunE against a file backend: open,
+// render, close — the wiring no unit covers. Each command gets one
+// hermetic pass; refusals already pin the failure paths. If any of
+// these fail, the command is unwired (flags, deps, or close).
+func TestCommandTailsRunAgainstFileBackend(t *testing.T) {
+	dir := t.TempDir()
+	srv := serveRegistry(t, t.TempDir(), false)
+	defer srv.Close()
+	for _, tc := range []struct {
+		name   string
+		target *cobra.Command
+		args   []string
+		want   string
+	}{
+		{"status", statusCmd, nil, "registry:"},
+		{"plan", planCmd, nil, "nothing due"},
+		{"discard", planDiscardCmd, nil, "nothing due"},
+		{"sweep", sweepCmd, nil, "sweep "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := runLockCmd(t, dir, srv.URL, tc.target)
+			if err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("%s output lacks %q:\n%s", tc.name, tc.want, out)
+			}
+		})
+	}
+}
+
+// Every keeper command refuses without state: one bad backend
+// exercises every RunE's open failure. If this fails, a command
+// invents numbers without a backend.
+func TestKeeperCommandsRefuseBadBackend(t *testing.T) {
+	t.Setenv(config.EnvStore, "bogus-backend")
+	for _, target := range []*cobra.Command{statusCmd, planCmd, planDiscardCmd, sweepCmd, gcCmd, lockCmd} {
+		var buf bytes.Buffer
+		target.SetOut(&buf)
+		defer target.SetOut(nil)
+		target.SetContext(context.Background())
+		if err := target.RunE(target, nil); err == nil {
+			t.Errorf("%s on bad backend succeeded, want refusal", target.Use)
+		}
+	}
+}
+
+// Execute exits 1 on usage failure: the production entrypoint's
+// failure mode, pinned via a child process (the parent only asserts
+// the exit). If this fails, CLI misuse exits 0 and scripts proceed.
+func TestExecuteExitsOneOnUsageError(t *testing.T) {
+	if os.Getenv("KPR_EXEC_CHILD") == "1" {
+		RootCmd.SetArgs([]string{"bogus-command"})
+		Execute()
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestExecuteExitsOneOnUsageError")
+	cmd.Env = append(os.Environ(), "KPR_EXEC_CHILD=1")
+	if err := cmd.Run(); err == nil {
+		t.Fatal("bogus command exited 0, want exit 1")
+	} else if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+		t.Fatalf("bogus command err = %v, want exit 1", err)
 	}
 }
 

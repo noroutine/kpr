@@ -226,3 +226,145 @@ func TestFetchStatusDegradesWithoutBackends(t *testing.T) {
 		t.Errorf("prober-down status = %+v, want store ok and registry red", st)
 	}
 }
+
+// readFailStore answers Ping but loses the rows: a store that is up
+// but unreadable. Status must flip red, not print a healthy empty.
+type readFailStore struct {
+	*store.MemStore
+}
+
+func (readFailStore) All(context.Context) ([]policy.Row, error) {
+	return nil, errTestDown
+}
+
+// activityFailStore tracks fine but loses the activity ring: the
+// rows print, the outcomes stay empty.
+type activityFailStore struct {
+	*store.MemStore
+}
+
+func (activityFailStore) Activity(context.Context) ([]store.Outcome, error) {
+	return nil, errTestDown
+}
+
+// A store that pings but cannot list flips the status red: up is
+// not readable. If this fails, a half-dead backend reports a
+// healthy empty store.
+func TestFetchStatusStoreUnreadableDegrades(t *testing.T) {
+	st := FetchStatus(keeperCtx(), &readFailStore{store.NewMemStore()}, stubProber{})
+	if st.StoreOK {
+		t.Errorf("unreadable status = %+v, want StoreOK red", st)
+	}
+	if st.Tracked != 0 || st.Due != 0 || len(st.Plan) != 0 {
+		t.Errorf("unreadable status = %+v, want no rows or plan", st)
+	}
+}
+
+// Same-repo due rows sort by tag: the comparator's second leg must
+// order deterministically, not inherit row order. If this fails,
+// same-repo plans print in insertion order.
+func TestFetchStatusPlanSortsTagsWithinRepo(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "solo", Tag: "z", Digest: "sha256:a",
+		PushedAt: keeperNow, Due: true, Reason: "manual"})
+	_ = s.Record(c, policy.Row{Repo: "solo", Tag: "a", Digest: "sha256:b",
+		PushedAt: keeperNow, Due: true, Reason: "manual"})
+	st := FetchStatus(keeperCtx(), s, stubProber{})
+	if len(st.Plan) != 2 || st.Plan[0].Tag != "a" || st.Plan[1].Tag != "z" {
+		t.Errorf("plan = %+v, want tag order a,z within solo", st.Plan)
+	}
+}
+
+// Lost activity degrades the outcomes, not the rows: tracked and
+// due print, the outcome counts stay zero. If this fails, a lost
+// ring hides the rows with it.
+func TestFetchStatusActivityLossKeepsRows(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:a",
+		PushedAt: keeperNow, Due: true, Reason: "manual"})
+	st := FetchStatus(keeperCtx(), &activityFailStore{s}, stubProber{})
+	if !st.StoreOK || st.Tracked != 1 || st.Due != 1 || len(st.Plan) != 1 {
+		t.Errorf("activity-loss status = %+v, want rows intact", st)
+	}
+	if st.Performed != 0 || st.Planned != 0 || st.Failed != 0 || st.Untracked != 0 {
+		t.Errorf("activity-loss outcomes = %+v, want zeros", st)
+	}
+}
+
+// One path evaluates one policy or all: name "all" fans out to the
+// same joined evaluation the sweeper drives. If this fails, the CLI
+// and the sweeper evaluate different marks.
+func TestEvaluatePolicyAllFansOut(t *testing.T) {
+	s := untaggedStage()
+	one, err := EvaluatePolicy(keeperCtx(), s, stubCatalog{}, keeperNow, nil, "all")
+	if err != nil {
+		t.Fatalf("all: %v", err)
+	}
+	all, err := EvaluatePolicies(keeperCtx(), s, stubCatalog{}, keeperNow, nil)
+	if err != nil {
+		t.Fatalf("policies: %v", err)
+	}
+	if len(one) != len(all) {
+		t.Errorf("all = %d marks, policies = %d, want the same join", len(one), len(all))
+	}
+}
+
+// Evaluating against dead state fails naming redis: no evaluation
+// without rows. If this fails, a down store evaluates the empty
+// world as clean.
+func TestEvaluatePoliciesOnDeadStoreFails(t *testing.T) {
+	if _, err := EvaluatePolicies(keeperCtx(), &readFailStore{store.NewMemStore()},
+		stubCatalog{}, keeperNow, nil); err == nil {
+		t.Error("policies on dead store succeeded, want an error")
+	}
+}
+
+// A catalog that fails for one repo skips that repo's
+// catalog-dependent selectors: rows-only selectors still apply. If
+// this fails, one sick repo blinds every selector.
+func TestFetchCatalogsSkipsFailedRepo(t *testing.T) {
+	got := fetchCatalogs(keeperCtx(), stubCatalog{err: errTestDown},
+		[]policy.Row{{Repo: "gone"}, {Repo: "kept"}})
+	if len(got) != 0 {
+		t.Errorf("catalogs = %v, want none (failed repo skipped)", got)
+	}
+}
+
+// markFailStore evaluates fine but loses the mark write: redis down
+// between the read and the write.
+type markFailStore struct {
+	*store.MemStore
+}
+
+func (markFailStore) MarkDue(context.Context, string, string, string) error {
+	return errTestDown
+}
+
+// Marking against a dead store fails naming redis: the armed reap
+// must not report marks it never wrote. If this fails, a down store
+// reaps clean on paper.
+func TestReapArmedOnDeadStoreFails(t *testing.T) {
+	inner := store.NewMemStore()
+	c := context.Background()
+	_ = inner.Record(c, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
+		PushedAt: keeperNow.Add(-time.Hour)})
+	s := markFailStore{inner}
+	if _, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "expired", true); err == nil {
+		t.Error("armed reap on dead store succeeded, want an error")
+	} else if !strings.Contains(err.Error(), "redis unreachable") {
+		t.Errorf("refusal = %q, want redis named", err.Error())
+	}
+}
+
+// sortMarks orders same-repo marks by tag: the direct unit pin for
+// the comparator's second leg. If this fails, keep-N marks print in
+// map order within a repo.
+func TestSortMarksTagsWithinRepo(t *testing.T) {
+	out := []policy.Row{{Repo: "solo", Tag: "z"}, {Repo: "solo", Tag: "a"}}
+	sortMarks(out)
+	if out[0].Tag != "a" || out[1].Tag != "z" {
+		t.Errorf("marks = %v, want tag order a,z", out)
+	}
+}
