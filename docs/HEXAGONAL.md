@@ -166,6 +166,26 @@ past the sweeper — check whether epoch pruning belongs in
 `Sweeper` beside `Untrack`, or stands as the ceremony's own
 explicit exception.
 
+Separate outcome — serve/sweep split:
+
+- [a19aa03](https://nrtn.dev/catalyst/kpr/commit/a19aa03896d02a84581236a173ff9537a55cca98) — the sweeper lives in the CLI, `serve` serves endpoints.
+
+What happened: `kpr sweep` puppeteered the pass over HTTP
+(POST `/api/sweep` on the console, watch the summary come
+back) while `serve` owned the `Sweeper` — the driving adapter
+called sideways into another adapter instead of down into the
+use case.
+
+Problem: two owners of the pass boundary — the console held
+sweep state (`Sweeper` field, armed/dry-run card) it never
+decided, and the CLI couldn't run a pass without a server.
+
+Fix: `runSweep` builds the `Sweeper` and calls `RunPass`
+in-process (same outcome type, same print); the console drops
+the route, the field, and the posture card. Two guardrails
+lock it: the console 404s `/api/sweep`, and the degraded
+banner asserts no armed/dry-run wording.
+
 ### Miss 2 — no generation (open)
 
 What happened: the delete ties to no proven generation.
@@ -199,7 +219,7 @@ drives (signing name in brackets):
 |--------------|--------------|----------------|---------|--------|-------|--------------------|-----------------------------------------|
 | `gc` armed   | yes, per run | yes            | yes     | yes    | yes   | human (`gc`)       | mount + rows [`kpr-gc`]                 |
 | `unlock`     | yes          | yes            | sets it | yes    | no    | human (`unlock`)   | mount + marker [`kpr-unlock`]           |
-| sweeper pass | no           | yes, read gate | no¹     | no     | no    | human (`sweep`/POST) | registry + rows + activity [`kpr-sweep`] |
+| sweeper pass | no           | yes, read gate | no¹     | no     | no    | human (`sweep`)       | registry + rows + activity [`kpr-sweep`] |
 | `rm --untag` | no           | yes, token     | no      | no     | no    | human (`rm`)       | registry + rows + activity [`kpr-sweep`] |
 | `rm`         | no           | **no**         | no      | no     | no    | human (`rm`)       | rows + activity [`kpr-sweep`]            |
 | receiver in  | no           | no             | no      | no     | no    | registry push      | rows [`kpr-receiver`]                   |
