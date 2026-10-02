@@ -224,6 +224,17 @@ func (g *Gate) now() time.Time {
 	return time.Now()
 }
 
+// Snapshot reports the fence's current posture for the management
+// console: whether mutating traffic is denied (locked store) and
+// whether a HOLD lease is pinning it. Level-triggered state, not
+// the edge-triggered ring — the console shows what IS, the ring
+// shows what CHANGED.
+func (g *Gate) Snapshot() (deny, held bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.lastDeny, g.lastHeld
+}
+
 // flipHeld/flipDeny emit edge-triggered: one event plus one ring
 // outcome per change, never per request.
 func (g *Gate) flipHeld(held bool, msg string) {

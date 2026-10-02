@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -55,6 +56,32 @@ func TestKeeperBannerDegradedWithoutBackends(t *testing.T) {
 	for _, want := range []string{"Keeper", "dry-run", "unreachable"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q (degraded banner)", want)
+		}
+	}
+}
+
+// The gateway gets its own place: closed with no gate (disabled
+// or unproven edge), open with the live fence posture when serve
+// proves it. If this fails, the operator can't see whether pushes
+// are fenced.
+func TestGatewaySectionRendersPosture(t *testing.T) {
+	testConfig(t)
+	render := func(s *Server) string {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rr := httptest.NewRecorder()
+		s.indexHandler(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rr.Code)
+		}
+		return rr.Body.String()
+	}
+	if body := render(&Server{}); !strings.Contains(body, "Gateway") || !strings.Contains(body, "closed") {
+		t.Error("dashboard without a gate must render the gateway closed")
+	}
+	body := render(&Server{Edge: &edge.Gate{Store: store.NewMemStore()}})
+	for _, want := range []string{"Gateway", "open", "pass"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard with a gate missing %q (open fence)", want)
 		}
 	}
 }

@@ -283,7 +283,7 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
 		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
-		EnvRegistryURL, EnvEdgeAddr, EnvSweeperNoDryRun, EnvCLINoDryRun,
+		EnvRegistryURL, EnvEdgeAddr, EnvEdge, EnvSweeperNoDryRun, EnvCLINoDryRun,
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
 		EnvQuickwitURL, EnvJaegerURL, EnvGrafanaURL, EnvPrometheusURL,
@@ -340,5 +340,26 @@ func TestFromEnvZeroRedisDBSelectsZero(t *testing.T) {
 	cfg := NewBuilder().FromEnv().Build()
 	if cfg.RedisDB != 0 || cfg.RedisDBWarning != nil {
 		t.Errorf("DB 0 = %d/%v, want 0 with no warning", cfg.RedisDB, cfg.RedisDBWarning)
+	}
+}
+
+// The edge rides inside serve, enabled by default: only an explicit
+// opt-out closes it. Proof failure still refuses it (no proof, no
+// edge) — the switch selects intent, the proof selects safety. If
+// this fails, serve either drops its fence silently or refuses to
+// run naked when asked.
+func TestFromEnvEdgeDefaultsOn(t *testing.T) {
+	cfg := NewBuilder().FromEnv().Build()
+	if !cfg.EdgeEnabled {
+		t.Error("EdgeEnabled = false with KPR_EDGE unset, want default-on")
+	}
+}
+
+func TestFromEnvEdgeDisables(t *testing.T) {
+	for _, raw := range []string{"false", "0", "no"} {
+		t.Setenv(EnvEdge, raw)
+		if cfg := NewBuilder().FromEnv().Build(); cfg.EdgeEnabled {
+			t.Errorf("EdgeEnabled = true with KPR_EDGE=%q, want false", raw)
+		}
 	}
 }

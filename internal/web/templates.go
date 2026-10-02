@@ -95,6 +95,23 @@ const indexTemplate = `<!DOCTYPE html>
     </div>
 
     <div class="section">
+        <h2>🚪 Gateway</h2>
+        <div class="grid">
+            <div class="card">
+                <div class="label">Edge</div>
+                <div class="value">{{ if .Keeper.EdgeOpen }}open{{ else }}closed{{ end }}</div>
+            </div>
+            {{ if .Keeper.EdgeOpen }}
+            <div class="card">
+                <div class="label">Fence</div>
+                <div class="value">{{ if .Keeper.EdgeDeny }}deny{{ else }}pass{{ end }}</div>
+                <div class="meta">{{ if .Keeper.EdgeHeld }}hold lease pinning writes{{ else }}no hold lease{{ end }}</div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+
+    <div class="section">
         <h2>🗄️ State</h2>
         <div class="grid">
             <div class="card stat-card">

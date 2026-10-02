@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -14,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/app"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/edge"
+	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -23,8 +26,8 @@ import (
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Start both management console and application servers",
-	Long:  `Start the kpr servers: management console on port 9300 and application server on port 8080.`,
+	Short: "Start management console, application server, and registry edge",
+	Long:  `Start the kpr servers: management console on port 9300, application server on port 8080, and the transparent registry edge proxy on the edge address (KPR_EDGE_ADDR, :5000). The edge opens only on a RelativeURLs proof over --config: KPR_EDGE=false opts out, a failed proof closes it loudly, and neither stops the other servers.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Resolve configuration once: environment first, explicit flags
 		// win (an unset flag already carries the env value as its
@@ -99,8 +102,31 @@ var serveCmd = &cobra.Command{
 		// unreachable or remote peers stay silent.
 		warnIfAirPlaySquats(cfg)
 
+		// The edge rides inside serve, not as its own command: the
+		// switch selects intent, the RelativeURLs proof selects
+		// safety, and a closed edge is a loud line — never a boot
+		// refusal for the servers below.
+		var edgeGate *edge.Gate
+		var edgeHandler http.Handler
+		if cfg.EdgeEnabled {
+			holdDir := ""
+			if backend == "file" {
+				holdDir = storeDir
+			}
+			gate, h, gerr := buildEdge(keeperStore, cfg.RegistryURL, serveConfigPath, holdDir, func(e gc.Event) {
+				log.Printf("edge fence: %s %s", e.Stage, e.Message)
+			})
+			if gerr != nil {
+				log.Printf("edge closed: no RelativeURLs proof (%v) — pushes bypass the fence", gerr)
+			} else {
+				edgeGate, edgeHandler = gate, h
+			}
+		} else {
+			log.Printf("edge disabled (KPR_EDGE=false): pushes bypass the fence")
+		}
+
 		var wg sync.WaitGroup
-		errors := make(chan error, 3)
+		errors := make(chan error, 4)
 
 		// Sweeper loop: sweep-on-start (a restart doesn't wait a full
 		// interval) plus the tick backstop.
@@ -130,6 +156,9 @@ var serveCmd = &cobra.Command{
 				Sentinel: regClient,
 				Sweeper:  sweeper,
 				Armed:    cfg.SweeperNoDryRun,
+				// Nil when the edge is disabled or unproven: the
+				// console renders it closed, never 500.
+				Edge: edgeGate,
 			}
 			addr := net.JoinHostPort(managementHost, fmt.Sprintf("%d", managementPort))
 			log.Printf("Starting management console on %s", addr)
@@ -153,6 +182,25 @@ var serveCmd = &cobra.Command{
 			log.Printf("Starting application server on %s", addr)
 			errors <- appServer.Start(ctx)
 		}()
+
+		// Start edge proxy (only when proven above)
+		if edgeHandler != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				srv := &http.Server{Addr: cfg.EdgeAddr, Handler: edgeHandler}
+				go func() {
+					<-ctx.Done()
+					_ = srv.Close()
+				}()
+				log.Printf("edge on %s -> %s", cfg.EdgeAddr, cfg.RegistryURL)
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					errors <- err
+				} else {
+					errors <- nil
+				}
+			}()
+		}
 
 		// Wait for shutdown signal or error
 		select {

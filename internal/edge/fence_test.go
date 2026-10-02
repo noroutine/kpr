@@ -507,6 +507,28 @@ func TestGateEmitsOnDenyFlips(t *testing.T) {
 	}
 }
 
+// Snapshot is the console's level reading of the edge-triggered
+// fence: deny/held reflect the last flip, whatever drove it. If
+// this fails, the console reports a posture the fence doesn't hold.
+func TestGateSnapshotTracksFlips(t *testing.T) {
+	g := &Gate{Store: store.NewMemStore()}
+	if deny, held := g.Snapshot(); deny || held {
+		t.Fatalf("fresh Snapshot = (%v,%v), want (false,false)", deny, held)
+	}
+	g.flipDeny(true, "locked")
+	if deny, held := g.Snapshot(); !deny || held {
+		t.Fatalf("denied Snapshot = (%v,%v), want (true,false)", deny, held)
+	}
+	g.flipHeld(true, "hold")
+	if deny, held := g.Snapshot(); !deny || !held {
+		t.Fatalf("held Snapshot = (%v,%v), want (true,true)", deny, held)
+	}
+	g.flipDeny(false, "unlocked")
+	if deny, held := g.Snapshot(); deny || !held {
+		t.Fatalf("released Snapshot = (%v,%v), want (false,true)", deny, held)
+	}
+}
+
 type errLocker struct {
 	err error
 }

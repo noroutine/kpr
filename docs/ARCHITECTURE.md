@@ -27,7 +27,9 @@ the file alternative is in [docs/STORES.md](STORES.md).
 
 ```mermaid
 flowchart TB
-    dev[docker push] --> dist[distribution\nstock registry]
+    dev[docker push] --> edge{{gateway\nedge proxy in kpr serve}}
+    edge -- forward + HOLD/DENY fence --> dist[distribution\nstock registry]
+    redis -- lock marker --> edge
     dist -- notifications --> recv{{receiver\nin kpr serve}}
     recv -- records rows --> redis[(redis\nthe shared state)]
     sweep[sweeper\nin kpr serve] <-- reads due rows --> redis
@@ -56,8 +58,20 @@ flowchart TB
 Hexagons are the recording paths: the receiver signs
 `kpr-receiver`, `gc` signs `kpr-gc` (mints) and `kpr-heal`
 (adopt-recorded generations land via gc runs), the ceremony signs
-`kpr-unlock`. (`kpr-backfill` gets its node when backfill lands —
+`kpr-unlock`, the gateway signs `kpr-edge` (fence flips land in
+the ring). (`kpr-backfill` gets its node when backfill lands —
 full vocabulary in Data below.)
+
+The gateway is a future actor living in `serve` today, not a
+separate command: the edge proxy forwards pushes to the registry
+byte-identical and fences mutating routes — HOLD leases around
+gc finalize, DENY on the lock marker — through the same
+evaluation the use cases mint from (boolean, not a mint). It
+opens only on a RelativeURLs proof over the registry config (no
+proof, no edge); `KPR_EDGE=false` opts out. Either way serve
+keeps serving, and the console carries its live posture
+(open/closed, deny/held) in its own section. Full story in
+`docs/GATEWAY.md`.
 
 Deletes have one owner: the sweeper is the only deleter of
 registry manifests and tracked rows — `store rm` calls into it

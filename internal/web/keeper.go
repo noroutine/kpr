@@ -32,6 +32,12 @@ type keeperData struct {
 	Untracked    int
 	Plan         []keeperPlanRow
 	Activity     []keeperActivityRow
+	// EdgeOpen renders the gateway section open (proven and
+	// serving); EdgeDeny/EdgeHeld are its live fence posture —
+	// what IS, while the activity ring shows what CHANGED.
+	EdgeOpen bool
+	EdgeDeny bool
+	EdgeHeld bool
 }
 
 type keeperPlanRow struct {
@@ -66,6 +72,10 @@ func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
 		Tracked: st.Tracked, Due: st.Due,
 		Performed: st.Performed, Planned: st.Planned,
 		Failed: st.Failed, Untracked: st.Untracked,
+	}
+	if s.Edge != nil {
+		k.EdgeOpen = true
+		k.EdgeDeny, k.EdgeHeld = s.Edge.Snapshot()
 	}
 	for _, p := range st.Plan {
 		pushed := p.PushedAt.UTC().Format(time.RFC3339)

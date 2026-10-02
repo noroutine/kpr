@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -38,6 +39,9 @@ type Server struct {
 	Sentinel sentinel.API
 	// Sweeper serves POST /api/sweep. Nil answers 503.
 	Sweeper *sweep.Sweeper
+	// Edge is the serve-embedded gateway fence. Nil renders the
+	// gateway section closed (disabled or unproven), never 500.
+	Edge *edge.Gate
 	// Armed renders "armed" instead of "dry-run" in the banner.
 	// Zero value is dry-run: safety is the default.
 	Armed bool

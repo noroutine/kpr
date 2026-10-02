@@ -108,8 +108,10 @@ Assertions before anything else:
 - Overhead measured; if audible, stop here.
 
 Implemented: `internal/edge` (proxy + Location guard, proof-gated
-handler), `RelativeURLs` in `internal/proof`, `kpr edge`
-(`--edge-addr`, `KPR_EDGE_ADDR`, `--config`). Proven live:
+handler), `RelativeURLs` in `internal/proof`, embedded in `serve`
+(`KPR_EDGE_ADDR` bind, `--config` proof source, `KPR_EDGE=false`
+opts out — a failed proof or an opt-out closes the edge loudly,
+never a boot refusal). Proven live:
 byte-identical blob+manifest through the edge, relative
 `Location` off the wire, absolute config refused at open, no
 audible overhead (50 HEADs: 0.38s direct vs 0.35s via edge).
