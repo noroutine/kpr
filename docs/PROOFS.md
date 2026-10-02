@@ -7,14 +7,14 @@ establishes something different; they compose by weakening only.
 |---|---|---|---|---|---|
 | Mint (write a fresh generation, read it back) | liveness + currency + same-store, all at once | a generation (blobs + tag + row; keep-N reaps it) | `gc` armed, `unlock` | the producers themselves (`gc`, `unlock`) | `FreshGeneration` (`fresh.go`) |
 | Read gate (served generation + lineage verdict, no mint) | identity only — this mount is the paired store, not that it is current | two API reads | sweeper pass, backfill | the deleting caller, via the prover (`Sweeper`, backfill, `rm --untag`) | `SameStore` (`same_store.go`) |
-| Presence (a generation answers, whichever) | existence, nothing more | one read | `gc` dry-run | `gc` reads it off the mount | — |
-| Mode probe (cancelled upload initiate, 202 vs 405) | writable vs readonly | one aborted request | `gc` | `gc` probes the registry | — |
+| Mode probe (cancelled upload initiate, 202 vs 405) | writable vs readonly | one aborted request | `gc` | the peer, via the initiate round trip | `RegistryReadonly` / `RegistryWritable` (`mode.go`) |
 | Clock check (NTP/HTTPS/local vs tolerance) | skew is bounded, so timestamps mean something | one RTT | `gc`, `unlock` | the clock source (NTP/HTTPS/local) | `BoundedClock` (`checked.go`) |
 | Intent (unlock marker present) | the operator opened this store, after proving it | one read | `gc`, writers | the unlock ceremony, via the marker | `UnlockedStore` (`unlocked.go`) |
 | Armed run | the mutation was earned, under the matching proof above | whichever proof its row names | `gc`, sweep loop, `rm --untag`, `unlock` | the human, via flag or env at the boundary | `ArmedRun` (`armed.go`) |
 | Accepted risk | leave to proceed despite a loud refusal (writable registry, skewed clock) | one flag, on an armed run | `gc` | the human, via `--force` at the boundary | `AcceptedRisk` (`risk.go`) |
 
-Mint ⊃ read gate ⊃ presence: each step down trades a guarantee
+Mint ⊃ read gate: the mint observes everything the gate does
+along the way, plus currency — each step down trades a guarantee
 for cheapness. The lineage verdicts are the interpreter — they
 turn whatever the proof returned into proceed/refuse/warn.
 Nothing strengthens upward: a read gate can never prove liveness,
@@ -22,17 +22,18 @@ which is why backfill's staleness reasoning must not transfer to
 `gc` (stale snapshot errs safe for backfill, fatal for deletes).
 
 Two footnotes, kept honest: the mode probe proves nothing about
-*our* store — it classifies the registry, full stop. And the
-clock check is a precondition on trusting timestamps, not
-evidence about storage. Two rows are "proof" only by courtesy —
-named here so the blur stays visible.
+*our* store — it classifies the registry, full stop (sealed
+plumbing, courtesy-grade content). And the clock check is a
+precondition on trusting timestamps, not evidence about
+storage. One row is "proof" only by courtesy — named here so
+the blur stays visible.
 
 Dry-run is not a row: it is the absence of `ArmedRun` (`nil`),
 not a kind of evidence. Previews prove nothing, so preview
 paths take no evidence — the stage table's preview row takes
 none, and that is the whole statement.
 
-Mechanics live where they are used: mint/read-gate/presence in
+Mechanics live where they are used: mint/read-gate in
 `docs/SENTINELS.md`, mode probe in `docs/GC.md`, clock in
 `docs/TIMESTAMPS.md`, verdicts in `docs/SENTINELS.md`
 (`kpr store adopt` ceremony included).
@@ -109,11 +110,13 @@ pattern is the same every time, because the threat is the same
 4. Provenance is label-only. `Source()` names the granting
    boundary for loud output — never for branching.
 
-All six cut: `SameStore` (system evidence, from the prover),
+All seven cut: `SameStore` (system evidence, from the prover),
 `ArmedRun` (human intent, from the boundary), `AcceptedRisk`
 (accepted risk, from intent), `BoundedClock` (clock bound,
 refusals passing through), `UnlockedStore` (marker intent, read
-once), `FreshGeneration` (mint receipt, named at the write).
+once), `FreshGeneration` (mint receipt, named at the write),
+`RegistryReadonly` / `RegistryWritable` (peer classification, exactly
+one minted).
 
 Three constructor shapes, by how the evidence is earned.
 Re-checking: the `Prover` and `ProveUnlockedStore` read evidence
@@ -124,6 +127,8 @@ the callers that interpret them change nothing. Mint-site:
 `MintedGeneration` names the generation beside the Write and Verify
 it just performed — the seal holds the shape, but only the
 single call site holds the truth; review it, there is one per
-minter. Presence and the mode probe stay uncut on purpose:
-previews take no evidence, and the probe classifies the
-registry, never our store.
+minter. Re-checking, second shape: `ProveMode` runs the
+initiate round trip and mints exactly one of `RegistryReadonly` / `RegistryWritable` — inconclusive mints nothing, so blind collects
+do not compile. Still courtesy-grade: sealing changes the
+plumbing (the probe cannot be skipped or forged), never what is
+proven — it classifies the registry, not our store.
