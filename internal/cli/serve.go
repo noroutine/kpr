@@ -20,7 +20,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
-	"nrtn.dev/catalyst/kpr/internal/sweep"
 	"nrtn.dev/catalyst/kpr/internal/web"
 )
 
@@ -69,10 +68,10 @@ var serveCmd = &cobra.Command{
 		defer cancel()
 
 		// Shared keeper state (lazy — a down backend degrades
-		// banner/receiver/sweeper instead of blocking boot), the registry
-		// client, and the single-owner sweeper. Backend derives like
-		// every command; a conflict refuses boot (guessing state wrong
-		// is worse than not booting).
+		// banner/receiver instead of blocking boot) and the registry
+		// client. Backend derives like every command; a conflict
+		// refuses boot (guessing state wrong is worse than not
+		// booting).
 		backend, storeDir, err := resolveStoreBackend()
 		if err != nil {
 			log.Fatalf("state backend: %v", err)
@@ -86,17 +85,8 @@ var serveCmd = &cobra.Command{
 		// Informational only, never a gate: async so a slow/down
 		// registry can't delay the servers coming up.
 		go logProofAge(ctx, regClient)
-		sweeper := &sweep.Sweeper{
-			Store:    keeperStore,
-			Registry: regClient,
-			Sentinel: regClient,
-			DryRun:   !cfg.SweeperNoDryRun,
-		}
-		if cfg.SweeperNoDryRun {
-			log.Printf("Sweeper armed: deletes are real")
-		} else {
-			log.Printf("Sweeper dry-run: deletes only planned (arm with KPR_SWEEPER_NO_DRY_RUN=true)")
-		}
+		// No sweeper here: serve serves endpoints (receiver, console,
+		// edge), it never sweeps. Passes run in the CLI.
 		// AirPlay preflight: macOS Receiver squats localhost:5000 with
 		// Server: AirTunes, and only a positive fingerprint warns —
 		// unreachable or remote peers stay silent.
@@ -128,10 +118,9 @@ var serveCmd = &cobra.Command{
 		var wg sync.WaitGroup
 		errors := make(chan error, 4)
 
-		// No sweeper loop: kpr is not a scheduler. Passes run only
-		// when asked — `kpr sweep` (armed by KPR_SWEEPER_NO_DRY_RUN)
-		// or the console POST. The sweeper below exists to serve
-		// those, never to tick on its own.
+		// No sweeper here at all: kpr is not a scheduler, and the
+		// sweeper lives in the CLI. Passes run only when asked
+		// (`kpr sweep`).
 
 		// Setup signal handling
 		sigChan := make(chan os.Signal, 1)
@@ -151,8 +140,6 @@ var serveCmd = &cobra.Command{
 				// GetBlob): the proof card reads the live
 				// generation through it.
 				Sentinel: regClient,
-				Sweeper:  sweeper,
-				Armed:    cfg.SweeperNoDryRun,
 				// Nil when the edge is disabled or unproven: the
 				// console renders it closed, never 500.
 				Edge: edgeGate,

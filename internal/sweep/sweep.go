@@ -32,8 +32,8 @@ const (
 // LockTTL bounds single-flight: a crashed sweeper can't hold it forever.
 const LockTTL = 5 * time.Minute
 
-// Summary is the pass outcome: the sweep endpoint's HTTP response
-// carries it, so `sweep` gets synchronous feedback without polling.
+// Summary is the pass outcome: RunPass returns it, so `sweep` gets
+// synchronous feedback without polling or an HTTP round-trip.
 type Summary struct {
 	PassID    string
 	Trigger   string

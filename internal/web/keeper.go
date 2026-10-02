@@ -22,7 +22,6 @@ const probeTimeout = 2 * time.Second
 type keeperData struct {
 	RedisOK    bool
 	RegistryOK bool
-	Armed      bool
 	Tracked    int
 	Due        int
 	Performed  int
@@ -85,8 +84,8 @@ func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
 	st := keeper.FetchStatus(ctx, s.Store, s.Registry)
 	k := keeperData{
 		RedisOK:    st.StoreOK,
-		RegistryOK: st.RegistryOK, Armed: s.Armed,
-		Tracked: st.Tracked, Due: st.Due,
+		RegistryOK: st.RegistryOK,
+		Tracked:    st.Tracked, Due: st.Due,
 		Performed: st.Performed, Planned: st.Planned,
 		Failed: st.Failed, Untracked: st.Untracked,
 	}
@@ -192,24 +191,6 @@ func clockSourceFor(m clock.Method) clock.Source {
 		return clock.HTTPS{}
 	default:
 		return clock.Local{}
-	}
-}
-
-// sweepHandler triggers one sweep pass and answers its summary as
-// JSON — the synchronous feedback `kpr sweep` watches.
-func (s *Server) sweepHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if s.Sweeper == nil {
-		http.Error(w, "sweeper not configured", http.StatusServiceUnavailable)
-		return
-	}
-	sum := s.Sweeper.RunPass(r.Context(), "POST")
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(sum); err != nil {
-		log.Printf("Error encoding JSON: %v", err)
 	}
 }
 

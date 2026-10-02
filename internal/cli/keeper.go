@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -150,29 +147,22 @@ func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.Catalog
 	return err
 }
 
-// runSweep POSTs the console trigger and prints the pass summary. When
-// the console cannot be reached it reports the due count and stops:
-// nothing runs unasked, so the rows wait for the next asked pass.
-func runSweep(ctx context.Context, w io.Writer, s store.Store, consoleURL string) error {
-	url := strings.TrimSuffix(consoleURL, "/") + "/api/sweep"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return err
-	}
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return sweepUnreached(ctx, w, s)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return sweepUnreached(ctx, w, s)
-	}
-	var sum sweep.Summary
-	if derr := json.NewDecoder(resp.Body).Decode(&sum); derr != nil {
-		return sweepUnreached(ctx, w, s)
-	}
-	_, err = fmt.Fprintf(w, "sweep %s: %d performed, %d planned, %d failed, %d untracked\n",
+// sweepPeer is the registry as the sweeper consumes it: deletes
+// plus the sentinel read port. *registry.Client is the production
+// adapter; tests bring stubs, never a loopback server.
+type sweepPeer interface {
+	sweep.Registry
+	sentinel.API
+}
+
+// runSweep runs one sweep pass in-process and prints the summary:
+// the sweeper lives in the CLI, not behind the console (serve
+// serves endpoints; it never sweeps). Armed deletes for real;
+// disarmed plans only.
+func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, armed bool) error {
+	sw := &sweep.Sweeper{Store: s, Registry: peer, Sentinel: peer, DryRun: !armed}
+	sum := sw.RunPass(ctx, "sweep")
+	_, err := fmt.Fprintf(w, "sweep %s: %d performed, %d planned, %d failed, %d untracked\n",
 		sum.PassID, sum.Performed, sum.Planned, sum.Failed, sum.Untracked)
 	if err != nil {
 		return err
@@ -183,15 +173,6 @@ func runSweep(ctx context.Context, w io.Writer, s store.Store, consoleURL string
 		}
 	}
 	return nil
-}
-
-func sweepUnreached(ctx context.Context, w io.Writer, s store.Store) error {
-	due, err := s.Due(ctx)
-	if err != nil {
-		return fmt.Errorf("redis unreachable: %w", err)
-	}
-	_, err = fmt.Fprintf(w, "%d rows due, sweeper not reached — run `kpr sweep` again when it is\n", len(due))
-	return err
 }
 
 // resolveStoreBackend derives the state backend from explicit
@@ -283,12 +264,6 @@ func buildStore(backend, dir string, cfg *config.Config) store.StoreCloser {
 		return store.NewFileStore(dir)
 	}
 	return store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
-}
-
-// consoleURL builds the management console base from the resolved
-// config (the sweep trigger lives on the server that already exists).
-func consoleURL(cfg *config.Config) string {
-	return "http://" + net.JoinHostPort(cfg.ManagementHost, strconv.Itoa(cfg.ManagementPort))
 }
 
 var statusCmd = &cobra.Command{
@@ -387,13 +362,16 @@ sweep finds nothing until a fresh reap marks again.`,
 	},
 }
 
+var sweepNoDryRun bool
+
 var sweepCmd = &cobra.Command{
 	Use:   "sweep",
-	Short: "Trigger a sweep pass and watch it to the summary",
-	Long: `POST the console sweep trigger and print the pass summary.
+	Short: "Run one sweep pass in-process and print its summary",
+	Long: `Run one sweep pass in-process and print the pass summary.
 No opinions, no marks: only rows already marked due are processed.
-An unreachable console reports the due count and stops — nothing
-runs unasked.`,
+The sweeper lives here, not in serve (serve serves endpoints; it
+never sweeps). --no-dry-run (or KPR_SWEEPER_NO_DRY_RUN=true) arms
+it: deletes for real. Disarmed plans only.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()
 		if err != nil {
@@ -401,7 +379,7 @@ runs unasked.`,
 		}
 		defer d.close()
 		cfg, s := d.cfg, d.store
-		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, consoleURL(cfg))
+		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, d.reg, sweepNoDryRun || cfg.SweeperNoDryRun)
 	},
 }
 
@@ -410,5 +388,6 @@ func init() {
 	planCmd.AddCommand(planDiscardCmd, planAddCmd, planRemoveCmd)
 	reapCmd.Flags().BoolVar(&reapNoDryRun, "no-dry-run", false, "Mark rows due for real (default prints the plan only)")
 	reapCmd.Flags().StringSliceVar(&reapExclude, "exclude", nil, "Spare keep-N for rows whose repo:tag matches (repeatable regex, registry stripped)")
+	sweepCmd.Flags().BoolVar(&sweepNoDryRun, "no-dry-run", false, "Delete due rows for real (default plans only)")
 	RootCmd.AddCommand(statusCmd, planCmd, reapCmd, sweepCmd)
 }

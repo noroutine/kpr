@@ -32,14 +32,13 @@ flowchart TB
     redis -- lock marker --> edge
     dist -- notifications --> recv{{receiver\nin kpr serve}}
     recv -- records rows --> redis[(redis\nthe shared state)]
-    sweep[sweeper\nin kpr serve] <-- reads due rows --> redis
+    sweep[sweeper\nin kpr sweep] <-- reads due rows --> redis
     sweep -- DELETE manifests --> dist
     sweep -- activity log --> redis
-    console[console + sweep endpoint\nin kpr serve] <-- counters, plan, history --> redis
-    sweep --- console
+    console[console\nin kpr serve] <-- counters, plan, history --> redis
     reap[kpr reap\npolicies live here] -- marks rows due --> redis
     reap -- reads catalog for keep-N and untagged --> dist
-    sweepcmd[kpr sweep\npuppeteers sweeper] -- POST trigger, watches pass --> console
+    sweepcmd[kpr sweep\nruns the pass in-process] --- redis
     gc{{kpr gc\nsentinel + stock collector}} -- reclaims blob bytes --> dist
     status[kpr status] --- redis
     plan[kpr plan\nadd, remove, discard] --- redis
@@ -81,13 +80,12 @@ The CLI splits along the decision line:
 `reap` marks, `sweep` puppeteers, `plan` edits, `gc` reclaims. `reap`
 evaluates the policies (reading candidates from redis, and the catalog
 from the registry for keep-N and untagged) and marks rows due with a
-reason — analysis-heavy, fast, no registry writes. `sweep` POSTs the
-sweep endpoint and watches the event dance to the pass summary — no
-opinions, just triggering and reporting. Nothing runs on its own:
-kpr is not a scheduler, so a marked row waits until someone runs
-`sweep` (or POSTs it). `status`/`plan` stay pure redis reads.
-No gRPC, no IDL — one small HTTP trigger on the server that already
-exists.
+reason — analysis-heavy, fast, no registry writes. `sweep` runs the
+pass in-process (`Sweeper.RunPass` drives the due rows, then prints
+the summary) — no opinions, just running and reporting. `serve`
+serves endpoints (events, console); it never sweeps. Nothing runs
+on its own: kpr is not a scheduler, so a marked row waits until
+someone runs `sweep`. `status`/`plan` stay pure redis reads.
 
 ## Layering
 
@@ -310,9 +308,9 @@ manager:
 
 - Single-flight via a redis lock with expiry (a crashed sweeper
   can't hold it forever). A trigger that finds the lock emits `skip`.
-- Triggers are exactly the asked ones: `kpr sweep`, console POST,
-  `untag`. No queue, no backlog, no cron inside the server — kpr is
-  not a scheduler, and a second trigger never stacks work, it skips.
+- Triggers are exactly the asked ones: `kpr sweep`, `untag`. No
+  queue, no backlog, no cron inside the server — kpr is not a
+  scheduler, and a second trigger never stacks work, it skips.
 - Events describe one pass at a time. There is no job record, no
   history beyond the capped ring, nothing to retry except asking
   again for rows that are still due.
@@ -324,10 +322,10 @@ stages with elapsed times), should the console ever subscribe.
 
 Two feedback paths, both bounded:
 
-- **Pass summary**: the sweep endpoint's HTTP response carries the
-  outcome of the triggered pass (performed / planned / failed counts
-  plus failures). That is `sweep`'s feedback — synchronous, no redis
-  polling.
+- **Pass summary**: `Sweeper.RunPass` returns the outcome of the
+  pass it ran (performed / planned / failed counts plus failures)
+  and `sweep` prints it. That is `sweep`'s feedback — synchronous,
+  no redis polling, no HTTP round-trip.
 - **Activity**: a capped ring in redis (last ~100 small outcome
   records: repo, tag, reason, outcome, timestamp) backing the
   console's Activity section. A ring of outcomes is state — it
@@ -401,7 +399,6 @@ previews by default, `--no-dry-run` collects.
 - keep-N tuning surface (`--last`, `--include`): declined, N stays 10 with `--exclude`.
 - Backfill for pre-kpr tags; unknown-age rows default keep today.
 - Real partial-upload detection (bounded manifest reads).
-- Detached `reap`/`sweep` over the console HTTP surface.
 - Sweep live-stages transport (polling vs websocket) — still
   deferred; the vocabulary and keys are the contract.
 - Registry metrics as a GC-readiness signal (storage pressure before

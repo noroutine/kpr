@@ -13,7 +13,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
-	"nrtn.dev/catalyst/kpr/internal/sweep"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -37,8 +36,6 @@ type Server struct {
 	// port so the card degrades on its own. Nil renders
 	// unconfigured.
 	Sentinel sentinel.API
-	// Sweeper serves POST /api/sweep. Nil answers 503.
-	Sweeper *sweep.Sweeper
 	// Edge is the serve-embedded gateway fence. Nil renders the
 	// gateway section closed (disabled or unproven), never 500.
 	Edge *edge.Gate
@@ -50,9 +47,6 @@ type Server struct {
 	// bind): shown beside the gateway posture when the edge is
 	// open.
 	EdgeAddr string
-	// Armed renders "armed" instead of "dry-run" in the banner.
-	// Zero value is dry-run: safety is the default.
-	Armed bool
 	// Listener, when non-nil, serves on it instead of listening on
 	// Host:Port. Tests inject a loopback listener on an ephemeral port;
 	// production leaves it nil.
@@ -70,7 +64,6 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/", s.indexHandler)
 	mux.HandleFunc("/metrics", MetricsHandler)
 	mux.HandleFunc("/health", HealthHandler)
-	mux.HandleFunc("/api/sweep", s.sweepHandler)
 	mux.HandleFunc("/api/activity", s.activityHandler)
 	if s.OTELEnabled {
 		// Prometheus exposition for the OTel meter provider;

@@ -80,10 +80,6 @@ const indexTemplate = `<!DOCTYPE html>
                 <div class="value">{{ if .Keeper.RegistryOK }}reachable{{ else }}unreachable{{ end }}</div>
                 {{ if .Keeper.RegistryURL }}<div class="meta">{{ .Keeper.RegistryURL }}</div>{{ end }}
             </div>
-            <div class="card">
-                <div class="label">Sweeper</div>
-                <div class="value">{{ if .Keeper.Armed }}armed{{ else }}dry-run{{ end }}</div>
-            </div>
             <div class="card stat-card">
                 <div class="label">Tracked / Due</div>
                 <div class="value">{{ .Keeper.Tracked }} / {{ .Keeper.Due }}</div>

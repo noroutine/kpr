@@ -15,7 +15,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
-	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
 
 func keeperStore(t *testing.T) *store.MemStore {
@@ -54,9 +53,18 @@ func TestKeeperBannerDegradedWithoutBackends(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Keeper", "dry-run", "unreachable"} {
+	for _, want := range []string{"Keeper", "unreachable"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q (degraded banner)", want)
+		}
+	}
+	// The console never sweeps, so it advertises no sweep posture:
+	// armed/dry-run lives in the CLI that runs the pass. If this
+	// fails, sweep safety wording crept back into a console that
+	// owns none of it.
+	for _, gone := range []string{"dry-run", "armed"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("dashboard advertises %q (sweep posture the console doesn't own)", gone)
 		}
 	}
 }
@@ -364,90 +372,37 @@ func TestKeeperCountersAndPlanOrder(t *testing.T) {
 	}
 }
 
-// A broken pipe on the trigger must not panic the console: the encode
-// error is logged and the handler returns, like every other endpoint.
-// If this fails, one wedged `sweep` watcher takes the console down.
-func TestSweepEndpointToleratesWriteError(t *testing.T) {
+// The console never sweeps: POST /api/sweep is not served (the sweep
+// pass lives in the CLI, serve serves endpoints only). If this fails,
+// a sweep trigger crept back into the console and the serve/sweep
+// split is broken.
+func TestConsoleDoesNotServeSweepEndpoint(t *testing.T) {
 	testConfig(t)
-	logs := captureLog(t)
-	s := &Server{Store: keeperStore(t), Sweeper: &sweep.Sweeper{Store: store.NewMemStore(), DryRun: true}}
-	req := httptest.NewRequest(http.MethodPost, "/api/sweep", nil)
-	s.sweepHandler(errWriter{header: http.Header{}}, req)
-	if n := strings.Count(logs.String(), "Error"); n != 1 {
-		t.Errorf("logged %d write errors, want 1 (sweep summary)", n)
-	}
-}
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln, Store: keeperStore(t)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
+	waitFor(t, "http://"+ln.Addr().String()+"/health")
 
-// POST /api/sweep triggers a pass and answers its summary as JSON —
-// the synchronous feedback `sweep` watches. GET is rejected, and a
-// console without a sweeper answers 503 instead of panicking. If this
-// fails, the CLI trigger has no endpoint to call.
-func TestSweepEndpointTriggersPass(t *testing.T) {
-	testConfig(t)
-	// The fake serves the sentinel read paths with a live paired
-	// generation (fresh timestamp per request) so the pass exercises
-	// the real client parse; everything else answers 202 as before.
-	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "manifests") {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"schemaVersion":2,"config":{"digest":"sha256:stub"}}`))
-			return
+	resp, err := testClient.Post( //nolint:gosec,noctx // test-only loopback
+		"http://"+ln.Addr().String()+"/api/sweep", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /api/sweep: %v", err)
+	}
+	drainAndClose(t, resp)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("POST /api/sweep = %d, want 404 (sweep lives in the CLI)", resp.StatusCode)
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
 		}
-		if strings.Contains(r.URL.Path, "blobs") {
-			w.WriteHeader(http.StatusOK)
-			pay, _ := json.Marshal(map[string]any{
-				"v": 1, "gen": "web-gen", "id": "web-lineage",
-				"ts": time.Now().UTC().Format(time.RFC3339), "writer": "kpr-gc",
-			})
-			_, _ = w.Write(pay)
-			return
-		}
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer fake.Close()
-
-	s := &Server{
-		Store:   keeperStore(t),
-		Sweeper: &sweep.Sweeper{Store: store.NewMemStore(), Registry: registry.NewClient(fake.URL)},
-	}
-	s.Sweeper.Store = s.Store
-	s.Sweeper.Sentinel = registry.NewClient(fake.URL)
-	s.Sweeper.DryRun = true
-	if err := s.Store.SetIdentity(context.Background(), store.Identity{ID: "web-lineage", BaselineGen: "web-gen"}); err != nil {
-		t.Fatalf("pair store: %v", err)
-	}
-	// Unlocked: this test isolates endpoint mechanics, not the marker.
-	if err := s.Store.SetUnlocked(context.Background(), true); err != nil {
-		t.Fatalf("stage unlock: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/sweep", nil)
-	rr := httptest.NewRecorder()
-	s.sweepHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	var sum sweep.Summary
-	if err := json.NewDecoder(rr.Body).Decode(&sum); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if sum.Trigger != "POST" || sum.Planned != 1 {
-		t.Errorf("summary = %+v, want POST trigger with 1 planned", sum)
-	}
-
-	get := httptest.NewRequest(http.MethodGet, "/api/sweep", nil)
-	grr := httptest.NewRecorder()
-	s.sweepHandler(grr, get)
-	if grr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("GET status = %d, want 405", grr.Code)
-	}
-
-	bare := &Server{}
-	breq := httptest.NewRequest(http.MethodPost, "/api/sweep", nil)
-	brr := httptest.NewRecorder()
-	bare.sweepHandler(brr, breq)
-	if brr.Code != http.StatusServiceUnavailable {
-		t.Errorf("sweeper-less status = %d, want 503", brr.Code)
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
 	}
 }
 

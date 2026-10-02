@@ -207,7 +207,7 @@ compose) plus a delete-enabled `registry:3`. Image pushes go through
 (`remote.Write` — no docker daemon involved beyond the containers
 themselves). A small scenario DSL (`scenario.go`: `Push`, `ReapArmed`,
 `SweepArmed`, `Expect*`) drives the same `EvaluatePolicies`,
-`MarkDue`, and `Sweeper.RunPass` the CLI and serve run — one policy
+`MarkDue`, and `Sweeper.RunPass` the CLI runs — one policy
 path, never a copy. `PushedAt` is backdated instead of sleeping on a
 clock, so scenarios stay fast and deterministic.
 

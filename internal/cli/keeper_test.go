@@ -18,7 +18,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
-	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
 
 var cliNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
@@ -93,7 +92,7 @@ func TestStatusDegradesAndFailsFast(t *testing.T) {
 	if !strings.Contains(out.String(), "unreachable") {
 		t.Errorf("status hides dead registry:\n%s", out.String())
 	}
-	if err := runStatus(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), false); err == nil {
+	if err := runStatus(cliCtx(), io.Discard, deadStore{}, liveRegistryClient(t), false); err == nil {
 		t.Error("redis down succeeded, want a fast clear error")
 	} else if !strings.Contains(err.Error(), "redis") {
 		t.Errorf("error = %q, want it to name redis", err.Error())
@@ -350,37 +349,67 @@ func TestReapArmedMarksAllSorted(t *testing.T) {
 	}
 }
 
-// sweep POSTs the console trigger and prints the pass summary. When
-// the console cannot be reached it degrades to the tick backstop with
-// the due count — never a bare connection error. If this fails, the
-// puppeteer either cannot trigger or hides the backstop.
-func TestSweepTriggersAndDegrades(t *testing.T) {
-	sum := sweep.Summary{PassID: "p1", Trigger: "POST", Performed: 2, Failed: 1,
-		Failures: []string{"app:v1: 500"}}
-	console := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/sweep" || r.Method != http.MethodPost {
-			t.Errorf("trigger = %s %s, want POST /api/sweep", r.Method, r.URL.Path)
-		}
-		_ = json.NewEncoder(w).Encode(sum)
-	}))
-	defer console.Close()
+// sweepStub is the registry as the direct sweeper consumes it:
+// deletes plus the sentinel read port, no HTTP. The served
+// generation pairs the staged store below.
+type sweepStub struct {
+	stubProofAPI
+	outcome string
+}
 
+func (s sweepStub) DeleteManifest(context.Context, string, string) (string, error) {
+	return s.outcome, nil
+}
+
+// pairedSweepStore stages one due row on paired, unlocked ground
+// with a fresh served generation: a pass runs instead of refusing.
+func pairedSweepStore(t *testing.T) (*store.MemStore, sweepStub) {
+	t.Helper()
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
+		PushedAt: time.Now().UTC().Add(-time.Hour), Due: true, Reason: "ttl:10m elapsed"})
+	_ = s.SetIdentity(c, store.Identity{ID: "cli-lineage", BaselineGen: "019-proof"})
+	if err := s.SetUnlocked(c, true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	stub := sweepStub{
+		stubProofAPI: stubProofAPI{
+			ts: time.Now().UTC().Format(time.RFC3339),
+			id: "cli-lineage",
+		},
+		outcome: registry.OutcomeDeleted,
+	}
+	return s, stub
+}
+
+// sweep runs the pass in-process and prints its summary: dry-run
+// plans (the row stays), armed deletes by digest (the row goes).
+// No console, no POST — the sweeper lives in the CLI. If this
+// fails, the puppeteer either cannot trigger or hides the counts.
+func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
+	s, stub := pairedSweepStore(t)
 	var out bytes.Buffer
-	if err := runSweep(cliCtx(), &out, cliStore(), console.URL); err != nil {
-		t.Fatalf("runSweep: %v", err)
+	if err := runSweep(cliCtx(), &out, s, stub, false); err != nil {
+		t.Fatalf("dry-run sweep: %v", err)
 	}
-	if !strings.Contains(out.String(), "2 performed") || !strings.Contains(out.String(), "1 failed") {
-		t.Errorf("summary missing counts:\n%s", out.String())
+	if !strings.Contains(out.String(), "0 performed") || !strings.Contains(out.String(), "1 planned") {
+		t.Errorf("dry-run summary missing counts:\n%s", out.String())
+	}
+	if rows, _ := s.All(context.Background()); len(rows) != 1 {
+		t.Errorf("dry-run kept %d rows, want the 1 planned row kept", len(rows))
 	}
 
-	var dout bytes.Buffer
-	if err := runSweep(cliCtx(), &dout, cliStore(), "http://127.0.0.1:1"); err != nil {
-		t.Fatalf("unreachable console must degrade, not fail: %v", err)
+	as, astub := pairedSweepStore(t)
+	var aout bytes.Buffer
+	if err := runSweep(cliCtx(), &aout, as, astub, true); err != nil {
+		t.Fatalf("armed sweep: %v", err)
 	}
-	for _, want := range []string{"1 rows due", "not reached", "run `kpr sweep` again"} {
-		if !strings.Contains(dout.String(), want) {
-			t.Errorf("degraded sweep missing %q:\n%s", want, dout.String())
-		}
+	if !strings.Contains(aout.String(), "1 performed") {
+		t.Errorf("armed summary missing counts:\n%s", aout.String())
+	}
+	if rows, _ := as.All(context.Background()); len(rows) != 0 {
+		t.Errorf("armed kept %d rows, want the deleted row dropped", len(rows))
 	}
 }
 
@@ -403,15 +432,65 @@ func TestKeeperCommandsRefuseWithoutRedis(t *testing.T) {
 	}
 }
 
-// errStore fails every read: the redis-down stand-in.
-type errStore struct{ store.Store }
+// deadStore is a store whose redis is gone: every method reports the
+// outage instead of embedding a zero store.Store whose promoted
+// methods nil-deref. If this fails, the outage test panics instead
+// of asserting the loud report.
+type deadStore struct{}
 
-func (errStore) Ping(context.Context) error { return errors.New("redis: connection refused") }
-func (errStore) All(context.Context) ([]policy.Row, error) {
-	return nil, errors.New("redis: connection refused")
+func (deadStore) outage() error { return errors.New("redis: connection refused") }
+
+func (d deadStore) Ping(context.Context) error { return d.outage() }
+func (d deadStore) Record(context.Context, policy.Row) error {
+	return d.outage()
 }
-func (errStore) Due(context.Context) ([]policy.Row, error) {
-	return nil, errors.New("redis: connection refused")
+func (d deadStore) All(context.Context) ([]policy.Row, error) {
+	return nil, d.outage()
+}
+func (d deadStore) Due(context.Context) ([]policy.Row, error) {
+	return nil, d.outage()
+}
+func (d deadStore) MarkDue(context.Context, string, string, string) error {
+	return d.outage()
+}
+func (d deadStore) ClearDue(context.Context) (int, error) {
+	return 0, d.outage()
+}
+func (d deadStore) UnmarkDue(context.Context, string, string) (bool, error) {
+	return false, d.outage()
+}
+func (d deadStore) Delete(context.Context, string, string) error {
+	return d.outage()
+}
+func (d deadStore) SetCurrent(context.Context, store.Current) error {
+	return d.outage()
+}
+func (d deadStore) GetCurrent(context.Context) (store.Current, error) {
+	return store.Current{}, d.outage()
+}
+func (d deadStore) PushActivity(context.Context, store.Outcome) error {
+	return d.outage()
+}
+func (d deadStore) Activity(context.Context) ([]store.Outcome, error) {
+	return nil, d.outage()
+}
+func (d deadStore) AcquireLock(context.Context, string, time.Duration) (bool, error) {
+	return false, d.outage()
+}
+func (d deadStore) ReleaseLock(context.Context, string) error {
+	return d.outage()
+}
+func (d deadStore) IsUnlocked(context.Context) (bool, error) {
+	return false, d.outage()
+}
+func (d deadStore) SetUnlocked(context.Context, bool) error {
+	return d.outage()
+}
+func (d deadStore) GetIdentity(context.Context) (store.Identity, error) {
+	return store.Identity{}, d.outage()
+}
+func (d deadStore) SetIdentity(context.Context, store.Identity) error {
+	return d.outage()
 }
 
 // Opening state against a dead redis must fail fast naming redis —
@@ -427,21 +506,11 @@ func TestOpenStoreNamesDeadRedis(t *testing.T) {
 	}
 }
 
-// The sweep trigger URL comes from the resolved console binding, with
-// IPv6 hosts bracketed: an unbracketed :: would POST nowhere. If this
-// fails, `sweep` calls the wrong console (or a malformed URL).
-func TestConsoleURLBracketsIPv6(t *testing.T) {
-	u := consoleURL(config.NewBuilder().WithManagementHost("::").WithManagementPort(9300).Build())
-	if u != "http://[::]:9300" {
-		t.Errorf("consoleURL = %q, want bracketed dual-stack host", u)
-	}
-}
-
 // plan against dead state fails naming redis instead of printing an
 // empty plan: "nothing due" must mean empty, never "unreadable". If
 // this fails, an outage renders as a clean bill of health.
 func TestPlanOnDeadRedisFails(t *testing.T) {
-	if err := runPlan(cliCtx(), io.Discard, errStore{}, false); err == nil {
+	if err := runPlan(cliCtx(), io.Discard, deadStore{}, false); err == nil {
 		t.Error("plan on dead redis succeeded, want an error")
 	}
 }
@@ -553,39 +622,18 @@ func TestReapDryRunRendersFullLine(t *testing.T) {
 	}
 }
 
-// A non-200 trigger answers the backstop, not a decode error: the tick
-// picks marked rows up regardless. A 200 with garbage likewise
-// degrades instead of crashing the watch. If this fails, a sick
-// console turns the puppeteer into a stack trace.
-func TestSweepDegradesOnBadTrigger(t *testing.T) {
-	for name, status := range map[string]struct {
-		code int
-		body string
-	}{
-		"server error": {http.StatusInternalServerError, "boom"},
-		"garbage":      {http.StatusOK, "{nope"},
-	} {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(status.code)
-			_, _ = w.Write([]byte(status.body))
-		}))
-		var out bytes.Buffer
-		if err := runSweep(cliCtx(), &out, cliStore(), srv.URL); err != nil {
-			t.Errorf("%s: degrading failed: %v", name, err)
-		}
-		if !strings.Contains(out.String(), "run `kpr sweep` again") {
-			t.Errorf("%s: no ask-again:\n%s", name, out.String())
-		}
-		srv.Close()
+// sweep on dead state reports the outage in the summary instead of
+// failing: the pass runs nowhere, resolves nothing, and narrates
+// that. If this fails, an outage prints a confident count of
+// nothing.
+func TestSweepOutageReportsInsteadOfFailing(t *testing.T) {
+	var out bytes.Buffer
+	stub := sweepStub{stubProofAPI: stubProofAPI{err: errors.New("redis: connection refused")}}
+	if err := runSweep(cliCtx(), &out, deadStore{}, stub, false); err != nil {
+		t.Errorf("sweep on dead state failed: %v", err)
 	}
-}
-
-// sweep with no console and no state errors naming redis: both paths
-// down is a failure, not a backstop message over invented numbers. If
-// this fails, a double outage reports a confident count of nothing.
-func TestSweepDoubleOutageFails(t *testing.T) {
-	if err := runSweep(cliCtx(), io.Discard, errStore{}, "http://127.0.0.1:1"); err == nil {
-		t.Error("sweep with console and redis down succeeded, want an error")
+	if !strings.Contains(out.String(), "failed:") {
+		t.Errorf("outage summary names no failure:\n%s", out.String())
 	}
 }
 
@@ -608,17 +656,9 @@ func (w *failAfterWriter) Write(p []byte) (int, error) {
 // summary must not read as success. If this fails, truncated output
 // passes silently.
 func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
-	sum := sweep.Summary{PassID: "p1", Trigger: "POST", Performed: 1,
-		Failures: []string{"app:v1: 500"}}
-	console := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(sum)
-	}))
-	defer console.Close()
-	if err := runSweep(cliCtx(), &failAfterWriter{}, cliStore(), console.URL); err == nil {
+	s, stub := pairedSweepStore(t)
+	if err := runSweep(cliCtx(), &failAfterWriter{}, s, stub, false); err == nil {
 		t.Error("sweep into failing pipe succeeded, want an error")
-	}
-	if err := runSweep(cliCtx(), &failAfterWriter{n: 1}, cliStore(), console.URL); err == nil {
-		t.Error("sweep failing on the failures line succeeded, want an error")
 	}
 }
 
@@ -626,10 +666,10 @@ func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
 // calling it a plan: an unreadable backend is an error, not an empty
 // evaluation. If this fails, outages print confident empty plans.
 func TestReapOnDeadRedisFails(t *testing.T) {
-	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), true, nil, cliNow, "all"); err == nil {
+	if err := runReap(cliCtx(), io.Discard, deadStore{}, liveRegistryClient(t), true, nil, cliNow, "all"); err == nil {
 		t.Error("armed reap on dead redis succeeded, want an error")
 	}
-	if err := runReap(cliCtx(), io.Discard, errStore{}, liveRegistryClient(t), false, nil, cliNow, "all"); err == nil {
+	if err := runReap(cliCtx(), io.Discard, deadStore{}, liveRegistryClient(t), false, nil, cliNow, "all"); err == nil {
 		t.Error("dry-run reap on dead redis succeeded, want an error")
 	}
 }
