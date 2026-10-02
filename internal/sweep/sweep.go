@@ -11,9 +11,9 @@ import (
 	"log"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -126,35 +126,22 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	// stale armed refuses; stale dry-run proceeds to plan, which
 	// deletes nothing. Heal rows are the mint path's job (gc
 	// adopt-records); the sweep acts on due rows only.
+	//
+	// One preamble (Prover), two consumers: the pass consumes the
+	// gate — proceed or refuse, narrated below — while directed
+	// deletes (Untag) take the token itself to check staleness.
 	if s.Sentinel == nil {
 		setStage(StageFailure, 0, 0)
 		sum.Skipped = true
 		sum.Failures = append(sum.Failures, "sweeper miswired: no sentinel reader (refusing instead of sweeping blind)")
 		return sum
 	}
-	pay, digest, rerr := sentinel.Read(ctx, s.Sentinel, sentinel.Repo, sentinel.Tag)
-	ident, err := s.Store.GetIdentity(ctx)
-	if err != nil {
+	// One frozen clock for gate and pass alike: the verdict judges
+	// as of pass start, not as of however long the reads took.
+	if _, err := (proof.Prover{Sentinel: s.Sentinel, Store: s.Store, DryRun: s.DryRun, Now: func() time.Time { return now }}.Prove(ctx)); err != nil {
 		setStage(StageFailure, 0, 0)
 		sum.Skipped = true
-		sum.Failures = append(sum.Failures, fmt.Sprintf("lineage unreadable: %v", err))
-		return sum
-	}
-	allRows, err := s.Store.All(ctx)
-	if err != nil {
-		setStage(StageFailure, 0, 0)
-		sum.Skipped = true
-		sum.Failures = append(sum.Failures, fmt.Sprintf("tracked state unreadable: %v", err))
-		return sum
-	}
-	v := lineage.Judge(
-		lineage.Served{Payload: pay, Digest: digest, Err: rerr},
-		lineage.Local{Ident: ident, Rows: allRows},
-		lineage.Ask{DryRun: s.DryRun, Now: now})
-	if !v.Proceed || v.Establish {
-		setStage(StageFailure, 0, 0)
-		sum.Skipped = true
-		sum.Failures = append(sum.Failures, fmt.Sprintf("%s — %s", v.Reason, v.Action))
+		sum.Failures = append(sum.Failures, err.Error())
 		return sum
 	}
 

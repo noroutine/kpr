@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
@@ -182,7 +183,7 @@ func runStoreInspect(ctx context.Context, w io.Writer, s store.Store, ref string
 // first, row drops only on confirm, held/failed keeps its row
 // loudly. Blob bytes still need `gc` after — untag unlinks, never
 // collects.
-func runStoreRm(ctx context.Context, w io.Writer, s store.Store, refs []string, untag bool, sw *sweep.Sweeper) error {
+func runStoreRm(ctx context.Context, w io.Writer, s store.Store, refs []string, untag bool, sw *sweep.Sweeper, same proof.SameStore) error {
 	type key struct{ repo, tag string }
 	var keys []key
 	for _, ref := range refs {
@@ -223,7 +224,7 @@ func runStoreRm(ctx context.Context, w io.Writer, s store.Store, refs []string, 
 	for _, k := range keys {
 		targets = append(targets, byKey[k])
 	}
-	done, uerr := sw.Untag(ctx, targets)
+	done, uerr := sw.Untag(ctx, targets, same)
 	for _, r := range done {
 		if _, err := fmt.Fprintf(w, "untagged %s:%s (row dropped; blobs need `gc`)\n",
 			r.Repo, r.Tag); err != nil {
@@ -410,7 +411,19 @@ still need 'kpr gc'. A direct store edit: no dry-run.`,
 		defer d.close()
 		untag, _ := cmd.Flags().GetBool("untag")
 		sw := &sweep.Sweeper{Store: d.store, Registry: d.reg}
-		return runStoreRm(cmd.Context(), cmd.OutOrStdout(), d.store, args, untag, sw)
+		// The caller proves: bare rm needs no token (Untrack stays
+		// proof-free), but --untag deletes from the registry, so it
+		// mints first — a foreign or stale store refuses here, naming
+		// the ceremony, before the first manifest.
+		var same proof.SameStore
+		if untag {
+			var err error
+			same, err = proof.Prover{Sentinel: d.reg, Store: d.store}.Prove(cmd.Context())
+			if err != nil {
+				return err
+			}
+		}
+		return runStoreRm(cmd.Context(), cmd.OutOrStdout(), d.store, args, untag, sw, same)
 	},
 }
 

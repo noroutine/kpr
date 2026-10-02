@@ -8,13 +8,66 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 func untagRow(repo, tag, digest string) policy.Row {
 	return policy.Row{Repo: repo, Tag: tag, Digest: digest,
 		PushedAt: sweepNow.Add(-time.Hour), Actor: "kpr-receiver"}
+}
+
+// untagProof mints on paired ground the way the cli does: the
+// caller proves, Untag checks. If minting fails here, the test
+// ground (not Untag) is broken.
+func untagProof(t *testing.T, s store.Store, dryRun bool) proof.SameStore {
+	t.Helper()
+	same, err := proof.Prover{
+		Sentinel: pairGround(s), Store: s,
+		DryRun: dryRun, Now: func() time.Time { return sweepNow },
+	}.Prove(testCtx())
+	if err != nil {
+		t.Fatalf("prove on paired ground: %v", err)
+	}
+	return same
+}
+
+// staleProof serves a generation older than tracked: dry-run
+// semantics proceed warned, and the token rides Stale. If Untag
+// accepts it, deletes land against a moved registry.
+func staleProof(t *testing.T, s store.Store) proof.SameStore {
+	t.Helper()
+	ctx := testCtx()
+	if err := s.SetIdentity(ctx, store.Identity{ID: "test-lineage"}); err != nil {
+		t.Fatalf("stage identity: %v", err)
+	}
+	old := policy.Row{Repo: sentinel.Repo, Tag: "gen-old",
+		PushedAt: sweepNow.Add(-2 * time.Hour), Actor: "kpr-gc"}
+	new := policy.Row{Repo: sentinel.Repo, Tag: "gen-new",
+		PushedAt: sweepNow.Add(-time.Hour), Actor: "kpr-gc"}
+	if err := s.Record(ctx, old); err != nil {
+		t.Fatalf("stage old generation: %v", err)
+	}
+	if err := s.Record(ctx, new); err != nil {
+		t.Fatalf("stage new generation: %v", err)
+	}
+	api := stubSentinel{pay: sentinel.Payload{
+		V: 1, Gen: "gen-old", ID: "test-lineage",
+		TS: sweepNow.Format(time.RFC3339), Writer: "kpr-gc",
+	}}
+	same, err := proof.Prover{
+		Sentinel: api, Store: s,
+		DryRun: true, Now: func() time.Time { return sweepNow },
+	}.Prove(ctx)
+	if err != nil {
+		t.Fatalf("prove stale ground: %v", err)
+	}
+	if !same.Stale() {
+		t.Fatal("stale ground minted a fresh token, want Stale")
+	}
+	return same
 }
 
 func untagSweeper(s store.Store, stub *stubRegistry) *Sweeper {
@@ -31,7 +84,7 @@ func TestUntagDeletesByDigestDropsRow(t *testing.T) {
 	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	sw := untagSweeper(s, stub)
-	done, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")})
+	done, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, untagProof(t, s, false))
 	if err != nil {
 		t.Fatalf("Untag: %v", err)
 	}
@@ -56,6 +109,46 @@ func TestUntagDeletesByDigestDropsRow(t *testing.T) {
 	}
 }
 
+// No token, no delete: Untag without proof refuses before the
+// first manifest, and the registry sees zero DELETEs. If this
+// fails, the signature stopped deciding.
+func TestUntagRefusesWithoutProof(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := untagSweeper(s, stub)
+	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, nil); err == nil {
+		t.Fatal("untag without proof succeeded, want the blind refusal")
+	}
+	if got := stubDeletes(stub); got != 0 {
+		t.Errorf("proofless untag attempted %d deletes", got)
+	}
+	if rows, _ := s.All(testCtx()); len(rows) != 1 {
+		t.Errorf("rows = %d, want the 1 row kept", len(rows))
+	}
+}
+
+// A stale token refuses too: the served view lags tracked state,
+// so the delete would land against a moved registry. If this
+// fails, preview-semantics tokens arm real deletes.
+func TestUntagRefusesStaleProof(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := untagSweeper(s, stub)
+	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, staleProof(t, s)); err == nil {
+		t.Fatal("untag on stale proof succeeded, want the stale refusal")
+	} else if !strings.Contains(err.Error(), "stale") {
+		t.Errorf("err = %q, want the stale refusal named", err.Error())
+	}
+	if got := stubDeletes(stub); got != 0 {
+		t.Errorf("stale untag attempted %d deletes", got)
+	}
+	if rows, _ := s.All(testCtx()); len(rows) != 3 {
+		t.Errorf("rows = %d, want all 3 kept (target plus staged generations)", len(rows))
+	}
+}
+
 // Already-gone counts as confirmed: the tag is gone, the row has
 // nothing left to track. If this fails, re-untagging a raced
 // delete errors instead of converging.
@@ -64,7 +157,7 @@ func TestUntagGoneDropsRow(t *testing.T) {
 	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
 	stub := &stubRegistry{outcome: registry.OutcomeGone}
 	sw := untagSweeper(s, stub)
-	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}); err != nil {
+	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, untagProof(t, s, false)); err != nil {
 		t.Fatalf("Untag on gone tag: %v", err)
 	}
 	if rows, _ := s.All(testCtx()); len(rows) != 0 {
@@ -79,7 +172,7 @@ func TestUntagHeldKeepsRowLoud(t *testing.T) {
 	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
 	stub := &stubRegistry{outcome: registry.OutcomeHeld}
 	sw := untagSweeper(s, stub)
-	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}); err == nil {
+	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, untagProof(t, s, false)); err == nil {
 		t.Fatal("held untag succeeded, want a loud failure")
 	}
 	if rows, _ := s.All(testCtx()); len(rows) != 1 {
@@ -119,7 +212,7 @@ func TestUntagRowDropFailureContinues(t *testing.T) {
 	_, err := sw.Untag(testCtx(), []policy.Row{
 		untagRow("app", "v1", "sha256:aaa"),
 		untagRow("app", "v2", "sha256:bbb"),
-	})
+	}, untagProof(t, s, false))
 	if err == nil || !strings.Contains(err.Error(), "row drop failed") {
 		t.Fatalf("err = %v, want the row-drop failure named", err)
 	}
@@ -190,7 +283,7 @@ func TestUntagPartialFailureNamesAll(t *testing.T) {
 	_, err := sw.Untag(testCtx(), []policy.Row{
 		untagRow("app", "v1", "sha256:aaa"),
 		untagRow("app", "v2", "sha256:bbb"),
-	})
+	}, untagProof(t, s, false))
 	if err == nil {
 		t.Fatal("partial untag succeeded, want the failure named")
 	}

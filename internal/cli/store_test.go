@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
@@ -26,6 +27,25 @@ func seedRows(s *store.MemStore) {
 func seedSentinel(s *store.MemStore) {
 	_ = s.Record(cliCtx(), policy.Row{Repo: "noroutine/kpr-sentinel", Tag: "019-gen",
 		Digest: "sha256:ccc", PushedAt: cliNow.Add(-30 * time.Minute), Actor: "kpr-unlock"})
+}
+
+// untagProof mints the way the rm command does: paired store,
+// served generation of our lineage. If minting fails here, the
+// test ground (not the rm path) is broken.
+func untagProof(t *testing.T, s *store.MemStore) proof.SameStore {
+	t.Helper()
+	if err := s.SetIdentity(cliCtx(), store.Identity{ID: "test-id"}); err != nil {
+		t.Fatalf("stage identity: %v", err)
+	}
+	same, err := proof.Prover{
+		Sentinel: stubProofAPI{id: "test-id", ts: cliNow.Format(time.RFC3339)},
+		Store:    s, DryRun: false,
+		Now: func() time.Time { return cliNow },
+	}.Prove(cliCtx())
+	if err != nil {
+		t.Fatalf("prove on paired ground: %v", err)
+	}
+	return same
 }
 
 // ls is the lay of the field: tracked rows, short columns, no
@@ -172,7 +192,7 @@ func TestStoreWildcardRefuses(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "exact") {
 		t.Errorf("glob refusal should say exact, got: %v", err)
 	}
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:*"}, false, &sweep.Sweeper{Store: s}); err == nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:*"}, false, &sweep.Sweeper{Store: s}, nil); err == nil {
 		t.Error("rm with a glob should refuse")
 	} else if !strings.Contains(err.Error(), "exact") {
 		t.Errorf("glob refusal should say exact, got: %v", err)
@@ -280,7 +300,7 @@ func TestStoreRmUntagPartialPrintsDone(t *testing.T) {
 	stub := &flipStub{}
 	var out bytes.Buffer
 	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "scratch:10m"}, true,
-		&sweep.Sweeper{Store: s, Registry: stub}); err == nil {
+		&sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s)); err == nil {
 		t.Fatal("partial untag succeeded, want the held failure")
 	}
 	if !strings.Contains(out.String(), "untagged app:v1") {
@@ -301,7 +321,7 @@ func TestStoreRmUntagDeletesThenDropsRow(t *testing.T) {
 	seedRows(s)
 	stub := &untagStub{outcome: "deleted"}
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}); err != nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s)); err != nil {
 		t.Fatalf("runStoreRm untag: %v", err)
 	}
 	if len(stub.calls) != 1 || stub.calls[0] != "app:sha256:aaa" {
@@ -318,6 +338,27 @@ func TestStoreRmUntagDeletesThenDropsRow(t *testing.T) {
 	}
 }
 
+// The untag path without a token refuses before the first
+// manifest: runStoreRm threads the proof through, it never mints
+// one. If this fails, the command layer can delete unproven.
+func TestStoreRmUntagWithoutProofRefuses(t *testing.T) {
+	s := store.NewMemStore()
+	seedRows(s)
+	stub := &untagStub{outcome: "deleted"}
+	var out bytes.Buffer
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true,
+		&sweep.Sweeper{Store: s, Registry: stub}, nil); err == nil {
+		t.Fatal("proofless rm --untag succeeded, want the blind refusal")
+	}
+	if len(stub.calls) != 0 {
+		t.Errorf("proofless rm --untag attempted %d registry deletes", len(stub.calls))
+	}
+	rows, _ := s.All(cliCtx())
+	if len(rows) != 2 {
+		t.Errorf("rows = %d, want both kept", len(rows))
+	}
+}
+
 // A held delete (tag fallback on distribution:3, denied configs)
 // keeps the row: dropping it would untrack a live tag silently.
 func TestStoreRmUntagHeldKeepsRowLoud(t *testing.T) {
@@ -325,7 +366,7 @@ func TestStoreRmUntagHeldKeepsRowLoud(t *testing.T) {
 	seedRows(s)
 	stub := &untagStub{outcome: "held"}
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}); err == nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s)); err == nil {
 		t.Fatal("held untag succeeded, want a loud failure")
 	}
 	rows, _ := s.All(cliCtx())
@@ -341,7 +382,7 @@ func TestStoreRmDropsRowWarnsTagStays(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, false, &sweep.Sweeper{Store: s}); err != nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, false, &sweep.Sweeper{Store: s}, nil); err != nil {
 		t.Fatalf("runStoreRm: %v", err)
 	}
 	if !strings.Contains(out.String(), "untracked") {
@@ -367,7 +408,7 @@ func TestStoreRmUnknownRefusesBeforeDeleting(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "app:nope"}, false, &sweep.Sweeper{Store: s}); err == nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "app:nope"}, false, &sweep.Sweeper{Store: s}, nil); err == nil {
 		t.Fatal("rm with an unknown ref should refuse")
 	} else if !strings.Contains(err.Error(), "app:nope") {
 		t.Errorf("refusal should name the unknown row, got: %v", err)

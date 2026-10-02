@@ -188,7 +188,7 @@ drives (signing name in brackets):
 | `gc` armed   | yes, per run | yes            | yes     | yes    | yes   | human (`gc`)       | mount + rows [`kpr-gc`]                 |
 | `unlock`     | yes          | yes            | sets it | yes    | no    | human (`unlock`)   | mount + marker [`kpr-unlock`]           |
 | sweeper pass | no           | yes, read gate | no¹     | no     | no    | tick loop / POST   | registry + rows + activity [`kpr-sweep`] |
-| `rm --untag` | no           | **no**         | no      | no     | no    | human (`rm`)       | registry + rows + activity [`kpr-sweep`] |
+| `rm --untag` | no           | yes, token     | no      | no     | no    | human (`rm`)       | registry + rows + activity [`kpr-sweep`] |
 | `rm`         | no           | **no**         | no      | no     | no    | human (`rm`)       | rows + activity [`kpr-sweep`]            |
 | receiver in  | no           | no             | no      | no     | no    | registry push      | rows [`kpr-receiver`]                   |
 | `plan` edits | no           | no             | no      | no     | no    | human (`plan`)     | marks (no signature)                    |
@@ -201,10 +201,11 @@ Readings:
 - Minting is concentrated: two call sites, both in `gc`.
   Everything else correctly mints nothing — only gc/unlock
   establish freshness.
-- The verdict is evaluated three times by hand: same preamble
+- The verdict was evaluated three times by hand: same preamble
   (read served generation → identity + rows → `Judge`), three
-  refusal renderings. Miss 2 extracts this preamble instead of
-  adding a fourth copy.
+  refusal renderings. Extracted into `proof.Prover` — the pass
+  consumes the gate, `rm --untag` takes the token (nil and stale
+  refuse), callers keep their own refusal rendering.
 - Clock and mode-probe are gc-only, correctly so. Deletes work
   either mode (readonly fails visibly); activity timestamps
   aren't proof. No reason to spread either.

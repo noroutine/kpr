@@ -209,6 +209,7 @@ func TestExecuteHelp(t *testing.T) {
 // port: manifest with a config digest, payload blob behind it.
 type stubProofAPI struct {
 	ts  string
+	id  string
 	err error
 }
 
@@ -223,7 +224,11 @@ func (s stubProofAPI) GetBlob(context.Context, string, string) ([]byte, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	return []byte(`{"v":1,"gen":"019-proof","ts":"` + s.ts + `","writer":"kpr-gc"}`), nil
+	pay := `{"v":1,"gen":"019-proof","ts":"` + s.ts + `","writer":"kpr-gc"`
+	if s.id != "" {
+		pay += `,"id":"` + s.id + `"`
+	}
+	return []byte(pay + `}`), nil
 }
 
 // Reachable completes the fake registry: production serves both the

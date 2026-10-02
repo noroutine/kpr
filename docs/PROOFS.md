@@ -50,7 +50,7 @@ flag arms the mutation, the proof earns it.
 |---|---|---|
 | `gc --no-dry-run` | mount + registry (collects) | mint, per run |
 | serve loop armed | registry (deletes) | read gate, per pass |
-| `rm --untag` (no dry-run by design) | registry + rows | read gate (`SameStore`, Miss 2) |
+| `rm --untag` (no dry-run by design) | registry + rows | read gate (`SameStore`, threaded into `Untag`) |
 | `unlock` (proving is the point) | mount + marker | mint |
 | `reap --no-dry-run` | marks only (store-local) | none needed — no registry write |
 | `rm`, `plan` edits (no dry-run by design) | rows/marks only | none needed — no registry write |
@@ -80,7 +80,7 @@ Example — `gc` sketched as evidence per stage:
 | accepted risk | `AcceptedRisk` (requires `ArmedRun` — force without arming is meaningless) | `--force` |
 | clock bound | `BoundedClock` | `clock.Check` |
 | intent | `UnlockedStore` | the store marker |
-| lineage | `SameStore` | the prover (Miss 2) |
+| lineage | `SameStore` | the prover |
 | collect | `SameStore` + `FreshGeneration` (+ `AcceptedRisk` iff overriding) | mint produces `FreshGeneration` |
 
 Every refusal message stays identical — only the place that

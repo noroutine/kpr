@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -73,12 +74,20 @@ func (s *Sweeper) Untrack(ctx context.Context, rows []policy.Row) ([]policy.Row,
 
 // Untag deletes the given rows' manifests without requiring due
 // marks: the operator-directed delete (`store rm --untag`), a
-// specific sweep going around the plan. Each row drops only on
-// confirm (deleted or already gone); held and failed deletes keep
-// their rows and fail loudly in aggregate. No lineage gate yet and
-// no lock check — the two open misses, owned by the use case now
-// instead of the CLI.
-func (s *Sweeper) Untag(ctx context.Context, rows []policy.Row) ([]policy.Row, error) {
+// specific sweep going around the plan. The caller proves the
+// shared store first and passes the token — nil refuses (deleting
+// blind), stale refuses (the served view lags tracked state, so a
+// delete would land against a moved registry). Each row drops only
+// on confirm (deleted or already gone); held and failed deletes
+// keep their rows and fail loudly in aggregate. No lock check yet
+// (Miss 3, open); the lineage gate rides the token.
+func (s *Sweeper) Untag(ctx context.Context, rows []policy.Row, same proof.SameStore) ([]policy.Row, error) {
+	if same == nil {
+		return nil, errors.New("untag without same-store proof: refusing to delete blind (prove the shared store first)")
+	}
+	if same.Stale() {
+		return nil, fmt.Errorf("untag on stale proof (served %s lags tracked state): re-read before deleting", same.Generation())
+	}
 	id := fmt.Sprintf("%d", s.now().UnixNano())
 	var done []policy.Row
 	var failed []string
