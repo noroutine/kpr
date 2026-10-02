@@ -111,6 +111,17 @@ push, pushes the multiplatform image, and attaches the binaries to the
 Forgejo release. Publishing happens only on tags; ordinary pushes only
 build and verify.
 
+**Future: permission testing under root.** CI runs in an `act`
+container as root, and root ignores permission bits — so
+chmod-staged refusal tests skip there (`os.Geteuid() == 0`, the
+house convention), and `RLIMIT_FSIZE` sabotage must dodge the
+harness's own log writes (process-global limit: ceiling above
+framework appends, or a child process holding the limit). That
+leaves the refusal paths unexercised exactly where the project
+claims coverage. Options, undecided: a non-root CI user, a
+dedicated permission stage, or root-proof sabotage (read-only
+bind mounts). Until then, skips stay loud and named.
+
 ## Mutation testing
 
 Statement coverage can't tell a test that asserts nothing from one that

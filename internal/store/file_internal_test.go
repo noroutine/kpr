@@ -96,22 +96,25 @@ func TestPutFileRefusesBlockedStages(t *testing.T) {
 
 // A file-too-large disk refuses the write with cleanup: the temp
 // never stays behind, and the error names the failure. The rlimit
-// window is tiny and restored by defer — framework writes during
-// it stay well under the 512-byte ceiling.
+// is process-global, so the ceiling sits above the test log the
+// framework appends throughout the run (a 512-byte ceiling broke
+// the harness itself: any framework write inside the window failed
+// with file-too-large and failed the package with no failed test)
+// and far below the payload. Restored by defer.
 func TestPutFileRefusesDiskFullWrite(t *testing.T) {
 	var old syscall.Rlimit
 	if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {
 		t.Fatalf("get rlimit: %v", err)
 	}
 	cur := old
-	cur.Cur = 512
+	cur.Cur = 1 << 20
 	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &cur); err != nil {
 		t.Fatalf("set rlimit: %v", err)
 	}
 	defer func() { _ = syscall.Setrlimit(syscall.RLIMIT_FSIZE, &old) }()
 
 	root := t.TempDir()
-	big := make([]byte, 65536)
+	big := make([]byte, 2<<20)
 	for i := range big {
 		big[i] = 'x'
 	}

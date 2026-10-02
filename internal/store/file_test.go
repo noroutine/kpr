@@ -3,6 +3,7 @@ package store_test
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -558,22 +559,35 @@ func TestFileStoreUnreadableMarkerRefuses(t *testing.T) {
 // A full disk refuses the lock claim write: the take fails loud
 // with no claim recorded, and no temp stays behind. If this fails,
 // a full disk takes locks it cannot evidence.
+//
+// The limit lives in a child process: RLIMIT_FSIZE is process-global
+// and the harness appends its own test log throughout the run, so
+// narrowing it in-process broke the harness itself (a framework
+// write inside the window failed the package with no failed test).
+// The child sets a zero ceiling, attempts the claim, and exits 0
+// only on refusal; the parent never narrows its own limits.
 func TestFileStoreAcquireLockOnFullDiskFails(t *testing.T) {
-	var old syscall.Rlimit
-	if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {
-		t.Fatalf("get rlimit: %v", err)
+	if dir := os.Getenv("KPR_TEST_FULLDISK_DIR"); dir != "" {
+		var old syscall.Rlimit
+		if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {
+			os.Exit(2)
+		}
+		cur := old
+		cur.Cur = 0
+		if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &cur); err != nil {
+			os.Exit(2)
+		}
+		s := store.NewFileStore(dir)
+		if _, err := s.AcquireLock(t.Context(), "k", time.Minute); err == nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
-	cur := old
-	cur.Cur = 0
-	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &cur); err != nil {
-		t.Fatalf("set rlimit: %v", err)
-	}
-	defer func() { _ = syscall.Setrlimit(syscall.RLIMIT_FSIZE, &old) }()
-
 	dir := t.TempDir()
-	s := store.NewFileStore(dir)
-	if _, err := s.AcquireLock(t.Context(), "k", time.Minute); err == nil {
-		t.Error("AcquireLock over the file-size limit succeeded, want refusal")
+	cmd := exec.Command(os.Args[0], "-test.run=TestFileStoreAcquireLockOnFullDiskFails")
+	cmd.Env = append(os.Environ(), "KPR_TEST_FULLDISK_DIR="+dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("full-disk child = %v, output:\n%s", err, out)
 	}
 }
 
