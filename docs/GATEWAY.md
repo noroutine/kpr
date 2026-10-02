@@ -94,7 +94,12 @@ identity-blind (route+method, never credentials; internal vs
 external told topologically, direct vs proxied) — registry auth
 puts no constraint on this slice. Auth headers pass through
 opaque; per-identity fencing belongs to the tenancy world, out
-of scope.
+of scope. One evaluation for both: the fence checks the lock
+through the same proof-package path the use cases mint from
+(same marker, same read, zero drift between kpr's self-gating
+and the proxy's fencing) — token discarded, evaluation shared.
+Tokens stay in use-case signatures; the fence needs a boolean,
+not a mint.
 
 ## Later slices (not this branch)
 
