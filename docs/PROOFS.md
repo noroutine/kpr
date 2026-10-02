@@ -41,15 +41,15 @@ Mechanics live where they are used: mint/read-gate in
 ## Armed means proven
 
 Dry-run is the default everywhere; arming is explicit per
-surface (`--no-dry-run` / `KPR_CLI_NO_DRY_RUN` for one-shots,
-`KPR_SWEEPER_NO_DRY_RUN` for the serve loop). The rule: an armed
-run that mutates the registry or the mount carries proof — the
-flag arms the mutation, the proof earns it.
+surface (`--no-dry-run` / `KPR_CLI_NO_DRY_RUN` for one-shots —
+there is no serve-loop arming, passes run only when asked). The
+rule: an armed run that mutates the registry or the mount carries
+proof — the flag arms the mutation, the proof earns it.
 
 | Armed by | Mutates | Proof it carries |
 |---|---|---|
 | `gc --no-dry-run` | mount + registry (collects) | mint, per run |
-| serve loop armed | registry (deletes) | read gate, per pass |
+| `sweep --no-dry-run` | registry (deletes) | read gate, per pass |
 | `rm --untag` (no dry-run by design) | registry + rows | read gate (`SameStore`, threaded into `Untag`) |
 | `unlock` (proving is the point) | mount + marker | mint |
 | `reap --no-dry-run` | marks only (store-local) | none needed — no registry write |

@@ -53,17 +53,17 @@ func liveRegistryClient(t *testing.T) *registry.Client {
 	return registry.NewClient(srv.URL)
 }
 
-// status is the ssh-and-scripts banner: redis and registry reachability,
-// sweeper arming, and counters from tracked state. If this fails,
-// operators cannot tell a healthy keeper from a blind one.
+// status is the ssh-and-scripts banner: redis and registry reachability
+// plus counters from tracked state. If this fails, operators cannot
+// tell a healthy keeper from a blind one.
 func TestStatusRendersBannerAndCounters(t *testing.T) {
 	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, cliStore(), liveRegistryClient(t), false); err != nil {
+	if err := runStatus(cliCtx(), &out, cliStore(), liveRegistryClient(t)); err != nil {
 		t.Fatalf("runStatus: %v", err)
 	}
 	// Exact line: "unreachable" contains "reachable", so a bare
 	// substring check would pass on a red banner.
-	for _, want := range []string{"dry-run", "registry: reachable\n", "tracked: 2", "due: 1", "performed: 1", "planned: 1", "failed: 1"} {
+	for _, want := range []string{"registry: reachable\n", "tracked: 2", "due: 1", "performed: 1", "planned: 1", "failed: 1"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("status missing %q:\n%s", want, out.String())
 		}
@@ -73,6 +73,15 @@ func TestStatusRendersBannerAndCounters(t *testing.T) {
 	for _, gone := range []string{"store-lock:", "proof:", "identity:"} {
 		if strings.Contains(out.String(), gone) {
 			t.Errorf("status leaks %q, owned by store status:\n%s", gone, out.String())
+		}
+	}
+	// Arming is per-invocation, not a posture: status owns none of
+	// it, so it advertises neither armed nor dry-run. If this
+	// fails, the dead serve loop's wording crept back into a banner
+	// that reports on nothing armable.
+	for _, gone := range []string{"armed", "dry-run", "sweeper:"} {
+		if strings.Contains(out.String(), gone) {
+			t.Errorf("status advertises %q (arming the banner doesn't own):\n%s", gone, out.String())
 		}
 	}
 	if strings.Contains(out.String(), "redis: reachable") {
@@ -86,13 +95,13 @@ func TestStatusRendersBannerAndCounters(t *testing.T) {
 // either hides a down registry or invents numbers with no backend.
 func TestStatusDegradesAndFailsFast(t *testing.T) {
 	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, cliStore(), registry.NewClient("http://127.0.0.1:1"), false); err != nil {
+	if err := runStatus(cliCtx(), &out, cliStore(), registry.NewClient("http://127.0.0.1:1")); err != nil {
 		t.Fatalf("registry down must not fail status: %v", err)
 	}
 	if !strings.Contains(out.String(), "unreachable") {
 		t.Errorf("status hides dead registry:\n%s", out.String())
 	}
-	if err := runStatus(cliCtx(), io.Discard, deadStore{}, liveRegistryClient(t), false); err == nil {
+	if err := runStatus(cliCtx(), io.Discard, deadStore{}, liveRegistryClient(t)); err == nil {
 		t.Error("redis down succeeded, want a fast clear error")
 	} else if !strings.Contains(err.Error(), "redis") {
 		t.Errorf("error = %q, want it to name redis", err.Error())
@@ -386,7 +395,7 @@ func pairedSweepStore(t *testing.T) (*store.MemStore, sweepStub) {
 // sweep runs the pass in-process and prints its summary: dry-run
 // plans (the row stays), armed deletes by digest (the row goes).
 // No console, no POST — the sweeper lives in the CLI. If this
-// fails, the puppeteer either cannot trigger or hides the counts.
+// fails, the pass either cannot run or hides the counts.
 func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 	s, stub := pairedSweepStore(t)
 	var out bytes.Buffer
@@ -530,7 +539,7 @@ func TestCatalogOnDeadRegistryFails(t *testing.T) {
 // nil client panics the status path instead of reddening it.
 func TestStatusNilRegistry(t *testing.T) {
 	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, cliStore(), nil, false); err != nil {
+	if err := runStatus(cliCtx(), &out, cliStore(), nil); err != nil {
 		t.Fatalf("runStatus with nil registry: %v", err)
 	}
 	if !strings.Contains(out.String(), "unreachable") {
@@ -659,6 +668,32 @@ func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
 	s, stub := pairedSweepStore(t)
 	if err := runSweep(cliCtx(), &failAfterWriter{}, s, stub, false); err == nil {
 		t.Error("sweep into failing pipe succeeded, want an error")
+	}
+}
+
+// The sweep command arms from its own flag or the one-shot env var —
+// never the dead serve loop's. The flag binding and the env half are
+// both wired here: RunE only sees sweepArmed. If this fails, `sweep`
+// answers to the wrong var and the suite can't see it.
+func TestSweepArmingWiring(t *testing.T) {
+	plain := config.NewBuilder().Build()
+	if sweepArmed(plain) {
+		t.Error("sweep armed by default, want implicit dry-run")
+	}
+	envArmed := config.NewBuilder().WithCLINoDryRun(true).Build()
+	if !sweepArmed(envArmed) {
+		t.Error("KPR_CLI_NO_DRY_RUN=true left sweep disarmed, want armed")
+	}
+	// The cobra binding: parsing --no-dry-run must flip the same
+	// global RunE reads. Reset after: the flag is process-global.
+	if err := sweepCmd.Flags().Set("no-dry-run", "true"); err != nil {
+		t.Fatalf("set --no-dry-run: %v", err)
+	}
+	defer func() {
+		_ = sweepCmd.Flags().Set("no-dry-run", "false")
+	}()
+	if !sweepArmed(plain) {
+		t.Error("--no-dry-run parsed but sweep stayed disarmed, want armed")
 	}
 }
 

@@ -259,7 +259,7 @@ func (s stubProofAPI) Reachable(context.Context) error {
 
 // serve runs no automatic passes: booting the servers must leave the
 // store's pass record untouched — no startup sweep, no tick. Passes
-// happen only when asked (`kpr sweep`, console POST). If this fails,
+// happen only when asked (`kpr sweep`). If this fails,
 // kpr grew a scheduler again.
 func TestServeRunsNoAutomaticPasses(t *testing.T) {
 	dir := t.TempDir()

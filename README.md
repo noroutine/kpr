@@ -131,7 +131,7 @@ kpr reap [policy]  # evaluate one policy (expired, partial, untagged,
                    # keep-n) or all; marks accumulate until sweep or
                    # plan discard (--no-dry-run to mark, repeat --exclude
                    # to spare keep-N for matching repo:tag)
-kpr sweep    # POST the sweep trigger, print the pass summary
+kpr sweep    # run one sweep pass in-process, print the summary
 kpr gc       # garbage-collect the shared store (dry-run preview by
              # default; --no-dry-run collects, readonly probe first)
 kpr env      # resolved configuration
@@ -189,8 +189,7 @@ Wiring only (ports, redis addr, registry URL, arming); see
 | `KPR_REGISTRY_URL` | registry peer (dev default `http://localhost:5000`) |
 | `KPR_EDGE_ADDR` | edge proxy listen address inside serve (default `:5000` — the registry's published port, moved to the edge) |
 | `KPR_EDGE=false` | run serve without the edge proxy (default-on; a failed RelativeURLs proof also closes it loudly — see [docs/GATEWAY.md](docs/GATEWAY.md)) |
-| `KPR_SWEEPER_NO_DRY_RUN=true` | arm the serve loop sweeper (anything else keeps implicit dry-run) |
-| `KPR_CLI_NO_DRY_RUN=true` | arm one-shot commands (gc collects, reap marks) |
+| `KPR_CLI_NO_DRY_RUN=true` | arm one-shot commands (gc collects, reap marks, sweep deletes) |
 | `KPR_TIME_METHOD` | checked-clock transport: `local` (default), `https`, `ntp` (see [docs/TIMESTAMPS.md](docs/TIMESTAMPS.md); compose pins `https`) |
 | `KPR_TIME_SERVER` | time source host (default `zeitstempel.dfn.de`; air-gapped sites point at their own) |
 

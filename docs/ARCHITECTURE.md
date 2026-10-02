@@ -77,7 +77,7 @@ registry manifests and tracked rows — `store rm` calls into it
 (`Sweeper.Untrack` for rows, `Sweeper.Untag` for manifests, a
 specific sweep going around the plan) instead of deleting past it.
 The CLI splits along the decision line:
-`reap` marks, `sweep` puppeteers, `plan` edits, `gc` reclaims. `reap`
+`reap` marks, `sweep` runs, `plan` edits, `gc` reclaims. `reap`
 evaluates the policies (reading candidates from redis, and the catalog
 from the registry for keep-N and untagged) and marks rows due with a
 reason — analysis-heavy, fast, no registry writes. `sweep` runs the
@@ -205,17 +205,18 @@ re-push restamps them.)
 
 Activity records carry two more names with a split meaning: actor
 is who carried the operation out (always `kpr-sweep` — one pair of
-hands), trigger is what caused it (the pass trigger like
-`sweep`/POST, or `untag` for directed deletes). The field names may
+hands), trigger is what caused it (the pass trigger `sweep`, or
+`untag` for directed deletes). The field names may
 earn better ones later; the split stays.
 
 ## Surfaces
 
 Console (server-rendered, no SPA) shows only what kpr tracks — never
-a registry catalog: banner (registry/redis reachability, armed vs
-dry-run), counters, plan with reasons, activity ring. The front page
-is the keeper face: hero line, glowing health ball polling the
-console, footer status.
+a registry catalog: banner (registry/redis reachability),
+counters, plan with reasons, activity ring. It advertises no sweep
+posture: the console never sweeps, arming is per-invocation. The
+front page is the keeper face: hero line, glowing health ball
+polling the console, footer status.
 
 CLI, next to `serve` and `env`:
 
@@ -235,7 +236,7 @@ CLI, next to `serve` and `env`:
   activity tail (`--json` for piping).
 - `kpr reap [policy]` — evaluates one policy or all and marks rows
   due. Dry-run unless `--no-dry-run`.
-- `kpr sweep` — triggers a sweep pass and watches it to the summary.
+- `kpr sweep` — runs a sweep pass in-process and prints the summary.
   No opinions, no marks: only rows already marked due are processed.
 - `kpr gc` — previews by default; `--no-dry-run` collects for real.
 
@@ -258,10 +259,11 @@ auth provider, only a client of the registry's.
   silent). CLI fails fast with a clear error. Nothing
   half-happens: every mutation is row-gated.
 - **Registry 500s on delete**: the row stays, the attempt is logged
-  to activity, retry happens on the next asked pass. `sweep`'s watch
-  surfaces the failure instead of swallowing it.
-- **Sweep endpoint unreachable**: `sweep` reports "N rows due, sweeper
-  not reached." The rows wait — nothing runs unasked.
+  to activity, retry happens on the next asked pass. `sweep`'s
+  printed summary surfaces the failure instead of swallowing it.
+- **Store unreachable mid-pass**: `sweep` prints the pass with
+  `failed:` lines naming the outage instead of failing or reading
+  empty. The rows wait — nothing runs unasked.
 - **gc unproven anything**: missing mounts, non-filesystem store,
   inconclusive sentinel, unproven shared store, foreign lineage,
   skewed clock, dead cache, held lock — every one refuses with the
@@ -287,7 +289,7 @@ stateDiagram-v2
 
 | Stage | Meaning |
 | --- | --- |
-| `start` | pass entered (trigger: `sweep`, POST, or `untag`) |
+| `start` | pass entered (trigger: `sweep` or `untag`) |
 | `skip` | nothing due, or another pass holds the lock |
 | `row` | one due row attempted (repo, tag, reason, outcome) |
 | `done` | rows exhausted (performed / planned / failed counts) |

@@ -30,7 +30,11 @@ type statusRegistry interface {
 	sentinel.API
 }
 
-func runStatus(ctx context.Context, w io.Writer, s store.Store, reg statusRegistry, armed bool) error {
+// runStatus prints the ssh-and-scripts banner: reachability plus
+// counters from tracked state. It reports no arming — arming is a
+// per-invocation property of one-shot commands (their flags), not a
+// persistent posture, and the serve loop that once owned it is gone.
+func runStatus(ctx context.Context, w io.Writer, s store.Store, reg statusRegistry) error {
 	st := keeper.FetchStatus(ctx, s, reg)
 	if !st.StoreOK {
 		return fmt.Errorf("%s unreachable: no tracked state to report", storeName(s))
@@ -39,12 +43,8 @@ func runStatus(ctx context.Context, w io.Writer, s store.Store, reg statusRegist
 	if st.RegistryOK {
 		registryState = "reachable"
 	}
-	arming := "dry-run"
-	if armed {
-		arming = "armed"
-	}
-	_, err := fmt.Fprintf(w, "registry: %s\nsweeper: %s\ntracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\npass: %s (%s)\n",
-		registryState, arming, st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, st.Current.Stage, st.Current.Trigger)
+	_, err := fmt.Fprintf(w, "registry: %s\ntracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\npass: %s (%s)\n",
+		registryState, st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, st.Current.Stage, st.Current.Trigger)
 	return err
 }
 
@@ -276,7 +276,7 @@ var statusCmd = &cobra.Command{
 			return err
 		}
 		defer d.close()
-		return runStatus(cmd.Context(), cmd.OutOrStdout(), d.store, d.reg, d.cfg.SweeperNoDryRun)
+		return runStatus(cmd.Context(), cmd.OutOrStdout(), d.store, d.reg)
 	},
 }
 
@@ -370,7 +370,7 @@ var sweepCmd = &cobra.Command{
 	Long: `Run one sweep pass in-process and print the pass summary.
 No opinions, no marks: only rows already marked due are processed.
 The sweeper lives here, not in serve (serve serves endpoints; it
-never sweeps). --no-dry-run (or KPR_SWEEPER_NO_DRY_RUN=true) arms
+never sweeps). --no-dry-run (or KPR_CLI_NO_DRY_RUN=true) arms
 it: deletes for real. Disarmed plans only.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()
@@ -379,7 +379,7 @@ it: deletes for real. Disarmed plans only.`,
 		}
 		defer d.close()
 		cfg, s := d.cfg, d.store
-		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, d.reg, sweepNoDryRun || cfg.SweeperNoDryRun)
+		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, d.reg, sweepArmed(cfg))
 	},
 }
 
@@ -390,4 +390,12 @@ func init() {
 	reapCmd.Flags().StringSliceVar(&reapExclude, "exclude", nil, "Spare keep-N for rows whose repo:tag matches (repeatable regex, registry stripped)")
 	sweepCmd.Flags().BoolVar(&sweepNoDryRun, "no-dry-run", false, "Delete due rows for real (default plans only)")
 	RootCmd.AddCommand(statusCmd, planCmd, reapCmd, sweepCmd)
+}
+
+// sweepArmed is the command's arming wiring, factored for test: the
+// flag arms one invocation, KPR_CLI_NO_DRY_RUN arms every one-shot
+// (gc, reap, sweep alike). If this fails, `sweep` answers to the
+// wrong var — the split's leftover coupling, back again.
+func sweepArmed(cfg *config.Config) bool {
+	return sweepNoDryRun || cfg.CLINoDryRun
 }

@@ -246,9 +246,9 @@ Readings:
   shared lineage preamble, callers render their own refusal.
 - Driving in, driven out: humans drive the CLI paths, the
   registry drives intake with push events, humans drive passes
-  (`sweep` or POST). What each drives is on the right — and only the
+  (`sweep`). What each drives is on the right — and only the
   sweeper serves many errands, so only its activity needs both
-  names (actor `kpr-sweep`, trigger `sweep`/POST/`untag`/`rm`).
+  names (actor `kpr-sweep`, trigger `sweep`/`untag`/`rm`).
 
 #### Evaluation: enforcing mint and proof
 

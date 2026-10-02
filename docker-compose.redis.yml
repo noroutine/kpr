@@ -43,10 +43,9 @@ services:
       - "REGISTRY_REDIS_PASSWORD=${REDIS_PASSWORD:-kpr-dev-only}"
       # Armed by default: the local stack really deletes. Comment the
       # line out (anything but exactly "true" keeps dry-run) to go back
-      # to planning without touching anything. Sweeper only — one-shot
-      # commands (gc, reap) stay dry-run unless flagged or
-      # KPR_CLI_NO_DRY_RUN=true.
-      - "KPR_SWEEPER_NO_DRY_RUN=true"
+      # to planning without touching anything. One-shot commands only
+      # (gc, reap, sweep) — passes run only when asked.
+      - "KPR_CLI_NO_DRY_RUN=true"
       # Checked clock: HTTPS works wherever the web does (the binary
       # default is local trust). ntp is precise but often
       # egress-blocked; local skips the check entirely.
@@ -105,7 +104,7 @@ services:
 
   # Plain OCI distribution registry that kpr companions.
   # Notification hooks (-> kpr) feed the receiver; retention policies
-  # are kpr-side (reap marks, serve sweeps). See registry-config.yml,
+  # are kpr-side (reap marks, sweep deletes). See registry-config.yml,
   # which mirrors a realistic deployment (redis blobdescriptor cache,
   # debug/prometheus, health checks).
   registry:

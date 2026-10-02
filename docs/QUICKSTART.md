@@ -59,7 +59,7 @@ services:
       - KPR_STORE_DIR=/var/lib/registry/kpr   # rows live beside images
       - KPR_REGISTRY_URL=http://registry:5000
       # Arm only after the first dry run below:
-      # - KPR_SWEEPER_NO_DRY_RUN=true
+      # - KPR_CLI_NO_DRY_RUN=true
       # - KPR_TIME_METHOD=https   # checked clock; local default otherwise
 
 volumes:
@@ -135,7 +135,7 @@ marks rows by hand; `plan discard` clears the plan.
 ## Arming it
 
 When the plan looks right, uncomment
-`KPR_SWEEPER_NO_DRY_RUN=true`, recreate kpr, and repeat —
+`KPR_CLI_NO_DRY_RUN=true`, recreate kpr, and repeat —
 this time `sweep` deletes by digest. Old images pushed before kpr arrived
 are kept (unknown age defaults keep — backfill is a known
 gap, not silent deletion).

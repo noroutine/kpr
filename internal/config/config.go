@@ -130,17 +130,11 @@ const (
 	// the listen address stays EnvEdgeAddr, never this.
 	EnvEdge = "KPR_EDGE"
 
-	// EnvSweeperNoDryRun, when set to exactly "true", arms the serve
-	// loop: the sweeper deletes (and the console reports armed).
-	// Anything else keeps the implicit dry-run. One concern per
-	// var: one-shot commands (gc, reap) answer to EnvCLINoDryRun,
-	// never this.
-	EnvSweeperNoDryRun = "KPR_SWEEPER_NO_DRY_RUN"
-
 	// EnvCLINoDryRun, when set to exactly "true", arms one-shot
-	// commands (gc collects, reap marks) without repeating
-	// --no-dry-run. Anything else keeps the implicit dry-run. The
-	// serve loop answers to EnvSweeperNoDryRun, never this.
+	// commands (gc collects, reap marks, sweep deletes) without
+	// repeating --no-dry-run. Anything else keeps the implicit
+	// dry-run. There is no serve-loop arming: the loop is gone,
+	// passes run only when asked.
 	EnvCLINoDryRun = "KPR_CLI_NO_DRY_RUN"
 
 	// EnvOTELEnabled, when set to "true", enables OpenTelemetry tracing.
@@ -207,8 +201,7 @@ var EnvVars = []EnvVar{
 	{EnvEdge, "Set to \"false\" (or \"0\", \"no\") to run serve without the edge proxy. Anything else keeps it enabled, subject to the RelativeURLs proof."},
 	{EnvTimeMethod, "Clock transport mint timestamps are checked with: local (default), https, or ntp."},
 	{EnvTimeServer, "Time source host mint timestamps are checked against. Defaults to zeitstempel.dfn.de; air-gapped sites point at their own."},
-	{EnvSweeperNoDryRun, "Set to \"true\" to arm the serve loop (sweeper deletes). Anything else keeps dry-run."},
-	{EnvCLINoDryRun, "Set to \"true\" to arm one-shot commands (gc collects, reap marks). Anything else keeps dry-run."},
+	{EnvCLINoDryRun, "Set to \"true\" to arm one-shot commands (gc collects, reap marks, sweep deletes). Anything else keeps dry-run."},
 	{EnvOTELEnabled, "Set to \"true\" to enable OpenTelemetry tracing. Disabled by default."},
 	{EnvOTELEndpoint, "OTLP/gRPC exporter endpoint (host:port). Defaults to localhost:4317."},
 	{EnvOTELServiceName, "Service name reported in traces. Defaults to kpr."},
@@ -337,12 +330,9 @@ type Config struct {
 	// overridden.
 	TimeServer string
 
-	// SweeperNoDryRun is true only when EnvSweeperNoDryRun is
-	// exactly "true". Anything else keeps the implicit dry-run.
-	SweeperNoDryRun bool
-
 	// CLINoDryRun is true only when EnvCLINoDryRun is exactly
-	// "true". Anything else keeps the implicit dry-run.
+	// "true": it arms one-shot commands (gc collects, reap marks,
+	// sweep deletes). Anything else keeps the implicit dry-run.
 	CLINoDryRun bool
 
 	// OTELEnabled is true when EnvOTELEnabled is exactly "true".
@@ -492,7 +482,6 @@ func (b *Builder) FromEnv() *Builder {
 	default:
 		b.cfg.EdgeEnabled = true
 	}
-	b.cfg.SweeperNoDryRun = os.Getenv(EnvSweeperNoDryRun) == "true"
 	b.cfg.CLINoDryRun = os.Getenv(EnvCLINoDryRun) == "true"
 
 	var err error
@@ -558,7 +547,6 @@ func (b *Builder) WithRedisDB(v int) *Builder                   { b.cfg.RedisDB 
 func (b *Builder) WithRegistryURL(v string) *Builder            { b.cfg.RegistryURL = v; return b }
 func (b *Builder) WithEdgeAddr(v string) *Builder               { b.cfg.EdgeAddr = v; return b }
 func (b *Builder) WithEdgeEnabled(v bool) *Builder              { b.cfg.EdgeEnabled = v; return b }
-func (b *Builder) WithSweeperNoDryRun(v bool) *Builder          { b.cfg.SweeperNoDryRun = v; return b }
 func (b *Builder) WithCLINoDryRun(v bool) *Builder              { b.cfg.CLINoDryRun = v; return b }
 func (b *Builder) WithOTELEnabled(v bool) *Builder              { b.cfg.OTELEnabled = v; return b }
 func (b *Builder) WithOTLPEndpoint(v string) *Builder           { b.cfg.OTLPEndpoint = stripScheme(v); return b }

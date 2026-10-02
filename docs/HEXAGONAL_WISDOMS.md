@@ -229,8 +229,8 @@ own sources and passes bools (`proof.Arm(gcNoDryRun,
 cfg.CLINoDryRun)`). Two prices killed the shortcut: a stringly
 flag lookup fails at runtime where a bound var fails at compile
 time, and per-command sources differ anyway
-(`CLINoDryRun` vs `SweeperNoDryRun`), so the "automatic" call
-needs parameters for which sources — saving nothing over two
-bools. The automatic part comes from the other side: stages
+(each command's own flag var over the shared `CLINoDryRun`),
+so the "automatic" call needs parameters for which sources —
+saving nothing over two bools. The automatic part comes from the other side: stages
 take `ArmedRun`, so a command that forgets the one line doesn't
 compile.
