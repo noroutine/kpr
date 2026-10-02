@@ -8,7 +8,7 @@ proven live before the next). What stays future lives at the
 bottom: generated config and observed tracking (this doc), the
 child registry (`docs/CHILD_REGISTRY.md`). Multiple registries
 under one kpr (multiplexer) are explicitly out — their own
-spike, later. Downstream is filesystem-store only; s3-backed
+effort, later. Downstream is filesystem-store only; s3-backed
 registries are out for the same reason. Mode scope:
 `--registry=external` — kpr proxies a separately-run registry.
 The child/supervisor mode is a separate effort, not this doc.
@@ -89,7 +89,7 @@ flows, not just pulls: upload initiate, chunk resume, mount,
 manifest PUT, upload complete. Edge stays at root — subpath
 mounting would shift the builder's base path.
 
-The flip earns the spike's first config proof (`internal/proof`,
+The flip earns the gateway's first config proof (`internal/proof`,
 same pattern): a prover reading the mounted registry config kpr
 already resolves, minting `RelativeURLs` only when
 `http.relativeurls` is true *and* `http.host` is empty (a set
@@ -187,8 +187,8 @@ each with its own `--accept-*` override on an armed run and
 every miss listed at once: the blobdescriptor cache (none
 configured — with a redis cache, deletes stay vouched until
 restart) and the gateway (proven edge listening, HOLD lease
-configured). The collect engages the HOLD lease around
-finalize; a fence that fails to engage refuses instead of
+configured). The collect engages the HOLD lease around the
+armed collect; a fence that fails to engage refuses instead of
 collecting unfenced. Three run-wide risks refuse with their
 own flags everywhere, no umbrella: clock skew past tolerance
 (`--accept-clock-skew`), a restored older generation
@@ -224,8 +224,8 @@ override, flip banner failing the run unless accepted.
 Backend provisioning (buckets, redis instances — the PaaS
 line), general-purpose S3/RESP-compat servers, authn/authz per
 slice, multiple registries under one kpr (multiplexer — own
-spike, later), s3-backed downstream registries (redirect
-flows, driver mechanics — own spike, later), and the
+effort, later), s3-backed downstream registries (redirect
+flows, driver mechanics — own effort, later), and the
 child/supervisor mode (`docs/CHILD_REGISTRY.md`, later).
 
 ## Appendix: where Location headers come from

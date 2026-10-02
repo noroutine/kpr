@@ -18,9 +18,11 @@ launch.
 Registry control speaks the gc event mechanism, nothing new:
 lifecycle `Event`s on the existing `Reporter` port
 (`internal/gc/collector.go` — `Timed` stages, nil-safe `Emit`,
-same JSON-lines transport), with control stages beside the gc
-ones (spawn/stop/restart, fence-hold/fence-release, ceremony
-phases), and an `Outcome` per completed action into the
-activity ring (`FileStore.PushActivity`, what `store status`
-shows). A restart is as visible as a collect, through the same
-keys.
+events shaped for a JSON-lines transport should the console
+ever subscribe). Control stages join the gc ones as the
+supervisor lands — of the set only spawn exists today
+(`collector.go`); stop/restart, fence-hold/fence-release, and
+ceremony phases are design, not code. An `Outcome` per
+completed action goes into the activity ring
+(`FileStore.PushActivity`, what `store status` shows). A
+restart is as visible as a collect, through the same keys.
