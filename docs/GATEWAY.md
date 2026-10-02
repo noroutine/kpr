@@ -87,6 +87,16 @@ flows, not just pulls: upload initiate, chunk resume, mount,
 manifest PUT, upload complete. Edge stays at root — subpath
 mounting would shift the builder's base path.
 
+The flip earns the spike's first config proof (`internal/proof`,
+same pattern): a prover reading the mounted registry config kpr
+already resolves, minting `RelativeURLs` only when
+`http.relativeurls` is true. The proxy edge takes the proof at
+open — no proof, no edge — because an absolute backend
+`Location` is a fence bypass, and bypass must not compile.
+Until config generation lands the prover reads an
+operator-owned file (trust-but-verify); after, it proves what
+kpr rendered.
+
 Assertions before anything else:
 
 - Upstream `Location`s are relative (after `relativeurls`;

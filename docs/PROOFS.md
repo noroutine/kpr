@@ -144,5 +144,7 @@ pattern — a prover reading the mounted config kpr already resolves
 for gc, minting only when the knob says what kpr needs — but
 config is read at boot while proofs are minted per run, so the
 evidence would be a boot-time reading re-checked per use, never a
-fresh one. Open: which knobs earn a proof, and whether kpr should
-refuse or stay loud.
+fresh one. First knob earned: `http.relativeurls` (`RelativeURLs`
+— fence-critical, so refuse, not loud; specified in
+`docs/GATEWAY.md`). Open which others follow, and where refuse
+stops being affordable.
