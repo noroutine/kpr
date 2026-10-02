@@ -81,8 +81,14 @@ Two fence modes at the proxy, both identity-blind:
 at the proxy besides marking the store (kpr's own use cases
 keep refusing on the marker as today); unlock's proof ceremony
 is unchanged and stays the sole releaser. The proxy reads the
-marker per mutating request — local read, no cache, no
-staleness. Enforcement mints nothing: proofs still govern kpr's
+marker per mutating request — local file read, no cache, no
+staleness, and deliberately not redis: microseconds against the
+milliseconds the forwarded op costs anyway, and no new
+load-bearing dependency on the push path (a redis-gated check
+fails open into a fence hole or closed into a dark registry).
+If the store ever goes s3-backed, the marker stays local or the
+proxy TTL-caches it with a stated leak window — decided then,
+not now. Enforcement mints nothing: proofs still govern kpr's
 own actions; the fence governs everyone else's. Both modes are
 identity-blind (route+method, never credentials; internal vs
 external told topologically, direct vs proxied) — registry auth
