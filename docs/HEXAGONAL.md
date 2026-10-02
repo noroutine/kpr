@@ -348,7 +348,7 @@ Slice: thread `UnlockedStore` into `Sweeper.RunPass` and `Untag`
 the way `SameStore` went in — gate at the use case, token in the
 signature. `gc` already opens on the marker.
 
-Landed: (link after push)
+Landed: [b5eb070](https://nrtn.dev/catalyst/kpr/commit/b5eb0709dd7874fb85ae703b6184cbeec8ecee64) — `RunPass` consumes `ProveUnlockedStore` before lineage reads, `Untag`/`Untrack` take the token (unlocked before same); locked refuses in dry-run and armed alike.
 
 Terminology, internalized: `cli`/`web` are driving adapters
 (parse, call, render); `keeper`/`gc`/`sweep` are use cases (pure

@@ -170,6 +170,9 @@ and repeat — this time `sweep` deletes by digest. Then reclaim blob
 bytes with the registry's offline GC (`registry garbage-collect
 --delete-untagged <config>`): deletes drop the manifest reference
 only; GC needs the registry stopped, so schedule the downtime.
+After GC, restart the registry before re-pushing (its blob
+descriptor cache vouches for deleted blobs until it drops —
+dead tags otherwise; `docs/GC.md` has the matrix).
 
 ## What to expect (and what not to)
 

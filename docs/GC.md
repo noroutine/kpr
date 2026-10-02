@@ -1,6 +1,7 @@
 ## Contents
 
 - [Garbage collection today](#garbage-collection-today)
+- [After an armed run: stale blob descriptors](#after-an-armed-run-stale-blob-descriptors)
 - [Per-repo collection: keep-N over gen tags](#per-repo-collection-keep-n-over-gen-tags)
 - [Future: dangling tags](#future-dangling-tags)
 - [Future: token-auth registries](#future-token-auth-registries)
@@ -18,6 +19,42 @@ Current behavior in short:
 - **Evented runner.** The collector streams through a subprocess with pipe capture, line streaming, and drain discipline; pre/post sentinel events; a mode flip mid-run fails loudly unless `--force`.
 - **Dry-run default.** `kpr gc` previews; `--no-dry-run` collects for real. Previews never mint — no blobs, no tags, no rows — but they still read: the served generation proves presence (nothing served refuses with "no sentinel served" and names the armed ceremony; unreadable stays an error). Freshness stays armed-only: only a fresh mint distinguishes a stale snapshot from the shared store. Only armed runs pay for (and print) the proof.
 - **Out of scope: Online GC.** Needs a registry engine; soft-deleted blobs dedupe re-pushes until then.
+
+## After an armed run: stale blob descriptors
+
+The collector deletes blob files but never invalidates the
+blobdescriptor cache — registry:3 exposes no flush API for it
+(HTTP surface is the v2 API plus debug/health only). Until the
+cache drops, the registry vouches for deleted blobs: HEAD answers
+200, so push clients skip the upload (`existing blob`), manifest
+PUTs 201 against surviving revision links, the tag PUT 201s — and
+the tag is broken (`MANIFEST_UNKNOWN`, content absent from
+`_blobs`). Observed end to end: blob HEAD 200 with no link and no
+data file on disk, flipping to 404 after a registry restart, at
+which point a re-push uploaded everything for real (0 skipped)
+and the tag resolved.
+
+Remedy — restart alone is not always enough:
+
+- **File stack** (`registry-config.file.yml`): no descriptor
+  cache at all (deleted section — proven: blob HEAD 404s the
+  moment gc finishes, re-push uploads for real). Nothing to
+  restart, nothing to flush.
+- **Cached deployments** (inmemory or redis): a gc against a
+  *stopped* registry gets a fresh inmemory cache free; a gc
+  against a *readonly-but-running* registry needs an explicit
+  restart, otherwise the hot cache keeps vouching for deleted
+  blobs. Restart does *not* drop redis keys — flush the
+  descriptor DB too (`redis-cli -n 3 FLUSHDB`; DB 4 holds kpr
+  rows and is untouched). Descriptors are pure cache,
+  repopulated on demand.
+
+Dry-run previews delete nothing, so the cache stays valid — no
+remedy needed there.
+
+kpr does not restart the registry itself — the collector's proof
+ends at the store boundary. A re-push between gc and restart
+mints a dead tag; a restart plus a fresh push self-heals.
 
 ## Per-repo collection: keep-N over gen tags
 

@@ -24,12 +24,12 @@ storage:
     # kpr sweeps expired manifests: deletes must be enabled or every
     # DELETE 405s with UNSUPPORTED.
     enabled: true
-  cache:
-    # No redis on this stack — descriptors live in the registry
-    # process. Lost on restart (rebuilt from disk on demand); the
-    # redis stack's registry-config.yml keeps the shared cache for
-    # deployments where warm restarts matter.
-    blobdescriptor: inmemory
+  # No `cache:` section on purpose: without `blobdescriptor` every
+  # blob stat hits the filesystem, so gc deletions are visible
+  # immediately — no stale-descriptor phantoms, no restart needed
+  # before re-push (see docs/GC.md). Speed doesn't matter on this
+  # dev stack; the redis stack's registry-config.yml keeps the
+  # shared cache for deployments where warm restarts matter.
   filesystem:
     rootdirectory: /var/lib/registry
   maintenance:

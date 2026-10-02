@@ -138,7 +138,10 @@ offline collector: `docker exec kpr kpr gc` previews,
 `--no-dry-run` collects after you flip the registry readonly
 (config file, restart) — full ceremony in the README's
 [Garbage collection](../README.md#garbage-collection) section
-and `docs/GC.md`.
+and `docs/GC.md`. The dev stack disables the registry's blob
+descriptor cache, so re-pushes right after gc see the truth;
+cached deployments need a registry restart (or descriptor-DB
+flush) first, or the re-push mints a dead tag.
 
 ## What to expect
 

@@ -132,3 +132,17 @@ initiate round trip and mints exactly one of `RegistryReadonly` / `RegistryWrita
 do not compile. Still courtesy-grade: sealing changes the
 plumbing (the probe cannot be skipped or forged), never what is
 proven — it classifies the registry, not our store.
+
+## Future: proofs over registry config
+
+Some kpr demands are about the registry's own configuration, not
+runtime evidence: the dev stack's missing `blobdescriptor` cache
+(docs/GC.md) only holds while nobody re-adds the section; a
+`storage.delete.enabled: false` registry 405s every sweep. Today
+those are docs and warnings. The shape would follow the existing
+pattern — a prover reading the mounted config kpr already resolves
+for gc, minting only when the knob says what kpr needs — but
+config is read at boot while proofs are minted per run, so the
+evidence would be a boot-time reading re-checked per use, never a
+fresh one. Open: which knobs earn a proof, and whether kpr should
+refuse or stay loud.

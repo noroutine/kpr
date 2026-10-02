@@ -70,8 +70,9 @@ services:
   # Notification hooks (-> kpr) feed the receiver; retention policies
   # are kpr-side (reap marks, serve sweeps). See
   # registry-config.file.yml, the redis-less twin of the redis
-  # stack's registry-config.yml (inmemory blobdescriptor cache —
-  # no shared instance to protect here).
+  # stack's registry-config.yml (no blobdescriptor cache at all —
+  # no shared instance to protect here, and gc deletions read
+  # back true immediately).
   registry:
     image: registry:3
     container_name: kpr-registry
