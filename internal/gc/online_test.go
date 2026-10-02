@@ -100,6 +100,55 @@ func TestOnlinePreflightRefusesAllMissesAtOnce(t *testing.T) {
 	}
 }
 
+// Accepted risks read [accepted], naming what was waived —
+// never [ok]. If this fails, the report claims a fence that was
+// only waived.
+func TestOnlinePreflightVoicesAccepted(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	cfg := stageOnlineConfig(t, root, true)
+	accept := proof.Force(proof.Arm(true, false), true)
+
+	_, _, report, err := onlinePreflight(ctx, cfg, "127.0.0.1:1", false, accept, accept)
+	if err != nil {
+		t.Fatalf("doubly-accepted preflight refused: %v", err)
+	}
+	for _, want := range []string{"[accepted] blob cache", "127.0.0.1:6379", "[accepted] gateway", "127.0.0.1:1"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report missing %q:\n%s", want, report)
+		}
+	}
+	for _, gone := range []string{"[ok]", "[miss]"} {
+		if strings.Contains(report, gone) {
+			t.Errorf("report claims %q on a fully-waived run:\n%s", gone, report)
+		}
+	}
+}
+
+// An override the world does not need reads [ok]: acceptance
+// never downgrades genuine evidence. If this fails, passing a
+// redundant flag slanders a proven edge.
+func TestOnlinePreflightRedundantAcceptStaysOk(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	cfg := stageOnlineConfig(t, root, false)
+	edge, done := loopbackEdge(t)
+	defer done()
+	accept := proof.Force(proof.Arm(true, false), true)
+
+	_, _, report, err := onlinePreflight(ctx, cfg, edge, true, accept, accept)
+	if err != nil {
+		t.Fatalf("proven preflight with redundant accepts refused: %v", err)
+	}
+	for _, gone := range []string{"[accepted]", "[miss]"} {
+		if strings.Contains(report, gone) {
+			t.Errorf("report claims %q on a proven run:\n%s", gone, report)
+		}
+	}
+}
+
 // One acceptance clears exactly its risk: the cached registry
 // with --accept-blob-cache still refuses the silent gateway. If
 // this fails, overrides leak across risks.
@@ -117,9 +166,12 @@ func TestOnlinePreflightAcceptsPerRisk(t *testing.T) {
 		t.Errorf("refusal misattributes the miss:\n%v", err)
 	}
 	// The footer overrides exactly the miss: a gateway-only miss
-	// must not advise --accept-blob-cache. If this fails, the
-	// operator overrides a risk they do not have.
-	if !strings.Contains(err.Error(), "--accept-unfenced") || strings.Contains(err.Error(), "--accept-blob-cache") {
+	// advises --accept-unfenced, never --accept-blob-cache. The
+	// [accepted] cache line names its own flag above the footer —
+	// only the footer (past "refusing:") is asserted here. If this
+	// fails, the operator overrides a risk they do not have.
+	footer := err.Error()[strings.Index(err.Error(), "refusing:"):]
+	if !strings.Contains(footer, "--accept-unfenced") || strings.Contains(footer, "--accept-blob-cache") {
 		t.Errorf("footer overrides the wrong risk:\n%v", err)
 	}
 }
@@ -169,6 +221,27 @@ func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
 	}
 	if len(collected) != 1 {
 		t.Errorf("preview collected %d times, want 1 (previews still preview)", len(collected))
+	}
+}
+
+// --force no longer opens the writable collect: clock skew,
+// restored lineage, post-run flips are its remaining jobs, and the
+// online gate does not consult it. If this fails, force re-entered
+// the gate it was retired from.
+func TestRunForceAloneOpensNothingOnline(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	var collected [][]string
+	var out strings.Builder
+	err := Run(context.Background(), &out, writableProbe(), s, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{DryRun: false, Force: true, Report: func(Event) {}}, nil, nil)
+	if err == nil {
+		t.Fatal("forced uncleared run succeeded, want the preflight refusal")
+	} else if !strings.Contains(err.Error(), "gateway") {
+		t.Errorf("refusal is not the preflight:\n%v", err)
+	}
+	if len(collected) != 0 {
+		t.Error("refused run reached the collector")
 	}
 }
 

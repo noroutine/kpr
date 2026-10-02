@@ -105,12 +105,7 @@ revokes.`,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
 		dryRun := gcDryRun(armedRun)
-		// Each online risk mints its own acceptance from the same
-		// armed run: --force keeps its other jobs (clock skew,
-		// restored lineage, post-run flip), the writable collect
-		// answers to these two.
-		cacheAccept := proof.Force(armedRun, gcAcceptBlobCache)
-		fenceAccept := proof.Force(armedRun, gcAcceptUnfenced)
+		cacheAccept, fenceAccept := gcAccepts(armedRun)
 		backend, dir, berr := resolveStoreBackend()
 		fence := fenceForBackend(backend, dir, berr, dryRun, out)
 		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
@@ -132,6 +127,16 @@ func init() {
 	gcCmd.Flags().BoolVar(&gcAcceptUnfenced, "accept-unfenced", false, "Collect without the gateway HOLD fence (a push mid-collect corrupts)")
 	gcCmd.Flags().BoolVar(&gcNoDryRun, "no-dry-run", false, "Collect for real (default previews with the collector's --dry-run)")
 	RootCmd.AddCommand(gcCmd)
+}
+
+// gcAccepts mints one acceptance per online risk from the same
+// armed run: --accept-blob-cache clears the cache, --accept-
+// unfenced clears the gateway. --force is deliberately absent —
+// it keeps its other jobs (clock skew, restored lineage,
+// post-run flip) and no longer opens the writable collect. If
+// this fails, force re-entered the gate it was retired from.
+func gcAccepts(armed proof.ArmedRun) (proof.AcceptedRisk, proof.AcceptedRisk) {
+	return proof.Force(armed, gcAcceptBlobCache), proof.Force(armed, gcAcceptUnfenced)
 }
 
 // gcDryRun reads the mode off the mint: dry-run is the absence of

@@ -25,6 +25,25 @@ func onlineAccept() proof.AcceptedRisk {
 	return proof.Force(proof.Arm(true, false), true)
 }
 
+// The accepts come from their own flags, never --force: arming
+// --force alone mints nothing here. If this fails, force
+// re-entered the accept path it was retired from.
+func TestGcAcceptsExcludesForce(t *testing.T) {
+	armed := proof.Arm(true, false)
+	gcForce = true
+	defer func() { gcForce = false }()
+	if c, f := gcAccepts(armed); c != nil || f != nil {
+		t.Error("--force minted online acceptance, want nil without --accept-*")
+	}
+	if err := gcCmd.Flags().Set("accept-blob-cache", "true"); err != nil {
+		t.Fatalf("set --accept-blob-cache: %v", err)
+	}
+	defer func() { _ = gcCmd.Flags().Set("accept-blob-cache", "false") }()
+	if c, f := gcAccepts(armed); c == nil || f != nil {
+		t.Error("--accept-blob-cache must clear exactly the cache")
+	}
+}
+
 // Dry-run is the absence of the mint: flag or env arms, silence
 // previews. If this fails, gc collects on nothing or previews when
 // armed.
