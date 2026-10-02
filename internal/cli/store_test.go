@@ -29,6 +29,25 @@ func seedSentinel(s *store.MemStore) {
 		Digest: "sha256:ccc", PushedAt: cliNow.Add(-30 * time.Minute), Actor: "kpr-unlock"})
 }
 
+// mustUnlock opens the marker: rm tests stage unlocked ground so
+// the intent gate (tested here, not there) stays green.
+func mustUnlock(t *testing.T, s *store.MemStore) {
+	t.Helper()
+	if err := s.SetUnlocked(cliCtx(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+}
+
+// unlockedProof reads the marker the way the rm command does.
+func unlockedProof(t *testing.T, s *store.MemStore) proof.UnlockedStore {
+	t.Helper()
+	unlocked, err := proof.ProveUnlockedStore(cliCtx(), s)
+	if err != nil {
+		t.Fatalf("prove unlocked ground: %v", err)
+	}
+	return unlocked
+}
+
 // untagProof mints the way the rm command does: paired store,
 // served generation of our lineage. If minting fails here, the
 // test ground (not the rm path) is broken.
@@ -37,6 +56,7 @@ func untagProof(t *testing.T, s *store.MemStore) proof.SameStore {
 	if err := s.SetIdentity(cliCtx(), store.Identity{ID: "test-id"}); err != nil {
 		t.Fatalf("stage identity: %v", err)
 	}
+	mustUnlock(t, s)
 	same, err := proof.Prover{
 		Sentinel: stubProofAPI{id: "test-id", ts: cliNow.Format(time.RFC3339)},
 		Store:    s, DryRun: false,
@@ -192,7 +212,9 @@ func TestStoreWildcardRefuses(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "exact") {
 		t.Errorf("glob refusal should say exact, got: %v", err)
 	}
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:*"}, false, &sweep.Sweeper{Store: s}, nil); err == nil {
+	// Glob refusal precedes every gate (splitRef first), so the
+	// tokens never get read — nils document they are unreachable.
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:*"}, false, &sweep.Sweeper{Store: s}, nil, nil); err == nil {
 		t.Error("rm with a glob should refuse")
 	} else if !strings.Contains(err.Error(), "exact") {
 		t.Errorf("glob refusal should say exact, got: %v", err)
@@ -300,7 +322,7 @@ func TestStoreRmUntagPartialPrintsDone(t *testing.T) {
 	stub := &flipStub{}
 	var out bytes.Buffer
 	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "scratch:10m"}, true,
-		&sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s)); err == nil {
+		&sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s), unlockedProof(t, s)); err == nil {
 		t.Fatal("partial untag succeeded, want the held failure")
 	}
 	if !strings.Contains(out.String(), "untagged app:v1") {
@@ -321,7 +343,7 @@ func TestStoreRmUntagDeletesThenDropsRow(t *testing.T) {
 	seedRows(s)
 	stub := &untagStub{outcome: "deleted"}
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s)); err != nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s), unlockedProof(t, s)); err != nil {
 		t.Fatalf("runStoreRm untag: %v", err)
 	}
 	if len(stub.calls) != 1 || stub.calls[0] != "app:sha256:aaa" {
@@ -344,10 +366,13 @@ func TestStoreRmUntagDeletesThenDropsRow(t *testing.T) {
 func TestStoreRmUntagWithoutProofRefuses(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
+	// Unlocked ground: this test isolates the missing identity
+	// token (locked refusal has its own test below).
+	mustUnlock(t, s)
 	stub := &untagStub{outcome: "deleted"}
 	var out bytes.Buffer
 	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true,
-		&sweep.Sweeper{Store: s, Registry: stub}, nil); err == nil {
+		&sweep.Sweeper{Store: s, Registry: stub}, nil, unlockedProof(t, s)); err == nil {
 		t.Fatal("proofless rm --untag succeeded, want the blind refusal")
 	}
 	if len(stub.calls) != 0 {
@@ -359,6 +384,46 @@ func TestStoreRmUntagWithoutProofRefuses(t *testing.T) {
 	}
 }
 
+// Locked refuses before resolution: a locked store forgets nothing
+// and deletes nothing. The nil unlocked token IS the locked store
+// here — the command mints it via ProveUnlockedStore, which fails
+// on a locked marker, so no caller can hold a token for one. If
+// this fails, the freeze has a hole at the command layer.
+func TestStoreRmLockedRefuses(t *testing.T) {
+	for _, untag := range []bool{false, true} {
+		s := store.NewMemStore()
+		seedRows(s)
+		// Paired but locked: identity reads need no marker, so the
+		// same-token mints and only intent is missing.
+		if err := s.SetIdentity(cliCtx(), store.Identity{ID: "test-id"}); err != nil {
+			t.Fatalf("stage identity: %v", err)
+		}
+		same, err := proof.Prover{
+			Sentinel: stubProofAPI{id: "test-id", ts: cliNow.Format(time.RFC3339)},
+			Store:    s, DryRun: false,
+			Now: func() time.Time { return cliNow },
+		}.Prove(cliCtx())
+		if err != nil {
+			t.Fatalf("prove on paired ground: %v", err)
+		}
+		stub := &untagStub{outcome: "deleted"}
+		var out bytes.Buffer
+		if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, untag,
+			&sweep.Sweeper{Store: s, Registry: stub}, same, nil); err == nil {
+			t.Fatalf("untag=%v locked rm succeeded, want the locked refusal", untag)
+		} else if !strings.Contains(err.Error(), "locked") {
+			t.Errorf("untag=%v err = %q, want the locked refusal named", untag, err.Error())
+		}
+		if len(stub.calls) != 0 {
+			t.Errorf("untag=%v locked rm attempted %d registry deletes", untag, len(stub.calls))
+		}
+		rows, _ := s.All(cliCtx())
+		if len(rows) != 2 {
+			t.Errorf("untag=%v rows = %d, want both kept", untag, len(rows))
+		}
+	}
+}
+
 // A held delete (tag fallback on distribution:3, denied configs)
 // keeps the row: dropping it would untrack a live tag silently.
 func TestStoreRmUntagHeldKeepsRowLoud(t *testing.T) {
@@ -366,7 +431,7 @@ func TestStoreRmUntagHeldKeepsRowLoud(t *testing.T) {
 	seedRows(s)
 	stub := &untagStub{outcome: "held"}
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s)); err == nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, true, &sweep.Sweeper{Store: s, Registry: stub}, untagProof(t, s), unlockedProof(t, s)); err == nil {
 		t.Fatal("held untag succeeded, want a loud failure")
 	}
 	rows, _ := s.All(cliCtx())
@@ -381,8 +446,9 @@ func TestStoreRmUntagHeldKeepsRowLoud(t *testing.T) {
 func TestStoreRmDropsRowWarnsTagStays(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
+	mustUnlock(t, s)
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, false, &sweep.Sweeper{Store: s}, nil); err != nil {
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1"}, false, &sweep.Sweeper{Store: s}, nil, unlockedProof(t, s)); err != nil {
 		t.Fatalf("runStoreRm: %v", err)
 	}
 	if !strings.Contains(out.String(), "untracked") {
@@ -408,7 +474,9 @@ func TestStoreRmUnknownRefusesBeforeDeleting(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)
 	var out bytes.Buffer
-	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "app:nope"}, false, &sweep.Sweeper{Store: s}, nil); err == nil {
+	// Unknown-ref refusal precedes every gate (resolution first), so
+	// the tokens never get read — nils document they are unreachable.
+	if err := runStoreRm(cliCtx(), &out, s, []string{"app:v1", "app:nope"}, false, &sweep.Sweeper{Store: s}, nil, nil); err == nil {
 		t.Fatal("rm with an unknown ref should refuse")
 	} else if !strings.Contains(err.Error(), "app:nope") {
 		t.Errorf("refusal should name the unknown row, got: %v", err)

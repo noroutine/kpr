@@ -73,6 +73,27 @@ so compose always sets it absolute (the file stack mounts
 file (banner red, sweeper skips) — a Stat would lie about
 read-only mounts.
 
+## What locked means
+
+Locked (marker absent — fresh stores included) means hands off:
+no destructive operations against the registry or the store.
+No collects, no manifest deletes, no row drops. It does *not*
+mean the registry is readonly — writability is enforced only by
+registry config (`maintenance.readonly`); the lock never claims
+that, and a locked store can still serve reads and previews.
+
+Two aims, from when `adopt` appeared: foreign or stale stores
+must never be garbled quietly (unlock proves sharedness first,
+and every surprise arrives with its warning and remedy), and the
+operator gets a simple maintenance freeze. Reads and plan edits
+ignore the marker — nothing destructive, nothing to refuse.
+Passes and collects refuse locked even as previews: a run is a
+run, not a read.
+
+Enforced where a check exists (`gc` opens via the marker);
+threading the sweeper pass and `rm` through the same gate is the
+Miss 3 slice.
+
 ## Invariants
 
 Crash-proofing is a write protocol, not a format:

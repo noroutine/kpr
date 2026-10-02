@@ -688,6 +688,10 @@ func TestSweeperLoopStartupAndTick(t *testing.T) {
 	if err := s.SetIdentity(context.Background(), store.Identity{ID: "cli-lineage", BaselineGen: "cli-gen"}); err != nil {
 		t.Fatalf("pair store: %v", err)
 	}
+	// Unlocked: this test isolates loop mechanics, not the marker.
+	if err := s.SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
 	sw := &sweep.Sweeper{Store: s, Registry: liveRegistryClient(t), Sentinel: loopSentinel{}, DryRun: true}
 
 	ctx, cancel := context.WithCancel(context.Background())

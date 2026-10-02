@@ -194,6 +194,10 @@ func TestSweepEndpointTriggersPass(t *testing.T) {
 	if err := s.Store.SetIdentity(context.Background(), store.Identity{ID: "web-lineage", BaselineGen: "web-gen"}); err != nil {
 		t.Fatalf("pair store: %v", err)
 	}
+	// Unlocked: this test isolates endpoint mechanics, not the marker.
+	if err := s.Store.SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/sweep", nil)
 	rr := httptest.NewRecorder()

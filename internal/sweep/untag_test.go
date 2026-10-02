@@ -19,6 +19,18 @@ func untagRow(repo, tag, digest string) policy.Row {
 		PushedAt: sweepNow.Add(-time.Hour), Actor: "kpr-receiver"}
 }
 
+// unlockedProof reads the marker the way the cli does: paired ground
+// arrives unlocked, so this only fails when the ground (not Untag)
+// is broken.
+func unlockedProof(t *testing.T, s store.Store) proof.UnlockedStore {
+	t.Helper()
+	unlocked, err := proof.ProveUnlockedStore(testCtx(), s)
+	if err != nil {
+		t.Fatalf("prove unlocked ground: %v", err)
+	}
+	return unlocked
+}
+
 // untagProof mints on paired ground the way the cli does: the
 // caller proves, Untag checks. If minting fails here, the test
 // ground (not Untag) is broken.
@@ -42,6 +54,9 @@ func staleProof(t *testing.T, s store.Store) proof.SameStore {
 	ctx := testCtx()
 	if err := s.SetIdentity(ctx, store.Identity{ID: "test-lineage"}); err != nil {
 		t.Fatalf("stage identity: %v", err)
+	}
+	if err := s.SetUnlocked(ctx, true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
 	}
 	old := policy.Row{Repo: sentinel.Repo, Tag: "gen-old",
 		PushedAt: sweepNow.Add(-2 * time.Hour), Actor: "kpr-gc"}
@@ -84,7 +99,7 @@ func TestUntagDeletesByDigestDropsRow(t *testing.T) {
 	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	sw := untagSweeper(s, stub)
-	done, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, untagProof(t, s, false))
+	done, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, untagProof(t, s, false), unlockedProof(t, s))
 	if err != nil {
 		t.Fatalf("Untag: %v", err)
 	}
@@ -115,9 +130,14 @@ func TestUntagDeletesByDigestDropsRow(t *testing.T) {
 func TestUntagRefusesWithoutProof(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
+	// Unlocked ground: this test isolates the missing identity
+	// token, not the marker (locked refusal has its own test).
+	if err := s.SetUnlocked(testCtx(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	sw := untagSweeper(s, stub)
-	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, nil); err == nil {
+	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, nil, unlockedProof(t, s)); err == nil {
 		t.Fatal("untag without proof succeeded, want the blind refusal")
 	}
 	if got := stubDeletes(stub); got != 0 {
@@ -136,7 +156,7 @@ func TestUntagRefusesStaleProof(t *testing.T) {
 	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	sw := untagSweeper(s, stub)
-	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, staleProof(t, s)); err == nil {
+	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, staleProof(t, s), unlockedProof(t, s)); err == nil {
 		t.Fatal("untag on stale proof succeeded, want the stale refusal")
 	} else if !strings.Contains(err.Error(), "stale") {
 		t.Errorf("err = %q, want the stale refusal named", err.Error())
@@ -149,6 +169,50 @@ func TestUntagRefusesStaleProof(t *testing.T) {
 	}
 }
 
+// Locked refuses before identity: a locked store deletes nothing,
+// even holding a fresh token — intent gates before evidence. If
+// this fails, the token order stopped meaning anything.
+func TestUntagRefusesLockedStore(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := untagSweeper(s, stub)
+	same, err := proof.Prover{
+		Sentinel: pairGround(s), Store: s,
+		DryRun: false, Now: func() time.Time { return sweepNow },
+	}.Prove(testCtx())
+	if err != nil {
+		t.Fatalf("prove on paired ground: %v", err)
+	}
+	// pairGround unlocks; re-lock to isolate the marker.
+	if err := s.SetUnlocked(testCtx(), false); err != nil {
+		t.Fatalf("stage lock: %v", err)
+	}
+	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, same, nil); err == nil {
+		t.Fatal("untag on locked store succeeded, want the locked refusal")
+	} else if !strings.Contains(err.Error(), "locked") {
+		t.Errorf("err = %q, want the locked refusal named", err.Error())
+	}
+	if got := stubDeletes(stub); got != 0 {
+		t.Errorf("locked untag attempted %d deletes", got)
+	}
+}
+
+// Bare rm obeys the marker too: forgetting rows is still dropping
+// them. If this fails, the freeze has a hole exactly where the
+// operator cleans up.
+func TestUntrackRefusesLockedStore(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
+	sw := untagSweeper(s, &stubRegistry{})
+	if _, err := sw.Untrack(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, nil); err == nil {
+		t.Fatal("untrack on locked store succeeded, want the locked refusal")
+	}
+	if rows, _ := s.All(testCtx()); len(rows) != 1 {
+		t.Errorf("rows = %d, want the 1 row kept", len(rows))
+	}
+}
+
 // Already-gone counts as confirmed: the tag is gone, the row has
 // nothing left to track. If this fails, re-untagging a raced
 // delete errors instead of converging.
@@ -157,7 +221,7 @@ func TestUntagGoneDropsRow(t *testing.T) {
 	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
 	stub := &stubRegistry{outcome: registry.OutcomeGone}
 	sw := untagSweeper(s, stub)
-	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, untagProof(t, s, false)); err != nil {
+	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, untagProof(t, s, false), unlockedProof(t, s)); err != nil {
 		t.Fatalf("Untag on gone tag: %v", err)
 	}
 	if rows, _ := s.All(testCtx()); len(rows) != 0 {
@@ -172,7 +236,7 @@ func TestUntagHeldKeepsRowLoud(t *testing.T) {
 	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
 	stub := &stubRegistry{outcome: registry.OutcomeHeld}
 	sw := untagSweeper(s, stub)
-	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, untagProof(t, s, false)); err == nil {
+	if _, err := sw.Untag(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, untagProof(t, s, false), unlockedProof(t, s)); err == nil {
 		t.Fatal("held untag succeeded, want a loud failure")
 	}
 	if rows, _ := s.All(testCtx()); len(rows) != 1 {
@@ -212,7 +276,7 @@ func TestUntagRowDropFailureContinues(t *testing.T) {
 	_, err := sw.Untag(testCtx(), []policy.Row{
 		untagRow("app", "v1", "sha256:aaa"),
 		untagRow("app", "v2", "sha256:bbb"),
-	}, untagProof(t, s, false))
+	}, untagProof(t, s, false), unlockedProof(t, s))
 	if err == nil || !strings.Contains(err.Error(), "row drop failed") {
 		t.Fatalf("err = %v, want the row-drop failure named", err)
 	}
@@ -227,8 +291,11 @@ func TestUntagRowDropFailureContinues(t *testing.T) {
 func TestUntrackDropsRowsOnly(t *testing.T) {
 	s := store.NewMemStore()
 	_ = s.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
+	if err := s.SetUnlocked(testCtx(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
 	sw := untagSweeper(s, &stubRegistry{})
-	done, err := sw.Untrack(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")})
+	done, err := sw.Untrack(testCtx(), []policy.Row{untagRow("app", "v1", "sha256:aaa")}, unlockedProof(t, s))
 	if err != nil {
 		t.Fatalf("Untrack: %v", err)
 	}
@@ -257,12 +324,15 @@ func TestUntrackPartialReportsDone(t *testing.T) {
 	m := store.NewMemStore()
 	_ = m.Record(testCtx(), untagRow("app", "v1", "sha256:aaa"))
 	_ = m.Record(testCtx(), untagRow("app", "v2", "sha256:bbb"))
+	if err := m.SetUnlocked(testCtx(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
 	s := &failDeleteStore{failFrom: 2, Store: m}
 	sw := untagSweeper(s, &stubRegistry{})
 	done, err := sw.Untrack(testCtx(), []policy.Row{
 		untagRow("app", "v1", "sha256:aaa"),
 		untagRow("app", "v2", "sha256:bbb"),
-	})
+	}, unlockedProof(t, s))
 	if err == nil {
 		t.Fatal("partial untrack succeeded, want the failure named")
 	}
@@ -283,7 +353,7 @@ func TestUntagPartialFailureNamesAll(t *testing.T) {
 	_, err := sw.Untag(testCtx(), []policy.Row{
 		untagRow("app", "v1", "sha256:aaa"),
 		untagRow("app", "v2", "sha256:bbb"),
-	}, untagProof(t, s, false))
+	}, untagProof(t, s, false), unlockedProof(t, s))
 	if err == nil {
 		t.Fatal("partial untag succeeded, want the failure named")
 	}

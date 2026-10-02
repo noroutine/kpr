@@ -54,7 +54,10 @@ func (s *Sweeper) deleteManifest(ctx context.Context, r policy.Row) (string, err
 // a delete. A row-drop failure continues the batch and fails
 // loudly in aggregate — like Untag, the confirmed rows print
 // before the error returns.
-func (s *Sweeper) Untrack(ctx context.Context, rows []policy.Row) ([]policy.Row, error) {
+func (s *Sweeper) Untrack(ctx context.Context, rows []policy.Row, unlocked proof.UnlockedStore) ([]policy.Row, error) {
+	if unlocked == nil {
+		return nil, errors.New("untrack on a locked store: refusing to drop rows blind (run `kpr store unlock` first)")
+	}
 	id := fmt.Sprintf("%d", s.now().UnixNano())
 	var done []policy.Row
 	var failed []string
@@ -77,11 +80,14 @@ func (s *Sweeper) Untrack(ctx context.Context, rows []policy.Row) ([]policy.Row,
 // specific sweep going around the plan. The caller proves the
 // shared store first and passes the token — nil refuses (deleting
 // blind), stale refuses (the served view lags tracked state, so a
-// delete would land against a moved registry). Each row drops only
-// on confirm (deleted or already gone); held and failed deletes
-// keep their rows and fail loudly in aggregate. No lock check yet
-// (Miss 3, open); the lineage gate rides the token.
-func (s *Sweeper) Untag(ctx context.Context, rows []policy.Row, same proof.SameStore) ([]policy.Row, error) {
+// delete would land against a moved registry). Intent rides the
+// second token: locked refuses before identity is even asked.
+// Each row drops only on confirm (deleted or already gone); held
+// and failed deletes keep their rows and fail loudly in aggregate.
+func (s *Sweeper) Untag(ctx context.Context, rows []policy.Row, same proof.SameStore, unlocked proof.UnlockedStore) ([]policy.Row, error) {
+	if unlocked == nil {
+		return nil, errors.New("untag on a locked store: refusing to delete blind (run `kpr store unlock` first)")
+	}
 	if same == nil {
 		return nil, errors.New("untag without same-store proof: refusing to delete blind (prove the shared store first)")
 	}

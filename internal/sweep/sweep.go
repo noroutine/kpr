@@ -120,20 +120,28 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 		s.resolveRow(ctx, sum.PassID, trigger, r, outcome, rerr)
 	}
 
-	// Lineage before lock: no point holding single-flight for a
-	// pass that must not act, and a refused pass must not resolve
-	// (let alone delete) anything. The sweeper carries no --force:
-	// stale armed refuses; stale dry-run proceeds to plan, which
-	// deletes nothing. Heal rows are the mint path's job (gc
-	// adopt-records); the sweep acts on due rows only.
+	// Intent, then lineage, then lock: no point reading generations
+	// or holding single-flight for a pass that must not act, and a
+	// refused pass must not resolve (let alone delete) anything.
+	// Locked refuses runs outright, previews included (a pass is a
+	// run, not a read). The sweeper carries no --force: stale armed
+	// refuses; stale dry-run proceeds to plan, which deletes nothing.
+	// Heal rows are the mint path's job (gc adopt-records); the sweep
+	// acts on due rows only.
 	//
-	// One preamble (Prover), two consumers: the pass consumes the
-	// gate — proceed or refuse, narrated below — while directed
-	// deletes (Untag) take the token itself to check staleness.
+	// Shared preambles, two consumers each: the pass consumes the
+	// gates — proceed or refuse, narrated below — while directed
+	// deletes take the tokens themselves to check staleness.
 	if s.Sentinel == nil {
 		setStage(StageFailure, 0, 0)
 		sum.Skipped = true
 		sum.Failures = append(sum.Failures, "sweeper miswired: no sentinel reader (refusing instead of sweeping blind)")
+		return sum
+	}
+	if _, err := proof.ProveUnlockedStore(ctx, s.Store); err != nil {
+		setStage(StageFailure, 0, 0)
+		sum.Skipped = true
+		sum.Failures = append(sum.Failures, err.Error())
 		return sum
 	}
 	// One frozen clock for gate and pass alike: the verdict judges

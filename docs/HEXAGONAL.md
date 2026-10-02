@@ -23,7 +23,7 @@ doesn't get cut.
       - [Evaluation: write surface](#evaluation-write-surface)
       - [Evaluation: enforcing mint and proof](#evaluation-enforcing-mint-and-proof)
       - [Evaluation: producers vs consumers](#evaluation-producers-vs-consumers)
-    - [Miss 3 — lock unchecked (open)](#miss-3--lock-unchecked-open)
+    - [Miss 3 — lock unchecked](#miss-3--lock-unchecked)
   - [Future attacks](#future-attacks)
 
 ## Where we are
@@ -177,6 +177,18 @@ Fix: lineage read-gate inside `Untag`, no mint — evaluation
 below. Refuse foreign/unpaired/identity-less/stale outright;
 remedy is `store adopt` (`rm` carries no `--force`).
 
+Landed as an arc, not a commit: the fix grew into the sealed
+proof package and a structural threading of every delete-adjacent
+path. Miss stays open until backfill takes the token too.
+
+- [1cb6531](https://nrtn.dev/catalyst/kpr/commit/1cb65317288890b5fc3ca68e2d6d66b4c5803cf4) — `internal/proof`: seven sealed kinds (`SameStore`, `ArmedRun`, `AcceptedRisk`, `BoundedClock`, `UnlockedStore`, `FreshGeneration`, `RegistryReadonly` / `RegistryWritable`), produced by provers, never crafted; `gc` derives dry-run from the mint.
+- [27ca465](https://nrtn.dev/catalyst/kpr/commit/27ca46502cbe5d592714059bf6a1732ef3e2cf40) — mode probe sealed (last gap in the table); presence and dry-run cut as rows (absence, not evidence).
+- [398f52a](https://nrtn.dev/catalyst/kpr/commit/398f52a442de5fadf1447f5e4c1264995a99a9f8) — `Untag` takes `SameStore` (nil and stale refuse), `RunPass` shares the `Prover` preamble, `rm --untag` mints at the cobra boundary.
+- [5d38b07](https://nrtn.dev/catalyst/kpr/commit/5d38b075d5e861ea886f9f97e45f52415e63f938) — `gc` threaded: `ProveUnlockedStore` opens the run, `Checker` funnels the clock, trailing `AcceptedRisk` gates the writable path plus a demanding collect variant, one shared mint funnel with `unlock`.
+- [9d9ea03](https://nrtn.dev/catalyst/kpr/commit/9d9ea03525843be2432d5a4a9473813015bc2ed2) — mutant hunt closed over the arc (one real gap killed, timing equivalents noted).
+
+Remaining: backfill's read gate, `FreshGeneration`'s first consumer, mode tokens in the collect dispatch.
+
 #### Evaluation: write surface
 
 Every write path: the gates each one carries (mint / lineage /
@@ -320,7 +332,7 @@ write nothing to the registry.
 Receiver and plan paths untouched: no registry writes, nothing
 to prove.
 
-### Miss 3 — lock unchecked (open)
+### Miss 3 — lock unchecked
 
 What happened: manifest DELETE touches no store bytes, so it sails
 past `store lock`.
@@ -328,8 +340,15 @@ past `store lock`.
 Problem: undecided if correct — narrowly the lock guards mount
 bytes; broadly it means "don't mutate my registry".
 
-Fix: decide, then slice — extend the lock to registry deletes, or
-declare API deletes out of scope in SENTINELS.md and STORES.md.
+Decided: broad — locked means no destructive operations on
+registry and store (summarized in `docs/STORES.md`), never
+registry-readonly (only registry config enforces that).
+
+Slice: thread `UnlockedStore` into `Sweeper.RunPass` and `Untag`
+the way `SameStore` went in — gate at the use case, token in the
+signature. `gc` already opens on the marker.
+
+Landed: (link after push)
 
 Terminology, internalized: `cli`/`web` are driving adapters
 (parse, call, render); `keeper`/`gc`/`sweep` are use cases (pure

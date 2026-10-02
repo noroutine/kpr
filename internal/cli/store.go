@@ -183,7 +183,7 @@ func runStoreInspect(ctx context.Context, w io.Writer, s store.Store, ref string
 // first, row drops only on confirm, held/failed keeps its row
 // loudly. Blob bytes still need `gc` after — untag unlinks, never
 // collects.
-func runStoreRm(ctx context.Context, w io.Writer, s store.Store, refs []string, untag bool, sw *sweep.Sweeper, same proof.SameStore) error {
+func runStoreRm(ctx context.Context, w io.Writer, s store.Store, refs []string, untag bool, sw *sweep.Sweeper, same proof.SameStore, unlocked proof.UnlockedStore) error {
 	type key struct{ repo, tag string }
 	var keys []key
 	for _, ref := range refs {
@@ -211,7 +211,7 @@ func runStoreRm(ctx context.Context, w io.Writer, s store.Store, refs []string, 
 		for _, k := range keys {
 			targets = append(targets, byKey[k])
 		}
-		done, uerr := sw.Untrack(ctx, targets)
+		done, uerr := sw.Untrack(ctx, targets, unlocked)
 		for _, r := range done {
 			if _, err := fmt.Fprintf(w, "removed %s:%s (registry tag left untracked — re-push or backfill re-tracks)\n",
 				r.Repo, r.Tag); err != nil {
@@ -224,7 +224,7 @@ func runStoreRm(ctx context.Context, w io.Writer, s store.Store, refs []string, 
 	for _, k := range keys {
 		targets = append(targets, byKey[k])
 	}
-	done, uerr := sw.Untag(ctx, targets, same)
+	done, uerr := sw.Untag(ctx, targets, same, unlocked)
 	for _, r := range done {
 		if _, err := fmt.Fprintf(w, "untagged %s:%s (row dropped; blobs need `gc`)\n",
 			r.Repo, r.Tag); err != nil {
@@ -411,10 +411,17 @@ still need 'kpr gc'. A direct store edit: no dry-run.`,
 		defer d.close()
 		untag, _ := cmd.Flags().GetBool("untag")
 		sw := &sweep.Sweeper{Store: d.store, Registry: d.reg}
-		// The caller proves: bare rm needs no token (Untrack stays
-		// proof-free), but --untag deletes from the registry, so it
-		// mints first — a foreign or stale store refuses here, naming
-		// the ceremony, before the first manifest.
+		// The caller proves intent first: both rm paths drop rows, so
+		// both need the marker — a locked store refuses here, naming
+		// the ceremony, before anything is forgotten or deleted.
+		unlocked, err := proof.ProveUnlockedStore(cmd.Context(), d.store)
+		if err != nil {
+			return err
+		}
+		// Identity rides the second token, untag only: bare rm forgets
+		// tracking (proof-free), but --untag deletes from the registry,
+		// so it mints first — a foreign or stale store refuses here,
+		// before the first manifest.
 		var same proof.SameStore
 		if untag {
 			var err error
@@ -423,7 +430,7 @@ still need 'kpr gc'. A direct store edit: no dry-run.`,
 				return err
 			}
 		}
-		return runStoreRm(cmd.Context(), cmd.OutOrStdout(), d.store, args, untag, sw, same)
+		return runStoreRm(cmd.Context(), cmd.OutOrStdout(), d.store, args, untag, sw, same, unlocked)
 	},
 }
 
