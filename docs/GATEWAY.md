@@ -117,9 +117,14 @@ byte-identical blob+manifest through the edge, relative
 
 Two fence modes at the proxy, both identity-blind:
 
-- **HOLD** (gc finalize): delay manifest PUTs for seconds on a
-  self-expiring lease, fail-open. Blob uploads never held —
-  they reference nothing.
+- **HOLD** (gc finalize): delay manifest PUTs on a bounded
+  self-expiring lease (5m crash bound — a crashed gc stalls
+  pushes that long, no longer), fail-open. Sleepers re-read
+  the lease, so early release wakes promptly; a lease gc
+  outruns flows unfenced but says `hold_expired` once — never
+  silent. Blob uploads never held — they reference nothing. A
+  renewing heartbeat is the real answer past this bound;
+  future work.
 - **DENY** (store locked): refuse manifest PUT/DELETE fast
   while the lock marker is set — loud status, remedy naming
   `store unlock`. Blob uploads and reads pass: uploads alone

@@ -38,6 +38,20 @@ func mustUnlock(t *testing.T, s *store.MemStore) {
 	}
 }
 
+// Row-less control events render without the repo:tag prefix: a
+// stray ": — " reads as a malformed row. If this fails, fence
+// flips started printing as broken rows.
+func TestRenderOutcomeSkipsEmptyRef(t *testing.T) {
+	got := renderOutcome(store.Outcome{Outcome: "deny_engage", Reason: "store locked"})
+	if strings.Contains(got, ":") {
+		t.Errorf("row-less outcome = %q, want no repo:tag prefix", got)
+	}
+	row := renderOutcome(store.Outcome{Repo: "a", Tag: "b", Outcome: "deleted", Reason: "r"})
+	if !strings.HasPrefix(row, "  a:b — deleted (r)") {
+		t.Errorf("row outcome = %q, want the repo:tag shape kept", row)
+	}
+}
+
 // unlockedProof reads the marker the way the rm command does.
 func unlockedProof(t *testing.T, s *store.MemStore) proof.UnlockedStore {
 	t.Helper()

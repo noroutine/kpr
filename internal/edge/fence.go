@@ -25,6 +25,10 @@ const (
 	StageDenyRelease = "deny_release"
 	StageHoldEngage  = "hold_engage"
 	StageHoldRelease = "hold_release"
+	// StageHoldExpired fires when pushes flow past a present but
+	// expired lease: gc outran its bound, and the hole must be
+	// loud, never silent.
+	StageHoldExpired = "hold_expired"
 )
 
 // holdFileName is the HOLD lease file, written by gc around
@@ -60,9 +64,10 @@ type Gate struct {
 	// Now sources time; nil means time.Now (tests pin it).
 	Now func() time.Time
 
-	mu       sync.Mutex
-	lastDeny bool
-	lastHeld bool
+	mu          sync.Mutex
+	lastDeny    bool
+	lastHeld    bool
+	lastExpired bool
 }
 
 // HoldFile engages proxy HOLD leases from a shared dir: gc
@@ -91,10 +96,12 @@ func (h HoldFile) Hold(_ context.Context, until time.Time) (func(), error) {
 	}, nil
 }
 
-// heldUntil returns the live lease expiry: missing, corrupt, or
-// past leases read as no hold (fail open — leases are not
-// evidence).
-func heldUntil(dir string, now time.Time) (time.Time, bool) {
+// readLease parses the HOLD lease file: the expiry plus whether
+// the file parses at all. Missing and corrupt leases read as
+// absent (fail open — leases are not evidence); expiry is the
+// caller's decision, so released (gone) and overrun (present
+// but past) stay distinguishable.
+func readLease(dir string) (until time.Time, present bool) {
 	if dir == "" {
 		return time.Time{}, false
 	}
@@ -108,10 +115,17 @@ func heldUntil(dir string, now time.Time) (time.Time, bool) {
 	if err := json.Unmarshal(raw, &lease); err != nil {
 		return time.Time{}, false
 	}
-	if !lease.Until.After(now) {
+	return lease.Until, true
+}
+
+// heldUntil returns the live lease expiry: only a present lease
+// still in its term holds.
+func heldUntil(dir string, now time.Time) (time.Time, bool) {
+	until, present := readLease(dir)
+	if !present || !until.After(now) {
 		return time.Time{}, false
 	}
-	return lease.Until, true
+	return until, true
 }
 
 // Wrap gates reference-bearing writes: HOLD delays to lease
@@ -126,7 +140,17 @@ func (g *Gate) Wrap(next http.Handler) http.Handler {
 		now := g.now()
 		if until, held := heldUntil(g.Dir, now); held {
 			g.flipHeld(true, "gc finalize holds manifest writes")
-			g.waitRelease(r, until)
+			g.flipExpired(false, "")
+			if g.waitRelease(r, until) {
+				g.flipExpired(true, "HOLD lease expired mid-collect: pushes flowing unfenced")
+			}
+		} else if _, present := readLease(g.Dir); present {
+			// Present but past at arrival (heldUntil already said
+			// no): a stale lease gc never released. Loud once,
+			// then flow — same hole as mid-wait expiry.
+			g.flipExpired(true, "HOLD lease expired mid-collect: pushes flowing unfenced")
+		} else {
+			g.flipExpired(false, "")
 		}
 		g.flipHeld(false, "hold lease over, edge re-evaluates")
 		// No direct forward after a hold: the marker may have
@@ -159,18 +183,37 @@ func isManifestWrite(r *http.Request) bool {
 	return manifestRef.MatchString(r.URL.Path)
 }
 
-// waitRelease sleeps to the lease expiry, fail open on client
-// disconnect: a gone client holds nothing.
-func (g *Gate) waitRelease(r *http.Request, until time.Time) {
-	left := time.Until(until)
-	if left <= 0 {
-		return
-	}
-	t := time.NewTimer(left)
-	defer t.Stop()
-	select {
-	case <-r.Context().Done():
-	case <-t.C:
+// waitRelease holds to the lease expiry, re-reading the file:
+// an early release (file gone) wakes sleepers instead of serving
+// the full nominal term. It reports whether the lease was still
+// present-but-past at wake — gc outran its bound — so the caller
+// can say the hole out loud. Client disconnect stops waiting: a
+// gone client holds nothing.
+func (g *Gate) waitRelease(r *http.Request, until time.Time) (expired bool) {
+	for {
+		// NOTE(mutants): <0 is equivalent — exact-zero expiry is
+		// untestable clock granularity.
+		if time.Until(until) <= 0 {
+			until, present := readLease(g.Dir)
+			return present && !until.After(g.now())
+		}
+		wait := time.Until(until)
+		// NOTE(mutants): >= is equivalent — an exact-1s wait is
+		// untestable timing; the cap only bounds the poll.
+		if wait > time.Second {
+			wait = time.Second
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-r.Context().Done():
+			t.Stop()
+			return false
+		case <-t.C:
+		}
+		if _, held := heldUntil(g.Dir, g.now()); !held {
+			until, present := readLease(g.Dir)
+			return present && !until.After(g.now())
+		}
 	}
 }
 
@@ -197,6 +240,19 @@ func (g *Gate) flipHeld(held bool, msg string) {
 		stage, outcome = StageHoldEngage, "hold_engage"
 	}
 	g.emit(stage, msg, outcome)
+}
+
+func (g *Gate) flipExpired(expired bool, msg string) {
+	g.mu.Lock()
+	flipped := expired != g.lastExpired
+	g.lastExpired = expired
+	g.mu.Unlock()
+	if !flipped {
+		return
+	}
+	if expired {
+		g.emit(StageHoldExpired, msg, "hold_expired")
+	}
 }
 
 func (g *Gate) flipDeny(deny bool, msg string) {

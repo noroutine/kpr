@@ -310,11 +310,21 @@ func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentine
 		return err
 	}
 	for _, a := range acts[:n] {
-		if _, err := fmt.Fprintf(w, "  %s:%s — %s (%s)\n", a.Repo, a.Tag, a.Outcome, a.Reason); err != nil {
+		if _, err := fmt.Fprintln(w, renderOutcome(a)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// renderOutcome prints one ring entry: rows as repo:tag —
+// outcome, row-less control events (fence flips) as the outcome
+// alone. A stray ": — " prefix reads as a malformed row.
+func renderOutcome(a store.Outcome) string {
+	if a.Repo == "" && a.Tag == "" {
+		return fmt.Sprintf("  %s (%s)", a.Outcome, a.Reason)
+	}
+	return fmt.Sprintf("  %s:%s — %s (%s)", a.Repo, a.Tag, a.Outcome, a.Reason)
 }
 
 var storeCmd = &cobra.Command{

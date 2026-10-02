@@ -19,6 +19,14 @@ import (
 // instead of wedging every later run.
 const lockTTL = 30 * time.Minute
 
+// holdLease bounds the proxy HOLD around an armed collect: a
+// crashed gc holds pushes until expiry, so the bound is a
+// crash-recovery cost, not a collect budget. It covers lab and
+// small registries; collects outrunning it flow unfenced and
+// loud (the edge says hold_expired) — a renewing heartbeat is
+// the real answer for big ones, and it is future work.
+const holdLease = 5 * time.Minute
+
 // Probe classifies the registry via the write sentinel: writable,
 // readonly, or unknown with the cause. ProbeRegistry is the
 // production implementation; tests substitute a stub. Consumed by
@@ -260,7 +268,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		if opts.Fence == nil {
 			return collect()
 		}
-		release, err := opts.Fence.Hold(ctx, time.Now().Add(lockTTL))
+		release, err := opts.Fence.Hold(ctx, time.Now().Add(holdLease))
 		if err != nil {
 			return fmt.Errorf("gc: engage proxy fence: %w", err)
 		}

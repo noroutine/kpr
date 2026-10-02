@@ -286,6 +286,149 @@ func TestGateIgnoresExpiredHold(t *testing.T) {
 	}
 }
 
+// A released HOLD wakes waiting PUTs promptly: sleepers re-read
+// the lease instead of serving the full nominal term. If this
+// fails, short collects started stalling pushes to the lease
+// bound.
+func TestGateWakesWhenHoldReleased(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer backend.Close()
+
+	dir := t.TempDir()
+	st := store.NewMemStore()
+	if err := st.SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	hf := HoldFile{Dir: dir}
+	release, err := hf.Hold(context.Background(), time.Now().Add(30*time.Second))
+	if err != nil {
+		t.Fatalf("engage hold: %v", err)
+	}
+	g := &Gate{Store: st, Dir: dir}
+	front := httptest.NewServer(gateHandler(t, backend.URL, g))
+	defer front.Close()
+
+	done := make(chan int, 1)
+	go func() {
+		resp, err := putManifest(front.URL)
+		if err != nil {
+			done <- -1
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		done <- resp.StatusCode
+	}()
+	time.Sleep(200 * time.Millisecond)
+	start := time.Now()
+	release()
+	select {
+	case code := <-done:
+		if code != http.StatusCreated {
+			t.Errorf("released PUT status = %d, want 201", code)
+		}
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Errorf("released PUT took %v after release, want prompt wake", elapsed)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("released PUT never returned, waiter missed the release")
+	}
+}
+
+// A present-but-expired lease says so loudly once: pushes flow
+// (fail open) but never silently past a fence gc outran. If this
+// fails, overrun collects started flowing quiet.
+func TestGateLoudOnceOnExpiredHold(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer backend.Close()
+
+	dir := t.TempDir()
+	st := store.NewMemStore()
+	if err := st.SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	hf := HoldFile{Dir: dir}
+	release, err := hf.Hold(context.Background(), time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("engage hold: %v", err)
+	}
+	defer release()
+
+	var stages []string
+	g := &Gate{Store: st, Dir: dir, Report: func(e gc.Event) { stages = append(stages, e.Stage) }}
+	front := httptest.NewServer(gateHandler(t, backend.URL, g))
+	defer front.Close()
+
+	for i := 0; i < 2; i++ {
+		resp, err := putManifest(front.URL)
+		if err != nil {
+			t.Fatalf("PUT = %v, want 201", err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("expired-hold PUT status = %d, want 201", resp.StatusCode)
+		}
+	}
+	count := 0
+	for _, s := range stages {
+		if s == StageHoldExpired {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("hold_expired emitted %d times over 2 requests, want exactly once", count)
+	}
+}
+
+// A lease expiring mid-wait says hold_expired: the loud hole,
+// not a quiet forward. If this fails, overrun collects started
+// flowing silent past the waiter.
+func TestGateLoudOnMidWaitExpiry(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer backend.Close()
+
+	dir := t.TempDir()
+	st := store.NewMemStore()
+	if err := st.SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	hf := HoldFile{Dir: dir}
+	release, err := hf.Hold(context.Background(), time.Now().Add(150*time.Millisecond))
+	if err != nil {
+		t.Fatalf("engage hold: %v", err)
+	}
+	defer release()
+
+	var stages []string
+	g := &Gate{Store: st, Dir: dir, Report: func(e gc.Event) { stages = append(stages, e.Stage) }}
+	front := httptest.NewServer(gateHandler(t, backend.URL, g))
+	defer front.Close()
+
+	resp, err := putManifest(front.URL)
+	if err != nil {
+		t.Fatalf("PUT = %v, want 201 after expiry", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expired-mid-wait PUT status = %d, want 201", resp.StatusCode)
+	}
+	found := false
+	for _, s := range stages {
+		if s == StageHoldExpired {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("stages = %v, want hold_expired among them", stages)
+	}
+}
+
 // A corrupt hold file forwards: leases fail open, evidence does
 // not. If this fails, garbage started fencing.
 func TestGateIgnoresCorruptHold(t *testing.T) {
