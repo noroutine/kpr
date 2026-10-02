@@ -142,12 +142,22 @@ not a mint.
   restart is as visible as a collect, through the same keys.
 - **Observed tracking.** Receiver rows derived from seen
   manifest PUTs; webhook degrades to corroboration.
+- **Persistent descriptor cache (later, s3-backed only).**
+  kpr speaks the registry's descriptor-cache RESP subset from a
+  persistent local map, making redis optional. Values are
+  immutable (digest→metadata, true forever) so every failure
+  degrades to slowness; the one correctness burden is
+  gc-victim invalidation, closed-loop in the ceremony kpr
+  already runs. Preconditions: verify distribution fails open
+  on cache errors, descriptor-only endpoint with loud refusal
+  outside the subset, wipe-and-cold-start recovery.
+  Filesystem deployments keep no-cache regardless.
 
 ## Non-goals
 
 Online GC itself (enabled, not delivered), backend
 provisioning (buckets, redis instances — the PaaS line),
-S3/RESP-compat servers, authn/authz per slice, multiple
+general-purpose S3/RESP-compat servers, authn/authz per slice, multiple
 registries under one kpr (multiplexer — own spike, later),
 s3-backed downstream registries (redirect flows, driver
 mechanics — own spike, later), and the child/supervisor mode
