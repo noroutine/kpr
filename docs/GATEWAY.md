@@ -7,7 +7,9 @@ independently useful and unlocks the next; none is committed
 beyond the spike (slice 1) until it proves out. Multiple
 registries under one kpr (multiplexer) are explicitly out —
 their own spike, later. Downstream is filesystem-store only;
-s3-backed registries are out for the same reason.
+s3-backed registries are out for the same reason. Mode scope:
+`--registry=external` — kpr proxies a separately-run registry.
+The child/supervisor mode is a later spike, not this branch.
 
 ## Thesis
 
@@ -85,10 +87,21 @@ else:
   already resolves — drift dies, `relativeurls` enforced, and
   the PROOFS.md config-proof future gets its foundation
   (assume what you rendered).
-- **Supervisor.** `registry serve` as kpr's child process
-  (`--registry=child|external`; external keeps today's sidecar
-  working). Kills the control-channel question: stop/collect/
-  flush/start become one ceremony with rollback, no socket.
+- **Supervisor (later spike, not this branch).** `registry
+  serve` as kpr's child process. Kills the control-channel
+  question: stop/collect/flush/start become one ceremony with
+  rollback, no socket. This branch stays external — the proxy,
+  the fence, and control events work against a registry kpr
+  doesn't launch.
+- **Control events.** Registry control speaks the gc event
+  mechanism, nothing new: lifecycle `Event`s on the existing
+  `Reporter` port (`internal/gc/collector.go` — `Timed` stages,
+  nil-safe `Emit`, same JSON-lines transport), with control
+  stages beside the gc ones (spawn/stop/restart,
+  fence-hold/fence-release, ceremony phases), and an `Outcome`
+  per completed action into the activity ring
+  (`FileStore.PushActivity`, what `store status` shows). A
+  restart is as visible as a collect, through the same keys.
 - **Fenced finalize.** gc holds manifest PUTs on a
   self-expiring lease (seconds, fail-open) during final
   verify. Blob uploads never held — they reference nothing.
@@ -102,6 +115,7 @@ else:
 Online GC itself (enabled, not delivered), backend
 provisioning (buckets, redis instances — the PaaS line),
 S3/RESP-compat servers, authn/authz per slice, multiple
-registries under one kpr (multiplexer — own spike, later), and
+registries under one kpr (multiplexer — own spike, later),
 s3-backed downstream registries (redirect flows, driver
-mechanics — own spike, later).
+mechanics — own spike, later), and the child/supervisor mode
+(own spike, later).
