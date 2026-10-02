@@ -90,7 +90,9 @@ mounting would shift the builder's base path.
 The flip earns the spike's first config proof (`internal/proof`,
 same pattern): a prover reading the mounted registry config kpr
 already resolves, minting `RelativeURLs` only when
-`http.relativeurls` is true. The proxy edge takes the proof at
+`http.relativeurls` is true *and* `http.host` is empty (a set
+host silently overrides the knob — proven config must exclude
+it). The proxy edge takes the proof at
 open — no proof, no edge — because an absolute backend
 `Location` is a fence bypass, and bypass must not compile.
 Until config generation lands the prover reads an

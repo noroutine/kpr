@@ -46,6 +46,11 @@ storage:
 
 http:
   addr: :5000
+  # Relative Location headers (see docs/GATEWAY.md appendix):
+  # kpr fronts this registry as its edge, so upstream URLs must
+  # never name the backend. Never set `host` alongside — a set
+  # `host` silently overrides this knob (absolute URLs always).
+  relativeurls: true
   debug:
     addr: :5001
     prometheus:
