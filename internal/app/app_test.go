@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -43,68 +42,44 @@ func waitShutdown(t *testing.T, s *Server) {
 	}
 }
 
-// pingFailStore is a Store whose Ping always fails: the degraded half of
-// the health contract without needing a dead redis.
-type pingFailStore struct{ store.Store }
-
-func (pingFailStore) Ping(context.Context) error { return errors.New("redis down") }
-
-// The status ball on the front page reads /health: it must report the
-// process alive with the running binary's version, and say whether the
-// receiver's redis is reachable — degraded, not dead, when redis is
-// down, because boot degrades the same way. If this fails, the page
-// either shows a green ball over a blind receiver or cries red on a
-// healthy keeper.
-func TestHealthHandler(t *testing.T) {
-	for name, st := range map[string]struct {
-		store         store.Store
-		status, redis string
+// /api/status is the machine contract for expected state: ok when
+// the store answers, degraded when it doesn't, disabled with no
+// store at all — always 200 while serving (NOK is unreachable).
+// If this fails, monitors can't tell a blind receiver from a dead
+// server.
+func TestStatusHandlerReportsExpectedState(t *testing.T) {
+	for name, tc := range map[string]struct {
+		backend       store.Store
+		status, state string
 	}{
 		"reachable": {store.NewMemStore(), "ok", "reachable"},
-		"down":      {pingFailStore{}, "degraded", "unreachable"},
+		"down":      {pingDownStore{}, "degraded", "unreachable"},
 		"disabled":  {nil, "ok", "disabled"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/health", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 			rr := httptest.NewRecorder()
-			HealthHandler(st.store)(rr, req)
+			StatusHandler(tc.backend)(rr, req)
 
 			if rr.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200", rr.Code)
 			}
-			var body HealthResponse
+			var body StatusResponse
 			if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 				t.Fatalf("decode: %v", err)
 			}
-			if body.Status != st.status || body.Redis != st.redis {
-				t.Errorf("got %s/%s, want %s/%s", body.Status, body.Redis, st.status, st.redis)
-			}
-			if body.Version != config.Version {
-				t.Errorf("version = %q, want running binary's %q", body.Version, config.Version)
+			if body.Status != tc.status || body.Store != tc.state {
+				t.Errorf("got %s/%s, want %s/%s", body.Status, body.Store, tc.status, tc.state)
 			}
 		})
 	}
 }
 
-// errWriter is a ResponseWriter whose Write always fails.
-type errWriter struct{ header http.Header }
+// pingDownStore is a Store whose Ping always fails: the degraded
+// half of the status contract without needing a dead backend.
+type pingDownStore struct{ store.Store }
 
-func (w errWriter) Header() http.Header       { return w.header }
-func (w errWriter) Write([]byte) (int, error) { return 0, errors.New("nope") }
-func (w errWriter) WriteHeader(int)           {}
-
-// A broken connection mid-encode must not panic the handler: the error is
-// logged and the handler returns. If this fails, one wedged client can
-// take down the serving goroutine with it — or failures go silent while
-// successes log, and nobody can tell which happened.
-func TestHealthToleratesEncodeError(t *testing.T) {
-	logs := captureLog(t)
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	HealthHandler(store.NewMemStore())(errWriter{header: http.Header{}}, req)
-	if n := strings.Count(logs.String(), "Error encoding JSON"); n != 1 {
-		t.Errorf("logged %d encode errors, want 1", n)
-	}
-}
+func (pingDownStore) Ping(context.Context) error { return errors.New("store down") }
 
 // The embedded SPA must actually be embedded: the bundle has to resolve
 // index.html at runtime, not just at compile time. If this fails, the
@@ -180,7 +155,7 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	go func() { errCh <- s.Start(ctx) }()
 
 	base := "http://" + ln.Addr().String()
-	waitFor(t, base+"/health")
+	waitFor(t, base+"/")
 
 	// Healthy serving logs nothing: a success that logs an error (or a
 	// failure that stays silent) means the error branches lie. Handler
@@ -189,7 +164,8 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	logs := captureLog(t)
 	for path, want := range map[string]int{
 		"/":              http.StatusOK,
-		"/health":        http.StatusOK,
+		"/health":        http.StatusNotFound,
+		"/api/status":    http.StatusOK,
 		"/api/hello":     http.StatusNotFound,
 		"/api/data":      http.StatusNotFound,
 		"/no-such-asset": http.StatusNotFound,
@@ -267,7 +243,7 @@ func TestServerShutdown(t *testing.T) {
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() { errCh <- s.Start(ctx) }()
-	waitFor(t, "http://"+ln.Addr().String()+"/health")
+	waitFor(t, "http://"+ln.Addr().String()+"/")
 
 	if err := s.Shutdown(context.Background()); err != nil {
 		t.Errorf("Shutdown = %v, want nil", err)
@@ -283,10 +259,10 @@ func TestServerShutdown(t *testing.T) {
 }
 
 // The front page is the keeper's face: ttl.sh spirit (push, pull,
-// forget — homelab wording, not ephemeral-only), the pipeline it
-// actually runs, and a status ball fed by the real /health. No mock
-// API buttons, no links section. If this fails, the template demo is
-// back or the ball reads a dead endpoint.
+// forget — homelab wording, not ephemeral-only) and the pipeline it
+// actually runs. No mock API buttons, no links section, no status
+// ball: keeper state lives on the console, not the landing page. If
+// this fails, the template demo is back or the ball crept back in.
 func TestIndexPageIsKeeperFront(t *testing.T) {
 	ln := loopbackListener(t)
 	s := &Server{Listener: ln}
@@ -294,7 +270,7 @@ func TestIndexPageIsKeeperFront(t *testing.T) {
 	defer cancel()
 	go func() { _ = s.Start(ctx) }()
 	base := "http://" + ln.Addr().String()
-	waitFor(t, base+"/health")
+	waitFor(t, base+"/")
 
 	resp, err := testClient.Get(base + "/") //nolint:gosec,noctx // test-only loopback
 	if err != nil {
@@ -306,47 +282,16 @@ func TestIndexPageIsKeeperFront(t *testing.T) {
 		t.Fatalf("read /: %v", err)
 	}
 	body := string(raw)
-	for _, want := range []string{"Push. Pull.", "/health", "reap", "sweep", "keeper"} {
+	for _, want := range []string{"Push. Pull.", "reap", "sweep", "keeper"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("front page lacks %q", want)
 		}
 	}
-	for _, gone := range []string{"api/hello", "api/data", "testHello", "<button", "<a ", "Quickwit", "What kpr does"} {
+	for _, gone := range []string{"api/hello", "api/data", "testHello", "<button", "<a ", "Quickwit", "What kpr does",
+		"/health", "status-text", "app.js", "ball"} {
 		if strings.Contains(body, gone) {
-			t.Errorf("front page still carries %q (mock, link, or dropped section)", gone)
+			t.Errorf("front page still carries %q (mock, link, ball, or dropped section)", gone)
 		}
-	}
-}
-
-// The status ball is live, not paint: the page script re-reads /health
-// on a timer so a dead keeper turns the ball red without a reload. If
-// this fails, the ball is a one-shot snapshot again.
-func TestFrontPagePollsHealth(t *testing.T) {
-	ln := loopbackListener(t)
-	s := &Server{Listener: ln}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _ = s.Start(ctx) }()
-	base := "http://" + ln.Addr().String()
-	waitFor(t, base+"/health")
-
-	resp, err := testClient.Get(base + "/static/app.js") //nolint:gosec,noctx // test-only loopback
-	if err != nil {
-		t.Fatalf("GET /static/app.js: %v", err)
-	}
-	raw, err := io.ReadAll(resp.Body)
-	drainAndClose(t, resp)
-	if err != nil {
-		t.Fatalf("read app.js: %v", err)
-	}
-	js := string(raw)
-	for _, want := range []string{"/health", "setInterval"} {
-		if !strings.Contains(js, want) {
-			t.Errorf("page script lacks %q (no live ball)", want)
-		}
-	}
-	if strings.Contains(js, "api/hello") || strings.Contains(js, "api/data") {
-		t.Errorf("page script still calls the mock API")
 	}
 }
 
@@ -360,10 +305,10 @@ func TestRequestCounterCountsLiveTraffic(t *testing.T) {
 	defer cancel()
 	go func() { _ = s.Start(ctx) }()
 	base := "http://" + ln.Addr().String()
-	waitFor(t, base+"/health")
+	waitFor(t, base+"/")
 
 	before := GetAPIRequestCount()
-	for _, path := range []string{"/health", "/health", "/"} {
+	for _, path := range []string{"/api/status", "/", "/no-such-asset"} {
 		resp, err := testClient.Get(base + path) //nolint:gosec,noctx // test-only loopback
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)

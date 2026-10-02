@@ -236,6 +236,12 @@ floater serving newest), the lineage verdict matrix live
 (establish on silence, foreign refuses then `adopt` heals,
 rollback heals via `adopt --gen`, sweeper skips foreign
 dry-run), and the lock gate (`unlock` opens, unshared refuses).
+The edge fence (`test/e2e/edge_test.go`, same harness): locked
+manifest PUT/DELETE refuse 423 naming the remedy — even for tags
+that don't exist — while reads stay byte-identical to direct and
+blob uploads pass; unlocking forwards PUT (201), DELETE (202),
+and reads; an armed collect holds a concurrent PUT (held, then
+201 after release) while a preview never engages the fence.
 Clock checks run against a hermetic `httptest` time server —
 never the real network.
 

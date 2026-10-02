@@ -56,7 +56,7 @@ is not instant (observed: <90s, tutorial says ~30s).
    skipped/dry_run`) plus one `sweep row` per resolved row
    (`repo/tag/reason/outcome`, `err` on failures) — the redis
    activity ring mirrored as searchable records, never a dump.
-   Skipped ticks log too, so "nothing due" reads distinctly from
+   Skips log too, so "nothing due" reads distinctly from
    "sweeper went quiet". Quickwit UI (or REST) query examples:
 
    ```

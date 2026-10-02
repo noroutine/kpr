@@ -199,7 +199,7 @@ drives (signing name in brackets):
 |--------------|--------------|----------------|---------|--------|-------|--------------------|-----------------------------------------|
 | `gc` armed   | yes, per run | yes            | yes     | yes    | yes   | human (`gc`)       | mount + rows [`kpr-gc`]                 |
 | `unlock`     | yes          | yes            | sets it | yes    | no    | human (`unlock`)   | mount + marker [`kpr-unlock`]           |
-| sweeper pass | no           | yes, read gate | no¹     | no     | no    | tick loop / POST   | registry + rows + activity [`kpr-sweep`] |
+| sweeper pass | no           | yes, read gate | no¹     | no     | no    | human (`sweep`/POST) | registry + rows + activity [`kpr-sweep`] |
 | `rm --untag` | no           | yes, token     | no      | no     | no    | human (`rm`)       | registry + rows + activity [`kpr-sweep`] |
 | `rm`         | no           | **no**         | no      | no     | no    | human (`rm`)       | rows + activity [`kpr-sweep`]            |
 | receiver in  | no           | no             | no      | no     | no    | registry push      | rows [`kpr-receiver`]                   |
@@ -225,10 +225,10 @@ Readings:
   different subsets (receiver and plan edits need none). One
   shared lineage preamble, callers render their own refusal.
 - Driving in, driven out: humans drive the CLI paths, the
-  registry drives intake with push events, the tick loop (or POST)
-  drives passes. What each drives is on the right — and only the
+  registry drives intake with push events, humans drive passes
+  (`sweep` or POST). What each drives is on the right — and only the
   sweeper serves many errands, so only its activity needs both
-  names (actor `kpr-sweep`, trigger tick/POST/`untag`/`rm`).
+  names (actor `kpr-sweep`, trigger `sweep`/POST/`untag`/`rm`).
 
 #### Evaluation: enforcing mint and proof
 

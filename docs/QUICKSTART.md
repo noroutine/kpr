@@ -39,17 +39,20 @@ services:
     volumes:
       - registry-data:/var/lib/registry
       - ./registry-config.yml:/etc/distribution/config.yml:ro
-    ports:
-      # Host pushes land here. Needs localhost:5000 free: macOS
-      # AirPlay Receiver squats it when enabled — remap or disable.
-      - "5000:5000"
+    # No published ports: pushes arrive through the edge below.
   kpr:
     image: noroutine/kpr:<release-tag>   # pin it
     volumes:
       - registry-data:/var/lib/registry   # the shared store
-      # gc/unlock resolve the store root from the registry config:
+      # gc/unlock resolve the store root from the registry config;
+      # serve proves the edge over this same file:
       - ./registry-config.yml:/etc/distribution/config.yml:ro
     ports:
+      # Host pushes land on the edge (transparent proxy + HOLD/DENY
+      # fence inside `serve`, default-on). Needs localhost:5000
+      # free: macOS AirPlay Receiver squats it when enabled —
+      # remap or disable.
+      - "5000:5000"
       - "9300:9300"   # console; the receiver (:8080) stays internal
     environment:
       - KPR_STORE=file
@@ -84,6 +87,10 @@ storage:
     rootdirectory: /var/lib/registry
 http:
   addr: :5000
+  # The edge fronts this registry, so upstream URLs must never name
+  # the backend. Never set `host` alongside — it silently overrides
+  # this knob (and fails the edge proof: no proof, no edge).
+  relativeurls: true
 ```
 
 ## Bring it up
@@ -106,9 +113,12 @@ fresh, so silence means paired. Console: http://localhost:9300.
 crane copy busybox:latest localhost:5000/test/hello:10m
 ```
 
-The registry notifies kpr; kpr tracks the row anchored at push
-time. (If `localhost:5000` is taken, publish the registry's
-5000 elsewhere and push there instead.)
+Pushes land on the edge and forward byte-identical; the registry
+notifies kpr; kpr tracks the row anchored at push time.
+(If `localhost:5000` is taken, publish the edge's 5000 elsewhere
+and push there instead.) While the store is locked the edge
+refuses pushes with 423 — the console's Gateway section shows
+the live posture.
 
 ```bash
 docker exec kpr kpr status    # tracked: 1, due: 0
@@ -126,8 +136,7 @@ marks rows by hand; `plan discard` clears the plan.
 
 When the plan looks right, uncomment
 `KPR_SWEEPER_NO_DRY_RUN=true`, recreate kpr, and repeat —
-this time `sweep` deletes by digest and the tick loop picks up
-marked rows on its own. Old images pushed before kpr arrived
+this time `sweep` deletes by digest. Old images pushed before kpr arrived
 are kept (unknown age defaults keep — backfill is a known
 gap, not silent deletion).
 

@@ -6,38 +6,39 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 var (
 	// apiRequestCount is every request the app server serves (status
-	// page, health, receiver) — the console's request metric. The
+	// page, receiver) — the console's request metric. The
 	// template's per-mock-endpoint counting is gone with the mocks.
 	apiRequestCount uint64
 )
 
-// HealthResponse is the GET /health body the front page's status ball
-// reads: the process alive, the running binary's version, and whether
-// the receiver's redis answers. Degraded (not dead) on redis outage,
-// mirroring the degraded boot.
-type HealthResponse struct {
-	Status  string `json:"status"`
-	Version string `json:"version"`
-	Redis   string `json:"redis"`
+// StatusResponse is the GET /api/status body: the receiver's
+// expected state as the app server sees it. "ok" serves fully,
+// "degraded" serves with a blind receiver (store unreachable —
+// boot degrades the same way), and anything else is NOK (the
+// server itself unreachable). Machines read this; the landing
+// page carries no state.
+type StatusResponse struct {
+	Status string `json:"status"`
+	Store  string `json:"store"`
 }
 
-// HealthHandler serves GET /health for the given receiver store. A nil
-// store means the receiver is disabled; a Ping failure means redis is
-// unreachable. Both stay 200: the ball reads the body, not the code.
-func HealthHandler(st store.Store) http.HandlerFunc {
+// StatusHandler serves GET /api/status for the given receiver
+// store. A nil store means the receiver is disabled; a Ping failure
+// means the store is unreachable. Both stay 200: the state rides
+// the body, not the code.
+func StatusHandler(st store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		response := HealthResponse{Status: "ok", Version: config.Version, Redis: "disabled"}
+		response := StatusResponse{Status: "ok", Store: "disabled"}
 		if st != nil {
-			response.Redis = "reachable"
+			response.Store = "reachable"
 			if err := st.Ping(r.Context()); err != nil {
 				response.Status = "degraded"
-				response.Redis = "unreachable"
+				response.Store = "unreachable"
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")

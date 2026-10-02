@@ -35,6 +35,12 @@ func TestSentinelGenerationsKeepNReaped(t *testing.T) {
 	if err := st.SetIdentity(ctx, store.Identity{ID: lineageID, BaselineGen: "0193abcd-0000-7000-8000-000000000012"}); err != nil {
 		t.Fatalf("pair store: %v", err)
 	}
+	// The subject here is keep-n sweeping, not the lock: open the
+	// store the way a paired deployment holds it (locked refusal
+	// itself is covered in lock_test).
+	if err := st.SetUnlocked(ctx, true); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
 	gens := make([]string, 0, 12)
 	digests := map[string]string{}
 	for k := 1; k <= 12; k++ {

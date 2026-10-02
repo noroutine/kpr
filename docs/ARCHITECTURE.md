@@ -83,9 +83,9 @@ evaluates the policies (reading candidates from redis, and the catalog
 from the registry for keep-N and untagged) and marks rows due with a
 reason — analysis-heavy, fast, no registry writes. `sweep` POSTs the
 sweep endpoint and watches the event dance to the pass summary — no
-opinions, just triggering and reporting. Marked rows are picked up on
-the next tick even if no one ever runs `sweep`, so the trigger is an
-accelerator, not a dependency. `status`/`plan` stay pure redis reads.
+opinions, just triggering and reporting. Nothing runs on its own:
+kpr is not a scheduler, so a marked row waits until someone runs
+`sweep` (or POSTs it). `status`/`plan` stay pure redis reads.
 No gRPC, no IDL — one small HTTP trigger on the server that already
 exists.
 
@@ -208,7 +208,7 @@ re-push restamps them.)
 Activity records carry two more names with a split meaning: actor
 is who carried the operation out (always `kpr-sweep` — one pair of
 hands), trigger is what caused it (the pass trigger like
-tick/POST, or `untag` for directed deletes). The field names may
+`sweep`/POST, or `untag` for directed deletes). The field names may
 earn better ones later; the split stays.
 
 ## Surfaces
@@ -257,14 +257,13 @@ auth provider, only a client of the registry's.
 
 - **Redis down**: receiver can't record (logs, banner goes red;
   pushes in the gap stay untracked — accepted and visible, not
-  silent). Sweeper skips ticks it can't read. CLI fails fast with a
-  clear error. Nothing half-happens: every mutation is row-gated.
+  silent). CLI fails fast with a clear error. Nothing
+  half-happens: every mutation is row-gated.
 - **Registry 500s on delete**: the row stays, the attempt is logged
-  to activity, retry happens next tick. `sweep`'s watch surfaces the
-  failure instead of swallowing it.
+  to activity, retry happens on the next asked pass. `sweep`'s watch
+  surfaces the failure instead of swallowing it.
 - **Sweep endpoint unreachable**: `sweep` reports "N rows due, sweeper
-  not reached — next tick picks them up." Degrades to the tick loop,
-  which was always the backstop.
+  not reached." The rows wait — nothing runs unasked.
 - **gc unproven anything**: missing mounts, non-filesystem store,
   inconclusive sentinel, unproven shared store, foreign lineage,
   skewed clock, dead cache, held lock — every one refuses with the
@@ -290,7 +289,7 @@ stateDiagram-v2
 
 | Stage | Meaning |
 | --- | --- |
-| `start` | pass entered (trigger: tick, startup, or POST) |
+| `start` | pass entered (trigger: `sweep`, POST, or `untag`) |
 | `skip` | nothing due, or another pass holds the lock |
 | `row` | one due row attempted (repo, tag, reason, outcome) |
 | `done` | rows exhausted (performed / planned / failed counts) |
@@ -311,12 +310,12 @@ manager:
 
 - Single-flight via a redis lock with expiry (a crashed sweeper
   can't hold it forever). A trigger that finds the lock emits `skip`.
-- Triggers are exactly three: tick, sweep-on-start, POST. No queue,
-  no backlog, no cron inside the server — a second trigger never
-  stacks work, it skips.
+- Triggers are exactly the asked ones: `kpr sweep`, console POST,
+  `untag`. No queue, no backlog, no cron inside the server — kpr is
+  not a scheduler, and a second trigger never stacks work, it skips.
 - Events describe one pass at a time. There is no job record, no
-  history beyond the capped ring, nothing to retry except the next
-  tick picking up rows that are still due.
+  history beyond the capped ring, nothing to retry except asking
+  again for rows that are still due.
 
 The gc runner reports on the same JSON-lines event shape (lifecycle
 stages with elapsed times), should the console ever subscribe.

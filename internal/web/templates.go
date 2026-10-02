@@ -43,6 +43,7 @@ const indexTemplate = `<!DOCTYPE html>
         a:hover { text-decoration: underline; }
         hr { margin: 30px 0; border: 0; border-top: 1px solid #3e3e42; }
         ul { line-height: 1.6; }
+        pre { margin: 12px 0 0; overflow-x: auto; }
         .footer { margin-top: 40px; text-align: center; color: #808080; font-size: 0.85em; }
     </style>
 </head>
@@ -77,10 +78,7 @@ const indexTemplate = `<!DOCTYPE html>
             <div class="card">
                 <div class="label">Registry</div>
                 <div class="value">{{ if .Keeper.RegistryOK }}reachable{{ else }}unreachable{{ end }}</div>
-            </div>
-            <div class="card">
-                <div class="label">{{ .Keeper.BackendLabel }}</div>
-                <div class="value">{{ if .Keeper.RedisOK }}reachable{{ else }}unreachable{{ end }}</div>
+                {{ if .Keeper.RegistryURL }}<div class="meta">{{ .Keeper.RegistryURL }}</div>{{ end }}
             </div>
             <div class="card">
                 <div class="label">Sweeper</div>
@@ -100,6 +98,7 @@ const indexTemplate = `<!DOCTYPE html>
             <div class="card">
                 <div class="label">Edge</div>
                 <div class="value">{{ if .Keeper.EdgeOpen }}open{{ else }}closed{{ end }}</div>
+                {{ if and .Keeper.EdgeOpen .Keeper.EdgeAddr .Keeper.RegistryURL }}<div class="meta">{{ .Keeper.EdgeAddr }} → {{ .Keeper.RegistryURL }}</div>{{ end }}
             </div>
             {{ if .Keeper.EdgeOpen }}
             <div class="card">
@@ -112,12 +111,34 @@ const indexTemplate = `<!DOCTYPE html>
     </div>
 
     <div class="section">
+        <h2>🕐 Clock</h2>
+        <div class="grid">
+            <div class="card">
+                <div class="label">Transport</div>
+                <div class="value">{{ .Keeper.ClockMethod }}</div>
+                <div class="meta">{{ .Keeper.ClockServer }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Skew</div>
+                <div class="value">{{ .Keeper.ClockSkew }}</div>
+                <div class="meta">{{ .Keeper.ClockNote }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Server time</div>
+                <div class="value">{{ .Keeper.ClockNow }}</div>
+                <div class="meta">as kpr sees it</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
         <h2>🗄️ State</h2>
         <div class="grid">
             <div class="card stat-card">
                 <div class="label">State backend</div>
                 <div class="value">{{ .Store.Name }}</div>
                 <div class="meta">{{ if .Store.Detail }}{{ .Store.Detail }} · {{ end }}{{ if .Store.Healthy }}reachable{{ else }}unreachable{{ end }}{{ if .Store.LockNote }} · {{ .Store.LockNote }}{{ end }}</div>
+                {{ if .Store.FsNote }}<div class="meta">{{ .Store.FsNote }}</div>{{ end }}
             </div>
             <div class="card stat-card">
                 <div class="label">Same-store proof</div>
@@ -140,12 +161,12 @@ const indexTemplate = `<!DOCTYPE html>
 
     {{ if .Keeper.Activity }}
     <div class="section">
-        <h2>📜 Activity</h2>
-        <ul>
-            {{ range .Keeper.Activity }}
-            <li>{{ .Repo }}:{{ .Tag }} — {{ .Outcome }} ({{ .Reason }}){{ if .Actor }} by {{ .Actor }}{{ end }}{{ if .Trigger }} via {{ .Trigger }}{{ end }} at {{ .At }}</li>
-            {{ end }}
-        </ul>
+        <div class="card">
+            <div class="label">Activity</div>
+            <div class="value">last {{ len .Keeper.Activity }} of {{ .Keeper.ActivityTotal }} · <a href="/api/activity">full JSON</a></div>
+            <pre>{{ range .Keeper.Activity }}{{ .Line }}
+{{ end }}</pre>
+        </div>
     </div>
     {{ end }}
 
@@ -202,6 +223,8 @@ const indexTemplate = `<!DOCTYPE html>
     <ul>
         <li><a href="/metrics">/metrics</a> - JSON metrics endpoint</li>
         <li><a href="/health">/health</a> - Health check</li>
+        <li><a href="/api/activity">/api/activity</a> - Full activity ring as JSON</li>
+        <li><a href="{{ .AppStatusURL }}">/api/status</a> - App-server expected state (ok/degraded + store)</li>
     </ul>
 
     <div class="footer">

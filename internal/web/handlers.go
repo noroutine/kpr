@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -39,6 +40,11 @@ type pageData struct {
 	AppPort        string
 	// AppAddr is the bracketed host:port display form, as above.
 	AppAddr string
+	// AppStatusURL is the absolute /api/status link: the endpoint
+	// lives on the app server (another port), so a relative href
+	// would 404 against the console. Built off the request host —
+	// the only address known dialable from this browser.
+	AppStatusURL string
 	// Links holds the configured observability launchpad entries. A
 	// link appears only when its URL is configured — empty means the
 	// backend is absent and the template hides the whole section.
@@ -59,6 +65,29 @@ func bracketHost(host string) string {
 		return "[" + host + "]"
 	}
 	return host
+}
+
+// hostOnly strips the port off a request host ("h:9300" → "h",
+// "[::1]:9300" → "::1"): the app-status link keeps the browser's
+// host and swaps the port. Empty stays empty — the template then
+// renders no link, never a malformed one.
+func hostOnly(hostport string) string {
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		return strings.Trim(h, "[]")
+	}
+	return strings.Trim(hostport, "[]")
+}
+
+// appStatusURL is the absolute /api/status href off the request
+// host (the only address known dialable from this browser) with
+// the app port swapped in. Empty without a host — the template
+// then renders text, never a malformed link.
+func appStatusURL(hostport string, appPort int) string {
+	host := hostOnly(hostport)
+	if host == "" {
+		return ""
+	}
+	return "http://" + bracketHost(host) + ":" + strconv.Itoa(appPort) + "/api/status"
 }
 
 // consoleLink is one observability UI entry on the console.
@@ -119,6 +148,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 	rt := config.CurrentRuntime()
 
 	keeper := s.keeperSnapshot(r.Context())
+	sentinel := s.sentinelSnapshot(r.Context())
 
 	data := pageData{
 		Hostname:       hostname,
@@ -135,10 +165,11 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppHost:        cfg.AppHost,
 		AppPort:        strconv.Itoa(cfg.AppPort),
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
+		AppStatusURL:   appStatusURL(r.Host, cfg.AppPort),
 		Links:          observabilityLinks(cfg),
 		Keeper:         keeper,
-		Store:          storeSnapshot(r.Context(), s.Store, keeper.RedisOK, cfg),
-		Sentinel:       s.sentinelSnapshot(r.Context()),
+		Store:          storeSnapshot(r.Context(), s.Store, keeper.RedisOK, cfg, sentinel.Proven),
+		Sentinel:       sentinel,
 	}
 
 	tmpl, err := template.New("index").Parse(indexTemplate)

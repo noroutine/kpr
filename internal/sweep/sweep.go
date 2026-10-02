@@ -20,7 +20,7 @@ import (
 )
 
 // Fixed stage vocabulary: one pass, no job records, nothing to retry
-// except the next tick picking up rows that are still due.
+// except asking again for rows that are still due.
 const (
 	StageStart   = "start"
 	StageSkip    = "skip"
@@ -31,11 +31,6 @@ const (
 
 // LockTTL bounds single-flight: a crashed sweeper can't hold it forever.
 const LockTTL = 5 * time.Minute
-
-// TickInterval is the sweeper tick: marked rows are picked up on the
-// next tick even if nobody ever POSTs the trigger (the trigger is an
-// accelerator, not a dependency).
-const TickInterval = time.Minute
 
 // Summary is the pass outcome: the sweep endpoint's HTTP response
 // carries it, so `sweep` gets synchronous feedback without polling.
@@ -91,8 +86,8 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	now := s.now()
 	sum = Summary{PassID: fmt.Sprintf("%d", now.UnixNano()), Trigger: trigger}
 
-	// Every exit narrates its summary: a skipped tick in Quickwit
-	// must read as "nothing due", not as "sweeper went quiet".
+	// Every exit narrates its summary: a skip in Quickwit must read
+	// as "nothing due", not as "sweeper went quiet".
 	defer func() {
 		args := []any{
 			"pass_id", sum.PassID, "trigger", trigger, "dry_run", s.DryRun,

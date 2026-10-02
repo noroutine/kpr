@@ -14,6 +14,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -53,8 +54,15 @@ func lineageCollect(collected *[][]string) gc.Collector {
 
 func liveRun(t *testing.T, ctx context.Context, out *strings.Builder, collected *[][]string, api *registry.Client, url, cfg, bin string, state *store.FileStore, opts gc.Options) error {
 	t.Helper()
+	// Risk mirrors the CLI: previews need none, armed runs carry
+	// the operator's --force. Without it the armed callers below
+	// refuse on the writable registry.
+	var risk proof.AcceptedRisk
+	if !opts.DryRun {
+		risk = proof.Force(proof.Arm(true, false), opts.Force)
+	}
 	return gc.Run(ctx, out, gc.ProbeRegistry, state, lineageCollect(collected), api, url, cfg, bin,
-		state, state, state, clock.HTTPS{}, stageTimeServer(t), opts)
+		state, state, state, clock.HTTPS{}, stageTimeServer(t), opts, risk)
 }
 
 func freshPayload(gen, id string) sentinel.Payload {

@@ -64,11 +64,11 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	})
 
-	// Keeper status for the front page's ball (process alive, build
-	// version, receiver redis reachability).
-	mux.HandleFunc("/health", HealthHandler(s.Store))
+	// Machine-readable expected state (ok/degraded + store); the
+	// landing page carries no state.
+	mux.HandleFunc("/api/status", StatusHandler(s.Store))
 
-	// Distribution notification receiver (-> redis rows).
+	// Distribution notification receiver (-> tracked rows).
 	mux.HandleFunc("/events", EventsHandler(s.Store))
 
 	// Count every served request for the console's request metric,

@@ -151,8 +151,8 @@ func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.Catalog
 }
 
 // runSweep POSTs the console trigger and prints the pass summary. When
-// the console cannot be reached it degrades to the tick backstop with
-// the due count.
+// the console cannot be reached it reports the due count and stops:
+// nothing runs unasked, so the rows wait for the next asked pass.
 func runSweep(ctx context.Context, w io.Writer, s store.Store, consoleURL string) error {
 	url := strings.TrimSuffix(consoleURL, "/") + "/api/sweep"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
@@ -190,7 +190,7 @@ func sweepUnreached(ctx context.Context, w io.Writer, s store.Store) error {
 	if err != nil {
 		return fmt.Errorf("redis unreachable: %w", err)
 	}
-	_, err = fmt.Fprintf(w, "%d rows due, sweeper not reached — next tick picks them up\n", len(due))
+	_, err = fmt.Fprintf(w, "%d rows due, sweeper not reached — run `kpr sweep` again when it is\n", len(due))
 	return err
 }
 
@@ -392,7 +392,8 @@ var sweepCmd = &cobra.Command{
 	Short: "Trigger a sweep pass and watch it to the summary",
 	Long: `POST the console sweep trigger and print the pass summary.
 No opinions, no marks: only rows already marked due are processed.
-An unreachable console degrades to the tick backstop.`,
+An unreachable console reports the due count and stops — nothing
+runs unasked.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()
 		if err != nil {

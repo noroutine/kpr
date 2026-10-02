@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
@@ -82,6 +83,200 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 	for _, want := range []string{"Gateway", "open", "pass"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard with a gate missing %q (open fence)", want)
+		}
+	}
+	// Would-deny: a locked store with zero edge traffic still reads
+	// deny — the posture leads the first refused push, not trails
+	// it. If this fails, lock/unlock moves nothing on the
+	// dashboard until someone pushes.
+	locked := store.NewMemStore()
+	if err := locked.SetUnlocked(context.Background(), false); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	if body := render(&Server{Edge: &edge.Gate{Store: locked}, Store: locked}); !strings.Contains(body, "deny") {
+		t.Error("dashboard with a locked store must read deny before any traffic")
+	}
+}
+
+// Activity ages read human beside the exact stamp: the operator
+// glances ("5m ago") without losing precision. Zero and future
+// stamps degrade to words, never a huge duration. If this fails,
+// the console sends the operator back to timestamp arithmetic.
+func TestHumanAgeReadsLikeCLI(t *testing.T) {
+	now := time.Now().UTC()
+	if got := humanAge(now.Add(-90 * time.Second)); got != "1m30s ago" {
+		t.Errorf("humanAge(-90s) = %q, want 1m30s ago", got)
+	}
+	if got := humanAge(now.Add(time.Hour)); got != "0s ago" {
+		t.Errorf("humanAge(future) = %q, want clamped 0s ago", got)
+	}
+	if got := humanAge(time.Time{}); got != "unknown" {
+		t.Errorf("humanAge(zero) = %q, want unknown", got)
+	}
+}
+
+// Activity reads like `store status` in a code block — friendly
+// lines, capped at ten and said out loud — while /api/activity
+// serves every record with precise stamps. If this fails, the
+// console either hides the cap or loses precision.
+func TestActivitySectionRendersStatusShape(t *testing.T) {
+	testConfig(t)
+	s := store.NewMemStore()
+	c := context.Background()
+	for i := 0; i < 12; i++ {
+		_ = s.PushActivity(c, store.Outcome{Repo: "app", Tag: "v1",
+			Reason: "untag", Outcome: "deleted", At: time.Now().UTC()})
+	}
+	srv := &Server{Store: s, Registry: liveRegistry(t)}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.indexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"<pre>", "last 10 of 12", "/api/activity",
+		"app:v1 — deleted (untag), "} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard activity missing %q", want)
+		}
+	}
+	section := body[strings.Index(body, ">Activity</div>"):]
+	if end := strings.Index(section, "</pre>"); end >= 0 {
+		section = section[:end]
+	}
+	if strings.Contains(section, "<li>") {
+		t.Error("dashboard activity still renders bullets, want the code block")
+	}
+
+	apiReq := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
+	apiRR := httptest.NewRecorder()
+	srv.activityHandler(apiRR, apiReq)
+	if apiRR.Code != http.StatusOK {
+		t.Fatalf("activity api = %d, want 200", apiRR.Code)
+	}
+	var got struct {
+		Activity []struct {
+			At      string `json:"at"`
+			Outcome string `json:"outcome"`
+		} `json:"activity"`
+	}
+	if err := json.Unmarshal(apiRR.Body.Bytes(), &got); err != nil {
+		t.Fatalf("activity api unparseable: %v", err)
+	}
+	if len(got.Activity) != 12 {
+		t.Fatalf("activity api holds %d records, want all 12 (uncapped)", len(got.Activity))
+	}
+	if _, err := time.Parse(time.RFC3339, got.Activity[0].At); err != nil {
+		t.Errorf("activity api at = %q, want a precise stamp", got.Activity[0].At)
+	}
+
+	bare := &Server{}
+	bareReq := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
+	bareRR := httptest.NewRecorder()
+	bare.activityHandler(bareRR, bareReq)
+	if bareRR.Code != http.StatusServiceUnavailable {
+		t.Errorf("storeless activity api = %d, want 503", bareRR.Code)
+	}
+}
+
+// Clock, endpoints, and capacity read off the cards: the local
+// transport voices unchecked (never a fake zero skew), the cards
+// name the endpoints serve was given, and the file card stays
+// silent about size until a proof says whose dir it is. If this
+// fails, the console guesses where it should voice.
+func TestInfoCardsVoiceConfigAndProof(t *testing.T) {
+	testConfig(t)
+	srv := &Server{
+		RegistryURL: "http://registry:5000",
+		EdgeAddr:    ":5000",
+		Edge:        &edge.Gate{Store: store.NewMemStore()},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.indexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"Clock", "local", "machine clock", "unchecked",
+		"Server time", "as kpr sees it",
+		"http://registry:5000", ":5000 → http://registry:5000",
+		`href="http://example.com:18080/api/status"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q (clock/endpoints)", want)
+		}
+	}
+}
+
+// The local transport voices itself without touching the network:
+// machine clock, no skew, unchecked. If this fails, the card
+// either fakes a zero skew or leaves the transport unnamed.
+func TestClockSnapshotVoicesLocal(t *testing.T) {
+	testConfig(t)
+	method, server, skew, note := clockSnapshot(context.Background())
+	if method != "local" || server != "machine clock" || skew != "—" || note != "unchecked" {
+		t.Errorf("local snapshot = %q/%q/%q/%q, want local transport voiced", method, server, skew, note)
+	}
+}
+
+// Filesystem size is proof-gated: an unproven dir is nobody's
+// store to report on, while a proven one voices capacity. If this
+// fails, the console sizes a stranger's disk — or stays mute on
+// its own.
+func TestFileStoreFsNoteGatedOnProof(t *testing.T) {
+	testConfig(t)
+	ctx := context.Background()
+	st := store.NewFileStore(t.TempDir())
+	cfg := config.Current()
+	if got := storeSnapshot(ctx, st, true, cfg, true); got.FsNote == "" {
+		t.Error("proven file store voices no size, want free/total")
+	} else if !strings.Contains(got.FsNote, "free of ") || !strings.Contains(got.FsNote, "% used)") {
+		t.Errorf("FsNote = %q, want '<free> free of <total> (<pct>%% used)'", got.FsNote)
+	}
+	if got := storeSnapshot(ctx, st, true, cfg, false); got.FsNote != "" {
+		t.Errorf("unproven file store voices %q, want silence", got.FsNote)
+	}
+	if got := storeSnapshot(ctx, nil, false, cfg, true); got.FsNote != "" {
+		t.Errorf("storeless snapshot voices %q, want silence", got.FsNote)
+	}
+}
+
+// Byte tiers stay operator-shaped: whole units above ten, one
+// decimal below, MB under a gig. If this fails, the capacity
+// glance reads like a raw byte count.
+func TestFmtBytesTiers(t *testing.T) {
+	for _, tc := range []struct {
+		n    uint64
+		want string
+	}{
+		{500 * 1024 * 1024, "500 MB"},
+		{5 * 1024 * 1024 * 1024, "5.0 GB"},
+		{91 * 1024 * 1024 * 1024, "91 GB"},
+		{6300 * 1024 * 1024 * 1024, "6.2 TB"},
+	} {
+		if got := fmtBytes(tc.n); got != tc.want {
+			t.Errorf("fmtBytes(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}
+
+// The app-status link keeps the browser's host and swaps the port
+// (the endpoint lives on the other listener — a relative href
+// would 404). Brackets survive IPv6, emptiness stays empty. If
+// this fails, the console links a 404 or a malformed URL.
+func TestAppStatusURLKeepsBrowserHost(t *testing.T) {
+	for _, tc := range []struct {
+		hostport string
+		want     string
+	}{
+		{"localhost:9300", "http://localhost:18080/api/status"},
+		{"example.com", "http://example.com:18080/api/status"},
+		{"[::1]:9300", "http://[::1]:18080/api/status"},
+		{"", ""},
+	} {
+		if got := appStatusURL(tc.hostport, 18080); got != tc.want {
+			t.Errorf("appStatusURL(%q) = %q, want %q", tc.hostport, got, tc.want)
 		}
 	}
 }

@@ -37,56 +37,6 @@ header h1 {
     color: #808080;
 }
 
-.status {
-    font-size: 0.85em;
-    color: #808080;
-    margin-top: 10px;
-}
-
-.ball {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    margin-right: 6px;
-    vertical-align: middle;
-}
-
-.ball.idle {
-    background: #808080;
-}
-
-.ball.ok {
-    background: #89d185;
-    box-shadow: 0 0 8px #89d185;
-    animation: ball-pulse 3s ease-in-out infinite;
-}
-
-.ball.warn {
-    background: #dcdcaa;
-    box-shadow: 0 0 8px #dcdcaa;
-}
-
-.ball.down {
-    background: #f44747;
-    box-shadow: 0 0 8px #f44747;
-}
-
-@keyframes ball-pulse {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.55;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .ball.ok {
-        animation: none;
-    }
-}
-
 main {
     display: flex;
     flex-direction: column;

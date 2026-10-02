@@ -22,7 +22,8 @@ const (
 )
 
 // Client is a minimal OCI distribution client. Timeouts bound every
-// call so a wedged registry fails into next-tick retry, never a hang.
+// call so a wedged registry fails into the next asked pass's retry,
+// never a hang.
 type Client struct {
 	base   string
 	client *http.Client

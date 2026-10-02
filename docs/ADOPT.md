@@ -25,7 +25,9 @@ otherwise. (No registry yet? Start at [docs/QUICKSTART.md](QUICKSTART.md).)
 
 ```mermaid
 flowchart LR
-    REG[your registry] -- "POST /events\n(push notifications)" --> KPR[kpr serve :8080]
+    PUSH[your pushes] -- "edge :5000\ntransparent + fenced" --> KPR[kpr serve]
+    KPR -- "forward" --> REG[your registry]
+    REG -- "POST /events\n(push notifications)" --> KPR
     KPR -- "catalog reads +\nmanifest deletes" --> REG
     REG -. "your existing redis\n(blob cache, DB 3?)" .-> REDIS[(redis)]
     KPR -- "rows on a free DB\n(DB 4 here)" --> REDIS
@@ -46,6 +48,9 @@ flowchart LR
 Traefik only ever fronts the **console** (`:9300`). The receiver stays
 off Traefik: notifications from inside the registry container to a
 public URL hairpin through TLS and any auth middleware — don't.
+Pushes stay off Traefik too: they land on the edge (`:5000` on kpr,
+moved off the registry) — a transparent proxy that fences mutating
+routes (DENY while the store is locked, HOLD around gc finalize).
 
 ## Step 0 — pin the image
 
@@ -84,6 +89,12 @@ notifications:
 storage:
   delete:
     enabled: true   # without this every sweeper DELETE 405s
+
+http:
+  relativeurls: true   # the edge fronts this registry: upstream
+    # URLs must never name the backend. Never set `host` alongside
+    # — it silently overrides this knob (and fails the edge proof:
+    # no proof, no edge).
 ```
 
 Notes:
@@ -107,6 +118,11 @@ services:
   kpr:
     image: nrtn.dev/catalyst/kpr:<release-tag>   # pin it, see Step 0
     container_name: kpr
+    ports:
+      # The published registry port moves here: pushes land on the
+      # edge (default-on inside `serve`). `KPR_EDGE=false` opts out;
+      # a failed RelativeURLs proof closes it loudly either way.
+      - "5000:5000"
     environment:
       # Registry peer: internal service URL, as the kpr container sees it.
       - KPR_REGISTRY_URL=http://registry:5000

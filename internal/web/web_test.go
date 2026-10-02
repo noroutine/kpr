@@ -481,7 +481,7 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 	body := rr.Body.String()
 	for _, want := range []string{
 		"State backend", "file", dir,
-		"File store", "reachable", "locked",
+		"reachable", "locked",
 		"019-test-gen", "proven 2026-09-30T00:00:00Z",
 	} {
 		if !strings.Contains(body, want) {

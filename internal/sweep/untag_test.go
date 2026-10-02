@@ -365,3 +365,45 @@ func TestUntagPartialFailureNamesAll(t *testing.T) {
 		t.Errorf("error = %q, want the cause named", err.Error())
 	}
 }
+
+// The ring never renders (): a reason-less row resolves with the
+// trigger as its cause, a failed one with the error, and a due
+// reason always survives. If this fails, the next rm --untag
+// prints another empty pair of braces.
+func TestUntagOutcomesAlwaysCarryReason(t *testing.T) {
+	s := store.NewMemStore()
+	row := untagRow("app", "v1", "sha256:aaa")
+	_ = s.Record(testCtx(), row)
+	sw := untagSweeper(s, &stubRegistry{outcome: registry.OutcomeDeleted})
+	if _, err := sw.Untag(testCtx(), []policy.Row{row}, untagProof(t, s, false), unlockedProof(t, s)); err != nil {
+		t.Fatalf("Untag: %v", err)
+	}
+	acts, _ := s.Activity(testCtx())
+	if len(acts) != 1 || acts[0].Reason != "untag" {
+		t.Fatalf("activity = %+v, want the trigger as reason", acts)
+	}
+
+	dueStore := store.NewMemStore()
+	due := untagRow("app", "v2", "sha256:bbb")
+	due.Due, due.Reason = true, "ttl:10m elapsed"
+	_ = dueStore.Record(testCtx(), due)
+	swDue := untagSweeper(dueStore, &stubRegistry{outcome: registry.OutcomeDeleted})
+	if _, err := swDue.Untag(testCtx(), []policy.Row{due}, untagProof(t, dueStore, false), unlockedProof(t, dueStore)); err != nil {
+		t.Fatalf("Untag: %v", err)
+	}
+	dueActs, _ := dueStore.Activity(testCtx())
+	if len(dueActs) != 1 || dueActs[0].Reason != "ttl:10m elapsed" {
+		t.Fatalf("activity = %+v, want the due reason kept", dueActs)
+	}
+
+	failStore := store.NewMemStore()
+	_ = failStore.Record(testCtx(), untagRow("app", "v3", "sha256:ccc"))
+	swFail := untagSweeper(failStore, &stubRegistry{failFirst: true, err: errors.New("registry held the delete")})
+	if _, err := swFail.Untag(testCtx(), []policy.Row{untagRow("app", "v3", "sha256:ccc")}, untagProof(t, failStore, false), unlockedProof(t, failStore)); err == nil {
+		t.Fatal("Untag succeeded, want the stub failure")
+	}
+	failActs, _ := failStore.Activity(testCtx())
+	if len(failActs) != 1 || !strings.Contains(failActs[0].Reason, "registry held the delete") {
+		t.Fatalf("activity = %+v, want the error as reason", failActs)
+	}
+}

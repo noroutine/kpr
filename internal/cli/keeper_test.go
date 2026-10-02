@@ -377,7 +377,7 @@ func TestSweepTriggersAndDegrades(t *testing.T) {
 	if err := runSweep(cliCtx(), &dout, cliStore(), "http://127.0.0.1:1"); err != nil {
 		t.Fatalf("unreachable console must degrade, not fail: %v", err)
 	}
-	for _, want := range []string{"1 rows due", "not reached", "next tick"} {
+	for _, want := range []string{"1 rows due", "not reached", "run `kpr sweep` again"} {
 		if !strings.Contains(dout.String(), want) {
 			t.Errorf("degraded sweep missing %q:\n%s", want, dout.String())
 		}
@@ -573,8 +573,8 @@ func TestSweepDegradesOnBadTrigger(t *testing.T) {
 		if err := runSweep(cliCtx(), &out, cliStore(), srv.URL); err != nil {
 			t.Errorf("%s: degrading failed: %v", name, err)
 		}
-		if !strings.Contains(out.String(), "next tick") {
-			t.Errorf("%s: no backstop:\n%s", name, out.String())
+		if !strings.Contains(out.String(), "run `kpr sweep` again") {
+			t.Errorf("%s: no ask-again:\n%s", name, out.String())
 		}
 		srv.Close()
 	}
@@ -657,63 +657,6 @@ func TestReapDryRunSurfacesWriteError(t *testing.T) {
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	if err := runReap(cliCtx(), errWriter{}, s, liveRegistryClient(t), false, nil, cliNow, "all"); err == nil {
 		t.Error("dry-run reap into broken pipe succeeded, want an error")
-	}
-}
-
-// The serve loop fires sweep-on-start immediately (no full-interval
-// wait after a restart) and keeps ticking until shutdown: exactly the
-// two server-side triggers, no queue. If this fails, restarts sleep
-// through due rows or the loop outlives serve.
-// loopSentinel serves one paired generation over the read port so
-// the loop test ticks on paired ground (the live stub answers 200
-// with no body, which parses as nothing).
-type loopSentinel struct{}
-
-func (loopSentinel) GetManifest(context.Context, string, string) ([]byte, error) {
-	return []byte(`{"schemaVersion":2,"config":{"digest":"sha256:stub"}}`), nil
-}
-
-func (loopSentinel) GetBlob(context.Context, string, string) ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"v": 1, "gen": "cli-gen", "id": "cli-lineage",
-		"ts": time.Now().UTC().Format(time.RFC3339), "writer": "kpr-gc",
-	})
-}
-
-func TestSweeperLoopStartupAndTick(t *testing.T) {
-	s := store.NewMemStore()
-	_ = s.Record(context.Background(), policy.Row{Repo: "scratch", Tag: "10m",
-		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour),
-		Due: true, Reason: "ttl:10m elapsed"})
-	if err := s.SetIdentity(context.Background(), store.Identity{ID: "cli-lineage", BaselineGen: "cli-gen"}); err != nil {
-		t.Fatalf("pair store: %v", err)
-	}
-	// Unlocked: this test isolates loop mechanics, not the marker.
-	if err := s.SetUnlocked(context.Background(), true); err != nil {
-		t.Fatalf("stage unlock: %v", err)
-	}
-	sw := &sweep.Sweeper{Store: s, Registry: liveRegistryClient(t), Sentinel: loopSentinel{}, DryRun: true}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { defer close(done); startSweeperLoop(ctx, sw, 20*time.Millisecond, nil) }()
-	time.Sleep(150 * time.Millisecond)
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("sweeper loop outlived cancel")
-	}
-	cur, err := s.GetCurrent(context.Background())
-	if err != nil {
-		t.Fatalf("GetCurrent: %v", err)
-	}
-	if cur.Stage != sweep.StageDone || cur.Trigger == "" {
-		t.Errorf("current = %+v, want a completed pass on record", cur)
-	}
-	acts, _ := s.Activity(context.Background())
-	if len(acts) == 0 {
-		t.Error("loop ran no passes, want startup + ticks recorded")
 	}
 }
 

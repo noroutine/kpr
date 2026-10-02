@@ -54,6 +54,12 @@ func New(t *testing.T, fx *Fixture) *Scenario {
 	if err := s.Ping(ctx); err != nil {
 		t.Fatalf("e2e redis unreachable at %s: %v", fx.RedisAddr(), err)
 	}
+	// The scenarios exercise sweep policies, not the lock: open the
+	// store the way a paired deployment holds it (locked refusal
+	// itself is covered in lock_test).
+	if err := s.SetUnlocked(ctx, true); err != nil {
+		t.Fatalf("e2e unlock: %v", err)
+	}
 	t.Cleanup(func() { _ = s.Close() })
 	reg := registry.NewClient(fx.RegistryURL())
 	return &Scenario{

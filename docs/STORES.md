@@ -118,7 +118,7 @@ Crash-proofing is a write protocol, not a format:
    parameter is ignored).
 5. **Per-op atomicity only.** No cross-op transactions —
    same as the redis adapter's per-command atomicity. A
-   readdir mid-mutation may skew one scan; the next tick
+   readdir mid-mutation may skew one scan; the next asked pass
    heals.
 
 This is the registry's own discipline: distribution's

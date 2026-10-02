@@ -42,13 +42,34 @@ func mustUnlock(t *testing.T, s *store.MemStore) {
 // stray ": — " reads as a malformed row. If this fails, fence
 // flips started printing as broken rows.
 func TestRenderOutcomeSkipsEmptyRef(t *testing.T) {
-	got := renderOutcome(store.Outcome{Outcome: "deny_engage", Reason: "store locked"})
+	got := renderOutcome(cliNow, store.Outcome{Outcome: "deny_engage", Reason: "store locked", At: cliNow.Add(-time.Minute)})
 	if strings.Contains(got, ":") {
 		t.Errorf("row-less outcome = %q, want no repo:tag prefix", got)
 	}
-	row := renderOutcome(store.Outcome{Repo: "a", Tag: "b", Outcome: "deleted", Reason: "r"})
+	row := renderOutcome(cliNow, store.Outcome{Repo: "a", Tag: "b", Outcome: "deleted", Reason: "r", At: cliNow.Add(-90 * time.Second)})
 	if !strings.HasPrefix(row, "  a:b — deleted (r)") {
 		t.Errorf("row outcome = %q, want the repo:tag shape kept", row)
+	}
+}
+
+// Ring entries read human: a short age trails every line, precise
+// stamps staying in --json. A zero stamp degrades to words, never
+// a million-hour duration. If this fails, the operator does
+// timestamp arithmetic again.
+func TestRenderOutcomeShowsHumanAge(t *testing.T) {
+	row := renderOutcome(cliNow, store.Outcome{Repo: "a", Tag: "b", Outcome: "deleted",
+		Reason: "untag", At: cliNow.Add(-90 * time.Second)})
+	if row != "  a:b — deleted (untag), 1m30s ago" {
+		t.Errorf("row outcome = %q, want the human age trailed", row)
+	}
+	flip := renderOutcome(cliNow, store.Outcome{Outcome: "deny_engage",
+		Reason: "store locked", At: cliNow.Add(-time.Hour)})
+	if flip != "  deny_engage (store locked), 1h0m0s ago" {
+		t.Errorf("row-less outcome = %q, want the human age trailed", flip)
+	}
+	zero := renderOutcome(cliNow, store.Outcome{Outcome: "deleted", Reason: "untag"})
+	if !strings.HasSuffix(zero, "unknown age") {
+		t.Errorf("zero-stamp outcome = %q, want words not a huge duration", zero)
 	}
 }
 

@@ -309,8 +309,9 @@ func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentine
 	if _, err := fmt.Fprintf(w, "activity (last %d of %d):\n", n, len(acts)); err != nil {
 		return err
 	}
+	now := time.Now().UTC()
 	for _, a := range acts[:n] {
-		if _, err := fmt.Fprintln(w, renderOutcome(a)); err != nil {
+		if _, err := fmt.Fprintln(w, renderOutcome(now, a)); err != nil {
 			return err
 		}
 	}
@@ -319,12 +320,17 @@ func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentine
 
 // renderOutcome prints one ring entry: rows as repo:tag —
 // outcome, row-less control events (fence flips) as the outcome
-// alone. A stray ": — " prefix reads as a malformed row.
-func renderOutcome(a store.Outcome) string {
-	if a.Repo == "" && a.Tag == "" {
-		return fmt.Sprintf("  %s (%s)", a.Outcome, a.Reason)
+// alone, each with a human age (precise stamps stay in --json).
+// A stray ": — " prefix reads as a malformed row.
+func renderOutcome(now time.Time, a store.Outcome) string {
+	age := "unknown age"
+	if !a.At.IsZero() {
+		age = shortAge(now, a.At)
 	}
-	return fmt.Sprintf("  %s:%s — %s (%s)", a.Repo, a.Tag, a.Outcome, a.Reason)
+	if a.Repo == "" && a.Tag == "" {
+		return fmt.Sprintf("  %s (%s), %s", a.Outcome, a.Reason, age)
+	}
+	return fmt.Sprintf("  %s:%s — %s (%s), %s", a.Repo, a.Tag, a.Outcome, a.Reason, age)
 }
 
 var storeCmd = &cobra.Command{

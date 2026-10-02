@@ -2,7 +2,9 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+	"syscall"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -17,6 +19,11 @@ type storeData struct {
 	Name    string
 	Detail  string
 	Healthy bool
+	// FsNote voices filesystem size for the file backend ("91 GB
+	// free of 128 GB"): capacity planning, not precision. Shown
+	// only on a same-store proof — an unproven dir is nobody's
+	// store to report on. Empty renders nothing.
+	FsNote string
 	// LockNote voices the operator intent marker: "locked" denies
 	// registry-store writes (gc refuses) while reads, sweeps, and
 	// the receiver keep working; "lock unknown" on a marker read
@@ -41,7 +48,7 @@ type sentinelData struct {
 // constructed store knows which backend serve actually opened. The
 // lock read rides along: one cheap marker check per page load, so
 // the card voices intent without a second round trip anywhere.
-func storeSnapshot(ctx context.Context, s store.Store, healthy bool, cfg *config.Config) storeData {
+func storeSnapshot(ctx context.Context, s store.Store, healthy bool, cfg *config.Config, proven bool) storeData {
 	note := ""
 	if s != nil {
 		switch ok, err := s.IsUnlocked(ctx); {
@@ -53,7 +60,11 @@ func storeSnapshot(ctx context.Context, s store.Store, healthy bool, cfg *config
 	}
 	switch st := s.(type) {
 	case *store.FileStore:
-		return storeData{Name: "file", Detail: st.Dir(), Healthy: healthy, LockNote: note}
+		fs := ""
+		if proven {
+			fs = fsStats(st.Dir())
+		}
+		return storeData{Name: "file", Detail: st.Dir(), Healthy: healthy, LockNote: note, FsNote: fs}
 	case *store.RedisStore:
 		return storeData{
 			Name:     "redis",
@@ -70,17 +81,55 @@ func storeSnapshot(ctx context.Context, s store.Store, healthy bool, cfg *config
 	}
 }
 
-// backendLabel voices the Keeper banner card for the wired backend:
-// "Redis" on the redis stack, "File store" on the file one. Nil
-// renders "State" — the card still degrades red, just unnamed.
-func backendLabel(s store.Store) string {
-	switch s.(type) {
-	case *store.FileStore:
-		return "File store"
-	case *store.RedisStore:
-		return "Redis"
+// fsStats voices the filesystem holding dir as "91 GB free of
+// 128 GB (29% used)": capacity planning, not precision. Empty on
+// any failure — an unreadable mount gets no ink, not an error card.
+func fsStats(dir string) string {
+	total, free, ok := fsSizes(dir)
+	if !ok {
+		return ""
+	}
+	used := 100 * (total - free) / total
+	return fmt.Sprintf("%s free of %s (%d%% used)", fmtBytes(free), fmtBytes(total), used)
+}
+
+// fsSizes returns the filesystem's total and free bytes for dir.
+// Blocks are counted in fragment units, not the preferred I/O
+// size: virtiofs reports a 1MB Bsize over 4K fragments, so Bsize
+// here would mint petabytes (see fsBlockUnit). Not-ok on any
+// failure or nonsense (zero total, free above total).
+func fsSizes(dir string) (total, free uint64, ok bool) {
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(dir, &fs); err != nil {
+		return 0, 0, false
+	}
+	unit := fsBlockUnit(&fs)
+	total = uint64(fs.Blocks) * unit
+	free = uint64(fs.Bavail) * unit
+	if total == 0 || free > total {
+		return 0, 0, false
+	}
+	return total, free, true
+}
+
+// fmtBytes renders byte counts in operator units: whole TB/GB
+// above ten, one decimal below, MB under a gig. Precision stays in
+// /api/activity and the CLI — this is a glance.
+func fmtBytes(n uint64) string {
+	const tb = 1024 * 1024 * 1024 * 1024
+	const gb = 1024 * 1024 * 1024
+	const mb = 1024 * 1024
+	switch {
+	case n >= 10*tb:
+		return fmt.Sprintf("%d TB", n/tb)
+	case n >= tb:
+		return fmt.Sprintf("%.1f TB", float64(n)/tb)
+	case n >= 10*gb:
+		return fmt.Sprintf("%d GB", n/gb)
+	case n >= gb:
+		return fmt.Sprintf("%.1f GB", float64(n)/gb)
 	default:
-		return "State"
+		return fmt.Sprintf("%d MB", n/mb)
 	}
 }
 

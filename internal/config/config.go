@@ -397,6 +397,8 @@ func defaultConfig() Config {
 		RegistryURL:    DefaultRegistryURL,
 		EdgeAddr:       DefaultEdgeAddr,
 		EdgeEnabled:    true,
+		TimeMethod:     clock.DefaultMethod,
+		TimeServer:     clock.DFNServer,
 
 		OTLPEndpoint:       DefaultOTELEndpoint,
 		OTELServiceName:    DefaultOTELServiceName,

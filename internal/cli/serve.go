@@ -128,13 +128,10 @@ var serveCmd = &cobra.Command{
 		var wg sync.WaitGroup
 		errors := make(chan error, 4)
 
-		// Sweeper loop: sweep-on-start (a restart doesn't wait a full
-		// interval) plus the tick backstop.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			startSweeperLoop(ctx, sweeper, sweep.TickInterval, regClient)
-		}()
+		// No sweeper loop: kpr is not a scheduler. Passes run only
+		// when asked — `kpr sweep` (armed by KPR_SWEEPER_NO_DRY_RUN)
+		// or the console POST. The sweeper below exists to serve
+		// those, never to tick on its own.
 
 		// Setup signal handling
 		sigChan := make(chan os.Signal, 1)
@@ -159,6 +156,10 @@ var serveCmd = &cobra.Command{
 				// Nil when the edge is disabled or unproven: the
 				// console renders it closed, never 500.
 				Edge: edgeGate,
+				// Endpoints the cards name (edge forwards
+				// EdgeAddr → RegistryURL).
+				RegistryURL: cfg.RegistryURL,
+				EdgeAddr:    cfg.EdgeAddr,
 			}
 			addr := net.JoinHostPort(managementHost, fmt.Sprintf("%d", managementPort))
 			log.Printf("Starting management console on %s", addr)
@@ -228,58 +229,6 @@ func init() {
 // reclamation handled); none served means tag lifecycle only —
 // sweeps delete names, layers still need a volume-side gc. Loud at
 // boot, never fatal: staleness degrades, it doesn't gate.
-func logProofAge(ctx context.Context, api sentinel.API) {
-	if api == nil {
-		return
-	}
-	current, note := sweepProofFresh(ctx, api)
-	if current {
-		log.Printf("Same-store proof: %s", note)
-		return
-	}
-	log.Printf("Warning: same-store proof %s", note)
-}
-
-// startSweeperLoop runs the sweep-on-start pass (a restart doesn't wait
-// a full interval) then the tick backstop until ctx ends. Triggers are
-// exactly these two plus the console POST — no queue, no backlog.
-// The startup pass always voices the proof age; ticks only on
-// fresh↔stale transitions, so a steady state costs one registry
-// read per tick and zero log lines. Nil api skips the proof lines
-// (tests, exotic wiring) without touching the passes.
-func startSweeperLoop(ctx context.Context, sw *sweep.Sweeper, interval time.Duration, api sentinel.API) {
-	fresh := logSweepProof(ctx, api, true, true)
-	sw.RunPass(ctx, "startup")
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			fresh = logSweepProof(ctx, api, fresh, false)
-			sw.RunPass(ctx, "tick")
-		}
-	}
-}
-
-// logSweepProof reads the live generation and voices whether the
-// store counts as recently proven, returning the current freshness.
-// Always logs when forced (startup); otherwise only on fresh↔stale
-// transitions, so a steady state costs one registry read per tick
-// and zero log lines. A read failure counts as stale (nothing
-// demonstrated); nil api skips the lines entirely.
-func logSweepProof(ctx context.Context, api sentinel.API, prev, force bool) bool {
-	if api == nil {
-		return true
-	}
-	current, note := sweepProofFresh(ctx, api)
-	if force || current != prev {
-		log.Printf("Sweep: same-store proof %s", note)
-	}
-	return current
-}
-
 // sweepProofFresh reads the live generation once and reports whether
 // the store counts as recently proven, plus the log fragment voicing
 // it. A read failure counts as stale (nothing demonstrated) —
@@ -300,4 +249,16 @@ func sweepProofFresh(ctx context.Context, api sentinel.API) (bool, string) {
 		return false, fmt.Sprintf("generation %s %s old, stale — layers accumulate until a volume-side gc", p.Gen, age.Round(time.Second))
 	}
 	return true, fmt.Sprintf("generation %s %s old, fresh", p.Gen, age.Round(time.Second))
+}
+
+func logProofAge(ctx context.Context, api sentinel.API) {
+	if api == nil {
+		return
+	}
+	current, note := sweepProofFresh(ctx, api)
+	if current {
+		log.Printf("Same-store proof: %s", note)
+		return
+	}
+	log.Printf("Warning: same-store proof %s", note)
 }

@@ -55,7 +55,7 @@ type Current struct {
 // Outcome is one attempted row: small JSON for the activity ring.
 // Actor is who carried the operation out (the component, always
 // kpr-sweep here); trigger is the driving input that caused it
-// (the pass trigger like tick/POST, `untag` for rm --untag, `rm`
+// (the pass trigger like `sweep`/POST, `untag` for rm --untag, `rm`
 // for bare rm). Same hands, different errands — only the trigger
 // tells them apart.
 type Outcome struct {

@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // captureLog redirects the standard logger into a buffer for the test's
@@ -99,7 +101,24 @@ func TestServeRunServesAndStopsOnSigterm(t *testing.T) {
 				t.Logf("captured logs:\n%s", logs.String())
 			}
 		}()
-		waitFor(t, "http://127.0.0.1:18232/health")
+		waitFor(t, "http://127.0.0.1:18232/")
+		// Readiness is a 200, but a bare 200 proves the route, not
+		// the app: the expected state must come back. This env has
+		// no redis, so the honest answer is degraded — an "ok"
+		// here would mean the handler never asked the store.
+		resp, err := testClient.Get("http://127.0.0.1:18232/api/status") //nolint:gosec,noctx // test-only, loopback
+		if err != nil {
+			t.Fatalf("GET app /api/status: %v", err)
+		}
+		raw, err := io.ReadAll(resp.Body)
+		drainAndClose(t, resp)
+		if err != nil {
+			t.Fatalf("read app /api/status: %v", err)
+		}
+		got := string(raw)
+		if !strings.Contains(got, `"status":"degraded"`) || !strings.Contains(got, `"store":"unreachable"`) {
+			t.Errorf("app status = %s, want degraded/unreachable without redis", got)
+		}
 	}()
 
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
@@ -149,7 +168,7 @@ func TestServeRunDegradesWithoutRedis(t *testing.T) {
 				t.Logf("captured logs:\n%s", logs.String())
 			}
 		}()
-		waitFor(t, "http://127.0.0.1:18236/health")
+		waitFor(t, "http://127.0.0.1:18236/")
 	}()
 
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
@@ -238,34 +257,44 @@ func (s stubProofAPI) Reachable(context.Context) error {
 	return s.err
 }
 
-// The sweep loop voices the proof age once at startup and only on
-// fresh↔stale transitions after — a steady state logs nothing, so a
-// year of fresh ticks doesn't bury the log, and a year of stale
-// ticks warns once, not 500k times. If this fails, ticks spam or
-// transitions go silent.
-func TestLogSweepProofTransitions(t *testing.T) {
-	logs := captureLog(t)
-	ctx := context.Background()
-	now := time.Now().UTC()
-	fresh := stubProofAPI{ts: now.Format(time.RFC3339)}
-	stale := stubProofAPI{ts: now.Add(-8 * 24 * time.Hour).Format(time.RFC3339)}
+// serve runs no automatic passes: booting the servers must leave the
+// store's pass record untouched — no startup sweep, no tick. Passes
+// happen only when asked (`kpr sweep`, console POST). If this fails,
+// kpr grew a scheduler again.
+func TestServeRunsNoAutomaticPasses(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("KPR_STORE", "file")
+	t.Setenv("KPR_STORE_DIR", dir)
+	setServeAddrs(t, 18241, 18242)
 
-	if !logSweepProof(ctx, fresh, true, true) {
-		t.Fatalf("startup on a fresh proof returns false")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		serveCmd.Run(serveCmd, nil)
+	}()
+
+	waitFor(t, "http://127.0.0.1:18241/health")
+	waitFor(t, "http://127.0.0.1:18242/api/status")
+	// Any startup pass would have landed by now; a tick would need
+	// a loop that no longer exists.
+	time.Sleep(300 * time.Millisecond)
+
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("signal self: %v", err)
 	}
-	if !logSweepProof(ctx, fresh, true, false) {
-		t.Fatalf("steady fresh returns false")
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("serve did not stop after SIGTERM")
 	}
-	if logSweepProof(ctx, stale, true, false) {
-		t.Fatalf("fresh→stale returns true")
+
+	st := store.NewFileStore(dir)
+	if cur, err := st.GetCurrent(context.Background()); err != nil {
+		t.Fatalf("GetCurrent: %v", err)
+	} else if cur.Trigger != "" {
+		t.Errorf("serve boot recorded a %q pass, want the store untouched", cur.Trigger)
 	}
-	if logSweepProof(ctx, stale, false, false) {
-		t.Fatalf("steady stale returns true")
-	}
-	if logSweepProof(ctx, nil, false, false) != true {
-		t.Fatalf("nil api returns false")
-	}
-	if got := strings.Count(logs.String(), "Sweep: same-store proof"); got != 2 {
-		t.Errorf("logged %d proof lines, want 2 (startup + one transition)", got)
+	if acts, _ := st.Activity(context.Background()); len(acts) != 0 {
+		t.Errorf("serve boot recorded %d outcomes, want none", len(acts))
 	}
 }

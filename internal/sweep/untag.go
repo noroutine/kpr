@@ -19,15 +19,25 @@ import (
 // the sweeper and the trigger that wrote it — a pass and an untag
 // journal the same outcomes, and only the trigger tells them apart.
 func (s *Sweeper) resolveRow(ctx context.Context, passID, trigger string, r policy.Row, outcome string, rerr error) {
+	reason := r.Reason
+	if reason == "" {
+		// Operator-directed deletes go around the plan, so their
+		// rows carry no due reason: the ring names the cause — the
+		// trigger, or the error on failure — instead of ().
+		reason = trigger
+		if rerr != nil {
+			reason = rerr.Error()
+		}
+	}
 	if err := s.Store.PushActivity(ctx, store.Outcome{
-		Repo: r.Repo, Tag: r.Tag, Reason: r.Reason, Outcome: outcome, At: s.now(),
+		Repo: r.Repo, Tag: r.Tag, Reason: reason, Outcome: outcome, At: s.now(),
 		Actor: "kpr-sweep", Trigger: trigger,
 	}); err != nil {
 		log.Printf("sweeper: activity write failed: %v", err)
 	}
 	args := []any{
 		"pass_id", passID,
-		"repo", r.Repo, "tag", r.Tag, "reason", r.Reason, "outcome", outcome,
+		"repo", r.Repo, "tag", r.Tag, "reason", reason, "outcome", outcome,
 	}
 	if rerr != nil {
 		args = append(args, "err", rerr.Error())

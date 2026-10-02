@@ -42,6 +42,14 @@ type Server struct {
 	// Edge is the serve-embedded gateway fence. Nil renders the
 	// gateway section closed (disabled or unproven), never 500.
 	Edge *edge.Gate
+	// RegistryURL names the registry endpoint the cards talk
+	// about: what the edge forwards to, what the keeper probes.
+	// Empty renders no endpoint (unknown, never guessed).
+	RegistryURL string
+	// EdgeAddr is the edge listen address serve bound (or would
+	// bind): shown beside the gateway posture when the edge is
+	// open.
+	EdgeAddr string
 	// Armed renders "armed" instead of "dry-run" in the banner.
 	// Zero value is dry-run: safety is the default.
 	Armed bool
@@ -63,6 +71,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/metrics", MetricsHandler)
 	mux.HandleFunc("/health", HealthHandler)
 	mux.HandleFunc("/api/sweep", s.sweepHandler)
+	mux.HandleFunc("/api/activity", s.activityHandler)
 	if s.OTELEnabled {
 		// Prometheus exposition for the OTel meter provider;
 		// scraped by Prometheus, not linked from the console UI.
