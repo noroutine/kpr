@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
@@ -52,6 +53,20 @@ func drySuffix(dryRun bool) string {
 	return ""
 }
 
+// fenceForBackend wires the HOLD lease: the file backend shares
+// the lease dir with the edge, anything else runs unfenced with
+// the warning said out loud. Previews stay silent either way —
+// nothing is deleted, so nothing holds.
+func fenceForBackend(backend, dir string, backendErr error, dryRun bool, out io.Writer) gc.Fencer {
+	if backendErr == nil && backend == "file" {
+		return edge.HoldFile{Dir: dir}
+	}
+	if !dryRun {
+		_, _ = fmt.Fprintln(out, "Warning: proxy HOLD fence unavailable without a shared file store — armed collect runs unfenced")
+	}
+	return nil
+}
+
 var gcCmd = &cobra.Command{
 	Use:   "gc",
 	Short: "Garbage-collect unreferenced registry blobs",
@@ -85,11 +100,14 @@ revokes.`,
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
 		dryRun := armedRun == nil
 		risk := proof.Force(armedRun, gcForce)
+		backend, dir, berr := resolveStoreBackend()
+		fence := fenceForBackend(backend, dir, berr, dryRun, out)
 		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			Force:          gcForce,
 			DryRun:         dryRun,
 			Report:         renderGCEvent(out, dryRun),
+			Fence:          fence,
 		}, risk)
 	},
 }

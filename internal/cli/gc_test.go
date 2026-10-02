@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
@@ -397,4 +398,52 @@ func TestRenderGCEventVoicesStages(t *testing.T) {
 		t.Errorf("real-run start claims dry-run:\n%s", real.String())
 	}
 	renderGCEvent(&real, false)(gc.Event{Stage: gc.StageStarted})
+}
+
+// The file backend wires the lease into the shared dir, silently:
+// the edge reads what gc writes. If this fails, the lease
+// stopped reaching the edge.
+func TestFenceForBackendWiresFileStore(t *testing.T) {
+	var out strings.Builder
+	fence := fenceForBackend("file", "/state", nil, false, &out)
+	hf, ok := fence.(edge.HoldFile)
+	if !ok {
+		t.Fatalf("file backend fence = %T, want edge.HoldFile", fence)
+	}
+	if hf.Dir != "/state" {
+		t.Errorf("lease dir = %q, want the shared store dir", hf.Dir)
+	}
+	if out.Len() != 0 {
+		t.Errorf("wired fence warned %q, want silence", out.String())
+	}
+}
+
+// Anything else runs unfenced with the warning said out loud on
+// armed runs — and silent on previews, where nothing holds. If
+// this fails, unfenced collects went quiet or previews warned
+// for no reason.
+func TestFenceForBackendWarnsWhenUnshared(t *testing.T) {
+	var armed strings.Builder
+	if fence := fenceForBackend("redis", "", nil, false, &armed); fence != nil {
+		t.Errorf("redis backend fence = %v, want nil", fence)
+	}
+	if !strings.Contains(armed.String(), "unfenced") {
+		t.Errorf("armed unfenced warning = %q, want it said", armed.String())
+	}
+
+	var preview strings.Builder
+	if fence := fenceForBackend("redis", "", nil, true, &preview); fence != nil {
+		t.Errorf("preview fence = %v, want nil", fence)
+	}
+	if preview.Len() != 0 {
+		t.Errorf("preview warned %q, want silence", preview.String())
+	}
+
+	var broken strings.Builder
+	if fence := fenceForBackend("", "", errors.New("boom"), false, &broken); fence != nil {
+		t.Errorf("broken backend fence = %v, want nil", fence)
+	}
+	if !strings.Contains(broken.String(), "unfenced") {
+		t.Errorf("broken backend warning = %q, want it said", broken.String())
+	}
 }

@@ -62,6 +62,11 @@ type Options struct {
 	Force          bool
 	DryRun         bool
 	Report         Reporter
+	// Fence, when non-nil, holds the edge around armed collects
+	// (previews never engage). A fence that fails to engage
+	// refuses the run: collecting unfenced when fencing was
+	// requested is unknown safety.
+	Fence Fencer
 }
 
 // Run probes the registry writable/readonly, proves the local mount
@@ -246,17 +251,38 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// readonly the same (the mint above is the whole gate), and only
 	// the writable-armed path carries the extra demand — which is why
 	// only it has a variant.
+	// fenced runs an armed collect under the proxy HOLD lease:
+	// engage, collect, release. No fence configured means no fence
+	// (previews never reach here); a fence that fails to engage
+	// refuses instead of collecting unfenced. The lease outlives a
+	// crashed collect by design — expiry, not release, bounds it.
+	fenced := func(collect func() error) error {
+		if opts.Fence == nil {
+			return collect()
+		}
+		release, err := opts.Fence.Hold(ctx, time.Now().Add(lockTTL))
+		if err != nil {
+			return fmt.Errorf("gc: engage proxy fence: %w", err)
+		}
+		defer release()
+		return collect()
+	}
+
 	switch {
 	case opts.DryRun:
 		if err := collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, true), opts.Report); err != nil {
 			return err
 		}
 	case mode == ModeWritable:
-		if err := collectWritableArmed(ctx, w, collect, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report, risk); err != nil {
+		if err := fenced(func() error {
+			return collectWritableArmed(ctx, w, collect, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report, risk)
+		}); err != nil {
 			return err
 		}
 	default:
-		if err := collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report); err != nil {
+		if err := fenced(func() error {
+			return collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report)
+		}); err != nil {
 			return err
 		}
 	}

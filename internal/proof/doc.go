@@ -9,7 +9,8 @@
 // accepted risk derived from that intent, checked.go carries the clock
 // bound, unlocked.go carries the marker intent, fresh.go names
 // the minted generation, mode.go carries the peer
-// classification exactly one of which is minted. Each file also
+// classification exactly one of which is minted,
+// relative_urls.go carries the proven edge addressing. Each file also
 // holds the evaluation that mints it from adapter readings.
 // Every evidence is
 // sealed — only its constructors inhabit it, and the zero value

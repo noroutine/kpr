@@ -117,6 +117,12 @@ const (
 	// Defaults to DefaultRegistryURL.
 	EnvRegistryURL = "KPR_REGISTRY_URL"
 
+	// EnvEdgeAddr is the edge proxy listen address (`kpr edge`).
+	// The edge replaces the registry's published port; defaults to
+	// DefaultEdgeAddr. One concern per var: backend selection stays
+	// EnvRegistryURL, never this.
+	EnvEdgeAddr = "KPR_EDGE_ADDR"
+
 	// EnvSweeperNoDryRun, when set to exactly "true", arms the serve
 	// loop: the sweeper deletes (and the console reports armed).
 	// Anything else keeps the implicit dry-run. One concern per
@@ -190,6 +196,7 @@ var EnvVars = []EnvVar{
 	{EnvStore, "State backend, file or redis. Unset means derive: KPR_STORE_DIR alone selects file, KPR_REDIS_ADDR alone selects redis, neither keeps redis. Must agree with backend-specific vars."},
 	{EnvStoreDir, "Directory for the file backend. Defaults to kpr/ (cwd-relative); compose sets it absolute on the shared volume."},
 	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
+	{EnvEdgeAddr, "Edge proxy listen address. Defaults to :5000 (the registry's published port, moved to the edge)."},
 	{EnvTimeMethod, "Clock transport mint timestamps are checked with: local (default), https, or ntp."},
 	{EnvTimeServer, "Time source host mint timestamps are checked against. Defaults to zeitstempel.dfn.de; air-gapped sites point at their own."},
 	{EnvSweeperNoDryRun, "Set to \"true\" to arm the serve loop (sweeper deletes). Anything else keeps dry-run."},
@@ -228,6 +235,11 @@ const (
 	// KPR_REDIS_DB is unset or invalid — the redis convention. Shared
 	// instances override it (compose: 4).
 	DefaultRedisDB = 0
+
+	// DefaultEdgeAddr is the edge proxy listen address when
+	// KPR_EDGE_ADDR is unset — the registry's published port, moved
+	// to the edge.
+	DefaultEdgeAddr = ":5000"
 
 	// DefaultRegistryURL is the registry base URL used when
 	// KPR_REGISTRY_URL is unset — the dev-stack registry.
@@ -294,6 +306,9 @@ type Config struct {
 	// RegistryURL is EnvRegistryURL's value, or DefaultRegistryURL if
 	// unset.
 	RegistryURL string
+
+	// EdgeAddr is EnvEdgeAddr's value, or DefaultEdgeAddr if unset.
+	EdgeAddr string
 
 	// TimeMethod is EnvTimeMethod's value (https or ntp), or
 	// clock.DefaultMethod if unset or invalid. See TimeMethodWarning.
@@ -367,6 +382,7 @@ func defaultConfig() Config {
 		AppPort:        DefaultAppPort,
 		RedisAddr:      DefaultRedisAddr,
 		RegistryURL:    DefaultRegistryURL,
+		EdgeAddr:       DefaultEdgeAddr,
 
 		OTLPEndpoint:       DefaultOTELEndpoint,
 		OTELServiceName:    DefaultOTELServiceName,
@@ -453,6 +469,7 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.RedisPassword = os.Getenv(EnvRedisPassword)
 	b.cfg.RedisDB, b.cfg.RedisDBWarning = parseDB(os.Getenv(EnvRedisDB))
 	b.cfg.RegistryURL = envOr(EnvRegistryURL, DefaultRegistryURL)
+	b.cfg.EdgeAddr = envOr(EnvEdgeAddr, DefaultEdgeAddr)
 	b.cfg.SweeperNoDryRun = os.Getenv(EnvSweeperNoDryRun) == "true"
 	b.cfg.CLINoDryRun = os.Getenv(EnvCLINoDryRun) == "true"
 
@@ -517,6 +534,7 @@ func (b *Builder) WithRedisAddr(v string) *Builder              { b.cfg.RedisAdd
 func (b *Builder) WithRedisPassword(v string) *Builder          { b.cfg.RedisPassword = v; return b }
 func (b *Builder) WithRedisDB(v int) *Builder                   { b.cfg.RedisDB = v; return b }
 func (b *Builder) WithRegistryURL(v string) *Builder            { b.cfg.RegistryURL = v; return b }
+func (b *Builder) WithEdgeAddr(v string) *Builder               { b.cfg.EdgeAddr = v; return b }
 func (b *Builder) WithSweeperNoDryRun(v bool) *Builder          { b.cfg.SweeperNoDryRun = v; return b }
 func (b *Builder) WithCLINoDryRun(v bool) *Builder              { b.cfg.CLINoDryRun = v; return b }
 func (b *Builder) WithOTELEnabled(v bool) *Builder              { b.cfg.OTELEnabled = v; return b }

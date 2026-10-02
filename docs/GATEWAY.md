@@ -107,6 +107,12 @@ Assertions before anything else:
   broken-pipe parity with direct access.
 - Overhead measured; if audible, stop here.
 
+Implemented: `internal/edge` (proxy + Location guard, proof-gated
+handler), `RelativeURLs` in `internal/proof`, `kpr edge`
+(`--edge-addr`, `KPR_EDGE_ADDR`, `--config`). Proven live:
+byte-identical blob+manifest through the edge, relative
+`Location` off the wire, absolute config refused at open.
+
 ## Slice 2 — live fencing (this branch)
 
 Two fence modes at the proxy, both identity-blind:
@@ -137,7 +143,18 @@ identity-blind (route+method, never credentials; internal vs
 external told topologically, direct vs proxied) — registry auth
 puts no constraint on this slice. Auth headers pass through
 opaque; per-identity fencing belongs to the tenancy world, out
-of scope. No new Location work here, but slice 1's guard
+of scope.
+
+Implemented: `edge.Gate` (HOLD/DENY, shared lock evaluation,
+edge-triggered flip events + ring outcomes), `gc.Fencer` port +
+`Options.Fence` (armed collects hold, previews never, failed
+fence refuses), `edge.HoldFile` lease wired in `kpr gc` on file
+backends (loud warning otherwise). Proven live: locked PUT→423
+with remedy, uploads/reads pass, 3s hold→423 on a locked store,
+flips in the ring as `kpr-edge`. One live-caught fix:
+post-hold requests re-evaluate the marker (no blind forward).
+
+No new Location work here, but slice 1's guard
 becomes fence-critical: any absolute backend `Location` is a
 fence bypass, not just a breakage. In-flight chunk URLs from
 before a DENY need no revocation — they can't create
