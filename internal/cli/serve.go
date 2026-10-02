@@ -83,8 +83,14 @@ var serveCmd = &cobra.Command{
 		}
 		regClient := registry.NewClient(cfg.RegistryURL)
 		// Informational only, never a gate: async so a slow/down
-		// registry can't delay the servers coming up.
-		go logProofAge(ctx, regClient)
+		// registry can't delay the servers coming up. Joined before
+		// return: a one-shot probe must not outlive the command and
+		// write to a logger it no longer owns.
+		probeDone := make(chan struct{})
+		go func() {
+			defer close(probeDone)
+			logProofAge(ctx, regClient)
+		}()
 		// No sweeper here: serve serves endpoints (receiver, console,
 		// edge), it never sweeps. Passes run in the CLI.
 		// AirPlay preflight: macOS Receiver squats localhost:5000 with
@@ -199,6 +205,7 @@ var serveCmd = &cobra.Command{
 		}
 
 		wg.Wait()
+		<-probeDone
 		log.Println("Servers stopped")
 	},
 }
