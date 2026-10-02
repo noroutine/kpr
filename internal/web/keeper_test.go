@@ -156,6 +156,11 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 	if strings.Contains(section, "<li>") {
 		t.Error("dashboard activity still renders bullets, want the code block")
 	}
+	// Placement: the card lives in Keeper, not its own section. If
+	// this fails, activity drifted back out of Keeper.
+	if keeper, activity := strings.Index(body, "🧹 Keeper"), strings.Index(body, ">Activity</div>"); activity < keeper {
+		t.Error("Activity card renders outside Keeper")
+	}
 
 	apiReq := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
 	apiRR := httptest.NewRecorder()
@@ -360,10 +365,15 @@ func TestKeeperCountersAndPlanOrder(t *testing.T) {
 			t.Errorf("dashboard missing %q", want)
 		}
 	}
+	// Order is checked inside the Plan section: the Activity card
+	// above it names the same repos, so a whole-body index would
+	// hit the activity lines first. If this fails, the plan list
+	// lost its repo-then-tag sort.
+	plan := body[strings.Index(body, "📋 Plan"):]
 	ordered := []string{"a-repo:c", "a-repo:m", "b-repo:z"}
 	last := -1
 	for _, want := range ordered {
-		at := strings.Index(body, want)
+		at := strings.Index(plan, want)
 		if at <= last {
 			t.Errorf("plan order broken at %q (repo, then tag)", want)
 			break

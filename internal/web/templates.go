@@ -86,6 +86,27 @@ const indexTemplate = `<!DOCTYPE html>
                 <div class="meta">performed {{ .Keeper.Performed }} · planned {{ .Keeper.Planned }} · failed {{ .Keeper.Failed }} · untracked {{ .Keeper.Untracked }}</div>
             </div>
         </div>
+        <div class="grid">
+            <div class="card stat-card">
+                <div class="label">State backend</div>
+                <div class="value">{{ .Store.Name }}</div>
+                <div class="meta">{{ if .Store.Detail }}{{ .Store.Detail }} · {{ end }}{{ if .Store.Healthy }}reachable{{ else }}unreachable{{ end }}{{ if .Store.LockNote }} · {{ .Store.LockNote }}{{ end }}</div>
+                {{ if .Store.FsNote }}<div class="meta">{{ .Store.FsNote }}</div>{{ end }}
+            </div>
+            <div class="card stat-card">
+                <div class="label">Same-store proof</div>
+                <div class="value">{{ if .Sentinel.Proven }}{{ .Sentinel.Gen }}{{ else }}unproven{{ end }}</div>
+                <div class="meta">{{ if .Sentinel.Proven }}proven {{ .Sentinel.TS }}{{ else }}no generation served yet{{ end }}</div>
+            </div>
+        </div>
+        {{ if .Keeper.Activity }}
+        <div class="card">
+            <div class="label">Activity</div>
+            <div class="value">last {{ len .Keeper.Activity }} of {{ .Keeper.ActivityTotal }} · <a href="/api/activity">full JSON</a></div>
+            <pre>{{ range .Keeper.Activity }}{{ .Line }}
+{{ end }}</pre>
+        </div>
+        {{ end }}
     </div>
 
     <div class="section">
@@ -127,23 +148,6 @@ const indexTemplate = `<!DOCTYPE html>
         </div>
     </div>
 
-    <div class="section">
-        <h2>🗄️ State</h2>
-        <div class="grid">
-            <div class="card stat-card">
-                <div class="label">State backend</div>
-                <div class="value">{{ .Store.Name }}</div>
-                <div class="meta">{{ if .Store.Detail }}{{ .Store.Detail }} · {{ end }}{{ if .Store.Healthy }}reachable{{ else }}unreachable{{ end }}{{ if .Store.LockNote }} · {{ .Store.LockNote }}{{ end }}</div>
-                {{ if .Store.FsNote }}<div class="meta">{{ .Store.FsNote }}</div>{{ end }}
-            </div>
-            <div class="card stat-card">
-                <div class="label">Same-store proof</div>
-                <div class="value">{{ if .Sentinel.Proven }}{{ .Sentinel.Gen }}{{ else }}unproven{{ end }}</div>
-                <div class="meta">{{ if .Sentinel.Proven }}proven {{ .Sentinel.TS }}{{ else }}no generation served yet{{ end }}</div>
-            </div>
-        </div>
-    </div>
-
     {{ if .Keeper.Plan }}
     <div class="section">
         <h2>📋 Plan</h2>
@@ -152,17 +156,6 @@ const indexTemplate = `<!DOCTYPE html>
             <li>{{ .Repo }}:{{ .Tag }} — {{ .Reason }} (pushed {{ .Pushed }})</li>
             {{ end }}
         </ul>
-    </div>
-    {{ end }}
-
-    {{ if .Keeper.Activity }}
-    <div class="section">
-        <div class="card">
-            <div class="label">Activity</div>
-            <div class="value">last {{ len .Keeper.Activity }} of {{ .Keeper.ActivityTotal }} · <a href="/api/activity">full JSON</a></div>
-            <pre>{{ range .Keeper.Activity }}{{ .Line }}
-{{ end }}</pre>
-        </div>
     </div>
     {{ end }}
 
