@@ -6,7 +6,8 @@ config renderer, process supervisor. Each layer below is
 independently useful and unlocks the next; none is committed
 beyond the spike (slice 1) until it proves out. Multiple
 registries under one kpr (multiplexer) are explicitly out —
-their own spike, later.
+their own spike, later. Downstream is filesystem-store only;
+s3-backed registries are out for the same reason.
 
 ## Thesis
 
@@ -100,5 +101,7 @@ else:
 
 Online GC itself (enabled, not delivered), backend
 provisioning (buckets, redis instances — the PaaS line),
-S3/RESP-compat servers, authn/authz per slice, and multiple
-registries under one kpr (multiplexer — own spike, later).
+S3/RESP-compat servers, authn/authz per slice, multiple
+registries under one kpr (multiplexer — own spike, later), and
+s3-backed downstream registries (redirect flows, driver
+mechanics — own spike, later).
