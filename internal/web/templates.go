@@ -13,6 +13,7 @@ const indexTemplate = `<!DOCTYPE html>
         h2 { color: #dcdcaa; margin-top: 20px; margin-bottom: 10px; font-size: 1.2em; }
         .section { margin-bottom: 30px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+        .grid + .card { margin-top: 15px; }
         .card {
             background: #2d2d30;
             border-left: 4px solid #007acc;
@@ -85,8 +86,6 @@ const indexTemplate = `<!DOCTYPE html>
                 <div class="value">{{ .Keeper.Tracked }} / {{ .Keeper.Due }}</div>
                 <div class="meta">performed {{ .Keeper.Performed }} · planned {{ .Keeper.Planned }} · failed {{ .Keeper.Failed }} · untracked {{ .Keeper.Untracked }}</div>
             </div>
-        </div>
-        <div class="grid">
             <div class="card stat-card">
                 <div class="label">State backend</div>
                 <div class="value">{{ .Store.Name }}</div>
