@@ -37,29 +37,6 @@ body — no reconstruction, protocol kpr already speaks,
 stall-the-PUT trivially implementable. Fencing, firsthand
 tracking, and verb-level readonly enforcement all live here.
 
-## Research: where Location headers come from
-
-distribution 3.1.1, `registry/handlers/app.go` (builder choice)
-+ `registry/api/v2/urls.go` (builder). Every `Location` the
-registry emits (upload initiate, chunk resume, mount, manifest
-PUT, upload complete) comes from one `urlBuilder`:
-
-1. `http.host` set → absolute URLs from the configured host,
-   always. The bypass hole in pure form. Neither of our configs
-   sets it; never point it at the backend.
-2. `http.relativeurls: true` → bare route paths. Proxy-proof
-   unconditionally — no host anywhere, nothing to rewrite.
-3. Default (our configs today) → absolute URLs from the
-   request: `Forwarded` > `X-Forwarded-Host/Proto` > `r.Host`.
-   Behind a Go `ReverseProxy`, `r.Host` is the *backend* host
-   unless preserved — the fence has a hole until the proxy sets
-   the forwarded headers or preserves `Host`.
-
-Mitigations, in order: render `relativeurls: true` (config
-slice enforces, not documents); proxy asserts every upstream
-`Location` is relative or edge-addressed, logging and rewriting
-anything else; never configure `http.host` at the backend.
-
 ## Shape
 
 ```
@@ -73,10 +50,16 @@ backend; the new bit is the frontend listener.
 
 ## Slice 1 — transparent spike (this branch)
 
-Forward everything, zero policy. Assertions before anything
-else:
+Forward everything, zero policy. DELETEs pass straight through
+mid-flight — the sweeper stays the sole owner of delete
+operations, no extra processing no matter how tempting. Write
+proof semantics are unaffected: the proxy forwards bytes, it
+neither mints nor alters proofs.
 
-- Upstream `Location`s are relative (after `relativeurls`).
+Assertions before anything else:
+
+- Upstream `Location`s are relative (after `relativeurls`;
+  research in the appendix).
 - Byte-identical large-blob pulls, incl. `Range`/resume and
   broken-pipe parity with direct access.
 - Overhead measured; if audible, stop here.
@@ -119,3 +102,26 @@ registries under one kpr (multiplexer — own spike, later),
 s3-backed downstream registries (redirect flows, driver
 mechanics — own spike, later), and the child/supervisor mode
 (own spike, later).
+
+## Appendix: where Location headers come from
+
+distribution 3.1.1, `registry/handlers/app.go` (builder choice)
++ `registry/api/v2/urls.go` (builder). Every `Location` the
+registry emits (upload initiate, chunk resume, mount, manifest
+PUT, upload complete) comes from one `urlBuilder`:
+
+1. `http.host` set → absolute URLs from the configured host,
+   always. The bypass hole in pure form. Neither of our configs
+   sets it; never point it at the backend.
+2. `http.relativeurls: true` → bare route paths. Proxy-proof
+   unconditionally — no host anywhere, nothing to rewrite.
+3. Default (our configs today) → absolute URLs from the
+   request: `Forwarded` > `X-Forwarded-Host/Proto` > `r.Host`.
+   Behind a Go `ReverseProxy`, `r.Host` is the *backend* host
+   unless preserved — the fence has a hole until the proxy sets
+   the forwarded headers or preserves `Host`.
+
+Mitigations, in order: render `relativeurls: true` (config
+slice enforces, not documents); proxy asserts every upstream
+`Location` is relative or edge-addressed, logging and rewriting
+anything else; never configure `http.host` at the backend.
