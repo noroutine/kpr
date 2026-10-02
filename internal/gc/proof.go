@@ -105,8 +105,11 @@ func CacheReady(ctx context.Context, configPath string) error {
 	if addr == "" {
 		return nil
 	}
+	// NOTE(mutants): timeout arithmetic is equivalent — no test
+	// distinguishes a 2s dial from a 3s one, and none should.
 	rdb := redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: db, DialTimeout: 2 * time.Second})
 	defer func() { _ = rdb.Close() }()
+	// NOTE(mutants): same — ping timeout arithmetic is equivalent.
 	ping, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	if err := rdb.Ping(ping).Err(); err != nil {

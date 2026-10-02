@@ -187,6 +187,27 @@ func TestRunBehindStubPorts(t *testing.T) {
 	}
 }
 
+// A failing armed collect fails the run: the readonly-armed branch
+// surfaces the collector error like the preview does. If this fails,
+// real-run collection errors vanish into a nil return.
+func TestRunArmedCollectFailureSurfaces(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	stagePairedGen(t, lock, root)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	failCollector := func(context.Context, io.Writer, string, []string, Reporter) error {
+		return errors.New("collector exploded")
+	}
+	var out strings.Builder
+	err := Run(context.Background(), &out, probe, lock, failCollector, fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
+		Options{DryRun: false, Report: func(Event) {}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "collector exploded") {
+		t.Fatalf("armed collect failure = %v, want the collector error surfaced", err)
+	}
+}
+
 // tailFailWriter passes every write to the buffer except the final
 // verdict line, which fails: the dry-run tail is a real write, and
 // its failure must surface, not vanish into a nil return.

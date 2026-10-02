@@ -63,6 +63,8 @@ func ProbeRegistryMode(ctx context.Context, baseURL string) (string, error) {
 // id returns with the writable verdict for the same-store proof.
 func ProbeRegistry(ctx context.Context, baseURL string) (Mode, string, error) {
 	endpoint := strings.TrimSuffix(baseURL, "/") + "/v2/" + ProbeRepo + "/blobs/uploads/"
+	// NOTE(mutants): timeout arithmetic is equivalent — no test
+	// distinguishes a 5s probe from a 6s one, and none should.
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
