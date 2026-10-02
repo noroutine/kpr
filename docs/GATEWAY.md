@@ -145,7 +145,7 @@ not a mint.
 - **Persistent descriptor cache (out of this spike;
   s3-backed only).** Turning the cache off is the answer here;
   this survives only for cloud-backed deployments that need
-  warm restarts.
+  warm restarts. Full findings in `docs/BLOBCACHE.md`.
   kpr speaks the registry's descriptor-cache RESP subset from a
   persistent local map, making redis optional. Values are
   immutable (digest→metadata, true forever) so every failure
