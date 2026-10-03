@@ -6,7 +6,7 @@ and quickstart commands are in the [top-level README](../README.md).
 - [Run it](#run-it)
 - [Understand it](#understand-it)
 - [Hack on it](#hack-on-it)
-- [Status and unbuilt work](#status-and-unbuilt-work)
+- [Unbuilt work](#unbuilt-work)
 
 ## Run it
 
@@ -43,19 +43,15 @@ and quickstart commands are in the [top-level README](../README.md).
 | [BUILD](BUILD.md) | builds, releases, cross-compilation |
 | [REVIEWER_CONTEXT](REVIEWER_CONTEXT.md) | review loop contract (Claude) |
 
-## Status and unbuilt work
+## Unbuilt work
 
-Kept out of the reference pages above so they can go stale on
-their own.
-
-| Doc | Answers |
-|---|---|
-| [STATUS](STATUS.md) | what currently ships, and what is still open |
-
-Designs for work that does not exist yet:
+Designs for work that does not exist yet, kept out of the
+reference pages above. Each `X.md` states what ships today; its
+`X_FUTURE.md` states what is coming.
 
 | Doc | Answers |
 |---|---|
+| [ARCHITECTURE_FUTURE](ARCHITECTURE_FUTURE.md) | open and upcoming work |
 | [GC_FUTURE](GC_FUTURE.md) | dangling tags, token-auth registries |
 | [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | shadow reader, digest-less enrichment |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |
