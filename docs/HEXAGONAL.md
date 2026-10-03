@@ -75,9 +75,9 @@ flowchart LR
 
     subgraph driving["driving adapters · parse, call, render"]
       direction TB
-      cli["<b>cli</b><br/><i>openDeps = composition root</i>"] ~~~
+      cli["<b>cli</b><br/>composition root"] ~~~
       web["<b>web</b><br/>console"] ~~~
-      edge["<b>edge</b><br/>gateway proxy + fence"]
+      edge["<b>edge</b><br/>proxy + fence"]
     end
 
     subgraph app["use cases · orchestrate over ports"]
@@ -85,23 +85,23 @@ flowchart LR
       keeper["<b>keeper</b>"] ~~~ gcu["<b>gc</b>"] ~~~ sweepu["<b>sweep</b>"] ~~~ backfill["<b>backfill</b>"]
       subgraph core["core · pure logic"]
         direction TB
-        policy["<b>policy</b> · <b>sentinel</b><br/><i>leaves: import nothing</i>"] ~~~
-        proofl["<b>lineage</b> · <b>proof</b><br/><i>pure, but name adapter types</i>"]
+        policy["<b>policy</b> · <b>sentinel</b><br/>import nothing"] ~~~
+        proofl["<b>lineage</b> · <b>proof</b><br/>pure logic"]
       end
       backfill ~~~ core
     end
 
     subgraph driven["outbound adapters · translate only"]
       direction TB
-      store["<b>store</b> · redis · file · mem<br/><i>store.Store</i>"] ~~~
-      registry["<b>registry</b> · distribution API<br/><i>sweep.Registry · keeper.CatalogSource<br/>keeper.Prober · gc.Probe/Collector/Locker</i>"] ~~~
-      clock["<b>clock</b> · local · https · ntp<br/><i>clock.Source</i>"] ~~~
-      otel["<b>otel</b>"]
+      store["<b>store</b><br/>redis · file · mem"] ~~~
+      registry["<b>registry</b><br/>distribution API"] ~~~
+      clock["<b>clock</b><br/>local · https · ntp"] ~~~
+      otel["<b>otel</b><br/>traces · metrics"]
     end
   end
 
-  driving -- "direct calls<br/>no inbound port cut" --> app
-  app -- "outbound ports<br/>every effect substitutable" --> driven
+  driving -- "direct calls<br/>no inbound port" --> app
+  app -- "outbound ports" --> driven
 ```
 
 Humans drive `cli`, pushes drive `edge`, and the registry drives
