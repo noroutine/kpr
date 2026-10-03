@@ -14,6 +14,7 @@ establishes something different; they compose by weakening only.
 | Accepted risk | leave to proceed despite a loud refusal (skewed clock — `--accept-clock-skew`; restored lineage — `--accept-rollback`; post-run flip — `--accept-mode-flip`; blob cache — `--accept-blob-cache`; missing fence — `--accept-unfenced`) | one flag per risk, on an armed run, no umbrella | `gc` | the human, via `--accept-<slug>` at the boundary | `AcceptedRisk` (`risk.go`) |
 | Blob cache off (config carries no blobdescriptor redis) | online deletes reclaim immediately, not vouched till restart | one config parse | `gc` online preflight | the registry config, via the prover | `BlobCacheOff` (`blob_cache_off.go`) |
 | Gateway fencing (proven edge listening, HOLD lease configured) | the fence the collect engages actually pins pushes | one config parse + one dial | `gc` online preflight | the registry config + the edge addr, via the prover | `GatewayFencing` (`gateway_fencing.go`) |
+| Relative URLs (registry config emits relative Locations) | upstream URLs never name the backend, so the edge can front it | one config parse | the edge in `serve` | the registry config, via the prover | `RelativeURLs` (`relative_urls.go`) |
 
 Mint ⊃ read gate: the mint observes everything the gate does
 along the way, plus currency — each step down trades a guarantee
@@ -136,3 +137,70 @@ plumbing (the probe cannot be skipped or forged), never what is
 proven — it classifies the registry, not our store.
 
 Unbuilt designs live in [PROOFS_FUTURE.md](PROOFS_FUTURE.md).
+
+## Proof as a compiler-enforced dependency
+
+Background: a runtime check (`if !armed { return err }`) is
+advice — any caller can forget it, and the compiler stays silent.
+A proof turns the check into a value the stage's signature
+demands, so a call without evidence does not compile. Three
+mechanics do the work, all plain Go:
+
+1. The proof is an interface with an unexported method
+   (`sealed()`). Go interfaces are satisfied implicitly, but an
+   unexported method can only be implemented inside the defining
+   package — no outside package can forge an inhabitant.
+2. The sole implementation is an unexported struct, and the only
+   constructor (the prover) is unexported too. Values enter the
+   world in one place, beside the check that earns them.
+3. Stages take the proof as a parameter. Possession of a non-nil
+   value IS the evidence; `nil` is the loud absence, refused at
+   the gate.
+
+Dummy example, self-contained:
+
+```go
+package vault
+
+// Open is proof the vault is unlocked. Sealed: only Unlock mints it.
+type Open interface{ sealed() }
+
+type open struct{}
+
+func (open) sealed() {}
+
+// Unlock is the sole prover: it runs the ceremony and mints.
+func Unlock(code string) (Open, error) {
+	if code != "sesame" {
+		return nil, errors.New("wrong code")
+	}
+	return open{}, nil
+}
+
+type Vault struct{ /* ... */ }
+
+// Take demands the proof as a parameter: no proof, no compile.
+func (v *Vault) Take(o Open, item string) error {
+	if o == nil {
+		return errors.New("refusing: no proof")
+	}
+	/* ... take item ... */
+	return nil
+}
+```
+
+What the compiler guarantees here, and what it does not:
+
+- `v.Take(item)` does not compile — the parameter is missing.
+  Forgetting the check is a build break, not a latent bug.
+- `var o vault.Open; v.Take(o, item)` compiles but refuses at
+  runtime — the zero value is `nil`, and there is no empty
+  value to sneak through a signature.
+- No outside package can implement `vault.Open` (unexported
+  `sealed()`) or construct `open{}` (unexported struct): the
+  only path to a non-nil proof is `Unlock`.
+- What the seal does NOT do: it cannot make `Unlock` honest.
+  The check inside the prover is ordinary code, reviewed the
+  ordinary way — there is exactly one per prover, which is the
+  point. Sealing moves the guarantee from "every caller
+  remembers" to "one prover is correct".

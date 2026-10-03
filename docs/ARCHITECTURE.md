@@ -165,39 +165,39 @@ Due marks plus reasons, in redis. `plan` shows them (optionally
 
 ## Garbage collection
 
-Manifest deletes drop references only; blob bytes need the stock
-collector against the shared store. `kpr gc` shells the stock
-`registry garbage-collect` (COPYd from the same `registry:3` the
-stack runs) after proving, in order: binary/config mounts exist, the
-store root is local filesystem, the blobdescriptor cache answers
-(`REGISTRY_REDIS_PASSWORD`, same convention as the registry —
-without it the mark phase eats live layers), the sentinel sees a
-classifiable mode, and the local mount is the registry's own store.
+Manifest deletes drop references only; the bytes need a collector.
+`kpr gc` is a thin wrapper around the registry's own: it shells the
+stock `registry garbage-collect` (COPYd from the same `registry:3`
+the stack runs, unmodified) and adds a gate chain around the call.
 
-- **Sentinel**: a cancelled blob-upload initiate under a probe repo —
-  202 means writable, 405 means maintenance readonly, anything else
-  refuses. Same-store proof is a fresh `noroutine/kpr-sentinel:latest` generation
-  written to the local mount and read back through the API — both
-  modes, no tracked rows, no API writes. Stopped (readonly) takes
-  the classic offline collect. Serving (writable) takes the online
-  path: the preflight clears the blob cache (none configured) and
-  the gateway fence (proven edge listening, HOLD lease configured)
-  up front — each miss overridable (`--accept-blob-cache`,
-  `--accept-unfenced`), all misses reported at once; a dry-run
-  preview prints the checklist and proceeds warned.
-- **Lock**: the shared `kpr:gc:lock` (30m bound) serializes kpr-driven
-  runs. It is advisory by necessity — distribution's `MarkAndSweep`
-  (audited at v3.1.2) sets no lock and mark-then-sweep races a
-  concurrent collector, so never run a manual `garbage-collect`
+Nine gates run before it, in order — intent, mounts, store root,
+clock, gc lock, mode, a mode-specific cache-or-fence check,
+lineage, and a minted generation — then the collect, then two
+confirmations: prune the empty directories the collector leaves,
+and re-probe the mode. Each gate produces a sealed token the next
+stage takes as an argument, so a path that skipped one cannot be
+written. Every gate and every `--accept-*` override:
+[GC.md](GC.md).
+
+Three properties worth stating here, because they shape the design
+rather than the procedure:
+
+- **The mode decides the path, not a flag.** A cancelled
+  blob-upload initiate classifies the registry (202 writable, 405
+  maintenance readonly, anything else refuses). Readonly takes the
+  classic offline collect and requires the blobdescriptor cache to
+  answer; writable collects online, under the gateway HOLD lease,
+  and requires no cache at all. There is no `--online` to forget.
+- **The lock is advisory by necessity.** The shared `kpr:gc:lock`
+  (30m bound) serializes kpr-driven runs, but distribution's
+  `MarkAndSweep` (audited at v3.1.2) takes no lock of its own, so
+  a manual `garbage-collect` races the mark phase. Never run one
   alongside.
-- **Runner**: the collector streams through an evented subprocess
-  (pipe capture, line streaming, fd drain discipline, cancel kills,
-  failures carry the last line) with pre/post sentinel events. A mode
-  flip mid-run is loud but never a panic — it fails the run unless
-  `--accept-mode-flip`, which presumes the operator verified pulls
-  after the run. Flipping readonly
-  stays with the operator; the command never rewrites registry
-  config.
+- **The collector is a subprocess, not a library.** It streams
+  through an evented runner (pipe capture, line streaming, fd
+  drain discipline, cancel kills, failures carrying the last
+  line). Flipping the registry readonly stays with the operator;
+  the command never rewrites registry config.
 
 ## Data
 

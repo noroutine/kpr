@@ -22,9 +22,10 @@ knob says what kpr needs.
 are minted per run — so the evidence would be a boot-time reading
 re-checked per use, never a fresh one.
 
-**First knob earned:** `http.relativeurls` (`RelativeURLs`). It is
-fence-critical, so it refuses rather than warns. Specified in
-[GATEWAY.md](GATEWAY.md).
+**One knob already works this way:** `http.relativeurls`, sealed
+as `RelativeURLs`. It is fence-critical, so it refuses rather than
+warns — no proof, no edge. See [GATEWAY.md](GATEWAY.md). It is the
+precedent the rest would follow, not future work.
 
 Open: which knobs follow, and where refusing stops being
 affordable.

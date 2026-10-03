@@ -1,126 +1,203 @@
 # Garbage collection
 
+Manifest deletes drop references only; the bytes stay until
+something collects them. kpr does not collect them itself.
+
+`kpr gc` is a thin wrapper around the registry's own collector. It
+shells the stock binary — COPYd from the same `registry:3` the
+stack runs, unmodified — and everything kpr adds happens *around*
+that call:
+
+```bash
+registry garbage-collect [--dry-run] [--delete-untagged] <config>
+```
+
+The wrapper exists because that binary will happily delete live
+layers if the world is not what you assume: wrong store, vouching
+cache, a push mid-collect, a clock that misorders generations. So
+kpr proves the world first, collects, then confirms nothing moved
+underneath.
+
 ## Contents
 
-- [Garbage collection today](#garbage-collection-today)
-  - [The proof chain](#the-proof-chain)
-  - [Two paths, chosen by the probe](#two-paths-chosen-by-the-probe)
-  - [Same-store proof](#same-store-proof)
-  - [Dry-run default](#dry-run-default)
-  - [Mechanics](#mechanics)
+- [The shape of a run](#the-shape-of-a-run)
+- [The gates](#the-gates)
+- [Happy path](#happy-path)
+- [Stage events](#stage-events)
+- [Accepted risks](#accepted-risks)
 - [After an armed run: stale blob descriptors](#after-an-armed-run-stale-blob-descriptors)
 - [Per-repo collection: keep-N over gen tags](#per-repo-collection-keep-n-over-gen-tags)
 
 Unbuilt gc designs — dangling tags, token-auth registries — live in
 [GC_FUTURE.md](GC_FUTURE.md).
 
-## Garbage collection today
+## The shape of a run
 
-Manifest deletes drop references only; blob bytes need the stock
-collector against the shared store. `kpr gc` shells the stock
-`registry garbage-collect`, COPYd from the same `registry:3` the
-stack runs.
+```mermaid
+flowchart LR
 
-Full spec lives in
-[ARCHITECTURE.md](ARCHITECTURE.md#garbage-collection).
+  subgraph kpr["kpr gc"]
+    direction LR
 
-### The proof chain
+    subgraph before["prove — any failure refuses"]
+      direction TB
+      b1["<b>intent</b><br/>store unlocked"] ~~~
+      b2["<b>mounts</b><br/>binary + config"] ~~~
+      b3["<b>store root</b><br/>local filesystem"] ~~~
+      b4["<b>clock</b><br/>skew bounded"] ~~~
+      b5["<b>gc lock</b><br/>single flight"] ~~~
+      b6["<b>mode</b><br/>readonly or writable"] ~~~
+      b7["<b>cache / fence</b><br/>per mode"] ~~~
+      b8["<b>lineage</b><br/>this store is ours"] ~~~
+      b9["<b>mint</b><br/>write + read back"]
+    end
 
-Every run proves these in order, and refuses at the first failure:
+    subgraph run["collect"]
+      direction TB
+      stock["<b>registry garbage-collect</b><br/><i>stock binary, unmodified</i><br/>the only step that deletes"]
+    end
 
-1. Binary and config mounts exist.
-2. The store root is a local filesystem.
-3. The sentinel sees a classifiable mode — a cancelled blob-upload
-   initiate under a probe repo: 202 writable, 405 maintenance
-   readonly, anything else refuses.
-4. The mode's own checks clear — the blobdescriptor cache for
-   readonly, the online preflight for writable (both below).
-5. The local mount is the registry's own store.
+    subgraph after["confirm"]
+      direction TB
+      a1["<b>prune</b><br/>empty dirs the<br/>collector left"] ~~~
+      a2["<b>re-probe</b><br/>mode unchanged?"]
+    end
+  end
 
-### Two paths, chosen by the probe
+  before --> run --> after
+```
 
-The preflight derives the path from the serving probe. There is no
-`--online` flag to forget: the mode decides, the checklist explains.
+Nine gates, one unmodified binary, two confirmations. The gates
+run in the order drawn and the run stops at the first failure —
+each refusal names its own remedy.
 
-**Stopped or readonly — the classic collect.** The blobdescriptor
-cache must answer. Set `REGISTRY_REDIS_PASSWORD`; without it the
-mark phase deletes live layers.
+## The gates
 
-**Serving — the fenced collect.** The preflight clears two things
-up front:
+Evidence is a value, not a boolean: each gate either produces a
+sealed token or the run ends. A stage that needs one takes it as
+an argument, so a path that skipped a gate cannot be written. The
+kinds live in `internal/proof`, one file each; the model behind
+them is [PROOFS.md](PROOFS.md).
 
-| Check | Clears when | Override |
+| # | Gate | What it establishes | On failure |
+| --- | --- | --- | --- |
+| 1 | **Intent** | the operator opened this store | refuse — `kpr store unlock` |
+| 2 | **Mounts** | the collector binary and registry config are both present | refuse |
+| 3 | **Store root** | the config names a local filesystem root | refuse — gc is filesystem-only |
+| 4 | **Clock** | mint timestamps are trustworthy, skew within 30s | refuse, or warn if the source is merely unreachable |
+| 5 | **gc lock** | no other kpr-driven run is collecting | refuse — wait, or clear a stale `kpr:gc:lock` |
+| 6 | **Mode** | the registry is classifiably readonly or writable | refuse — inconclusive is not a mode |
+| 7 | **Cache / fence** | mode-specific, see below | refuse |
+| 8 | **Lineage** | the store kpr sees belongs to the registry it serves | refuse — `kpr store adopt` |
+| 9 | **Mint** | a fresh generation written to the mount reads back through the API | refuse |
+
+Gate 7 inverts with the mode, which is the part worth internalising:
+
+- **Readonly** (stopped or in maintenance) — the configured
+  blobdescriptor cache must *answer*. The mark phase consults it,
+  and a cache that cannot be reached makes the collector delete
+  live layers.
+- **Writable** (serving) — there must be *no* descriptor cache at
+  all, plus a proven gateway fence. A serving registry collects
+  under a HOLD lease that pins pushes for the duration; a cache
+  would keep vouching for blobs the collect just removed.
+
+The mode decides the path. There is no `--online` flag to forget.
+
+Gates 1–5 run before the mode is known, so they apply identically
+either way. Gate 9 is skipped by previews — a preview reads the
+served generation to confirm one exists, but never writes, because
+only a fresh mint can tell a shared store from a stale snapshot,
+and only an armed run needs that distinction.
+
+## Happy path
+
+Previewing is the default and is always safe:
+
+```console
+$ kpr gc
+gc online preflight (registry serving — armed collect runs under the fence):
+  [ok] blob cache: none configured (deletes reclaim immediately)
+  [ok] gateway: proven edge on :5000 (HOLD will pin pushes)
+Warning: registry is writable; dry-run mode, nothing will be deleted
+... collector output, streamed line by line ...
+dry-run complete: nothing was deleted (collect for real with --no-dry-run)
+```
+
+Arming it adds the mint, the fence, and the prune:
+
+```console
+$ kpr gc --no-dry-run
+gc online preflight (registry serving — armed collect runs under the fence):
+  [ok] blob cache: none configured (deletes reclaim immediately)
+  [ok] gateway: proven edge on :5000 (HOLD will pin pushes)
+shared store proven via noroutine/kpr-sentinel:latest generation 0193...
+Warning: registry is writable; collecting under the cleared online preflight
+... collector output, streamed line by line ...
+pruned 48 empty directories
+```
+
+A stopped or readonly registry prints no preflight — it takes the
+classic offline path, where the only mode-specific demand is that
+the descriptor cache answers.
+
+Two things the output is telling you:
+
+- **`shared store proven via …`** is gate 9 having completed. If
+  you armed a run and this line is absent, nothing collected.
+- **`pruned N empty directories`** is kpr's own cleanup, not the
+  collector's. The stock binary removes blobs and links but leaves
+  their parent directories, so every run would otherwise grow an
+  empty tree.
+
+## Stage events
+
+Alongside the human-readable output, a run emits structured stage
+events carrying elapsed time, and a pid or error where relevant.
+The vocabulary is fixed and shared with the sweeper's reporting
+shape, so a console could subscribe without anything new.
+
+| Stage | Emitted when |
+| --- | --- |
+| `pre_probe` | the mode classification lands |
+| `start` | the collector lifecycle opens |
+| `spawn` | the subprocess is forked |
+| `started` | it reported its pid |
+| `collect_begin` | output streaming begins |
+| `collect_exit` | the subprocess exits |
+| `stopped` | the run was cancelled and the subprocess killed |
+| `prune` | empty-dir cleanup finishes, with the count or the error |
+| `post_probe` | the mode is re-read after collecting |
+| `mode_flip` | the re-read disagrees with the pre-run mode |
+| `failure` | the run failed, carrying the collector's last line |
+
+## Accepted risks
+
+Five things can be waived, each with its own flag. There is no
+umbrella: every flag names exactly one risk, and all of them are
+inert unless the run is also armed — accepting a risk on a preview
+is meaningless, so the token is never produced.
+
+| Flag | Waives | What you are accepting |
 | --- | --- | --- |
-| Blob cache | no blobdescriptor cache configured | `--accept-blob-cache` |
-| Gateway | proven edge listening, HOLD lease configured | `--accept-unfenced` |
+| `--accept-clock-skew` | gate 4 | Mint timestamps may misorder, so generation comparison can lie about which is newer. |
+| `--accept-blob-cache` | gate 7, writable | The descriptor cache keeps vouching for deleted blobs until it drops, so a re-push can mint a dead tag. |
+| `--accept-unfenced` | gate 7, writable | No HOLD lease pins pushes, so a push landing mid-collect can be corrupted by it. |
+| `--accept-rollback` | gate 8 | The served generation is older than what kpr tracks. A restore may have resurrected blobs the tracked state thinks are gone. |
+| `--accept-mode-flip` | post-probe | The registry changed mode mid-run, so writes may have raced the mark phase. Verify pulls before trusting the result. |
 
-An armed run reports every miss at once and refuses unaccepted
-ones; a dry-run prints the checklist and previews on. The collect
-engages the HOLD lease around itself — a fence that fails to engage
-refuses rather than collect unfenced.
+The first four are refused *before* anything is deleted. The last
+one is different: by the time a flip is detected, the collect has
+already happened — the flag decides whether the run reports success
+or failure, not whether it proceeds.
 
-Run-wide risks carry their own flag on every path:
-`--accept-clock-skew`, `--accept-rollback`, `--accept-mode-flip`.
-Each names the risk it accepts, armed runs only, no umbrella.
+Two refusals carry no flag at all, by design:
 
-### Same-store proof
-
-Every armed run writes a fresh `noroutine/kpr-sentinel:latest`
-generation to the local mount — linked at its uuid tag beside the
-floater — and reads it back through the API. Both modes; an empty
-redis proves fine.
-
-- **Lineage first.** The mint carries the store's lineage id, and
-  the served generation is judged against the paired identity
-  before anything else. Foreign refuses even fully accepted; stale
-  refuses armed unless `--accept-rollback`; silence establishes.
-  Verdict table in [SENTINELS.md](SENTINELS.md). Refused pairings
-  heal through `kpr store adopt`, never an accept flag.
-- **Clock check opens every run.** Skew past 30s refuses unless
-  `--accept-clock-skew`; an unreachable source warns and proceeds.
-  `KPR_TIME_METHOD` is local/https/ntp (default local),
-  `KPR_TIME_SERVER` defaults to `zeitstempel.dfn.de`, compose pins
-  https. See [TIMESTAMPS.md](TIMESTAMPS.md).
-- **One row per mint.** The verified mint records gen tag, digest,
-  and writer. The floater is never tracked.
-- **Order on a writable registry:** online preflight, then mint.
-- **Overflow dies by keep-N** (below), not by `--delete-untagged`.
-
-### Dry-run default
-
-`kpr gc` previews; `--no-dry-run` collects for real.
-
-Previews never mint — no blobs, no tags, no rows — but they do
-read. The served generation proves presence: nothing served refuses
-with "no sentinel served" and names the armed ceremony, unreadable
-stays an error. Freshness stays armed-only, because only a fresh
-mint distinguishes a stale snapshot from the shared store. Only
-armed runs pay for the proof, and only they print it.
-
-### Mechanics
-
-- **Advisory lock.** The shared `kpr:gc:lock` (30m bound)
-  serializes kpr-driven runs. A manual `garbage-collect` takes no
-  such lock, so never run one alongside.
-- **Evented runner.** The collector streams through a subprocess
-  with pipe capture, line streaming, and drain discipline, plus
-  pre/post sentinel events. A mode flip mid-run fails loudly unless
-  `--accept-mode-flip`.
-- **Skeleton pruning.** The stock collector deletes blobs and links
-  but leaves their parent dirs, so every run grows an empty tree.
-  An armed run prunes it after the collect (`pruned N empty
-  directories`, `prune` stage event): bottom-up, empty dirs only,
-  root/files/symlinks never touched, occupancy races resolve safe
-  because remove *is* the check. Previews prune nothing. A prune
-  failure warns, never fails the collection.
-- **Upload sessions are not gc's.** Abandoned `_uploads/<uuid>`
-  dirs hold partial bytes, never empty dirs, so pruning skips them
-  — and gc never deletes them either. A live push PATCHes there,
-  and the HOLD fence doesn't cover direct-to-registry doors, so a
-  post-collect wipe could kill in-flight uploads or race the commit
-  window. Orphaned sessions belong to the registry's
-  `uploadpurging` (24h age, hourly — see the registry configs),
-  which only reaps idle ones.
+- **A foreign store.** No acceptance overrides lineage against
+  another registry's identity; the remedy is the explicit
+  `kpr store adopt` ceremony.
+- **A locked store.** `kpr store unlock` is the remedy, and it
+  proves the store before setting the marker.
 
 ## After an armed run: stale blob descriptors
 
@@ -172,6 +249,5 @@ radius confined to a repo kpr owns; user repos and the
 referencing tags server-side, so reaped gens leave neither doc nor
 tag link — no dangling-tag residue on this path (crashed deletes
 are the [dead-link pass](GC_FUTURE.md#dangling-tags)'s job).
-Per-run cost stays +2 blobs,
-+1 tag, +1 row; steady state is ten tagged generations. Full design
-in `docs/SENTINELS.md`.
+Per-run cost stays +2 blobs, +1 tag, +1 row; steady state is ten
+tagged generations. Full design in [SENTINELS.md](SENTINELS.md).
