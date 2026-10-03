@@ -154,8 +154,8 @@ func TestBackfillRecordsAbsentWithMtimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if sum != (Summary{Recorded: 1, Tracked: 1, Repos: 1, Tags: 1}) {
-		t.Errorf("sum = %+v, want recorded + tracked + scan of 1 repo, 1 tag", sum)
+	if sum != (Summary{Recorded: 1, Tracked: 0, Sentinels: 1, Repos: 1, Tags: 1}) {
+		t.Errorf("sum = %+v, want recorded, 0 adoptable, 1 sentinel, scan of 1 repo, 1 tag", sum)
 	}
 	rows, _ := s.All(ctx)
 	if len(rows) != 2 {
@@ -234,18 +234,43 @@ func TestBackfillProgressReportsScan(t *testing.T) {
 	if len(snaps) == 0 {
 		t.Fatal("no progress reported")
 	}
-	if snaps[0].Tracked != 1 {
-		t.Errorf("baseline tracked = %d, want 1 generation row", snaps[0].Tracked)
+	if snaps[0].Tracked != 0 || snaps[0].Sentinels != 1 {
+		t.Errorf("baseline = %+v, want 0 adoptable, 1 sentinel generation row", snaps[0])
 	}
 	var repos, tags int
 	for _, sn := range snaps {
-		if sn.Tracked != 1 {
+		if sn.Tracked != 0 || sn.Sentinels != 1 {
 			t.Errorf("snapshot = %+v, want tracked baseline carried", sn)
 		}
 		repos, tags = max(repos, sn.Repos), max(tags, sn.Tags)
 	}
 	if repos != 2 || tags != 3 {
 		t.Errorf("scan peaks at %d repos, %d tags, want 2 and 3", repos, tags)
+	}
+}
+
+// Sentinel rows count apart from the tracked baseline: the
+// generation row is machinery, and `store ls` hides it too — the
+// split keeps both views agreeing. If this fails, sentinel rows
+// inflate the adoptable count.
+func TestBackfillCountsSentinelsSeparately(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	if err := s.Record(ctx, policy.Row{Repo: "app", Tag: "v9", PushedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("record app row: %v", err)
+	}
+	stageTagDir(t, root, "app", "v1")
+	reg := &stubRegistry{
+		repos:   []string{"app"},
+		tags:    map[string][]string{"app": {"v1"}},
+		digests: map[string]string{"app\x00v1": "sha256:abc"},
+	}
+	sum, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, Options{DryRun: true, Log: io.Discard}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v, want preview", err)
+	}
+	if sum.Tracked != 1 || sum.Sentinels != 1 {
+		t.Errorf("sum = %+v, want 1 adoptable row apart from 1 sentinel", sum)
 	}
 }
 

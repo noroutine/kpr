@@ -94,10 +94,14 @@ stdout, a path for a file) and is otherwise discarded.`,
 // baseline plus running verdicts. Values share analyze's
 // column, so the blocks scan as one.
 func backfillLines(sum backfill.Summary) []string {
+	noun := "sentinels"
+	if sum.Sentinels == 1 {
+		noun = "sentinel"
+	}
 	return []string{
 		analyzeRow("catalog", fmt.Sprintf("%d repos, %d tags", sum.Repos, sum.Tags)),
-		analyzeRow("store", fmt.Sprintf("%d tracked, %d recorded, %d skipped, %d failed",
-			sum.Tracked, sum.Recorded, sum.Skipped, sum.Failed)),
+		analyzeRow("store", fmt.Sprintf("%d tracked (+%d %s), %d recorded, %d skipped, %d failed",
+			sum.Tracked, sum.Sentinels, noun, sum.Recorded, sum.Skipped, sum.Failed)),
 	}
 }
 

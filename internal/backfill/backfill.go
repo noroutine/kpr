@@ -67,17 +67,20 @@ type Options struct {
 	Progress func(Summary)
 }
 
-// Summary counts a run: the tracked baseline, the scan so far
-// (repos listed, tags named), then stamped, deliberately skipped,
-// and error-skipped. Failed never refuses the run — catalog
-// failures do that, loudly.
+// Summary counts a run: the adoptable baseline (tracked rows
+// outside the sentinel prefix — what `store ls` shows), the
+// sentinel rows apart, the scan so far (repos listed, tags
+// named), then stamped, deliberately skipped, and error-skipped.
+// Failed never refuses the run — catalog failures do that,
+// loudly.
 type Summary struct {
-	Tracked  int
-	Repos    int
-	Tags     int
-	Recorded int
-	Skipped  int
-	Failed   int
+	Tracked   int
+	Sentinels int
+	Repos     int
+	Tags      int
+	Recorded  int
+	Skipped   int
+	Failed    int
 }
 
 // Run gates on the served generation without minting — the verdict
@@ -131,8 +134,12 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 	tracked := map[string]bool{}
 	for _, r := range allRows {
 		tracked[r.Repo+"\x00"+r.Tag] = true
+		if strings.HasPrefix(r.Repo, sentinelPrefix) {
+			sum.Sentinels++
+			continue
+		}
+		sum.Tracked++
 	}
-	sum.Tracked = len(allRows)
 	progress()
 	repos, err := reg.CatalogAll(ctx)
 	if err != nil {

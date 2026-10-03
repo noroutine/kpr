@@ -98,21 +98,36 @@ func TestStoreBackfillOutputBadPathRefuses(t *testing.T) {
 // preview notice prints up front, never as a trailing suffix.
 // If this fails, backfill miscounts or misrenders.
 func TestStoreBackfillRendersBlock(t *testing.T) {
-	sum := backfill.Summary{Tracked: 17147, Repos: 600, Tags: 17050, Recorded: 16933, Skipped: 114}
-	lines := backfillLines(sum)
-	want := []string{
-		"catalog: 600 repos, 17050 tags",
-		"store  : 17147 tracked, 16933 recorded, 114 skipped, 0 failed",
-	}
-	if len(lines) != len(want) {
-		t.Fatalf("backfill block has %d lines, want %d", len(lines), len(want))
-	}
-	for i, w := range want {
-		if lines[i] != w {
-			t.Errorf("line %d = %q, want %q", i, lines[i], w)
+	for _, c := range []struct {
+		sum  backfill.Summary
+		want []string
+	}{
+		{
+			backfill.Summary{Tracked: 0, Sentinels: 1, Repos: 599, Tags: 17047, Recorded: 17047},
+			[]string{
+				"catalog: 599 repos, 17047 tags",
+				"store  : 0 tracked (+1 sentinel), 17047 recorded, 0 skipped, 0 failed",
+			},
+		},
+		{
+			backfill.Summary{Tracked: 17144, Sentinels: 3, Repos: 600, Tags: 17050, Recorded: 16933, Skipped: 114},
+			[]string{
+				"catalog: 600 repos, 17050 tags",
+				"store  : 17144 tracked (+3 sentinels), 16933 recorded, 114 skipped, 0 failed",
+			},
+		},
+	} {
+		lines := backfillLines(c.sum)
+		if len(lines) != len(c.want) {
+			t.Fatalf("backfill block has %d lines, want %d", len(lines), len(c.want))
 		}
-		if len(lines[i]) < 10 || lines[i][7] != ':' || lines[i][8] != ' ' {
-			t.Errorf("line misaligned: %q", lines[i])
+		for i, w := range c.want {
+			if lines[i] != w {
+				t.Errorf("line %d = %q, want %q", i, lines[i], w)
+			}
+			if len(lines[i]) < 10 || lines[i][7] != ':' || lines[i][8] != ' ' {
+				t.Errorf("line misaligned: %q", lines[i])
+			}
 		}
 	}
 }
