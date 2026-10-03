@@ -27,24 +27,33 @@ Open and upcoming work: [ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md).
 
 ```mermaid
 flowchart LR
-  dev((docker push)) -- "to :5000" --> serve
-  human((human)) --> cli
+  dev((docker push)) -- "to :5000" --> kpr
+  human((human)) --> kpr
 
-  subgraph serve["<b>kpr serve</b> · long-running"]
+  subgraph kpr["kpr"]
     direction TB
-    edge{{"<b>edge proxy</b> :5000<br/>forwards byte-identical<br/>HOLD / DENY fence"}} ~~~
-    recv{{"<b>receiver</b> :8080<br/>records pushed rows"}} ~~~
-    console["<b>console</b> :9300<br/>counters · plan · activity"]
-  end
 
-  subgraph cli["<b>kpr …</b> · one-shot, nothing runs unasked"]
-    direction TB
-    reap["<b>reap</b><br/>marks rows due"] ~~~
-    sweepcmd["<b>sweep</b><br/>runs one pass"] ~~~
-    gcc{{"<b>gc</b><br/>gates + stock collector"}} ~~~
-    backfill{{"<b>store backfill</b><br/>adopts pre-kpr tags"}} ~~~
-    ceremony{{"<b>store lock/unlock/adopt</b><br/>lineage ceremony"}} ~~~
-    rest["<b>plan</b> · <b>store</b> · <b>status</b><br/>read and edit rows"]
+    subgraph serve["<b>kpr serve</b> · long-running"]
+      direction TB
+      edge{{"<b>edge proxy</b> :5000<br/>forwards byte-identical<br/>HOLD / DENY fence"}} ~~~
+      recv{{"<b>receiver</b> :8080<br/>records pushed rows"}} ~~~
+      console["<b>console</b> :9300<br/>counters · plan · activity"]
+    end
+
+    state[("<b>kpr state</b><br/>rows · marks · locks<br/>file · redis")]
+
+    subgraph cli["<b>kpr …</b> · one-shot, nothing runs unasked"]
+      direction TB
+      reap["<b>reap</b><br/>marks rows due"] ~~~
+      sweepcmd["<b>sweep</b><br/>runs one pass"] ~~~
+      gcc{{"<b>gc</b><br/>gates + stock collector"}} ~~~
+      backfill{{"<b>store backfill</b><br/>adopts pre-kpr tags"}} ~~~
+      ceremony{{"<b>store lock/unlock/adopt</b><br/>lineage ceremony"}} ~~~
+      rest["<b>plan</b> · <b>store</b> · <b>status</b><br/>read and edit rows"]
+    end
+
+    serve <--> state
+    state <--> cli
   end
 
   subgraph reg["<b>registry</b>"]
@@ -53,14 +62,10 @@ flowchart LR
     blobs[("<b>its store</b><br/>blobs · manifests · tags")]
   end
 
-  state[("<b>kpr state</b><br/>rows · marks · locks<br/>file · redis")]
-
-  serve -- "edge forwards" --> reg
-  reg -- "events → receiver" --> serve
-  cli -- "catalog reads · DELETE manifests" --> reg
-  cli -- "gc: stock collector<br/>runs on its store" --> reg
-  serve <--> state
-  cli <--> state
+  kpr -- "edge forwards" --> reg
+  reg -- "events → receiver" --> kpr
+  kpr -- "catalog reads · DELETE manifests" --> reg
+  kpr -- "gc: stock collector<br/>runs on its store" --> reg
 ```
 
 Two stores, and the split matters: kpr's own state holds rows,
