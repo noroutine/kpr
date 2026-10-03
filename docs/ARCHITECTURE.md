@@ -27,44 +27,34 @@ Open and upcoming work: [ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md).
 
 ```mermaid
 flowchart LR
-  dev((docker push)) --> edge
+  dev((docker push)) --> serve
   human((human)) --> cli
 
   subgraph serve["<b>kpr serve</b> · long-running"]
     direction TB
-    edge{{"<b>edge proxy</b> :5000<br/>forwards byte-identical<br/>HOLD / DENY fence"}}
-    recv{{"<b>receiver</b> :8080<br/>records pushed rows"}}
+    edge{{"<b>edge proxy</b> :5000<br/>forwards byte-identical<br/>HOLD / DENY fence"}} ~~~
+    recv{{"<b>receiver</b> :8080<br/>records pushed rows"}} ~~~
     console["<b>console</b> :9300<br/>counters · plan · activity"]
   end
 
   subgraph cli["<b>kpr …</b> · one-shot, nothing runs unasked"]
     direction TB
-    reap["<b>reap</b><br/>policies mark rows due"]
-    sweepcmd["<b>sweep</b><br/>runs one pass in-process"]
-    gcc{{"<b>gc</b><br/>gates + stock collector"}}
-    backfill{{"<b>store backfill</b><br/>adopts pre-kpr tags"}}
-    ceremony{{"<b>store lock/unlock/adopt</b><br/>lineage ceremony"}}
+    reap["<b>reap</b><br/>marks rows due<br/><i>reads the catalog</i>"] ~~~
+    sweepcmd["<b>sweep</b><br/>runs one pass<br/><i>DELETEs manifests</i>"] ~~~
+    gcc{{"<b>gc</b><br/>gates + stock collector<br/><i>reclaims blob bytes</i>"}} ~~~
+    backfill{{"<b>store backfill</b><br/>adopts pre-kpr tags<br/><i>enumerates the catalog</i>"}} ~~~
+    ceremony{{"<b>store lock/unlock/adopt</b><br/>lineage ceremony"}} ~~~
     rest["<b>plan</b> · <b>store</b> · <b>status</b><br/>read and edit rows"]
   end
 
   state[("<b>state</b><br/>file · redis")]
   dist["<b>distribution</b><br/>stock registry"]
 
-  edge -- forward --> dist
-  dist -- notifications --> recv
-  recv --> state
-  console <--> state
-  state -- lock marker --> edge
-
-  reap --> state
-  reap -- catalog --> dist
-  sweepcmd <--> state
-  sweepcmd -- "DELETE manifests" --> dist
-  gcc -- "reclaim blob bytes" --> dist
-  backfill -- enumerate --> dist
-  backfill --> state
-  ceremony <--> state
-  rest <--> state
+  serve -- "forward" --> dist
+  dist -- "notifications" --> serve
+  serve <--> state
+  cli <--> state
+  cli --> dist
 ```
 
 Hexagons are the recording paths: the receiver signs
