@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1215,10 +1216,11 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	ghost := stageGhost(t, root)
 	var collected [][]string
+	var stages []string
 	var out strings.Builder
 	if err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
 		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: false, Report: func(Event) {}}, Accepts{}); err != nil {
+		Options{DryRun: false, Report: func(e Event) { stages = append(stages, e.Stage) }}, Accepts{}); err != nil {
 		t.Fatalf("armed run: %v", err)
 	}
 	if _, err := os.Stat(ghost); !os.IsNotExist(err) {
@@ -1226,6 +1228,11 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "pruned ") {
 		t.Errorf("armed run hides the prune count:\n%s", out.String())
+	}
+	// The post-probe runs downstream of the prune print: a run
+	// that returns right after printing never emits it.
+	if !slices.Contains(stages, StagePostProbe) {
+		t.Errorf("armed run emitted no post-probe (stages %v), want the full tail", stages)
 	}
 
 	cfg, root, s = stageProvenRun(t)
@@ -1242,5 +1249,44 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 	}
 	if strings.Contains(preview.String(), "pruned ") {
 		t.Errorf("preview reports a prune it never ran:\n%s", preview.String())
+	}
+}
+
+// A prune failure warns but never fails the collection: the blobs
+// are already gone, and occupancy races resolve safe — only real
+// I/O or permission trouble lands here, named in the warning. If
+// this fails, a stuck skeleton fails a good collection with it.
+// Root reads through permissions, so it sits this one out.
+func TestRunPruneFailureWarnsCollectStands(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through directory permissions")
+	}
+	cfg, root, s := stageProvenRun(t)
+	dark := filepath.Join(root, "docker", "registry", "v2", "repositories", "test", "dark")
+	if err := os.MkdirAll(dark, 0o755); err != nil {
+		t.Fatalf("stage dir: %v", err)
+	}
+	if err := os.Chmod(dark, 0); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dark, 0o755) })
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	var collected [][]string
+	var stages []string
+	var out strings.Builder
+	if err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{DryRun: false, Report: func(e Event) { stages = append(stages, e.Stage) }}, Accepts{}); err != nil {
+		t.Fatalf("prune-failed run: %v", err)
+	}
+	if !strings.Contains(out.String(), "empty-dir cleanup incomplete") {
+		t.Errorf("prune failure warned nowhere:\n%s", out.String())
+	}
+	// The tail runs past a failed prune: a run that returns on
+	// the warning never emits the post-probe.
+	if !slices.Contains(stages, StagePostProbe) {
+		t.Errorf("prune-failed run emitted no post-probe (stages %v), want the full tail", stages)
 	}
 }

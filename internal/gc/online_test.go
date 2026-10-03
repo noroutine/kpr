@@ -273,6 +273,16 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 	if len(collected) != 1 {
 		t.Fatalf("collector ran %d times, want 1 (armed collect)", len(collected))
 	}
+	// The writable dispatch leaves its own marks: the online
+	// warning (the readonly dispatch prints none) and the prune
+	// count (an early return past the collect prints none). A run
+	// rerouted to the readonly dispatch, or returning right after
+	// the collect, passes everything above but prints neither.
+	for _, want := range []string{"cleared online preflight", "pruned "} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("online run missing %q:\n%s", want, out.String())
+		}
+	}
 	hold, release := false, false
 	for _, e := range events {
 		hold = hold || e == "hold"

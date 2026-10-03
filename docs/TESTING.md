@@ -149,6 +149,16 @@ and `--threshold-mcover=85` (covered mutants over all mutants), exiting
 nonzero below either. Both sit below the achieved baseline with room to
 tighten — raise them, don't lower them, when the suite improves.
 
+Gremlins mislabels mutants on statement-continuation lines as NOT
+COVERED and skips them: a multi-line `if` whose condition sits on
+a later line, a `case` sharing its operator line. The label is a
+lead, not a verdict — check the real profile
+(`go test -coverprofile`) for execution, and hand-flip the line
+when the two disagree (a flip the suite fails is killed,
+whatever the label says). TIMED OUT is a kill by another name:
+the mutant hangs (ranging a nil channel, an undrained pipe),
+which no passing run can do.
+
 Two tunables, both learned the hard way:
 
 - `--timeout-coefficient=100`: gremlins derives each mutant's timeout

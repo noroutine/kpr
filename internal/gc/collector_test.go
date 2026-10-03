@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -358,4 +359,50 @@ func TestCollectWritableArmedDelegatesWhenCleared(t *testing.T) {
 	if len(got) != 1 || strings.Join(got[0], " ") != strings.Join(args, " ") {
 		t.Errorf("delegated args = %v, want %v untouched", got, args)
 	}
+}
+
+// A fast child that exits while lines still sit in the pipe must
+// lose nothing: the exit ends the multiplex, and the post-loop
+// drain feeds the remainder. A slow writer holds the multiplex
+// back so the remainder exists deterministically — two hundred
+// lines at a millisecond each against an instant burst. If this
+// fails, trailing collector output silently vanishes whenever the
+// exit wins the race.
+func TestCollectorBurstDrainsAfterExit(t *testing.T) {
+	old := collectorCommand
+	collectorCommand = stubCollector("i=1; while [ $i -le 200 ]; do echo burst-$i; i=$((i+1)); done")
+	defer func() { collectorCommand = old }()
+
+	events, report := collectEvents()
+	var buf strings.Builder
+	out := slowWriter{w: &buf, delay: time.Millisecond}
+	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("RunCollector: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 200 {
+		t.Fatalf("drained %d lines, want all 200", len(lines))
+	}
+	for i, line := range lines {
+		if want := "burst-" + strconv.Itoa(i+1); line != want {
+			t.Fatalf("line %d = %q, want %q (order broke across the drain)", i, line, want)
+		}
+	}
+	got := stages(*events)
+	if len(got) == 0 || got[len(got)-1] != StageCollectExit {
+		t.Errorf("last stage = %v, want %q", got, StageCollectExit)
+	}
+}
+
+// slowWriter holds back a fast writer by a fixed delay per Write:
+// the multiplex cannot keep up with an instant child, so the
+// post-loop drain has remainder to feed.
+type slowWriter struct {
+	w     io.Writer
+	delay time.Duration
+}
+
+func (s slowWriter) Write(p []byte) (int, error) {
+	time.Sleep(s.delay)
+	return s.w.Write(p)
 }
