@@ -94,6 +94,16 @@ the unit total from ~80% to ~86% with zero product code
 touched. `coverage-e2e` keeps it: under that profile the
 helpers genuinely execute.
 
+Named residue stays below 80% on purpose — error returns that
+cannot fire without contorting the test: `json.Marshal` on
+plain structs (store `SetIdentity`/`SetCurrent`/`writeRow`,
+lock-claim marshal), `os.Hostname` (`holder`), `uuid.NewV7`
+randomness (`NewGen`), `fs.Sub` on embedded static
+(`GetStaticFS`), and the lock-acquire leftovers (claim
+truncate/write, stale-fd close). Forcing these means
+monkeypatching the stdlib or faulting disks; a test that
+fakes the failure proves the fake, not the code.
+
 ## CI Integration
 
 Workflows live in `.forgejo/workflows/` and call `make` targets rather

@@ -55,3 +55,46 @@ func TestPruneEmptyDirsRefusesAbsentRoot(t *testing.T) {
 		t.Error("absent root pruned clean, want refusal")
 	}
 }
+
+// An unreadable subdir fails the run loud: silently skipping what
+// cannot be listed would report a clean store over unknown state.
+// Root reads through permissions, so it sits this one out.
+func TestPruneEmptyDirsRefusesUnreadableSubdir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through directory permissions")
+	}
+	root := t.TempDir()
+	dark := filepath.Join(root, "dark")
+	if err := os.MkdirAll(dark, 0o755); err != nil {
+		t.Fatalf("stage dir: %v", err)
+	}
+	if err := os.Chmod(dark, 0); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dark, 0o755) })
+	if _, err := PruneEmptyDirs(root); err == nil {
+		t.Error("unreadable subdir pruned clean, want refusal")
+	}
+}
+
+// An unremovable dir fails the run loud for the same reason: the
+// remove is the emptiness check, so anything but occupancy or
+// absence resisting it wants the operator. Root unlinks through
+// permissions, so it sits this one out too.
+func TestPruneEmptyDirsRefusesUnwritableSubdir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root unlinks through directory permissions")
+	}
+	root := t.TempDir()
+	locked := filepath.Join(root, "locked")
+	if err := os.MkdirAll(filepath.Join(locked, "child"), 0o755); err != nil {
+		t.Fatalf("stage dir: %v", err)
+	}
+	if err := os.Chmod(locked, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if _, err := PruneEmptyDirs(root); err == nil {
+		t.Error("unwritable subdir pruned clean, want refusal")
+	}
+}
