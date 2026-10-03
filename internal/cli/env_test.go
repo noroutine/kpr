@@ -83,3 +83,23 @@ func TestEnvCommandRedactsRedisPassword(t *testing.T) {
 		t.Errorf("kpr env must show KPR_REDIS_PASSWORD presence:\n%s", out)
 	}
 }
+
+// The registry password redacts the same way: presence only,
+// never the value — and an empty one reads unset, not set. If
+// this fails, `kpr env` leaks a secret or inverts the presence.
+func TestEnvCommandRedactsRegistryPassword(t *testing.T) {
+	t.Setenv(config.EnvRegistryPassword, "s3cret")
+
+	out := runEnv(t)
+	if strings.Contains(out, "s3cret") {
+		t.Errorf("kpr env leaks KPR_REGISTRY_PASSWORD value:\n%s", out)
+	}
+	if !strings.Contains(out, "KPR_REGISTRY_PASSWORD=set") {
+		t.Errorf("kpr env must show KPR_REGISTRY_PASSWORD presence:\n%s", out)
+	}
+
+	t.Setenv(config.EnvRegistryPassword, "")
+	if out := runEnv(t); !strings.Contains(out, "KPR_REGISTRY_PASSWORD=unset") {
+		t.Errorf("kpr env must show empty KPR_REGISTRY_PASSWORD unset:\n%s", out)
+	}
+}
