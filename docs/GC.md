@@ -23,10 +23,10 @@ underneath.
 - [The shape of a run](#the-shape-of-a-run)
 - [The gates](#the-gates)
 - [Happy path](#happy-path)
+- [What a collect covers](#what-a-collect-covers)
 - [Stage events](#stage-events)
 - [Accepted risks](#accepted-risks)
 - [After an armed run: stale blob descriptors](#after-an-armed-run-stale-blob-descriptors)
-- [Per-repo collection: keep-N over gen tags](#per-repo-collection-keep-n-over-gen-tags)
 
 Unbuilt gc designs — dangling tags, token-auth registries — live in
 [GC_FUTURE.md](GC_FUTURE.md).
@@ -150,6 +150,23 @@ Two things the output is telling you:
   their parent directories, so every run would otherwise grow an
   empty tree.
 
+## What a collect covers
+
+The stock collector marks **globally** — every repository in the
+store, every run. A collect cannot be scoped to one repository;
+that is a stock limitation kpr inherits, not a kpr choice
+([GC_FUTURE](GC_FUTURE.md#per-repo-collection)).
+
+`--delete-untagged` is the registry's own flag, passed straight
+through. It widens the sweep to manifests no tag points at.
+Without it, an untagged manifest keeps its blobs alive.
+
+kpr's own proof repo needs no special handling. Sentinel
+generations are bounded by keep-N and removed through the ordinary
+reap-and-sweep path, so a default collect reclaims their blobs and
+`--delete-untagged` is never required on their account — see
+[SENTINELS.md](SENTINELS.md).
+
 ## Stage events
 
 Alongside the human-readable output, a run emits structured stage
@@ -234,20 +251,3 @@ remedy needed there.
 kpr does not restart the registry itself — the collector's proof
 ends at the store boundary. A re-push between gc and restart
 mints a dead tag; a restart plus a fresh push self-heals.
-
-## Per-repo collection: keep-N over gen tags
-
-The stock collector marks globally; it cannot scope to one repo —
-so the sentinel repo scopes itself. Each generation carries its own
-uuid tag with a tracked row; `reap keep-n` marks all but the ten
-freshest (the `latest` floater is spared by name, no excludes
-needed); the sweep deletes overflow docs by digest and drops the
-rows; a global *default* collect reaps the dangling blobs. Blast
-radius confined to a repo kpr owns; user repos and the
-`--delete-untagged` flows never involved. E2e-pinned
-(`test/e2e/sentinel_keepn_test.go`): the digest delete unlinks
-referencing tags server-side, so reaped gens leave neither doc nor
-tag link — no dangling-tag residue on this path (crashed deletes
-are the [dead-link pass](GC_FUTURE.md#dangling-tags)'s job).
-Per-run cost stays +2 blobs, +1 tag, +1 row; steady state is ten
-tagged generations. Full design in [SENTINELS.md](SENTINELS.md).
