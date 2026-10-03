@@ -1,10 +1,9 @@
 # Quickstart: kpr on a fresh registry
 
-From zero to expiring tags in ten minutes. No existing stack,
-no repo checkout: two containers (stock `registry:3` + kpr),
-one shared volume, file state backend — redis not required.
-For bolting kpr onto a registry you already run, see
-[docs/ADOPT.md](ADOPT.md) instead.
+From zero to expiring tags in ten minutes. No existing stack and no
+repo checkout — two containers, one shared volume, no database.
+
+Already run `distribution`? See [ADOPT.md](ADOPT.md) instead.
 
 ## Contents
 
@@ -18,59 +17,62 @@ For bolting kpr onto a registry you already run, see
 
 ## Prerequisites
 
-Docker with compose, and something to push with (`crane`,
-`docker`, `oras` — the example uses `crane`).
+Docker with compose, and something to push with — `crane`,
+`docker`, or `oras`. The examples use `crane`.
 
-The image is `noroutine/kpr:<release-tag>` — pin a tag, don't
-float `latest`. (No release cut yet? `docker build -t
-noroutine/kpr:dev .` from the repo and pin `dev`.)
+The image is `noroutine/kpr:<release-tag>`. Pin a tag; don't float
+`latest`. No release cut yet? Build one from the repo and pin
+`dev`:
+
+```bash
+docker build -t noroutine/kpr:dev .
+```
 
 ## The two files
 
-`compose.yml`:
+**`compose.yml`**
 
 ```yaml
 services:
   registry:
     image: registry:3
-    # Same uid as kpr (1000): the blob store is shared, so both
-    # writers must own it or the sentinel mint permission-denies.
+    # Same uid as kpr: the blob store is shared, so both writers
+    # must own it or the sentinel mint permission-denies.
     user: "1000:1000"
     volumes:
       - registry-data:/var/lib/registry
       - ./registry-config.yml:/etc/distribution/config.yml:ro
     # No published ports: pushes arrive through the edge below.
+
   kpr:
     image: noroutine/kpr:<release-tag>   # pin it
+    user: "1000:1000"
     volumes:
       - registry-data:/var/lib/registry   # the shared store
-      # gc/unlock resolve the store root from the registry config;
-      # serve proves the edge over this same file:
+      # kpr resolves the store root from the registry's own config,
+      # then proves that mount is the store the registry serves.
       - ./registry-config.yml:/etc/distribution/config.yml:ro
     ports:
-      # Host pushes land on the edge (transparent proxy + HOLD/DENY
-      # fence inside `serve`, default-on). Needs localhost:5000
-      # free: macOS AirPlay Receiver squats it when enabled —
-      # remap or disable.
+      # Host pushes land on the edge: a transparent proxy with a
+      # HOLD/DENY fence, inside `serve`, default-on.
       - "5000:5000"
       - "9300:9300"   # console; the receiver (:8080) stays internal
     environment:
-      - KPR_STORE=file
-      - KPR_STORE_DIR=/var/lib/registry/kpr   # rows live beside images
       - KPR_REGISTRY_URL=http://registry:5000
-      # Edge listen address (default :5000, said out loud: this port
-      # used to belong to the registry above).
-      - KPR_EDGE_ADDR=:5000
+      # Rows live beside the images, so the registry root is a
+      # complete, self-contained backup. Must be absolute.
+      - KPR_STORE_DIR=/var/lib/registry/kpr
       # Arm only after the first dry run below:
       # - KPR_CLI_NO_DRY_RUN=true
-      # - KPR_TIME_METHOD=https   # checked clock; local default otherwise
 
 volumes:
   registry-data:
 ```
 
-`registry-config.yml` (stock `distribution` keys — nothing
-kpr-specific server-side):
+State is plain files by default — no redis, nothing extra to run.
+
+**`registry-config.yml`** — stock `distribution` keys, nothing
+kpr-specific server-side:
 
 ```yaml
 version: 0.1
@@ -84,15 +86,16 @@ notifications:
 storage:
   delete:
     enabled: true   # without this every sweeper DELETE 405s
-  cache:
-    blobdescriptor: inmemory   # no redis on this setup
+  # No `cache:` section on purpose: without `blobdescriptor` every
+  # blob stat hits the filesystem, so gc deletions are visible
+  # immediately — no stale descriptors, no restart before re-push.
   filesystem:
     rootdirectory: /var/lib/registry
 http:
   addr: :5000
   # The edge fronts this registry, so upstream URLs must never name
   # the backend. Never set `host` alongside — it silently overrides
-  # this knob (and fails the edge proof: no proof, no edge).
+  # this knob, and that fails the edge proof. No proof, no edge.
   relativeurls: true
 ```
 
@@ -100,15 +103,22 @@ http:
 
 ```bash
 docker compose up -d
+
 # Fresh volumes are root-owned; both processes run as uid 1000.
-# One-shot claim (repo `make up` does this for you):
+# One-shot claim (the repo's `make up` does this for you):
 docker exec -u 0 kpr chown -R 1000:1000 /var/lib/registry
+
 docker exec kpr kpr store unlock    # proves the shared store, pairs it
 ```
 
 `unlock` mints a baseline sentinel generation and records the
-pairing. On a stranger's store it refuses — here everything is
-fresh, so silence means paired. Console: http://localhost:9300.
+pairing. On a stranger's store it would refuse — here everything is
+fresh, so silence means paired.
+
+Console: http://localhost:9300
+
+> **macOS:** AirPlay Receiver squats `localhost:5000` when enabled.
+> Disable it, or publish the edge on another port and push there.
 
 ## First expiring tag
 
@@ -118,10 +128,6 @@ crane copy busybox:latest localhost:5000/test/hello:10m
 
 Pushes land on the edge and forward byte-identical; the registry
 notifies kpr; kpr tracks the row anchored at push time.
-(If `localhost:5000` is taken, publish the edge's 5000 elsewhere
-and push there instead.) While the store is locked the edge
-refuses pushes with 423 — the console's Gateway section shows
-the live posture.
 
 ```bash
 docker exec kpr kpr status    # tracked: 1, due: 0
@@ -131,39 +137,47 @@ docker exec kpr kpr reap --no-dry-run   # marks ttl:10m elapsed
 docker exec kpr kpr sweep               # dry-run: plans, deletes nothing
 ```
 
-Still disarmed, nothing deleted: the plan shows what *would*
-go. `reap` without `--no-dry-run` only prints; `plan add`
-marks rows by hand; `plan discard` clears the plan.
+Still disarmed, so nothing was deleted — the plan shows what
+*would* go. `reap` without `--no-dry-run` only prints, `plan add`
+marks rows by hand, and `plan discard` clears the plan.
+
+While the store is locked the edge refuses pushes with 423; the
+console's Gateway section shows the live posture.
 
 ## Arming it
 
-When the plan looks right, uncomment
-`KPR_CLI_NO_DRY_RUN=true`, recreate kpr, and repeat —
-this time `sweep` deletes by digest. Old images pushed before kpr arrived
-are kept (unknown age defaults keep — backfill is a known
-gap, not silent deletion).
+Uncomment `KPR_CLI_NO_DRY_RUN=true`, recreate kpr, and repeat.
+This time `sweep` deletes by digest.
 
 ## Reclaiming blob bytes
 
-Manifest deletes drop the reference; blob bytes need the
-offline collector: `docker exec kpr kpr gc` previews,
-`--no-dry-run` collects after you flip the registry readonly
-(config file, restart) — full ceremony in the README's
-[Garbage collection](../README.md#garbage-collection) section
-and `docs/GC.md`. The dev stack disables the registry's blob
-descriptor cache, so re-pushes right after gc see the truth;
-cached deployments need a registry restart (or descriptor-DB
-flush) first, or the re-push mints a dead tag.
+Manifest deletes drop the reference only. `kpr gc` reclaims the
+bytes, previewing by default:
+
+```bash
+docker exec kpr kpr gc                  # preview, deletes nothing
+docker exec kpr kpr gc --no-dry-run     # collect
+```
+
+Nothing to restart afterwards: this setup runs without a
+blob-descriptor cache, so deletions are visible the moment gc
+finishes and a re-push uploads for real. Deployments that *do*
+cache descriptors need a restart or a flush first — see
+[GC.md](GC.md#after-an-armed-run-stale-blob-descriptors).
 
 ## What to expect
 
-- Tags pushed before kpr arrived are kept, never audited.
-- Recreating kpr can pause sweeping up to the 5-minute sweep
-  lock — self-heals at expiry.
-- A clock-source unreachable warning (with `https` selected)
-  is harmless: warns, proceeds on local time. A skewed clock
-  refuses — fix the clock, retry. Details:
-  [docs/TIMESTAMPS.md](TIMESTAMPS.md).
-- Growing past this setup (your own redis, Traefik in front,
-  a second host): [docs/ADOPT.md](ADOPT.md) and
-  [docs/STORES.md](STORES.md).
+- **Tags pushed before kpr arrived are kept.** They have unknown
+  age and default to keep. Adopt them with `kpr store backfill`,
+  which reads real push times off tag-link mtimes — see
+  [BACKFILL.md](BACKFILL.md).
+- **Recreating kpr can pause sweeping** for up to the 5-minute
+  sweep lock. It self-heals at expiry.
+- **A clock-source warning is harmless.** The default `local`
+  method checks nothing; with `https` selected, an unreachable
+  source warns and proceeds on local time. A genuinely skewed
+  clock refuses — fix it and retry. See
+  [TIMESTAMPS.md](TIMESTAMPS.md).
+
+Growing past this setup — your own redis, Traefik in front, a
+second host? See [ADOPT.md](ADOPT.md) and [STORES.md](STORES.md).

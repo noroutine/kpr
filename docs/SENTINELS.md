@@ -16,7 +16,6 @@ vehicle.
 - [Locality: shared store unlocks, its absence degrades](#locality-shared-store-unlocks-its-absence-degrades)
 - [The lock: default-deny intent (`lock` / `unlock`)](#the-lock-default-deny-intent-lock--unlock)
 - [Lineage: whose registry is this (`id`, verdicts, `kpr store adopt`)](#lineage-whose-registry-is-this-id-verdicts-kpr-store-adopt)
-- [Future: backfill snapshot detection](#future-backfill-snapshot-detection)
 
 ## Registry facts the design leans on
 
@@ -94,32 +93,47 @@ identity stays fs-write + API-read.
 
 ## The sentinel today
 
-Repo `noroutine/kpr-sentinel`, floater tag `latest` (the
-policy-spared name — keep-N runs over this repo with no
-excludes and never marks the proof). Every mint links two
-tags at the digest: the generation uuid itself (history,
-keep-N reaps past ten) and the floater. The minter records
-one row per generation (repo, gen tag, digest, push time,
-writer); the floater is never tracked. Config blob
-= payload JSON `{"v":1,"gen":"<uuid7>","id":"<uuid7>","ts":"…","writer":"…"}` —
-the generation is time-ordered, so two observed generations
-compare without parsing timestamps. Nested under `kpr/` so one
-glob excludes every kpr-owned repo from backfill enumeration;
-leading-underscore namespaces are out (name components must
-start alphanumeric per the distribution-spec grammar, and the
-router 404s them — both verified against `registry:3`).
-Namespaced under `noroutine/` (owned) rather than the bare
-tool name — no collisions with other tenants' repos.
-Manifest = minimal OCI image manifest, `config` pointing at the real
-payload digest, payload digest repeated in
-`annotations{kpr.sentinel:1, kpr.gen:N}` for tag-level
-reads. Update = write new blobs + links, atomic rename of the
-floater (`tags/latest/current/link`); the gen tag is written once
-and never repointed. Past-ten keep-N marks overflow generations
-due, the sweep deletes their docs by digest (the registry unlinks
+Repo `noroutine/kpr-sentinel`, floater tag `latest`.
+
+**What a mint writes.** Two tags at the same digest: the
+generation uuid itself, which keeps history until keep-N reaps
+past ten, and the floater. The minter records one row per
+generation (repo, gen tag, digest, push time, writer); the
+floater is never tracked.
+
+**Payload.** The config blob *is* the payload JSON:
+
+```json
+{"v":1,"gen":"<uuid7>","id":"<uuid7>","ts":"…","writer":"…"}
+```
+
+The generation is time-ordered, so two observed generations
+compare without parsing timestamps. The manifest is a minimal OCI
+image manifest whose `config` points at the real payload digest,
+with that digest repeated in `annotations{kpr.sentinel:1,
+kpr.gen:N}` for tag-level reads.
+
+**Update protocol.** Write new blobs and links, then atomically
+rename the floater (`tags/latest/current/link`). The gen tag is
+written once and never repointed.
+
+**Why this name.** Three constraints settled it:
+
+- Nested under `kpr/`, so one glob excludes every kpr-owned repo
+  from backfill enumeration.
+- Namespaced under `noroutine/` (owned) rather than the bare tool
+  name, so it can't collide with another tenant's repo.
+- Leading-underscore namespaces are out: name components must
+  start alphanumeric per the distribution-spec grammar, and the
+  router 404s them. Both verified against `registry:3`.
+
+**Lifecycle.** keep-N marks generations past the tenth due, the
+sweep deletes their docs by digest (the registry unlinks
 referencing tags server-side — e2e-pinned), and default collects
-reap the dangling blobs. Steady state: ten tagged generations of
-readable proof history, zero `--delete-untagged` needed.
+reap the dangling blobs. `latest` is the policy-spared name, so
+keep-N runs over this repo with no excludes and never marks the
+proof. Steady state is ten tagged generations of readable proof
+history, with zero `--delete-untagged` needed.
 
 Per-run cost is +2 blobs, +1 tag, +1 row. A mint that fails
 to record refuses ("proof held but the generation went
@@ -248,13 +262,4 @@ expected one (mismatch refuses), accept a rollback baseline
 not [Adopting kpr](ADOPT.md) — that guide bolts kpr onto an
 existing registry; this one pairs a store to a lineage.)
 
-## Future: backfill snapshot detection
-
-Backfill reads the sentinel via API and compares
-generation/timestamp against expectations: shared store
-with an old snapshot becomes visible instead of silently
-trusted. Ground laid: `Verify` refuses typed —
-`sentinel.Mismatch` (answered, wrong generation) vs plain
-read error (no evidence) — noted in `docs/BACKFILL.md`.
-Payload schema and staleness policy decided here, not
-earlier.
+Unbuilt designs live in [SENTINELS_FUTURE.md](SENTINELS_FUTURE.md).

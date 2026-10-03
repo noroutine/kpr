@@ -2,7 +2,7 @@
 
 kpr (keeper) — lightweight companion sidecar for an OCI distribution
 registry. Single Go binary, `just` (or `make`) toolchain, CI on Forgejo.
-See `docs/goals.md` for what the project is and where it is going.
+See `docs/GOALS.md` for what the project is and where it is going.
 
 ## Tests
 

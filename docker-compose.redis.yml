@@ -32,7 +32,7 @@ services:
       # this port used to belong to the registry below).
       - "KPR_EDGE_ADDR=:5000"
 
-      # State backend (see docs/goals.md). The password must match the
+      # State backend (see docs/GOALS.md). The password must match the
       # redis service's REDIS_PASSWORD below; empty would mean no auth,
       # which a shared, reachable redis should never run with. DB 4 is
       # kpr's: DBs 0-2 belong to other tenants, 3 is the registry

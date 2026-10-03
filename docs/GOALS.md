@@ -14,8 +14,8 @@ and what's still open.
   notification hooks. No registry fork: stock, configured —
   never patched.
 - Drops into an existing compose setup: `kpr` + state +
-  `registry`, nothing else required. State is redis or plain
-  files (`KPR_STORE=file` — no redis required).
+  `registry`, nothing else required. State is plain files by
+  default; redis is opt-in (`KPR_REDIS_ADDR`).
 - Two angles:
   1. **Ephemeral images** — push `repo/image:<ttl>`, kpr deletes
      the tag when the TTL lapses. CI artifacts, previews,
@@ -48,8 +48,8 @@ and what's still open.
 - Token-auth registries: same credential pair exchanged at the
   issuer per scope (client-side only — kpr never verifies JWT).
   Design sketched in `docs/GC.md`; unbuilt.
-- Backfill for pre-kpr tags: unknown-age rows default keep
-  today (`docs/BACKFILL.md` is the working surface).
+- Digest-less row enrichment: `kpr store backfill` fills absent
+  rows only (`docs/BACKFILL_FUTURE.md`).
 - Detached operation over the console HTTP surface (the CLI
   talks to state directly today and runs colocated).
 - Dangling tag links (dead links from crashed deletes): design
