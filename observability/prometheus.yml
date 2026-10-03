@@ -11,9 +11,9 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # Registry debug endpoint (http.debug in registry-config.yml). The
-  # registry lives in the base stack with port 5001 published, so this
-  # job resolves whenever the overlay runs on top of it.
+  # Registry debug endpoint (http.debug in registry-config.yml).
+  # Scraped over kpr-net — the debug port is never published to
+  # the host, so this job resolves only inside the overlay.
   - job_name: registry
     metrics_path: /metrics
     static_configs:

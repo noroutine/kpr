@@ -24,8 +24,8 @@ services:
     user: "1000:1000"
     restart: "no"
     ports:
-      # Its own door: :5000 belongs to kpr, :5001 to the main
-      # registry's debug.
+      # Its own door: :5000 belongs to kpr (the main registry's
+      # debug stays internal, so nothing else claims a host port).
       - "127.0.0.1:5002:5000"
     volumes:
       - registry-data:/var/lib/registry
