@@ -543,6 +543,10 @@ func (d deadStore) SetIdentity(context.Context, store.Identity) error {
 // a hang. If this fails, keeper commands stall or blame the wrong
 // backend.
 func TestOpenStoreNamesDeadRedis(t *testing.T) {
+	// Silence now derives the file backend, so ask for redis
+	// explicitly — this case is about redis, not about derivation.
+	clearStoreEnv(t)
+	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
 	cfg := config.NewBuilder().WithRedisAddr("127.0.0.1:1").Build()
 	if _, err := OpenStore(cfg); err == nil {
 		t.Error("OpenStore on dead redis succeeded, want a fast error")
@@ -1104,7 +1108,7 @@ func clearStoreEnv(t *testing.T) {
 // (KPR_REDIS_ADDR carries a default that must not count):
 // KPR_STORE is authoritative and must agree with backend-specific
 // variables, KPR_STORE_DIR alone selects file, KPR_REDIS_ADDR alone
-// selects redis, silence keeps redis defaults. If this fails, mixed
+// selects redis, silence selects file. If this fails, mixed
 // signals boot a guessed backend or refuse a coherent one.
 func TestResolveStoreBackend(t *testing.T) {
 	for _, tc := range []struct {
@@ -1114,7 +1118,7 @@ func TestResolveStoreBackend(t *testing.T) {
 		wantDir         string
 		wantErrContains string
 	}{
-		{"silence keeps redis", nil, "redis", "", ""},
+		{"silence selects file", nil, "file", "kpr", ""},
 		{"explicit redis addr", map[string]string{config.EnvRedisAddr: "r:6379"}, "redis", "", ""},
 		{"explicit store redis", map[string]string{config.EnvStore: "redis"}, "redis", "", ""},
 		{"explicit store file defaults dir", map[string]string{config.EnvStore: "file"}, "file", "kpr", ""},

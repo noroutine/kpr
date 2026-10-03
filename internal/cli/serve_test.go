@@ -89,6 +89,11 @@ func setServeAddrs(t *testing.T, mgmt, app int) {
 // warn).
 func TestServeRunServesAndStopsOnSigterm(t *testing.T) {
 	t.Setenv("KPR_MANAGEMENT_PORT", "bogus") // exercises the port warning, not a failure
+	// Silence derives the file backend, which would come up healthy
+	// (and litter a kpr/ dir in the package). This case is about the
+	// degraded banner, so point at a redis that is not there.
+	clearStoreEnv(t)
+	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
 	setServeAddrs(t, 18231, 18232)
 	logs := captureLog(t)
 

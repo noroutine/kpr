@@ -184,8 +184,9 @@ func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, a
 // that must not count as a choice): KPR_STORE, when set, is
 // authoritative and must agree with backend-specific variables;
 // otherwise KPR_STORE_DIR alone selects file and KPR_REDIS_ADDR
-// alone selects redis; silence keeps redis defaults. Empty counts as
-// unset throughout. Mixed signals refuse instead of guessing.
+// alone selects redis; silence selects file, the zero-dependency
+// default. Empty counts as unset throughout. Mixed signals refuse
+// instead of guessing.
 func resolveStoreBackend() (backend, dir string, err error) {
 	storeVar, storeSet := os.LookupEnv(config.EnvStore)
 	dirVar, dirSet := os.LookupEnv(config.EnvStoreDir)
@@ -221,7 +222,10 @@ func resolveStoreBackend() (backend, dir string, err error) {
 	if dirSet {
 		return "file", dirVar, nil
 	}
-	return "redis", "", nil
+	if redisSet {
+		return "redis", "", nil
+	}
+	return "file", config.DefaultStoreDir, nil
 }
 
 // storeName voices which backend failed: the refusal names what the

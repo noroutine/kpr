@@ -92,9 +92,10 @@ const (
 
 	// EnvStore selects the state backend explicitly: file or redis.
 	// Unset means derive — KPR_STORE_DIR alone selects file,
-	// KPR_REDIS_ADDR alone selects redis, neither keeps redis
-	// defaults. When set it must agree with backend-specific
-	// variables, else boot refuses instead of guessing.
+	// KPR_REDIS_ADDR alone selects redis, neither selects file (the
+	// zero-dependency default). When set it must agree with
+	// backend-specific variables, else boot refuses instead of
+	// guessing.
 	EnvStore = "KPR_STORE"
 
 	// EnvStoreDir roots the file backend. Defaults to DefaultStoreDir
@@ -204,7 +205,7 @@ var EnvVars = []EnvVar{
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
 	{EnvRedisPassword, "Redis password (empty means no auth). Shown as set/unset only, never rendered."},
 	{EnvRedisDB, "Redis logical database for kpr rows. Defaults to 0; compose uses 4 (0-2 taken, 3 is the registry cache)."},
-	{EnvStore, "State backend, file or redis. Unset means derive: KPR_STORE_DIR alone selects file, KPR_REDIS_ADDR alone selects redis, neither keeps redis. Must agree with backend-specific vars."},
+	{EnvStore, "State backend, file or redis. Unset means derive: KPR_STORE_DIR alone selects file, KPR_REDIS_ADDR alone selects redis, neither selects file. Must agree with backend-specific vars."},
 	{EnvStoreDir, "Directory for the file backend. Defaults to kpr/ (cwd-relative); compose sets it absolute on the shared volume."},
 	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
 	{EnvRegistryUser, "Registry basic-auth username. Empty means anonymous."},
