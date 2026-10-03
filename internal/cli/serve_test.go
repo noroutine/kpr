@@ -210,9 +210,7 @@ func TestServeRunReportsEdgeBindFailure(t *testing.T) {
 	if err := os.WriteFile(proven, []byte("http:\n  relativeurls: true\n"), 0o600); err != nil {
 		t.Fatalf("stage config: %v", err)
 	}
-	oldConfig := serveConfigPath
-	serveConfigPath = proven
-	t.Cleanup(func() { serveConfigPath = oldConfig })
+	t.Setenv(config.EnvRegistryConfig, proven)
 	t.Setenv("KPR_EDGE_ADDR", "127.0.0.1:18237")
 	setServeAddrs(t, 18235, 18236)
 	logs := captureLog(t)

@@ -128,6 +128,12 @@ const (
 	EnvRegistryUser     = "KPR_REGISTRY_USER"
 	EnvRegistryPassword = "KPR_REGISTRY_PASSWORD"
 
+	// EnvRegistryConfig names the distribution registry's config file
+	// kpr reads shared-store paths from (storage root, cache
+	// endpoints). Defaults to DefaultRegistryConfig. One concern
+	// per var: file location stays here, never in EnvRegistryURL.
+	EnvRegistryConfig = "KPR_REGISTRY_CONFIG"
+
 	// EnvEdgeAddr is the edge proxy listen address (the edge runs
 	// inside `serve`). The edge replaces the registry's published
 	// port; defaults to DefaultEdgeAddr. One concern per var:
@@ -210,6 +216,7 @@ var EnvVars = []EnvVar{
 	{EnvRegistryURL, "Distribution registry base URL for deletes and catalog reads. Defaults to http://localhost:5000."},
 	{EnvRegistryUser, "Registry basic-auth username. Empty means anonymous."},
 	{EnvRegistryPassword, "Registry basic-auth password (empty means no auth). Shown as set/unset only, never rendered."},
+	{EnvRegistryConfig, "Distribution registry config file kpr reads shared-store paths from. Defaults to /etc/distribution/config.yml."},
 	{EnvEdgeAddr, "Edge proxy listen address. Defaults to :5000 (the registry's published port, moved to the edge)."},
 	{EnvEdge, "Set to \"false\" (or \"0\", \"no\") to run serve without the edge proxy. Anything else keeps it enabled, subject to the RelativeURLs proof."},
 	{EnvTimeMethod, "Clock transport mint timestamps are checked with: local (default), https, or ntp."},
@@ -258,6 +265,10 @@ const (
 	// DefaultRegistryURL is the registry base URL used when
 	// KPR_REGISTRY_URL is unset — the dev-stack registry.
 	DefaultRegistryURL = "http://localhost:5000"
+
+	// DefaultRegistryConfig is the registry config file used when
+	// KPR_REGISTRY_CONFIG is unset — the stock distribution path.
+	DefaultRegistryConfig = "/etc/distribution/config.yml"
 
 	// Observability defaults.
 	DefaultOTELEndpoint    = "localhost:4317"
@@ -332,6 +343,10 @@ type Config struct {
 	// unset (no authentication). A secret: never log or render
 	// it, only its presence.
 	RegistryPassword string
+
+	// RegistryConfig is EnvRegistryConfig's value, or
+	// DefaultRegistryConfig if unset.
+	RegistryConfig string
 
 	// EdgeAddr is EnvEdgeAddr's value, or DefaultEdgeAddr if unset.
 	EdgeAddr string
@@ -410,6 +425,7 @@ func defaultConfig() Config {
 		AppPort:        DefaultAppPort,
 		RedisAddr:      DefaultRedisAddr,
 		RegistryURL:    DefaultRegistryURL,
+		RegistryConfig: DefaultRegistryConfig,
 		EdgeAddr:       DefaultEdgeAddr,
 		EdgeEnabled:    true,
 		TimeMethod:     clock.DefaultMethod,
@@ -500,6 +516,7 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.RedisPassword = os.Getenv(EnvRedisPassword)
 	b.cfg.RedisDB, b.cfg.RedisDBWarning = parseDB(os.Getenv(EnvRedisDB))
 	b.cfg.RegistryURL = envOr(EnvRegistryURL, DefaultRegistryURL)
+	b.cfg.RegistryConfig = envOr(EnvRegistryConfig, DefaultRegistryConfig)
 	b.cfg.RegistryUser = os.Getenv(EnvRegistryUser)
 	b.cfg.RegistryPassword = os.Getenv(EnvRegistryPassword)
 	b.cfg.EdgeAddr = envOr(EnvEdgeAddr, DefaultEdgeAddr)
@@ -574,6 +591,7 @@ func (b *Builder) WithRedisDB(v int) *Builder                   { b.cfg.RedisDB 
 func (b *Builder) WithRegistryURL(v string) *Builder            { b.cfg.RegistryURL = v; return b }
 func (b *Builder) WithRegistryUser(v string) *Builder           { b.cfg.RegistryUser = v; return b }
 func (b *Builder) WithRegistryPassword(v string) *Builder       { b.cfg.RegistryPassword = v; return b }
+func (b *Builder) WithRegistryConfig(v string) *Builder         { b.cfg.RegistryConfig = v; return b }
 func (b *Builder) WithEdgeAddr(v string) *Builder               { b.cfg.EdgeAddr = v; return b }
 func (b *Builder) WithEdgeEnabled(v bool) *Builder              { b.cfg.EdgeEnabled = v; return b }
 func (b *Builder) WithCLINoDryRun(v bool) *Builder              { b.cfg.CLINoDryRun = v; return b }

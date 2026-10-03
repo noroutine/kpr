@@ -32,14 +32,12 @@ func runLockCmd(t *testing.T, dir, regURL string, target *cobra.Command) (string
 	return buf.String(), err
 }
 
-// setUnlockConfig points the unlock command at cfg for one test:
-// the --config flag var persists on the package, so every unlock
-// test sets it explicitly instead of inheriting a stale path.
+// setUnlockConfig points the unlock command at cfg for one test via
+// the environment (t.Setenv restores it — no stale path leaks into
+// the next test the way the old --config flag var did).
 func setUnlockConfig(t *testing.T, cfg string) {
 	t.Helper()
-	if err := unlockCmd.Flags().Set("config", cfg); err != nil {
-		t.Fatalf("set --config: %v", err)
-	}
+	t.Setenv(config.EnvRegistryConfig, cfg)
 }
 
 // Lock drops the marker and unlock re-proves it: the round trip

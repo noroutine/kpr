@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
-	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -27,13 +26,13 @@ Preview by default; --no-dry-run records.`,
 			return err
 		}
 		defer d.close()
-		cfgPath, _ := cmd.Flags().GetString("config")
 		noDryRun, _ := cmd.Flags().GetBool("no-dry-run")
 		acceptRollback, _ := cmd.Flags().GetBool("accept-rollback")
-		root, err := gc.StoreRoot(cfgPath)
+		fsStore, err := proof.ProveFilesystemStore(d.cfg.RegistryConfig)
 		if err != nil {
 			return err
 		}
+		root := fsStore.Root()
 		armed := proof.Arm(noDryRun, d.cfg.CLINoDryRun)
 		glob := ""
 		if len(args) == 1 {
@@ -48,7 +47,6 @@ Preview by default; --no-dry-run records.`,
 }
 
 func init() {
-	storeBackfillCmd.Flags().String("config", "/etc/distribution/config.yml", "Registry config file (shared store paths come from it)")
 	storeBackfillCmd.Flags().Bool("no-dry-run", false, "Record absent rows for real (default previews)")
 	storeBackfillCmd.Flags().Bool("accept-rollback", false, "Record against a restored older generation (a rollback may have resurrected blobs)")
 	storeCmd.AddCommand(storeBackfillCmd)

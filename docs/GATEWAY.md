@@ -111,7 +111,7 @@ Assertions before anything else:
 
 Implemented: `internal/edge` (proxy + Location guard, proof-gated
 handler), `RelativeURLs` in `internal/proof`, embedded in `serve`
-(`KPR_EDGE_ADDR` bind, `--config` proof source, `KPR_EDGE=false`
+(`KPR_EDGE_ADDR` bind, `KPR_REGISTRY_CONFIG` proof source, `KPR_EDGE=false`
 opts out — a failed proof or an opt-out closes the edge loudly,
 never a boot refusal). Proven live:
 byte-identical blob+manifest through the edge, relative

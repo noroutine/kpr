@@ -10,10 +10,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
-// serveConfigPath is the registry config file the edge
-// RelativeURLs proof reads (serve --config).
-var serveConfigPath string
-
 // buildEdge proves the edge addressing and wraps the transparent
 // proxy in the HOLD/DENY gate without binding: proof failure
 // returns the error for a loud skip (no proof, no edge), the
@@ -61,8 +57,4 @@ func openEdge(backend, configPath string, logf func(string, ...any)) (http.Handl
 		return nil, err
 	}
 	return h, nil
-}
-
-func init() {
-	serveCmd.Flags().StringVar(&serveConfigPath, "config", "/etc/distribution/config.yml", "Registry config file the edge RelativeURLs proof reads")
 }

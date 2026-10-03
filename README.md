@@ -121,10 +121,13 @@ kpr store unlock   # prove the shared store, set the intent marker
 kpr store lock     # drop the intent marker
 kpr store adopt [IDENT] [--gen]  # pair the store to the served lineage
 kpr store status  # backend, lock, proof, identity, activity tail (--json)
-kpr reap [policy]  # evaluate one policy (expired, partial, untagged,
-                   # keep-n) or all; marks accumulate until sweep or
-                   # plan discard (--no-dry-run to mark, repeat --exclude
-                   # to spare keep-N for matching repo:tag)
+kpr reap [policy]  # evaluate one policy (ttl, hash, partial,
+                   # untagged, keep-n) or all; marks accumulate until
+                   # sweep or plan discard (--no-dry-run to mark, repeat
+                   # --exclude to spare keep-N for matching repo:tag)
+kpr registry analyze  # registry fs store magnitude (needs a
+                      # filesystem KPR_REGISTRY_CONFIG): repos, tags,
+                      # revisions, blobs+bytes, uploads, links (--json)
 kpr sweep    # run one sweep pass in-process, print the summary
 kpr gc       # garbage-collect the shared store (dry-run preview by
              # default; --no-dry-run collects, readonly probe first)

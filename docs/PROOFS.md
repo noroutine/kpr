@@ -21,6 +21,7 @@ establishes something different; they compose by weakening only.
 | Accepted risk | leave to proceed despite a loud refusal (skewed clock — `--accept-clock-skew`; restored lineage — `--accept-rollback`; post-run flip — `--accept-mode-flip`; blob cache — `--accept-blob-cache`; missing fence — `--accept-unfenced`) | one flag per risk, on an armed run, no umbrella | `gc` | the human, via `--accept-<slug>` at the boundary | `AcceptedRisk` (`risk.go`) |
 | Blob cache off (config carries no blobdescriptor redis) | online deletes reclaim immediately, not vouched till restart | one config parse | `gc` online preflight | the registry config, via the prover | `BlobCacheOff` (`blob_cache_off.go`) |
 | Gateway fencing (proven edge listening, HOLD lease configured) | the fence the collect engages actually pins pushes | one config parse + one dial | `gc` online preflight | the registry config + the edge addr, via the prover | `GatewayFencing` (`gateway_fencing.go`) |
+| Filestore (config carries a filesystem storage root) | local walks read this mount's bytes, not object storage | one config parse | `gc`, `unlock`, backfill, `registry analyze` | the registry config, via the prover | `FilesystemStore` (`filesystemstore.go`) |
 | Relative URLs (registry config emits relative Locations) | upstream URLs never name the backend, so the edge can front it | one config parse | the edge in `serve` | the registry config, via the prover | `RelativeURLs` (`relative_urls.go`) |
 
 Mint ⊃ read gate: the mint observes everything the gate does
@@ -120,13 +121,15 @@ pattern is the same every time, because the threat is the same
 4. Provenance is label-only. `Source()` names the granting
    boundary for loud output — never for branching.
 
-All seven cut: `SameStore` (system evidence, from the prover),
+Cut: `SameStore` (system evidence, from the prover),
 `ArmedRun` (human intent, from the boundary), `AcceptedRisk`
 (accepted risk, from intent), `BoundedClock` (clock bound,
 refusals passing through), `UnlockedStore` (marker intent, read
 once), `FreshGeneration` (mint receipt, named at the write),
 `RegistryReadonly` / `RegistryWritable` (peer classification, exactly
-one minted).
+one minted), `BlobCacheOff` (no vouched cache), `GatewayFencing`
+(fence pins pushes), `RelativeURLs` (edge addressing),
+`FilesystemStore` (local walks read this mount).
 
 Three constructor shapes, by how the evidence is earned.
 Re-checking: the `Prover` and `ProveUnlockedStore` read evidence

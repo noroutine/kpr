@@ -35,10 +35,11 @@ type UnlockStore interface {
 // flag to hide behind), an unreachable NTP warns and proceeds. Anything
 // unproven refuses and the store stays locked.
 func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath string, st UnlockStore, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string) error {
-	root, err := StoreRoot(configPath)
+	fsStore, err := proof.ProveFilesystemStore(configPath)
 	if err != nil {
 		return err
 	}
+	root := fsStore.Root()
 	// Same funnel as gc runs: refusals pass through untouched, so
 	// the skew message and the unreachable warning below read
 	// exactly as before. The ceremony consumes the gate.

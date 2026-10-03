@@ -61,6 +61,7 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	t.Setenv(EnvRedisDB, "4")
 	t.Setenv(EnvRegistryUser, "robot")
 	t.Setenv(EnvRegistryPassword, "hunter2")
+	t.Setenv(EnvRegistryConfig, "/etc/registry/config.yml")
 	t.Setenv(EnvOTELEnabled, "true")
 	t.Setenv(EnvOTELEndpoint, "https://tempo:4318")
 	t.Setenv(EnvOTELServiceName, "kpr-prod")
@@ -86,11 +87,24 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	if cfg.RegistryUser != "robot" || cfg.RegistryPassword != "hunter2" {
 		t.Errorf("registry creds = %q/***, want robot/hunter2", cfg.RegistryUser)
 	}
+	if cfg.RegistryConfig != "/etc/registry/config.yml" {
+		t.Errorf("RegistryConfig = %q, want the env value", cfg.RegistryConfig)
+	}
 	if !cfg.OTELEnabled || cfg.OTLPEndpoint != "tempo:4318" {
 		t.Errorf("otel = enabled:%v endpoint:%q", cfg.OTELEnabled, cfg.OTLPEndpoint)
 	}
 	if cfg.OTELServiceName != "kpr-prod" || cfg.OTELServiceVersion != "v9.9.9" || cfg.OTELEnvironment != "production" {
 		t.Errorf("otel identity = %q/%q/%q", cfg.OTELServiceName, cfg.OTELServiceVersion, cfg.OTELEnvironment)
+	}
+}
+
+// Unset registry config falls back to the stock distribution path.
+// If this fails, commands read shared-store paths from nowhere.
+func TestFromEnvDefaultsRegistryConfig(t *testing.T) {
+	t.Setenv(EnvRegistryConfig, "")
+	cfg := NewBuilder().FromEnv().Build()
+	if cfg.RegistryConfig != DefaultRegistryConfig {
+		t.Errorf("RegistryConfig = %q, want default %q", cfg.RegistryConfig, DefaultRegistryConfig)
 	}
 }
 
@@ -234,6 +248,7 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 		WithRegistryURL("http://reg:5000").
 		WithRegistryUser("u").
 		WithRegistryPassword("p").
+		WithRegistryConfig("/r.yml").
 		WithCLINoDryRun(true).
 		WithOTELEnabled(true).
 		WithOTLPEndpoint("e:1").
@@ -256,6 +271,9 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 	}
 	if cfg.RegistryURL != "http://reg:5000" || cfg.RegistryUser != "u" || cfg.RegistryPassword != "p" || !cfg.CLINoDryRun {
 		t.Errorf("keeper = %q/%q/%q/%v, want reg/creds/armed", cfg.RegistryURL, cfg.RegistryUser, cfg.RegistryPassword, cfg.CLINoDryRun)
+	}
+	if cfg.RegistryConfig != "/r.yml" {
+		t.Errorf("RegistryConfig = %q, want /r.yml", cfg.RegistryConfig)
 	}
 	if cfg.OTELServiceName != "s" || cfg.OTELServiceVersion != "v" || cfg.OTELEnvironment != "env" {
 		t.Error("otel identity not applied")
@@ -290,6 +308,7 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
 		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
 		EnvRegistryURL, EnvRegistryUser, EnvRegistryPassword,
+		EnvRegistryConfig,
 		EnvEdgeAddr, EnvEdge, EnvCLINoDryRun,
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,

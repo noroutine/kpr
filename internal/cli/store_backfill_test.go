@@ -28,7 +28,7 @@ func TestStoreBackfillHelpNamesContract(t *testing.T) {
 	defer func() { _ = storeBackfillCmd.Flags().Set("help", "false") }()
 	Execute()
 	out := buf.String()
-	for _, want := range []string{"repo-glob", "no-dry-run", "accept-rollback", "config"} {
+	for _, want := range []string{"repo-glob", "no-dry-run", "accept-rollback"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("backfill help omits %q", want)
 		}
@@ -56,9 +56,9 @@ func TestStoreBackfillRefusesWithoutRegistryConfig(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
 	missing := filepath.Join(t.TempDir(), "nope.yml")
-	RootCmd.SetArgs([]string{"store", "backfill", "--config", missing})
+	t.Setenv(config.EnvRegistryConfig, missing)
+	RootCmd.SetArgs([]string{"store", "backfill"})
 	defer RootCmd.SetArgs(nil)
-	defer func() { _ = storeBackfillCmd.Flags().Set("config", "/etc/distribution/config.yml") }()
 	if err := RootCmd.Execute(); err == nil {
 		t.Error("store backfill without registry config succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "nope.yml") {
@@ -83,13 +83,13 @@ func TestStoreBackfillPassesGlobToRun(t *testing.T) {
 	if err := store.NewFileStore(dir).SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("unlock file store: %v", err)
 	}
+	t.Setenv(config.EnvRegistryConfig, cfgPath)
 	for _, args := range [][]string{
-		{"store", "backfill", "--config", cfgPath},
-		{"store", "backfill", "--config", cfgPath, "test/*"},
+		{"store", "backfill"},
+		{"store", "backfill", "test/*"},
 	} {
 		RootCmd.SetArgs(args)
 		defer RootCmd.SetArgs(nil)
-		defer func() { _ = storeBackfillCmd.Flags().Set("config", "/etc/distribution/config.yml") }()
 		if err := RootCmd.Execute(); err == nil {
 			t.Errorf("store backfill %q without registry succeeded, want refusal", args)
 		}

@@ -130,10 +130,11 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	if err := Ready(binPath, configPath); err != nil {
 		return err
 	}
-	root, err := StoreRoot(configPath)
+	fsStore, err := proof.ProveFilesystemStore(configPath)
 	if err != nil {
 		return err
 	}
+	root := fsStore.Root()
 	// CacheReady stays a readonly gate: offline collection needs
 	// the configured cache reachable. The writable path inverts
 	// it (cache must be absent) in the online preflight below, so

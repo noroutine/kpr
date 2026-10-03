@@ -7,8 +7,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/gc"
 )
 
-var unlockConfigPath string
-
 var lockCmd = &cobra.Command{
 	Use:   "lock",
 	Short: "Deny kpr registry-store writes",
@@ -49,11 +47,10 @@ to revoke.`,
 			return err
 		}
 		defer d.close()
-		return gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, unlockConfigPath, d.store, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer)
+		return gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, d.cfg.RegistryConfig, d.store, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer)
 	},
 }
 
 func init() {
-	unlockCmd.Flags().StringVar(&unlockConfigPath, "config", "/etc/distribution/config.yml", "Registry config file (shared store paths come from it)")
 	storeCmd.AddCommand(lockCmd, unlockCmd)
 }

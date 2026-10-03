@@ -29,3 +29,15 @@ precedent the rest would follow, not future work.
 
 Open: which knobs follow, and where refusing stops being
 affordable.
+
+## Proofs as binding call dependencies (not revised yet)
+
+The intent was never "call a prove function, then walk a string":
+a proof should bind the call — the stage takes the token and
+reads what it needs off it, so an unevidenced call does not
+compile. `FilesystemStore` was built for that (`Analyze` takes
+the token and reads `Root()` itself), but `gc.Run`, `Unlock`,
+and backfill still prove-then-unpack into a bare root string,
+and the guarantee stops at the call site. The mechanism exists;
+the call shapes don't use it yet. Revise when touching those
+signatures — not now.

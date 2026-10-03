@@ -35,31 +35,6 @@ func TestReadyGatesMissingPrereqs(t *testing.T) {
 	}
 }
 
-// The store root comes from the registry config's filesystem section;
-// anything else (s3, garbage, absent) refuses: local collection only
-// understands the shared directory layout. If this fails, gc reads
-// store paths from anywhere but the registry's own config.
-func TestStoreRootParsesConfig(t *testing.T) {
-	dir := t.TempDir()
-	good := filepath.Join(dir, "config.yml")
-	if err := os.WriteFile(good, []byte("storage:\n  filesystem:\n    rootdirectory: /var/lib/registry\n"), 0o644); err != nil {
-		t.Fatalf("stage config: %v", err)
-	}
-	if root, err := StoreRoot(good); err != nil || root != "/var/lib/registry" {
-		t.Errorf("root = (%q, %v), want (/var/lib/registry, nil)", root, err)
-	}
-	s3 := filepath.Join(dir, "s3.yml")
-	if err := os.WriteFile(s3, []byte("storage:\n  s3:\n    bucket: blobs\n"), 0o644); err != nil {
-		t.Fatalf("stage config: %v", err)
-	}
-	if _, err := StoreRoot(s3); err == nil {
-		t.Error("s3 config passed store root, want refusal")
-	}
-	if _, err := StoreRoot(filepath.Join(dir, "absent.yml")); err == nil {
-		t.Error("absent config passed store root, want refusal")
-	}
-}
-
 // The collector's blobdescriptor cache must answer before anything is
 // collected: an unreachable cache mis-marks (live layers look
 // unreferenced) and the run deletes what it must keep. No redis
@@ -211,19 +186,6 @@ func TestRegistryRedisGrammar(t *testing.T) {
 		t.Fatalf("env override: %v", err)
 	} else if pw != "envpw" {
 		t.Errorf("password = %q, want the env override envpw", pw)
-	}
-}
-
-// Garbage yaml refuses the store root too: the same bytes feed both
-// parsers, and a syntax error is neither s3 nor filesystem. If this
-// fails, a corrupt config reads as a valid non-local layout.
-func TestStoreRootRefusesGarbage(t *testing.T) {
-	bad := filepath.Join(t.TempDir(), "config.yml")
-	if err := os.WriteFile(bad, []byte("storage:\n\tbad: [unclosed"), 0o644); err != nil {
-		t.Fatalf("stage config: %v", err)
-	}
-	if _, err := StoreRoot(bad); err == nil {
-		t.Error("garbage config passed store root, want refusal")
 	}
 }
 

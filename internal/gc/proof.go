@@ -60,7 +60,7 @@ func Ready(binPath, configPath string) error {
 		return fmt.Errorf("gc unavailable: registry binary not found at %s (image must COPY it from the registry image)", binPath)
 	}
 	if _, err := os.Stat(configPath); err != nil {
-		return fmt.Errorf("gc unavailable: registry config not found at %s (mount the registry config here, see --config)", configPath)
+		return fmt.Errorf("gc unavailable: registry config not found at %s (mount the registry config here, see KPR_REGISTRY_CONFIG)", configPath)
 	}
 	return nil
 }
@@ -122,29 +122,4 @@ func CacheReady(ctx context.Context, configPath string) error {
 		return fmt.Errorf("blobdescriptor cache unreachable at %s: %w", addr, err)
 	}
 	return nil
-}
-
-// StoreRoot parses the filesystem storage root out of the registry
-// config: the local path the same-store proofs check. A config with
-// no filesystem root (s3 and friends, garbage, absent) refuses —
-// local collection only understands the shared directory layout.
-func StoreRoot(configPath string) (string, error) {
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		return "", err
-	}
-	var cfg struct {
-		Storage struct {
-			Filesystem struct {
-				RootDirectory string `yaml:"rootdirectory"`
-			} `yaml:"filesystem"`
-		} `yaml:"storage"`
-	}
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return "", fmt.Errorf("parse %s: %w", configPath, err)
-	}
-	if cfg.Storage.Filesystem.RootDirectory == "" {
-		return "", fmt.Errorf("no filesystem storage root in %s: local gc needs the shared directory layout", configPath)
-	}
-	return cfg.Storage.Filesystem.RootDirectory, nil
 }

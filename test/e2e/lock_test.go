@@ -18,8 +18,8 @@ import (
 )
 
 // stageRegistryConfig writes a stock distribution config rooted at
-// root: the same shared layout the collector (and unlock) resolve
-// through StoreRoot.
+// root: the same shared layout the collector (and unlock) prove
+// through proof.FilesystemStore.
 func stageRegistryConfig(t *testing.T, root string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yml")

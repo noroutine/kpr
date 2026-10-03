@@ -57,6 +57,8 @@ func envValue(cfg *config.Config, name string) string {
 		return "set"
 	case config.EnvRegistryURL:
 		return cfg.RegistryURL
+	case config.EnvRegistryConfig:
+		return cfg.RegistryConfig
 	case config.EnvRegistryUser:
 		return cfg.RegistryUser
 	case config.EnvRegistryPassword:

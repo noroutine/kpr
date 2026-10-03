@@ -26,7 +26,7 @@ import (
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start management console, application server, and registry edge",
-	Long:  `Start the kpr servers: management console on port 9300, application server on port 8080, and the transparent registry edge proxy on the edge address (KPR_EDGE_ADDR, :5000). The edge opens only on a RelativeURLs proof over --config: KPR_EDGE=false opts out, a failed proof closes it loudly, and neither stops the other servers.`,
+	Long:  `Start the kpr servers: management console on port 9300, application server on port 8080, and the transparent registry edge proxy on the edge address (KPR_EDGE_ADDR, :5000). The edge opens only on a RelativeURLs proof over KPR_REGISTRY_CONFIG: KPR_EDGE=false opts out, a failed proof closes it loudly, and neither stops the other servers.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Resolve configuration once: environment first, explicit flags
 		// win (an unset flag already carries the env value as its
@@ -105,7 +105,7 @@ var serveCmd = &cobra.Command{
 		var edgeGate *edge.Gate
 		var edgeHandler http.Handler
 		if cfg.EdgeEnabled {
-			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, serveConfigPath, func(e gc.Event) {
+			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, cfg.RegistryConfig, func(e gc.Event) {
 				log.Printf("edge fence: %s %s", e.Stage, e.Message)
 			})
 			if gerr != nil {

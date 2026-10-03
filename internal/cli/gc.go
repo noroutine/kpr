@@ -16,8 +16,6 @@ import (
 // and store versions match by construction.
 var registryBinPath = "/bin/registry"
 
-var gcConfigPath string
-
 var gcDeleteUntagged bool
 
 var gcAcceptBlobCache bool
@@ -116,7 +114,7 @@ revokes.`,
 		accepts := gcAccepts(armedRun)
 		backend, dir, berr := resolveStoreBackend()
 		fence := fenceForBackend(backend, dir, berr, dryRun, out)
-		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, gcConfigPath, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
+		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, cfg.RegistryConfig, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,
 			Report:         renderGCEvent(out, dryRun),
@@ -127,7 +125,6 @@ revokes.`,
 }
 
 func init() {
-	gcCmd.Flags().StringVar(&gcConfigPath, "config", "/etc/distribution/config.yml", "Registry config file (shared store paths come from it)")
 	gcCmd.Flags().BoolVar(&gcDeleteUntagged, "delete-untagged", false, "Also drop orphaned manifests (same flag as registry garbage-collect)")
 	gcCmd.Flags().BoolVar(&gcAcceptBlobCache, "accept-blob-cache", false, "Collect with a blobdescriptor cache configured (deletes stay vouched until restart)")
 	gcCmd.Flags().BoolVar(&gcAcceptUnfenced, "accept-unfenced", false, "Collect without the gateway HOLD fence (a push mid-collect corrupts)")
