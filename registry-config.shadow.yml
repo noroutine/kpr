@@ -1,0 +1,39 @@
+# OCI distribution configuration for the backfill shadow registry
+# (docker-compose.shadow.yml overlay). Twin of
+# registry-config.file.yml with the receiver webhook REMOVED: pushes
+# here land on the shared volume with no notification, so kpr never
+# sees them — pre-kpr tags on demand for `kpr store backfill`.
+# Test-only: two writers share one filesystem store. The file stack
+# keeps no blobdescriptor cache, so both see each other's writes;
+# push test-only repos, never prod tags. Referenced as
+# /etc/distribution/config.yml by the `shadow-registry` service.
+version: 0.1
+
+log:
+  level: info
+  fields:
+    service: shadow-registry
+    environment: core
+
+storage:
+  delete:
+    enabled: true
+  # No `cache:` section, same as the main file stack: both writers
+  # see each other's blobs without a restart.
+  filesystem:
+    rootdirectory: /var/lib/registry
+  maintenance:
+    uploadpurging:
+      enabled: false
+
+http:
+  addr: :5000
+  # Same shape as the main registry (kpr never fronts this one, but
+  # identical URLs keep digests comparable across the two doors).
+  relativeurls: true
+
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3

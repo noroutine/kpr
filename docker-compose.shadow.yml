@@ -1,0 +1,40 @@
+# Backfill test overlay: a detached registry on the MAIN volume,
+# unwired to kpr (no webhook — see registry-config.shadow.yml), on
+# :5002. Push here lands on disk with no receiver row: pre-kpr tags
+# on demand for `kpr store backfill`.
+#
+# Test-only: two writers share one filesystem store. Push test-only
+# repos, never prod tags; take the overlay down when done.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.shadow.yml up -d shadow-registry
+#   crane copy busybox:latest localhost:5002/test/shadow:1s
+#   docker exec kpr kpr store backfill        # would-record, nothing tracked
+#   docker exec kpr kpr store backfill --no-dry-run   # records (or KPR_CLI_NO_DRY_RUN=true in compose)
+#   docker exec kpr kpr store rm test/shadow:1s --untag   # clean up
+#   docker compose -f docker-compose.yml -f docker-compose.shadow.yml down
+services:
+  shadow-registry:
+    image: ${REGISTRY_IMAGE:-registry:3}
+    container_name: kpr-shadow-registry
+    # Same uid as kpr and the main registry (1000): both writers
+    # share one filesystem store, so both must own it. A root-run
+    # shadow writes root-owned links the main door cannot unlink —
+    # DELETEs 500 with "unknown error" (proven live, Oct 2026).
+    user: "1000:1000"
+    restart: "no"
+    ports:
+      # Its own door: :5000 belongs to kpr, :5001 to the main
+      # registry's debug.
+      - "127.0.0.1:5002:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+      - ./registry-config.shadow.yml:/etc/distribution/config.yml:ro
+    networks:
+      - kpr-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5000/v2/ || exit 1"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 10s

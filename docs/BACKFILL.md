@@ -94,21 +94,21 @@ Rules: loopback-only is non-negotiable — an unauthenticated registry must neve
 1. **Registry client: auth + `_catalog` paging + manifest HEAD.** The client speaks no auth today — wire basic (`KPR_REGISTRY_USER` / `KPR_REGISTRY_PASSWORD`, presented on every call) covering open and htpasswd registries. `CatalogAll` (Link pagination, follows rel=next until a page arrives without one, looping pages error), `ManifestDigest` (HEAD, digest + type headers, missing = skip). Rejected creds refuse loudly up front (a 401 on the first call ends the run, never a silent empty enumeration). Bearer-exchange against token issuers reuses the same pair later — future work, see `docs/GC.md`. `httptest` unit tests (basic accepted, 401 refuses).
 2. **`kpr store backfill` command.** `runBackfill` reusing the root helper (`StoreRoot`, same one gc/unlock resolve) with the read gate (`sentinel.LastProof` + lineage verdict, no mint): enumerate → digest → served-generation gate → refusal cases refuse, mismatch warns in dry-run and refuses armed unless rollback-accepted → mtime → skip-tracked → print/record + `recorded/skipped/failed` summary. Cobra `store backfill [repo-glob]` with `--no-dry-run` plus `--accept-rollback` for the restored-generation risk (the one gate backfill accepts — same shape as gc's per-risk flags). Mem-store + stub-registry unit tests (absent records, tracked no-ops, mid-run 404 skips, ungated refusal, gated mtimes via `t.TempDir` store layout, unreachable-catalog refusal, rollback armed-refuses / accepted-warns / dry-run-warns).
 3. **Per-repo scoping.** The positional glob filters enumerated repos before any tag work (unknown-repo typo → refusal, like exact names in `plan add`); unit test scoped vs full runs.
-4. **E2E scenario.** Push tags, flush kpr rows, backfill armed (full + one scoped run), assert digests + times + none due; re-run asserts no-op.
+4. **E2E scenario** (`TestBackfillAdoptsPreKprTag`, `test/e2e/backfill_test.go`). `NewStorageFixture` bind-mounts the fixture registry's storage onto a host temp dir — the compose shadow overlay's trick, minus the second container: e2e has no receiver, so a push the scenario doesn't record (`PushUntracked`) IS a pre-kpr tag. Armed run asserts 1 recorded / 1 tracked-skipped / 0 failed, the adopted row carries the pushed digest, actor `kpr-backfill`, link mtime (~now), and lands not due; the sentinel repo passes through prefix-skipped.
 5. **Docs.** ARCHITECTURE.md: backfill, per-run proof, mtime contract, storage-required constraint, scoping; Open item removed.
 
 ## Validation Plan
 
 - New tests first, watched fail before impl (TDD).
 - `go test ./... -count=1`, `make lint` (0 issues).
-- Live on the compose stack instead of a testcontainers scenario:
-  backfill needs the registry's store root on the caller's
-  filesystem (shared mount), which the e2e fixture's internal
-  registry volume doesn't expose — new harness for one checkbox
-  is disproportionate. Proven instead: push → `store rm` (row
+- Maintained: `TestBackfillAdoptsPreKprTag` (`go test -tags e2e ./test/e2e/ -run TestBackfillAdoptsPreKprTag`) — the mount fixture + untracked push above, run with `-race` in `make e2e`.
+- Live on the compose stack: push → `store rm` (row
   dropped, tag kept) → `store backfill` re-records with link
   mtime, actor `kpr-backfill`, not due → `store inspect`
-  confirms → `store rm --untag` cleans up.
+  confirms → `store rm --untag` cleans up. The shadow overlay
+  (`docker-compose.shadow.yml`) replays the same loop for a
+  genuinely receiver-blind tag: push to `:5002`, `store ls`
+  stays silent, `store backfill` previews it.
 - Manual: `docker exec kpr kpr store backfill` preview vs `--no-dry-run`; `kpr plan` empty; unmounted-store run refuses before recording.
 
 ## Risks / Open Questions

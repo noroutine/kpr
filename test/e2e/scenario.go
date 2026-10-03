@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
@@ -166,6 +168,54 @@ func (s *Scenario) PushWithClient(client PushClient, repo, tag string, pushedAgo
 	digest := pushImage(s.t, s.fx, client, repo, tag)
 	s.RecordRow(repo, tag, digest, pushedAgo)
 	return digest
+}
+
+// PushUntracked pushes a real image and records nothing — the
+// pre-kpr tag: on disk, invisible to kpr until backfill adopts it.
+// It returns the manifest digest.
+func (s *Scenario) PushUntracked(repo, tag string) string {
+	s.t.Helper()
+	return pushImage(s.t, s.fx, ClientGGCR, repo, tag)
+}
+
+// BackfillArmed runs one armed backfill pass — the import tick's
+// work, on demand — and returns its summary for the test's verdict.
+// Fatal on a plain fixture: backfill stats tag links off the mount,
+// it cannot prove anything blind.
+func (s *Scenario) BackfillArmed() backfill.Summary {
+	s.t.Helper()
+	if s.fx.StorageDir() == "" {
+		s.t.Fatal("backfill needs a mount fixture (NewStorageFixture)")
+	}
+	s.establishLineage()
+	ctx, cancel := s.ctx()
+	defer cancel()
+	sum, err := backfill.Run(ctx, io.Discard,
+		s.reg, s.reg, s.store, s.store, s.store, s.store,
+		s.fx.StorageDir(), backfill.Options{}, nil)
+	if err != nil {
+		s.t.Fatalf("backfill: %v", err)
+	}
+	return sum
+}
+
+// ExpectRow returns the tracked row — the recorded half of an
+// adoption verdict; the test asserts its fields.
+func (s *Scenario) ExpectRow(repo, tag string) policy.Row {
+	s.t.Helper()
+	ctx, cancel := s.ctx()
+	defer cancel()
+	rows, err := s.store.All(ctx)
+	if err != nil {
+		s.t.Fatalf("read e2e rows: %v", err)
+	}
+	for _, r := range rows {
+		if r.Repo == repo && r.Tag == tag {
+			return r
+		}
+	}
+	s.t.Fatalf("row %s:%s not tracked", repo, tag)
+	return policy.Row{}
 }
 
 // PushIndex writes a real multi-arch index (one child per arch) and
