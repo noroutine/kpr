@@ -550,23 +550,23 @@ image-hub-push:
 COMPOSE := env_var_or_default('COMPOSE', 'file')
 COMPOSE_FILE := if COMPOSE == 'redis' { 'docker-compose.redis.yml' } else if COMPOSE == 'file' { 'docker-compose.yml' } else { error('COMPOSE must be file or redis, got ' + COMPOSE) }
 
-# Start base dev stack locally (detached)
+# Start full dev stack locally (detached) — base plus the observability and shadow overlays
 up:
+    @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
+    mkdir -p kpr
+    docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml -f docker-compose.shadow.yml up -d --build
+    docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
+
+# Start the base dev stack only (no overlays)
+up-minimal:
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     mkdir -p kpr
     docker compose -f {{COMPOSE_FILE}} up -d --build
     docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
 
-# Start full dev stack with observability overlay (detached)
-up-observability:
-    @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
-    mkdir -p kpr
-    docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml up -d --build
-    docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
-
-# Stop local stacks
+# Stop local stacks (base plus every overlay)
 down:
-    docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml down
+    docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml -f docker-compose.shadow.yml down
 
 # Garbage-collect unreferenced registry blobs (API deletes drop the
 # tag reference only; --delete-untagged also drops the orphaned

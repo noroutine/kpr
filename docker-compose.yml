@@ -37,11 +37,9 @@ services:
 
       # Registry peer (sweeper deletes, reap reads catalog)
       - "KPR_REGISTRY_URL=http://registry:5000"
-      # Armed by default: the local stack really deletes. Comment the
-      # line out (anything but exactly "true" keeps dry-run) to go back
-      # to planning without touching anything. One-shot commands only
-      # (gc, reap, sweep) — passes run only when asked.
-      - "KPR_CLI_NO_DRY_RUN=true"
+      # Dry-run by default: one-shots (gc, reap, sweep, backfill)
+      # plan without touching anything unless --no-dry-run
+      # (or KPR_CLI_NO_DRY_RUN=true) arms them.
       # Checked clock: HTTPS works wherever the web does (the binary
       # default is local trust). ntp is precise but often
       # egress-blocked; local skips the check entirely.

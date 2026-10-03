@@ -205,7 +205,7 @@ Optional overlay, off by default; see
 [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 ```bash
-make up-observability   # + Quickwit, Jaeger, Prometheus, Grafana
+make up   # + Quickwit, Jaeger, Prometheus, Grafana (up-minimal for the base stack)
 ```
 
 Structured access logs and sweeper activity (`sweep pass` / `sweep

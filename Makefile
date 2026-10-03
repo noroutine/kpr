@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-observability down gc
+.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc
 .DEFAULT_GOAL := help
 
 # Version information
@@ -495,23 +495,24 @@ endif
 ## the first write fails (registry 500s, unlock permission-denied).
 CLAIM_STORE = docker compose -f $(COMPOSE_FILE) run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry
 
-## up: Start base dev stack locally (detached)
+## up: Start full dev stack locally (detached) — base plus the
+## observability and shadow overlays
 up:
+	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
+	mkdir -p kpr
+	docker compose -f $(COMPOSE_FILE) -f docker-compose.observability.yml -f docker-compose.shadow.yml up -d --build
+	@$(CLAIM_STORE) >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
+
+## up-minimal: Start the base dev stack only (no overlays)
+up-minimal:
 	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
 	mkdir -p kpr
 	docker compose -f $(COMPOSE_FILE) up -d --build
 	@$(CLAIM_STORE) >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
 
-## up-observability: Start full dev stack with observability overlay (detached)
-up-observability:
-	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
-	mkdir -p kpr
-	docker compose -f $(COMPOSE_FILE) -f docker-compose.observability.yml up -d --build
-	@$(CLAIM_STORE) >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
-
-## down: Stop local stacks
+## down: Stop local stacks (base plus every overlay)
 down:
-	docker compose -f $(COMPOSE_FILE) -f docker-compose.observability.yml down
+	docker compose -f $(COMPOSE_FILE) -f docker-compose.observability.yml -f docker-compose.shadow.yml down
 
 ## gc: Garbage-collect unreferenced registry blobs (API deletes drop the
 ## tag reference only; --delete-untagged also drops the orphaned

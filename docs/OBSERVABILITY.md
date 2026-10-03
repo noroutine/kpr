@@ -16,10 +16,10 @@ Prometheus scrapes metrics, Grafana shows the dashboard.
 
 ```bash
 # Full stack from the repo (kpr + redis + registry + observability):
-just up-observability   # or: make up-observability
+just up                 # or: make up
 
 # Base stack only:
-just up                 # or: make up
+just up-minimal         # or: make up-minimal
 
 # Or infra only, with kpr running locally from the repo:
 docker compose -f docker-compose.yml -f docker-compose.observability.yml up quickwit jaeger prometheus grafana
