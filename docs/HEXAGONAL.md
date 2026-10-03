@@ -69,48 +69,53 @@ cases, the use cases know the core, the core knows nothing.
 
 ```mermaid
 flowchart LR
-  human((human)) --> driving
-  pushev((docker push)) --> driving
-  mark((anything that can<br/>write the mark)) -. "published bypass" .-> store
 
   subgraph hex["kpr"]
     direction LR
 
     subgraph driving["driving adapters · parse, call, render"]
       direction TB
-      cli["<b>cli</b><br/><i>openDeps = composition root</i>"]
-      web["<b>web</b><br/>console"]
+      cli["<b>cli</b><br/><i>openDeps = composition root</i>"] ~~~
+      web["<b>web</b><br/>console"] ~~~
       edge["<b>edge</b><br/>gateway proxy + fence"]
     end
 
     subgraph app["use cases · orchestrate over ports"]
       direction TB
-      keeper["<b>keeper</b>"]
-      gcu["<b>gc</b>"]
-      sweepu["<b>sweep</b>"]
-      backfill["<b>backfill</b>"]
+      keeper["<b>keeper</b>"] ~~~ gcu["<b>gc</b>"] ~~~ sweepu["<b>sweep</b>"] ~~~ backfill["<b>backfill</b>"]
       subgraph core["core · pure logic"]
         direction TB
-        policy["<b>policy</b> · <b>sentinel</b><br/><i>leaves: import nothing</i>"]
+        policy["<b>policy</b> · <b>sentinel</b><br/><i>leaves: import nothing</i>"] ~~~
         proofl["<b>lineage</b> · <b>proof</b><br/><i>pure, but name adapter types</i>"]
       end
+      backfill ~~~ core
     end
 
     subgraph driven["outbound adapters · translate only"]
       direction TB
-      store["<b>store</b><br/>redis · file · mem"]
-      registry["<b>registry</b><br/>distribution API"]
-      clock["<b>clock</b><br/>local · https · ntp"]
+      store["<b>store</b> · redis · file · mem<br/><i>store.Store</i>"] ~~~
+      registry["<b>registry</b> · distribution API<br/><i>sweep.Registry · keeper.CatalogSource<br/>keeper.Prober · gc.Probe/Collector/Locker</i>"] ~~~
+      clock["<b>clock</b> · local · https · ntp<br/><i>clock.Source</i>"] ~~~
       otel["<b>otel</b>"]
     end
   end
 
-  driving --> app
-  app -- "store.Store" --> store
-  app -- "sweep.Registry · keeper.CatalogSource<br/>keeper.Prober · gc.Probe/Collector/Locker" --> registry
-  app -- "clock.Source" --> clock
-  app --> otel
+  driving -- "direct calls<br/>no inbound port cut" --> app
+  app -- "outbound ports<br/>every effect substitutable" --> driven
 ```
+
+Humans drive `cli`, pushes drive `edge`, and the registry drives
+the `/events` receiver in `app`.
+
+The two arrows are deliberately asymmetric. Only the right one
+names ports, because only the driven half has any — the driving
+adapters call use cases as plain functions. That missing half is
+the honest state of the hexagon, not a gap in the drawing: see
+[How hexagonal is it](#how-hexagonal-is-it).
+
+The one arrow the picture leaves out is the published bypass:
+anything that can write a due mark reaches `store` directly,
+around every use case — see [Where we are](#where-we-are).
 
 Every package, and what it may import:
 
@@ -163,12 +168,22 @@ Two readings worth keeping:
 
 ## How hexagonal is it
 
-Behaviorally, fully: every outbound effect in the use cases goes
-through a substitutable port (`sweep.Registry`,
+**Driven side: fully.** Every outbound effect in the use cases
+goes through a substitutable port (`sweep.Registry`,
 `keeper.CatalogSource`/`Prober`, `gc.Probe`/`Collector`/`Locker`,
 `clock.Source`, `store.Store` under a contract all adapters honor),
 and unit tests prove it — no HTTP server, no binary, no redis,
 no network needed.
+
+**Driving side: no ports at all.** `cli`, `web` and `edge` call
+`gc.Run`, `backfill.Run`, `keeper.EvaluatePolicies` and friends as
+plain functions; there is no inbound interface between them. This
+is the unfinished half of the hexagon, and it stays that way on
+purpose — one driver per use case means an inbound port would have
+exactly one implementation, which fails the rule above. It earns
+itself when a second driver with a different failure policy
+arrives, i.e. the detached API. The one exception already exists
+and is published rather than cut: the due-mark bypass below.
 
 Package-graph purists would find three arrows pointing the "wrong"
 way: use-case signatures still name adapter packages for types —
