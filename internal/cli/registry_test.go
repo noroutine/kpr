@@ -15,6 +15,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/registryfs"
 )
 
 // stageAnalyzeStore builds a one-repo v2 layout and points the
@@ -88,10 +89,13 @@ func runAnalyzeCmd(t *testing.T, cfgPath string, reg backfill.Registry, args ...
 	return buf.String(), err
 }
 
-// Analyze reports the staged magnitude as live-counter lines: the
-// fs line with GiB bytes, then the API view with the delta. The
-// API sees the same repo but two tags, so the delta reads +1 tag.
-// If this fails, the command miscounts or misrenders.
+// Analyze reports the staged magnitude as two copypastable lines:
+// the API view carrying the live fs-vs-API delta in braces, then
+// the fs walk with GiB pushed last. The API sees the same repo but
+// two tags, so the delta reads -1 tag (fs minus API, converging
+// from below as the walk counts up). Values start in the same
+// column under both labels. If this fails, the command miscounts
+// or misrenders.
 func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 	cfgPath := stageAnalyzeStore(t)
 	srv := stageCatalogServer(t)
@@ -104,11 +108,27 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("analyze has %d lines, want api + fs:\n%s", len(lines), out)
 	}
-	if want := "api: 1 repos, 2 tags (fs delta +0 repos, +1 tags)"; lines[0] != want {
+	if want := "api: 1 repos, 2 tags (Δ +0 repos, -1 tags)"; lines[0] != want {
 		t.Errorf("api line = %q, want %q", lines[0], want)
 	}
-	if want := "fs: 1 repos, 1 tags, 1 revisions, 1 blobs, 0.00 GiB, 1 uploads, 1 layer links"; lines[1] != want {
+	if want := "fs:  1 repos, 1 tags, 1 revisions, 1 blobs, 1 uploads, 1 layer links, 0.00 GiB"; lines[1] != want {
 		t.Errorf("fs line = %q, want %q", lines[1], want)
+	}
+}
+
+// The two lines align: values start in the same column under both
+// labels, and the byte scale sits last on the fs line. If this
+// fails, a label width drifted and the block stops scanning.
+func TestRegistryAnalyzeLinesAlign(t *testing.T) {
+	fsRep := registryfs.Report{Repos: 600, Tags: 17050, Revisions: 24993, Blobs: 55077,
+		BlobBytes: 679001899008, Uploads: 1, LayerLinks: 101173}
+	api := apiLine(backfill.CatalogReport{Repos: 600, Tags: 17050}, true, fsRep)
+	fs := fsLine(fsRep)
+	if !strings.HasPrefix(api, "api: ") || !strings.HasPrefix(fs, "fs:  ") {
+		t.Fatalf("labels misaligned:\n%s\n%s", api, fs)
+	}
+	if !strings.HasSuffix(fs, " GiB") {
+		t.Errorf("fs line = %q, want byte scale last", fs)
 	}
 }
 
