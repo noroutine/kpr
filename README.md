@@ -125,11 +125,11 @@ kpr reap [policy]  # evaluate one policy (ttl, hash, partial,
                    # untagged, keep-n) or all; marks accumulate until
                    # sweep or plan discard (--no-dry-run to mark, repeat
                    # --exclude to spare keep-N for matching repo:tag)
-kpr registry analyze  # API repos/tags first, then live fs
-                      # counters (needs a filesystem
-                      # KPR_REGISTRY_CONFIG): repos, tags, revisions,
-                      # blobs+GiB, uploads, links, fs-vs-api delta
-                      # (--json stays exact bytes)
+kpr registry analyze  # six live lines, catalog/store/fs first
+                      # (needs a filesystem KPR_REGISTRY_CONFIG),
+                      # then revisions, blobs, bytes (--json exact)
+kpr registry ls sentinels  # machinery tags as the registry sees
+                      # them, with evaluated identity (--json, --long)
 kpr sweep    # run one sweep pass in-process, print the summary
 kpr gc       # garbage-collect the shared store (dry-run preview by
              # default; --no-dry-run collects, readonly probe first)

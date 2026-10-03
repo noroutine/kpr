@@ -149,6 +149,29 @@ func TestCatalogAllStopsOnRepeat(t *testing.T) {
 	}
 }
 
+// A tag list follows rel="next" exactly like the catalog: a repo
+// past one page lists whole, never truncated. If this fails, big
+// repos silently lose tags in backfill, analyze, and listings.
+func TestCatalogPagesThroughLink(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.RawQuery, "last=") {
+			_, _ = w.Write([]byte(`{"tags":["c"]}`))
+			return
+		}
+		w.Header().Set("Link", `</v2/app/tags/list?last=b&n=2>; rel="next"`)
+		_, _ = w.Write([]byte(`{"tags":["a","b"]}`))
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL).Catalog(testCtx(), "app")
+	if err != nil {
+		t.Fatalf("Catalog: %v", err)
+	}
+	if strings.Join(got, ",") != "a,b,c" {
+		t.Errorf("Catalog = %v, want [a b c]", got)
+	}
+}
+
 // A HEAD digest reads headers only: digest plus media type, no body
 // pulled. Absence is a typed 404 for the caller to skip by count;
 // a 200 without a digest header errors — a digest backfill cannot

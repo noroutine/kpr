@@ -141,20 +141,48 @@ type tagList struct {
 	Tags []string `json:"tags"`
 }
 
-// Catalog returns the live tag list for one repo (keep-N input).
+// Catalog returns the live tag list for one repo (keep-N input),
+// following rel="next" exactly like the catalog: a repo past one
+// page lists whole, never truncated. A repeated page errors like
+// its catalog twin.
 func (c *Client) Catalog(ctx context.Context, repo string) ([]string, error) {
-	status, body, err := c.get(ctx, "/v2/"+repo+"/tags/list")
-	if err != nil {
-		return nil, err
+	var tags []string
+	seen := map[string]bool{}
+	next := "/v2/" + repo + "/tags/list"
+	for next != "" {
+		if seen[next] {
+			return nil, fmt.Errorf("catalog %s: paging looped on %q", repo, next)
+		}
+		seen[next] = true
+		url := next
+		if strings.HasPrefix(url, "/") {
+			url = c.base + url
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		c.authorize(req)
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close()
+		if rerr != nil {
+			return nil, rerr
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, &StatusError{Op: fmt.Sprintf("catalog %s", repo), Status: resp.StatusCode}
+		}
+		var list tagList
+		if err := json.Unmarshal(body, &list); err != nil {
+			return nil, fmt.Errorf("catalog %s: bad page: %w", repo, err)
+		}
+		tags = append(tags, list.Tags...)
+		next = nextLink(resp.Header.Get("Link"))
 	}
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("catalog %s: registry status %d", repo, status)
-	}
-	var list tagList
-	if err := json.Unmarshal(body, &list); err != nil {
-		return nil, err
-	}
-	return list.Tags, nil
+	return tags, nil
 }
 
 // catalogPage is the /v2/_catalog body.

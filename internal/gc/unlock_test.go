@@ -71,6 +71,34 @@ func TestUnlockProvesAndRecords(t *testing.T) {
 	}
 }
 
+// Unlock pushes the generation under its own tag as well as the
+// floater: the recorded row names a tag that exists. If this
+// fails, tracked generations dangle from birth.
+func TestUnlockPushesGenerationTag(t *testing.T) {
+	cfg, root, _ := stageProvenRun(t)
+	s := store.NewMemStore()
+	ctx := context.Background()
+	var out strings.Builder
+	if err := Unlock(ctx, &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err != nil {
+		t.Fatalf("Unlock: %v", err)
+	}
+	rows, err := s.All(ctx)
+	if err != nil {
+		t.Fatalf("All: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("tracked rows = %d, want the one unlock generation", len(rows))
+	}
+	gen := rows[0].Tag
+	got, _, err := sentinel.Read(ctx, fileAPI{root}, sentinel.Repo, gen)
+	if err != nil {
+		t.Fatalf("read generation tag %s: %v (row names a tag nothing pushed)", gen, err)
+	}
+	if got.Gen != gen {
+		t.Errorf("generation tag carries %q, want %q", got.Gen, gen)
+	}
+}
+
 // Unlock against a store the API doesn't serve refuses and leaves
 // the marker down: intent never opens without proof. The stranger
 // root never receives the generation, so the read-back fails. If
