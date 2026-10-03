@@ -43,9 +43,10 @@ compile-check observed green before commit.
 
 ## What kpr is
 
-Dead-simple companion for a stock `distribution` registry: one
-binary, state in redis or on disk (see `docs/STORES.md`). Receiver
-records pushes → `reap` marks rows due → sweeper deletes →
+Dead-simple gateway and keeper for a stock `distribution`
+registry: one binary, state on disk by default or in redis (see
+`docs/STORES.md`). Receiver records pushes → `reap` marks rows
+due → sweeper deletes →
 `gc` shells the stock collector. Full picture:
 `docs/ARCHITECTURE.md`. No scheduler, gRPC, or SPA.
 

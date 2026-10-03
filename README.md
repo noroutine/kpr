@@ -3,11 +3,12 @@
 Push `app:10m` to your registry and the tag is gone ten minutes
 later.
 
-kpr is a companion sidecar for a stock OCI `distribution` registry:
-ephemeral images and lightweight retention cleanup, without running
-Harbor or Nexus. Inspired by ttl.sh.
+kpr fronts a stock OCI `distribution` registry: ephemeral images
+and lightweight retention cleanup, without running Harbor or Nexus.
+Inspired by ttl.sh.
 
-- **One binary.** Drops in beside the registry you already run.
+- **One binary.** Goes in front of the registry you already run —
+  no fork, no patches, stock `distribution` behind it.
 - **One state backend.** Plain files by default — no redis, no
   database, nothing to run. Set `KPR_REDIS_ADDR` to use redis
   instead. See [STORES](docs/STORES.md).

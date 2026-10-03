@@ -1,18 +1,20 @@
 # kpr — project goals
 
-kpr ("keeper") is a lightweight companion sidecar for a stock OCI
-`distribution` registry: ephemeral images plus lightweight
-retention cleanups, without the weight of Harbor or Nexus.
+kpr ("keeper") fronts a stock OCI `distribution` registry:
+ephemeral images plus lightweight retention cleanups, without the
+weight of Harbor or Nexus.
 Inspired by ttl.sh. The design lives in `docs/ARCHITECTURE.md`;
 this page is the backdrop — what it is, what it won't become,
 and what's still open.
 
 ## What it is
 
-- A single small Go binary beside stock `distribution`
-  (`registry:3`), talking to it over its public API plus its
-  notification hooks. No registry fork: stock, configured —
-  never patched.
+- A single small Go binary in front of stock `distribution`
+  (`registry:3`). Pushes land on kpr's edge and forward
+  byte-identical; kpr also talks to the registry over its public
+  API and notification hooks. No registry fork: stock, configured
+  — never patched. The edge is default-on and `KPR_EDGE=false`
+  turns it off, leaving kpr fully out of the data path.
 - Drops into an existing compose setup: `kpr` + state +
   `registry`, nothing else required. State is plain files by
   default; redis is opt-in (`KPR_REDIS_ADDR`).

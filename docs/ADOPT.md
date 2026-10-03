@@ -6,8 +6,8 @@
 > store to a lineage.
 
 You already run `distribution`, maybe behind Traefik, and you want
-ephemeral tags without migrating to Harbor. kpr attaches as a
-sidecar: no registry fork, no data migration, no database.
+ephemeral tags without migrating to Harbor. kpr goes in front of
+it: no registry fork, no data migration, no database.
 
 Start disarmed — it only plans until you say otherwise.
 

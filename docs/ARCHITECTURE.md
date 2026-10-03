@@ -1,11 +1,12 @@
 # kpr architecture
 
-Dead-simple companion that keeps a local `distribution` registry from
-becoming a pig. One binary, one state backend (plain files by
-default, redis with `KPR_REDIS_ADDR`), opinionated, use-case driven
-policies written as plain code. The diagrams below name redis
-because that is the multi-process shape; swap in the file store and
-the components are unchanged. Both backends: [STORES](STORES.md).
+Dead-simple gateway and keeper that stops a local `distribution`
+registry from becoming a pig. One binary, one state backend (plain
+files by default, redis with `KPR_REDIS_ADDR`), opinionated,
+use-case driven policies written as plain code. The diagrams below
+name redis because that is the multi-process shape; swap in the
+file store and the components are unchanged. Both backends:
+[STORES](STORES.md).
 
 ## Contents
 
@@ -20,7 +21,7 @@ the components are unchanged. Both backends: [STORES](STORES.md).
 - [Sweeper events](#sweeper-events)
 - [Feedback, not log streaming](#feedback-not-log-streaming)
 - [Deliberately out](#deliberately-out)
-- [Background: why a sidecar](#background-why-a-sidecar)
+- [Background: why not a registry](#background-why-not-a-registry)
 
 Open and upcoming work: [ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md).
 
@@ -365,11 +366,11 @@ cloud integrations. keep-last-N tuning beyond the exclude flag stays
 a const — as a plain function with colocated tunings, not a rule
 language. If a behavior starts wanting its own engine, it moves out
 to the admin CLI instead of growing inside kpr. Online GC is out
-of scope: it would need our own registry engine, not a sidecar —
+of scope: it would need our own registry engine, not a gateway —
 offline `kpr gc` is the reclaim mechanism, and soft-deleted blobs
 dedupe re-pushes until it runs.
 
-## Background: why a sidecar
+## Background: why not a registry
 
 Two prior-art projects fixed kpr's position (surveyed September
 2026: upstream `replicatedhq/ttl.sh` main, `project-zot` docs).
@@ -383,10 +384,17 @@ load (deploys, CloudEvents modes, cosign edge cases, retention
 interplay). zot itself is a registry replacement with retention
 policies in config — adopting it trades missing features for a
 policy-engine surface, exactly the bloat kpr avoids — but even
-zot has no tag-encoded TTL: per-tag expiry-by-name needs a
-sidecar on either backend.
+zot has no tag-encoded TTL: per-tag expiry-by-name needs something
+beside the registry on either backend.
 
-kpr's position: stay a dumb-registry companion. Speak the plain
-distribution API (keeps zot working as a backend for free), keep
-all policy in testable Go with colocated tunings, absorb ttl.sh's
-sidecar semantics minus the hosted-service load.
+kpr's position: front a dumb registry, never become one. Speak the
+plain distribution API (keeps zot working as a backend for free),
+keep all policy in testable Go with colocated tunings, absorb
+ttl.sh's bookkeeping semantics minus the hosted-service load.
+
+kpr started as a pure out-of-band companion and has since grown
+into the push path: the edge proxy in `serve` forwards pushes
+byte-identical and fences mutating routes, which is what makes
+online gc and the lock ceremony enforceable rather than advisory.
+That shift is recorded in [GATEWAY.md](GATEWAY.md). The line it
+does not cross is storage: the registry still owns the bytes.

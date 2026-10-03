@@ -18,10 +18,11 @@ var (
 // RootCmd is the root command for kpr
 var RootCmd = &cobra.Command{
 	Use:   "kpr",
-	Short: "kpr - lightweight companion for an OCI distribution registry",
-	Long: `kpr (keeper) is a lightweight companion sidecar for an OCI
-distribution registry: ephemeral images and lightweight retention
-cleanups.
+	Short: "kpr - lightweight gateway and keeper for an OCI distribution registry",
+	Long: `kpr (keeper) fronts an OCI distribution registry: ephemeral
+images and lightweight retention cleanups. Pushes land on kpr's
+edge, which forwards them byte-identical and fences mutating
+routes; the registry itself stays stock, never forked.
 
 Configuration comes from KPR_* environment variables (see
 docs/CONFIG.md); every flag below overrides its matching variable.

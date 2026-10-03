@@ -16,8 +16,8 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/policy"
 )
 
-// FileStore is a Store on per-row JSON files: no redis, no sidecars
-// beyond the state dir itself. Point the dir at
+// FileStore is a Store on per-row JSON files: no redis, no extra
+// services beyond the state dir itself. Point the dir at
 // `<registry-root>/kpr` and the registry root becomes a
 // self-contained backup — store, rows, locks, and run state move as
 // one unit, invisible to the collector and catalog walks (they only
