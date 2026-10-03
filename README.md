@@ -1,39 +1,38 @@
 # kpr (keeper)
 
-Lightweight companion sidecar for a stock OCI `distribution`
-registry: ephemeral images and lightweight retention cleanups,
-without the weight of Harbor or Nexus. Inspired by ttl.sh.
+Push `app:10m` to your registry and the tag is gone ten minutes
+later.
 
-One binary, one state backend (redis by default, plain files with
-`KPR_STORE=file` — no redis required), opinions written as plain
-code — simple use-case driven policies. Push a tag like `app:10m` and it becomes
-eligible for collection 10 minutes after push; `kpr reap` marks it,
-the sweeper in `kpr serve` deletes it by digest. Design lives in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the current state is in the
-[Current state section](docs/ARCHITECTURE.md#current-state) at the end
-of that file. State backends (including the redis-less file mode):
-[docs/STORES.md](docs/STORES.md).
+kpr is a companion sidecar for a stock OCI `distribution` registry:
+ephemeral images and lightweight retention cleanup, without running
+Harbor or Nexus. Inspired by ttl.sh.
 
-## Docs map
+- **One binary.** Drops in beside the registry you already run.
+- **One state backend.** Plain files by default — no redis, no
+  database, nothing to run. Set `KPR_REDIS_ADDR` to use redis
+  instead. See [STORES](docs/STORES.md).
+- **Policies are Go code**, not a rule language. Simple, use-case
+  driven, tuned by consts.
+
+The cycle is two steps, and nothing runs on its own: `kpr reap`
+marks a due tag with a reason, and the sweeper in `kpr serve`
+deletes it by digest.
+
+Design lives in [ARCHITECTURE](docs/ARCHITECTURE.md); what
+currently ships is in
+[ARCHITECTURE_FUTURE](docs/ARCHITECTURE_FUTURE.md#current-state).
+
+## Docs
+
+Full index, grouped by task: **[docs/](docs/README.md)**
+
+Shortcuts to the three most-asked-for pages:
 
 | Doc | Answers |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | components, policies, gc, data keys, current state, open items |
-| [docs/SENTINELS.md](docs/SENTINELS.md) | same-store proof, locality, lock, lineage verdicts, `kpr store adopt` |
-| [docs/PROOFS.md](docs/PROOFS.md) | the proofs kpr acts on, what each establishes, how they compose |
-| [docs/TIMESTAMPS.md](docs/TIMESTAMPS.md) | checked clock: transports, wiring, skew semantics |
-| [docs/QUICKSTART.md](docs/QUICKSTART.md) | fresh setup: two containers, one volume, first expiring tag |
-| [docs/ADOPT.md](docs/ADOPT.md) | bolting kpr onto your own registry + Traefik |
-| [docs/GC.md](docs/GC.md) | gc behavior, keep-N over generations, future gc work |
-| [docs/STORES.md](docs/STORES.md) | redis/mem/file backends, layouts, invariants |
-| [docs/CONFIG.md](docs/CONFIG.md) | config machinery (developer reference) |
-| [docs/TESTING.md](docs/TESTING.md) | unit, e2e, coverage, mutation gates |
-| [docs/BUILD.md](docs/BUILD.md) | builds, releases, cross-compilation |
-| [docs/HEXAGONAL.md](docs/HEXAGONAL.md) / [docs/HEXAGONAL_WISDOMS.md](docs/HEXAGONAL_WISDOMS.md) | port map / port-cutting rules |
-| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Quickwit/Jaeger/Prometheus/Grafana overlay |
-| [docs/REGISTRY_LAYOUT.md](docs/REGISTRY_LAYOUT.md) | registry:3 filesystem layout, observed |
-| [docs/goals.md](docs/goals.md) | what kpr is and won't become, open questions |
-| [docs/REVIEWER_CONTEXT.md](docs/REVIEWER_CONTEXT.md) | review loop contract (Claude) |
+| [QUICKSTART](docs/QUICKSTART.md) | fresh setup: two containers, one volume, first expiring tag |
+| [ADOPT](docs/ADOPT.md) | bolting kpr onto a registry you already run |
+| [ARCHITECTURE](docs/ARCHITECTURE.md) | components, policies, gc, data keys, surfaces |
 
 ## How it works
 
@@ -55,8 +54,8 @@ how and when to clean what. Deleting has one owner: the sweeper.
 ## Quickstart
 
 ```bash
-make up            # kpr + redis + registry (detached)
-# or: just up
+make up            # kpr + registry, file backend (detached)
+# or: just up        (COMPOSE=redis make up for the redis stack)
 
 # Push something ephemeral (needs localhost:5000 free —
 # macOS AirPlay Receiver squats it when enabled):
@@ -74,11 +73,11 @@ after manifest deletes — offline, registry stops) is `make gc`.
 
 ## Adopting kpr into your own stack
 
-Already run `distribution` (behind Traefik or not) and want the keeper
-bolted on? Start here: [docs/ADOPT.md](docs/ADOPT.md) — three wires
-(notifications, deletes, one redis DB), a registry-config patch, a
-copy-paste kpr service with Traefik labels, and a disarmed first run.
-Pin `nrtn.dev/catalyst/kpr:<release-tag>`; images publish on tags.
+Already run `distribution`, behind Traefik or not? Start here:
+[ADOPT](docs/ADOPT.md) — two wires (notifications, deletes) plus
+the shared volume, a registry-config patch, a copy-paste kpr
+service, and a disarmed first run. Pin
+`nrtn.dev/catalyst/kpr:<release-tag>`; images publish on tags.
 
 ## Reaping policies
 
@@ -153,22 +152,35 @@ docker exec kpr kpr gc --no-dry-run --delete-untagged
 # 3. Flip readonly back off + restart.
 ```
 
-`kpr gc` previews by default and refuses a real run rather than
-collecting blind: no binary/config mounts, no filesystem store root,
-inconclusive sentinel, serving registry without online clearance
-(a preview prints the checklist and proceeds warned — it deletes
-nothing), unproven shared store, unreachable blobdescriptor cache
-(offline path), another run holding `kpr:gc:lock` (`make gc` honors
-the same key). Collection streams the
-stock binary's output with stage events (sentinel verdicts, collector
-pid, post-probe). After collecting it re-probes: a mode flip mid-run
-is loud but never a panic — it fails the run unless `--force`.
-It needs the registry's redis password as `REGISTRY_REDIS_PASSWORD`
-(same convention the registry uses) — without it the cache
-mis-marks and collection eats live layers. Flipping readonly stays
-with the operator; the command never rewrites registry config. Manual
-collector runs bypass the lock (the registry itself sets none), so
-don't run those concurrently either.
+`kpr gc` previews by default. An armed run refuses rather than
+collect blind, when:
+
+- the binary or config mounts are missing
+- the store root is not a local filesystem
+- the sentinel verdict is inconclusive
+- the registry is serving without online clearance
+- the shared store is unproven
+- the blobdescriptor cache is unreachable (offline path)
+- another run holds `kpr:gc:lock` (`make gc` honors the same key)
+
+A preview prints the same checklist, warns, and proceeds — it
+deletes nothing either way.
+
+Two things to know before arming:
+
+- **Set `REGISTRY_REDIS_PASSWORD`** (same convention the registry
+  uses). Without it the cache mis-marks and collection deletes
+  live layers.
+- **Don't run the stock collector alongside.** Manual runs take no
+  lock, because the registry sets none.
+
+During a run the collector's output streams through with stage
+events: sentinel verdicts, collector pid, post-probe. Afterwards gc
+re-probes the mode. A flip mid-run fails the run unless
+`--accept-mode-flip` — loud, never a panic.
+
+Flipping readonly stays with the operator. The command never
+rewrites registry config.
 
 ## Configuration
 
@@ -180,7 +192,7 @@ Wiring only (ports, redis addr, registry URL, arming); see
 | `KPR_REDIS_ADDR` | redis (default `localhost:6379`; compose sets `redis:6379`) |
 | `KPR_REDIS_PASSWORD` | redis password (empty = no auth; compose sets the shared dev default — `kpr env` shows set/unset only) |
 | `KPR_REDIS_DB` | redis logical DB for kpr rows (default `0`; compose sets `4` — DBs 0-2 are taken, 3 is the registry cache) |
-| `KPR_STORE` | state backend, `file` or `redis`. Unset means derive: `KPR_STORE_DIR` alone selects file, `KPR_REDIS_ADDR` alone selects redis, silence keeps redis. Must agree with backend vars (see [docs/STORES.md](docs/STORES.md)) |
+| `KPR_STORE` | state backend, `file` (default) or `redis`. Unset means derive: `KPR_STORE_DIR` alone selects file, `KPR_REDIS_ADDR` alone selects redis, silence selects file. Must agree with backend vars (see [STORES](docs/STORES.md)) |
 | `KPR_STORE_DIR` | directory for the file backend (default `kpr/`, cwd-relative; compose sets it absolute on the shared volume, e.g. `<registry-root>/kpr` for a self-contained backup) |
 | `KPR_REGISTRY_URL` | registry peer (dev default `http://localhost:5000`) |
 | `KPR_EDGE_ADDR` | edge proxy listen address inside serve (default `:5000` — the registry's published port, moved to the edge) |
@@ -212,7 +224,7 @@ four. Testing approach and coverage gates: [docs/TESTING.md](docs/TESTING.md).
 Policy/workflow engine, scheduler, per-repo rule sets, auth,
 signing, replication, cloud integrations, online registry GC. Where
 each of these stands is tracked in the
-[current state](docs/ARCHITECTURE.md#current-state).
+[current state](docs/ARCHITECTURE_FUTURE.md#current-state).
 
 ## License
 

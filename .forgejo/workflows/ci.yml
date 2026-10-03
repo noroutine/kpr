@@ -154,7 +154,7 @@ jobs:
 
           kpr (keeper) — lightweight companion sidecar for an OCI
           distribution registry: ephemeral images and lightweight
-          retention cleanups. See `docs/goals.md`.
+          retention cleanups. See `docs/GOALS.md`.
 
           ### Docker (Recommended)
 

@@ -1,10 +1,11 @@
 # kpr architecture
 
 Dead-simple companion that keeps a local `distribution` registry from
-becoming a pig. One binary, one state backend (redis by default, plain
-files with `KPR_STORE=file`), opinionated, use-case driven policies written as
-plain code. This page draws the redis deployment;
-the file alternative is in [docs/STORES.md](STORES.md).
+becoming a pig. One binary, one state backend (plain files by
+default, redis with `KPR_REDIS_ADDR`), opinionated, use-case driven
+policies written as plain code. The diagrams below name redis
+because that is the multi-process shape; swap in the file store and
+the components are unchanged. Both backends: [STORES](STORES.md).
 
 ## Contents
 
@@ -20,8 +21,9 @@ the file alternative is in [docs/STORES.md](STORES.md).
 - [Feedback, not log streaming](#feedback-not-log-streaming)
 - [Deliberately out](#deliberately-out)
 - [Background: why a sidecar](#background-why-a-sidecar)
-- [Current state](#current-state)
-- [Open, in no order](#open-in-no-order)
+
+What currently ships and what is still open:
+[ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md).
 
 ## Components
 
@@ -218,7 +220,7 @@ notification's `actor.name` — basic-auth username or nothing —
 carries no retention meaning): `kpr-receiver` signs notification
 rows, `kpr-unlock` / `kpr-gc` sign their generation mints,
 `kpr-heal` signs an adopted untracked generation whose payload
-predates writers, `kpr-backfill` will sign backfill rows. The
+predates writers, `kpr-backfill` signs backfill rows. The
 vocabulary is closed at five: every recording path runs through a
 hexagon above. (Old rows may still carry `""` or a pusher name —
 re-push restamps them.)
@@ -268,7 +270,8 @@ Registry auth scope: kpr's registry client speaks anonymous or basic
 (one user+password pair, env-supplied) — that covers open and htpasswd
 registries, which is all kpr claims today. Token-issuing registries
 (JWT bearer) are future work: same pair, exchanged at the issuer per
-scope (see `docs/GC.md` and the backfill plan). The `auth` in
+scope (see [GC_FUTURE.md](GC_FUTURE.md#token-auth-registries)).
+The `auth` in
 Deliberately-out below is unrelated — kpr will never be an
 auth provider, only a client of the registry's.
 
@@ -388,40 +391,3 @@ kpr's position: stay a dumb-registry companion. Speak the plain
 distribution API (keeps zot working as a backend for free), keep
 all policy in testable Go with colocated tunings, absorb ttl.sh's
 sidecar semantics minus the hosted-service load.
-
-## Current state
-
-Built on `master`, CI green, full unit suite + lint clean, e2e green
-in compose. Proven live: push → receiver tracks → `reap --no-dry-run`
-marks (one policy via `reap <name>`, hand-picked via `plan add`,
-pruned via `plan remove`) → `sweep` deletes by digest → `kpr gc`
-previews by default, `--no-dry-run` collects.
-
-- All four policies live and selectable; `latest` spared everywhere
-  (10+latest); ensure-survivor tripwires per tag style plus the
-  `isBareHash` a/f boundary pins.
-- keep-N is live with N fixed at 10, excludes via `reap --exclude`;
-  per-repo tuning declined by decision.
-- Sentinel generations tagged with keep-N reaping, lineage-gated
-  altering paths (`gc`/`unlock`/sweeper) with the explicit
-  `kpr store adopt` pairing ceremony; checked clock (local default,
-  compose pins `https`) opens every altering path.
-- Mutation testing (gremlins, local): efficacy 94.84% on the
-  clock tree (588 killed, 32 lived); survivors are timing
-  mutants, provable equivalents (NOTE'd at the site),
-  dead-server error convergence, and live-redis branches that
-  only die under `-tags e2e`. Scaffolding excluded from
-  candidacy (see `docs/TESTING.md`). Killable lived fixed with
-  focused tests; scoped re-run confirming.
-- GC lock verified advisory against the distribution source
-  (`MarkAndSweep` at v3.1.2 sets none).
-
-## Open, in no order
-
-- keep-N tuning surface (`--last`, `--include`): declined, N stays 10 with `--exclude`.
-- Real partial-upload detection (bounded manifest reads).
-- Sweep live-stages transport (polling vs websocket) — still
-  deferred; the vocabulary and keys are the contract.
-- Registry metrics as a GC-readiness signal (storage pressure before
-  collecting) — noted, not scheduled.
-- Tag-release flow (image push + Forgejo release) unverified.

@@ -1,7 +1,10 @@
+# State backends
+
 ## Contents
 
 - [The three stores](#the-three-stores)
 - [FileStore layout](#filestore-layout)
+- [What locked means](#what-locked-means)
 - [Invariants](#invariants)
 - [Wiring: deriving the backend](#wiring-deriving-the-backend)
 - [The self-contained backup](#the-self-contained-backup)
@@ -16,17 +19,16 @@ adapters carry it; the `storetest` contract suite runs
 identical scenarios against all of them — one contract,
 never a copy per backend.
 
-- **RedisStore** (the code default when `KPR_STORE` is unset):
-  rows in a `kpr:rows` HASH,
-  locks as expiring keys. Multi-process safe by
-  construction, server-side TTL expiry on locks. Needs the
-  shared redis from the redis compose stack.
+- **FileStore** — *the default*. Per-row JSON files under one dir,
+  flock'd lock files, no redis. A single registry volume carries
+  everything (see below). Local volumes only, single host.
+- **RedisStore** (`KPR_STORE=redis`, or `KPR_REDIS_ADDR` alone):
+  rows in a `kpr:rows` HASH, locks as expiring keys. Multi-process
+  safe by construction, server-side TTL expiry on locks. Needs the
+  shared redis from the redis compose stack. Reach for it when one
+  host and one dir stop being enough.
 - **MemStore**: in-memory, hermetic unit tests. Not for
   production.
-- **FileStore** (`KPR_STORE=file`): per-row JSON files
-  under one dir, flock'd lock files, no redis. For
-  redis-less deploys — a single registry volume carries
-  everything (see below). Local volumes only.
 
 Row JSON is byte-identical across backends (plain
 `json.Marshal(policy.Row)`), so rows stay portable
@@ -137,8 +139,8 @@ carries a default that must not count as a choice):
   `redis` + `KPR_STORE_DIR` conflicts; unknown values
   refuse).
 - Unset: `KPR_STORE_DIR` alone selects file,
-  `KPR_REDIS_ADDR` alone selects redis, silence keeps redis
-  defaults (current behavior, unchanged).
+  `KPR_REDIS_ADDR` alone selects redis, silence selects file —
+  the zero-dependency default.
 - `KPR_STORE_DIR` defaults to `kpr` (cwd-relative); compose
   sets it absolute on the shared volume.
 - Dev stacks: `docker-compose.yml` is the file backend (default),
