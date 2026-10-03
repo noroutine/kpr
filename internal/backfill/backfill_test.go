@@ -132,9 +132,10 @@ func stageTagDir(t *testing.T, root, repo, tag string) time.Time {
 	return fi.ModTime().UTC()
 }
 
-// Fossil sentinels adopt and the floater records once: a rerun
-// skips both by row. If this fails, the store never learns the
-// generations pushed while kpr was unwired.
+// Fossil sentinels adopt while the floater never becomes a row:
+// a rerun skips both by verdict. If this fails, the store never
+// learns the generations pushed while kpr was unwired — or a
+// `latest` row poisons the newest-generation verdict.
 func TestBackfillAdoptsSentinelFossils(t *testing.T) {
 	ctx := context.Background()
 	root, s, _, _ := stagePaired(t)
@@ -156,8 +157,8 @@ func TestBackfillAdoptsSentinelFossils(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if sum.Recorded != 2 || sum.Skipped != 0 {
-		t.Fatalf("sum = %+v, want 2 recorded, 0 skipped", sum)
+	if sum.Recorded != 1 || sum.Skipped != 1 {
+		t.Fatalf("sum = %+v, want 1 recorded (fossil), 1 skipped (floater)", sum)
 	}
 	rows, _ := s.All(ctx)
 	byTag := map[string]policy.Row{}
@@ -173,8 +174,8 @@ func TestBackfillAdoptsSentinelFossils(t *testing.T) {
 	if fossil.Actor != ActorBackfill || fossil.Due || !fossil.PushedAt.Equal(old) {
 		t.Errorf("fossil = %+v, want kpr-backfill + not-due + old link mtime", fossil)
 	}
-	if _, ok := byTag[sentinel.Tag]; !ok {
-		t.Fatal("no latest row recorded")
+	if _, ok := byTag[sentinel.Tag]; ok {
+		t.Fatal("floater row recorded — latest is a pointer, not inventory")
 	}
 	if sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil); err != nil {
 		t.Fatalf("rerun: %v", err)

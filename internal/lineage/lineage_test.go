@@ -59,6 +59,20 @@ func TestJudgeTieBreaksOnTag(t *testing.T) {
 	}
 }
 
+// A floater row never moves newest: `latest` is a pointer, not a
+// generation, and lexicographically beats every uuid7 tag —
+// letting it into the max reads a fresh floater as a rollback.
+// If this fails, any `latest` row warns on every run.
+func TestJudgeIgnoresFloaterRow(t *testing.T) {
+	floater := policy.Row{Repo: sentinel.Repo, Tag: sentinel.Tag, Digest: "sha256:floater",
+		MediaType: sentinel.ManifestMediaType, PushedAt: vnow, Actor: "kpr-backfill"}
+	local := Local{Ident: store.Identity{ID: vident},
+		Rows: []policy.Row{vrow(vgen3, time.Hour), floater}}
+	if got := Judge(vserved(vident, vgen3), local, Ask{Now: vnow}); !got.Proceed || got.Stale {
+		t.Errorf("serving the tracked newest with a fresher floater row = %+v, want clean proceed", got)
+	}
+}
+
 // The adopt-record carries the served writer: keep-N attributes
 // the adopted generation to whoever minted it, not to the healer.
 // If this fails, adopted rows all read "kpr-heal".

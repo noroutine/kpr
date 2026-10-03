@@ -128,9 +128,16 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 	}
 	var mine []policy.Row
 	for _, r := range l.Rows {
-		if r.Repo == sentinel.Repo {
-			mine = append(mine, r)
+		if r.Repo != sentinel.Repo {
+			continue
 		}
+		// The floater is a pointer, not a generation: its tag
+		// lexicographically beats every uuid7, so it would win
+		// every PushedAt tie and read a fresh floater as newest.
+		if r.Tag == sentinel.Tag {
+			continue
+		}
+		mine = append(mine, r)
 	}
 	known := map[string]bool{}
 	var max policy.Row

@@ -91,8 +91,10 @@ type Summary struct {
 // through a restored generation while an armed run refuses it
 // unless rollback-accepted — then enumerates the catalog,
 // digests every tag, and records the absent ones with their link
-// mtimes. A locked store refuses with the unlock named; a
-// stranger store refuses; mid-run vanishes skip by count.
+// mtimes, sentinel fossils capped at the floater's push. The
+// floater itself never becomes a row. A locked store refuses with
+// the unlock named; a stranger store refuses; mid-run vanishes
+// skip by count.
 func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows Rows, rec Recorder, ids lineage.IdentityStore, lock proof.Locker, root string, opts Options, rollback proof.AcceptedRisk) (Summary, error) {
 	var sum Summary
 	log := opts.Log
@@ -195,6 +197,15 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 			}
 		}
 		for _, tag := range tags {
+			// The floater never becomes a row: it is a pointer,
+			// not inventory, and "latest" wins every
+			// newest-generation tiebreak by tag. Its mtime still
+			// caps fossil rows above; only the row is skipped.
+			if tag == sentinel.Tag && strings.HasPrefix(repo, SentinelPrefix) {
+				sum.Skipped++
+				progress()
+				continue
+			}
 			if tracked[repo+"\x00"+tag] {
 				sum.Skipped++
 				progress()
