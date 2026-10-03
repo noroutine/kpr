@@ -47,17 +47,20 @@ flowchart LR
     rest["<b>plan</b> · <b>store</b> · <b>status</b><br/>read and edit rows"]
   end
 
-  state[("<b>kpr state</b><br/>rows · marks · locks<br/>file · redis")]
-  dist["<b>distribution</b><br/>stock registry"]
-  blobs[("<b>registry store</b><br/>blobs · manifests · tags")]
+  subgraph reg["<b>registry</b>"]
+    direction TB
+    dist["<b>distribution</b><br/>stock registry"] ~~~
+    blobs[("<b>its store</b><br/>blobs · manifests · tags")]
+  end
 
-  serve -- "edge forwards" --> dist
-  dist -- "events → receiver" --> serve
-  dist --- blobs
+  state[("<b>kpr state</b><br/>rows · marks · locks<br/>file · redis")]
+
+  serve -- "edge forwards" --> reg
+  reg -- "events → receiver" --> serve
+  cli -- "catalog reads · DELETE manifests" --> reg
+  cli -- "gc: stock collector<br/>runs on its store" --> reg
   serve <--> state
   cli <--> state
-  cli -- "catalog reads<br/>DELETE manifests" --> dist
-  cli -- "gc: stock collector<br/>runs on the store" --> blobs
 ```
 
 Two stores, and the split matters: kpr's own state holds rows,
