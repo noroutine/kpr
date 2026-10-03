@@ -201,8 +201,9 @@ coverage:
         echo ""
         go test -race -coverprofile=coverage.out ./...
     fi
+    # Sub-90% functions, worst last; total closes the summary.
+    go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | awk '$3+0 < 90'
     go tool cover -func=coverage.out | grep '^total:'
-    go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | tail -n 20
     go tool cover -html=coverage.out -o coverage.html
     echo "Coverage report: coverage.html"
 
