@@ -56,3 +56,5 @@ Thumbs.db
 .claude
 .forgejo_token
 .github_token
+
+registry/

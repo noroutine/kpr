@@ -4,7 +4,7 @@
 FROM alpine:latest
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata wget
+RUN apk add --no-cache bash ca-certificates tzdata wget
 
 # Create non-root user
 RUN addgroup -g 1000 kpr && \
