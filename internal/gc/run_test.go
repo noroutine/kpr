@@ -1194,3 +1194,53 @@ func TestRunEstablishWarnWriteFailureSurfaces(t *testing.T) {
 		t.Errorf("failure names no output cause: %v", err)
 	}
 }
+
+// An armed run prunes the collector's leftover skeleton after the
+// collect; a preview prunes nothing. If this fails, armed gc keeps
+// piling empty dirs, or previews mutate what they promise to only
+// read.
+func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	stageGhost := func(t *testing.T, root string) string {
+		t.Helper()
+		ghost := filepath.Join(root, "docker", "registry", "v2", "repositories", "test", "ghost", "_manifests", "tags", "old", "current")
+		if err := os.MkdirAll(ghost, 0o755); err != nil {
+			t.Fatalf("stage ghost: %v", err)
+		}
+		return ghost
+	}
+
+	cfg, root, s := stageProvenRun(t)
+	ghost := stageGhost(t, root)
+	var collected [][]string
+	var out strings.Builder
+	if err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{DryRun: false, Report: func(Event) {}}, Accepts{}); err != nil {
+		t.Fatalf("armed run: %v", err)
+	}
+	if _, err := os.Stat(ghost); !os.IsNotExist(err) {
+		t.Errorf("ghost skeleton survives armed gc, want pruned")
+	}
+	if !strings.Contains(out.String(), "pruned ") {
+		t.Errorf("armed run hides the prune count:\n%s", out.String())
+	}
+
+	cfg, root, s = stageProvenRun(t)
+	stagePairedGen(t, s, root)
+	ghost = stageGhost(t, root)
+	var preview strings.Builder
+	if err := Run(context.Background(), &preview, probe, s, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{}); err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if _, err := os.Stat(ghost); err != nil {
+		t.Errorf("preview pruned the skeleton, want it kept: %v", err)
+	}
+	if strings.Contains(preview.String(), "pruned ") {
+		t.Errorf("preview reports a prune it never ran:\n%s", preview.String())
+	}
+}

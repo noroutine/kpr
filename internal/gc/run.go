@@ -342,6 +342,30 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			return err
 		}
 	}
+	// The collector deletes blobs and links but leaves their
+	// parents: an armed run prunes the empty skeleton it (and
+	// earlier runs) left behind. Previews delete nothing, so
+	// they prune nothing either. A prune failure warns, never
+	// fails: the collection already succeeded, and occupancy
+	// races resolve safe — anything else (permissions, I/O)
+	// names itself in the warning.
+	if !opts.DryRun {
+		pruned, perr := PruneEmptyDirs(root)
+		pev := Timed(StagePrune, gcStarted)
+		if perr != nil {
+			pev.Error = perr.Error()
+			Emit(opts.Report, pev)
+			if _, werr := fmt.Fprintf(w, "Warning: empty-dir cleanup incomplete (%v)\n", perr); werr != nil {
+				return werr
+			}
+		} else {
+			pev.Message = fmt.Sprintf("%d dirs", pruned)
+			Emit(opts.Report, pev)
+			if _, werr := fmt.Fprintf(w, "pruned %d empty directories\n", pruned); werr != nil {
+				return werr
+			}
+		}
+	}
 	post, _, perr := probe(ctx, registryURL)
 	if perr != nil {
 		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, ModeName(mode))
