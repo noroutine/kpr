@@ -38,7 +38,3 @@ Thumbs.db
 tmp/
 temp/
 *.log
-
-# Local data staging (1TB-scale registry store copy, gitignored
-# too) — never send it as build context.
-registry/
