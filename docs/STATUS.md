@@ -1,8 +1,11 @@
-# Architecture — status and open work
+# Status
 
-Where kpr stands and what is still open. The design itself lives in
-[ARCHITECTURE.md](ARCHITECTURE.md); this page is the part that goes
-stale, kept separate so it can.
+What kpr currently ships, and what is still open. Kept separate
+from the reference pages because this is the part that goes stale.
+
+The design itself lives in [ARCHITECTURE.md](ARCHITECTURE.md).
+Designs for work that does not exist yet live in the `_FUTURE`
+pages — see the [index](README.md#status-and-unbuilt-work).
 
 ## Contents
 

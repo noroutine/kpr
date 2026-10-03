@@ -50,7 +50,12 @@ their own.
 
 | Doc | Answers |
 |---|---|
-| [ARCHITECTURE_FUTURE](ARCHITECTURE_FUTURE.md) | what currently ships, and what is still open |
+| [STATUS](STATUS.md) | what currently ships, and what is still open |
+
+Designs for work that does not exist yet:
+
+| Doc | Answers |
+|---|---|
 | [GC_FUTURE](GC_FUTURE.md) | dangling tags, token-auth registries |
 | [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | shadow reader, digest-less enrichment |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |

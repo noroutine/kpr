@@ -23,7 +23,7 @@ the components are unchanged. Both backends: [STORES](STORES.md).
 - [Background: why a sidecar](#background-why-a-sidecar)
 
 What currently ships and what is still open:
-[ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md).
+[STATUS.md](STATUS.md).
 
 ## Components
 

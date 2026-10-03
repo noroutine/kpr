@@ -19,8 +19,7 @@ marks a due tag with a reason, and the sweeper in `kpr serve`
 deletes it by digest.
 
 Design lives in [ARCHITECTURE](docs/ARCHITECTURE.md); what
-currently ships is in
-[ARCHITECTURE_FUTURE](docs/ARCHITECTURE_FUTURE.md#current-state).
+currently ships is in [STATUS](docs/STATUS.md).
 
 ## Docs
 
@@ -224,7 +223,7 @@ four. Testing approach and coverage gates: [docs/TESTING.md](docs/TESTING.md).
 Policy/workflow engine, scheduler, per-repo rule sets, auth,
 signing, replication, cloud integrations, online registry GC. Where
 each of these stands is tracked in the
-[current state](docs/ARCHITECTURE_FUTURE.md#current-state).
+[current state](docs/STATUS.md#current-state).
 
 ## License
 
