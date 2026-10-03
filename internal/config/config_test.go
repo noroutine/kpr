@@ -59,6 +59,8 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	t.Setenv(EnvRedisAddr, "redis:6379")
 	t.Setenv(EnvRedisPassword, "s3cret")
 	t.Setenv(EnvRedisDB, "4")
+	t.Setenv(EnvRegistryUser, "robot")
+	t.Setenv(EnvRegistryPassword, "hunter2")
 	t.Setenv(EnvOTELEnabled, "true")
 	t.Setenv(EnvOTELEndpoint, "https://tempo:4318")
 	t.Setenv(EnvOTELServiceName, "kpr-prod")
@@ -80,6 +82,9 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	}
 	if cfg.RedisDB != 4 || cfg.RedisDBWarning != nil {
 		t.Errorf("RedisDB = %d/%v, want 4 with no warning", cfg.RedisDB, cfg.RedisDBWarning)
+	}
+	if cfg.RegistryUser != "robot" || cfg.RegistryPassword != "hunter2" {
+		t.Errorf("registry creds = %q/***, want robot/hunter2", cfg.RegistryUser)
 	}
 	if !cfg.OTELEnabled || cfg.OTLPEndpoint != "tempo:4318" {
 		t.Errorf("otel = enabled:%v endpoint:%q", cfg.OTELEnabled, cfg.OTLPEndpoint)
@@ -282,7 +287,8 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
 		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
-		EnvRegistryURL, EnvEdgeAddr, EnvEdge, EnvCLINoDryRun,
+		EnvRegistryURL, EnvRegistryUser, EnvRegistryPassword,
+		EnvEdgeAddr, EnvEdge, EnvCLINoDryRun,
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
 		EnvQuickwitURL, EnvJaegerURL, EnvGrafanaURL, EnvPrometheusURL,

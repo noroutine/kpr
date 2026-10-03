@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -34,6 +35,166 @@ func TestGetNotFoundTyped(t *testing.T) {
 	var bse *StatusError
 	if !errors.As(berr, &bse) || bse.Status != http.StatusNotFound {
 		t.Fatalf("GetBlob err = %v, want *StatusError 404", berr)
+	}
+}
+
+// The pair travels on every verb when set, on none when anonymous:
+// an htpasswd registry refuses the call missing it, and an open one
+// must never see a credential header. If this fails, backfill
+// enumerates anonymously against a locked registry — or leaks
+// credentials where none belong.
+func TestClientPresentsBasicAuthOnEveryVerb(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Method+" "+r.Header.Get("Authorization"))
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v2/_catalog"):
+			_, _ = w.Write([]byte(`{"repositories":[]}`))
+		case r.Method == http.MethodHead:
+			w.Header().Set("Docker-Content-Digest", "sha256:abc")
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			_, _ = w.Write([]byte(`{"tags":[]}`))
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	c.SetBasicAuth("robot", "hunter2")
+	if _, err := c.CatalogAll(testCtx()); err != nil {
+		t.Fatalf("CatalogAll: %v", err)
+	}
+	if _, _, err := c.ManifestDigest(testCtx(), "app", "v1"); err != nil {
+		t.Fatalf("ManifestDigest: %v", err)
+	}
+	if _, err := c.DeleteManifest(testCtx(), "app", "sha256:abc"); err != nil {
+		t.Fatalf("DeleteManifest: %v", err)
+	}
+	for _, h := range got {
+		if !strings.HasSuffix(h, " cm9ib3Q6aHVudGVyMg==") {
+			t.Errorf("request %q carries no basic pair", h)
+		}
+	}
+
+	plain := NewClient(srv.URL)
+	if _, err := plain.CatalogAll(testCtx()); err != nil {
+		t.Fatalf("anonymous CatalogAll: %v", err)
+	}
+	if last := got[len(got)-1]; !strings.HasSuffix(last, " ") {
+		t.Errorf("anonymous request carries auth %q, want none", last)
+	}
+}
+
+// _catalog paging walks rel="next" until a page arrives without one:
+// three repos across two pages come back whole, and the second
+// request carries the cursor. If this fails, backfill sees only
+// the first hundred repos and silently drops the rest.
+func TestCatalogAllPagesThroughLink(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.RequestURI())
+		if strings.Contains(r.URL.RawQuery, "last=") {
+			_, _ = w.Write([]byte(`{"repositories":["c"]}`))
+			return
+		}
+		w.Header().Set("Link", `</v2/_catalog?last=b&n=2>; rel="next"`)
+		_, _ = w.Write([]byte(`{"repositories":["a","b"]}`))
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL).CatalogAll(testCtx())
+	if err != nil {
+		t.Fatalf("CatalogAll: %v", err)
+	}
+	if strings.Join(got, ",") != "a,b,c" {
+		t.Errorf("CatalogAll = %v, want [a b c]", got)
+	}
+	if len(paths) != 2 || !strings.Contains(paths[1], "last=b") {
+		t.Errorf("second request = %v, want the cursor carried", paths)
+	}
+}
+
+// Rejected creds refuse loudly with the fix named: a 401 on the
+// first call ends the run, never a silent empty enumeration. If
+// this fails, a typo'd password backfills zero rows and reports
+// success.
+func TestCatalogAllRefusesRejectedCreds(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	c.SetBasicAuth("robot", "wrong")
+	_, err := c.CatalogAll(testCtx())
+	if err == nil || !strings.Contains(err.Error(), "KPR_REGISTRY_USER") {
+		t.Errorf("CatalogAll(401) = %v, want the credential vars named", err)
+	}
+}
+
+// A paging loop errors instead of spinning: a repeated cursor is a
+// broken registry, not a big catalog. If this fails, backfill
+// hangs the run on a lying Link header.
+func TestCatalogAllStopsOnRepeat(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", `</v2/_catalog?last=b&n=2>; rel="next"`)
+		_, _ = w.Write([]byte(`{"repositories":["a"]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := NewClient(srv.URL).CatalogAll(testCtx()); err == nil {
+		t.Error("looping catalog succeeded, want the paging error")
+	}
+}
+
+// A HEAD digest reads headers only: digest plus media type, no body
+// pulled. Absence is a typed 404 for the caller to skip by count;
+// a 200 without a digest header errors — a digest backfill cannot
+// stamp is not a row. If this fails, backfill either pulls layers
+// or stamps digestless rows.
+func TestManifestDigestReadsHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("method = %s, want HEAD", r.Method)
+		}
+		w.Header().Set("Docker-Content-Digest", "sha256:abc")
+		w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	digest, mediaType, err := NewClient(srv.URL).ManifestDigest(testCtx(), "app", "v1")
+	if err != nil {
+		t.Fatalf("ManifestDigest: %v", err)
+	}
+	if digest != "sha256:abc" || mediaType != "application/vnd.oci.image.manifest.v1+json" {
+		t.Errorf("got (%q, %q), want digest plus type", digest, mediaType)
+	}
+}
+
+func TestManifestDigestUnknownSkipsByCount(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	_, _, err := NewClient(srv.URL).ManifestDigest(testCtx(), "app", "gone")
+	var mse *StatusError
+	if !errors.As(err, &mse) || mse.Status != http.StatusNotFound {
+		t.Errorf("ManifestDigest(404) = %v, want *StatusError 404", err)
+	}
+}
+
+func TestManifestDigestMissingDigestErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if _, _, err := NewClient(srv.URL).ManifestDigest(testCtx(), "app", "v1"); err == nil {
+		t.Error("digestless 200 succeeded, want an error")
 	}
 }
 

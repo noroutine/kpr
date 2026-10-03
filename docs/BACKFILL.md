@@ -13,17 +13,17 @@
 
 ## Goal
 
-`kpr backfill`: adopt pre-kpr tags into tracked rows. Constraint: backfill reads tag-link mtimes off the shared mount (bytes, not names), so it gates per run on the served generation — `sentinel.LastProof` + lineage verdict, never a mint — and it honors the lock marker: locked refuses with the fix named. Stranger store refuses; stale snapshot (generation mismatch) warns and proceeds, rows landing not-due. There is no API-only mode and no zero-time rows. Never clobbers receiver-known rows.
+`kpr store backfill`: adopt pre-kpr tags into tracked rows. Constraint: backfill reads tag-link mtimes off the shared mount (bytes, not names), so it gates per run on the served generation — `sentinel.LastProof` + lineage verdict, never a mint — and it honors the lock marker: locked refuses with the fix named. Stranger store refuses; a restored generation refuses armed unless `--accept-rollback` (a preview warns through), rows landing not-due. There is no API-only mode and no zero-time rows. Never clobbers receiver-known rows.
 
 ## Success Criteria
 
 - Backfilled rows carry link-mtime push times and manifest digests, `actor=kpr-backfill`, not due; TTL/keep-N reason about them as real age.
-- Locked refuses naming `kpr store unlock`; stranger store refuses; stale snapshot warns and still records (not-due) instead of refusing.
+- Locked refuses naming `kpr store unlock`; stranger store refuses; stale snapshot warns (dry-run previews, armed records only with `--accept-rollback`).
 - Re-running over receiver-tracked rows changes nothing.
-- `backfill <repo-glob>` touches only matching repos; dry-run default with explicit `--no-dry-run` (decided).
+- `store backfill <repo-glob>` touches only matching repos; dry-run default with explicit `--no-dry-run` (decided).
 - Backfill runs live on a writable registry; races resolve safe (re-push newer-wins, mid-run delete skipped by count).
 - Enumeration authenticates with basic creds; rejected creds refuse the run loudly.
-- Unit suite + lint clean, one e2e scenario green, ARCHITECTURE.md documents the command.
+- Unit suite + lint clean, live compose-stack proof green (see Validation Plan), ARCHITECTURE.md documents the command.
 
 ## Approach
 
@@ -35,7 +35,7 @@ Prerequisite: one prior mint (`kpr store unlock` or an armed `gc` — backfill i
 flowchart TB
     enum["enumerate via API\n_catalog paging, per-repo tags, HEAD digests\n(headers only, noroutine/kpr-* skipped)"] --> gate{"served generation?\nLastProof + lineage verdict"}
     gate -- "absent / unreadable / foreign /\nunpaired / identity-less" --> refuse["refuse, record nothing"]
-    gate -- "mismatch\n(stale snapshot or untracked-own)" --> warn["warn, proceed\nrows land not-due"]
+    gate -- "mismatch\n(stale snapshot or untracked-own)" --> warn["warn in dry-run;\narmed refuses unless accepted"]
     gate -- "tracked newest" --> hold["proceed"]
     warn --> mtime["stat tag-link mtimes as PushedAt\nrecord absent rows only"]
     hold --> mtime["stat tag-link mtimes as PushedAt\nrecord absent rows only"]
@@ -91,8 +91,8 @@ Rules: loopback-only is non-negotiable — an unauthenticated registry must neve
 
 ## Steps
 
-1. **Registry client: auth + `_catalog` paging + manifest HEAD.** The client speaks no auth today — wire basic (`KPR_REGISTRY_USER` / `KPR_REGISTRY_PASSWORD`, presented on every call) covering open and htpasswd registries. `CatalogAll` (Link pagination, terminates on short/empty page), `ManifestDigest` (HEAD, digest + type headers, missing = skip). Rejected creds refuse loudly up front (a 401 on the first call ends the run, never a silent empty enumeration). Bearer-exchange against token issuers reuses the same pair later — future work, see `docs/GC.md`. `httptest` unit tests (basic accepted, 401 refuses).
-2. **`kpr backfill` command.** `runBackfill` reusing the root helper (`registryStoreRoot`) with the read gate (`sentinel.LastProof` + lineage verdict, no mint): enumerate → digest → served-generation gate → refusal cases refuse, mismatch warns-and-proceeds → mtime → skip-tracked → print/record + `recorded/skipped/failed` summary. Cobra `backfill [repo-glob]` with `--no-dry-run` (no accept flags — nothing risk-gated left to override). Mem-store + stub-registry unit tests (absent records, tracked no-ops, mid-run 404 skips, ungated refusal, gated mtimes via `t.TempDir` store layout, unreachable-catalog refusal).
+1. **Registry client: auth + `_catalog` paging + manifest HEAD.** The client speaks no auth today — wire basic (`KPR_REGISTRY_USER` / `KPR_REGISTRY_PASSWORD`, presented on every call) covering open and htpasswd registries. `CatalogAll` (Link pagination, follows rel=next until a page arrives without one, looping pages error), `ManifestDigest` (HEAD, digest + type headers, missing = skip). Rejected creds refuse loudly up front (a 401 on the first call ends the run, never a silent empty enumeration). Bearer-exchange against token issuers reuses the same pair later — future work, see `docs/GC.md`. `httptest` unit tests (basic accepted, 401 refuses).
+2. **`kpr store backfill` command.** `runBackfill` reusing the root helper (`StoreRoot`, same one gc/unlock resolve) with the read gate (`sentinel.LastProof` + lineage verdict, no mint): enumerate → digest → served-generation gate → refusal cases refuse, mismatch warns in dry-run and refuses armed unless rollback-accepted → mtime → skip-tracked → print/record + `recorded/skipped/failed` summary. Cobra `store backfill [repo-glob]` with `--no-dry-run` plus `--accept-rollback` for the restored-generation risk (the one gate backfill accepts — same shape as gc's per-risk flags). Mem-store + stub-registry unit tests (absent records, tracked no-ops, mid-run 404 skips, ungated refusal, gated mtimes via `t.TempDir` store layout, unreachable-catalog refusal, rollback armed-refuses / accepted-warns / dry-run-warns).
 3. **Per-repo scoping.** The positional glob filters enumerated repos before any tag work (unknown-repo typo → refusal, like exact names in `plan add`); unit test scoped vs full runs.
 4. **E2E scenario.** Push tags, flush kpr rows, backfill armed (full + one scoped run), assert digests + times + none due; re-run asserts no-op.
 5. **Docs.** ARCHITECTURE.md: backfill, per-run proof, mtime contract, storage-required constraint, scoping; Open item removed.
@@ -101,8 +101,15 @@ Rules: loopback-only is non-negotiable — an unauthenticated registry must neve
 
 - New tests first, watched fail before impl (TDD).
 - `go test ./... -count=1`, `make lint` (0 issues).
-- `go test -tags e2e ./test/e2e/ -run TestBackfill -count=1` on the compose stack.
-- Manual: `docker exec kpr kpr backfill` preview vs `--no-dry-run`; `kpr plan` empty; unmounted-store run refuses before recording.
+- Live on the compose stack instead of a testcontainers scenario:
+  backfill needs the registry's store root on the caller's
+  filesystem (shared mount), which the e2e fixture's internal
+  registry volume doesn't expose — new harness for one checkbox
+  is disproportionate. Proven instead: push → `store rm` (row
+  dropped, tag kept) → `store backfill` re-records with link
+  mtime, actor `kpr-backfill`, not due → `store inspect`
+  confirms → `store rm --untag` cleans up.
+- Manual: `docker exec kpr kpr store backfill` preview vs `--no-dry-run`; `kpr plan` empty; unmounted-store run refuses before recording.
 
 ## Risks / Open Questions
 

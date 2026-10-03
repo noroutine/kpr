@@ -39,7 +39,9 @@ func openDeps() (*deps, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &deps{cfg: cfg, store: s, reg: registry.NewClient(cfg.RegistryURL)}, nil
+	reg := registry.NewClient(cfg.RegistryURL)
+	reg.SetBasicAuth(cfg.RegistryUser, cfg.RegistryPassword)
+	return &deps{cfg: cfg, store: s, reg: reg}, nil
 }
 
 func (d *deps) close() {

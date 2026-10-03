@@ -58,13 +58,13 @@ Hexagons are the recording paths: the receiver signs
 `kpr-receiver`, `gc` signs `kpr-gc` (mints) and `kpr-heal`
 (adopt-recorded generations land via gc runs), the ceremony signs
 `kpr-unlock`, the gateway signs `kpr-edge` (fence flips land in
-the ring). (`kpr-backfill` gets its node when backfill lands —
-full vocabulary in Data below.)
+the ring), backfill signs `kpr-backfill` (absent rows stamped
+not-due, never mints). Full vocabulary in Data below.
 
 The gateway is a future actor living in `serve` today, not a
 separate command: the edge proxy forwards pushes to the registry
 byte-identical and fences mutating routes — HOLD leases around
-gc finalize, DENY on the lock marker — through the same
+the armed collect, DENY on the lock marker — through the same
 evaluation the use cases mint from (boolean, not a mint). It
 opens only on a RelativeURLs proof over the registry config (no
 proof, no edge); `KPR_EDGE=false` opts out. Either way serve
@@ -405,7 +405,6 @@ previews by default, `--no-dry-run` collects.
 ## Open, in no order
 
 - keep-N tuning surface (`--last`, `--include`): declined, N stays 10 with `--exclude`.
-- Backfill for pre-kpr tags; unknown-age rows default keep today.
 - Real partial-upload detection (bounded manifest reads).
 - Sweep live-stages transport (polling vs websocket) — still
   deferred; the vocabulary and keys are the contract.

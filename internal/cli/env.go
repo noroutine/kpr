@@ -57,6 +57,15 @@ func envValue(cfg *config.Config, name string) string {
 		return "set"
 	case config.EnvRegistryURL:
 		return cfg.RegistryURL
+	case config.EnvRegistryUser:
+		return cfg.RegistryUser
+	case config.EnvRegistryPassword:
+		// A secret: presence only, never the value — same shape
+		// as the redis password above.
+		if cfg.RegistryPassword == "" {
+			return "unset"
+		}
+		return "set"
 	case config.EnvCLINoDryRun:
 		return strconv.FormatBool(cfg.CLINoDryRun)
 	case config.EnvOTELEnabled:
