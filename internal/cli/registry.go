@@ -49,28 +49,37 @@ root). Point-in-time on a live registry.`,
 // analyzeJSON is the piped shape of a magnitude report: the fs
 // walk plus the two numbers the API walk sees.
 type analyzeJSON struct {
-	Repos      int   `json:"repos"`
-	Tags       int   `json:"tags"`
-	Revisions  int   `json:"revisions"`
-	Blobs      int   `json:"blobs"`
-	BlobBytes  int64 `json:"blob_bytes"`
-	Uploads    int   `json:"uploads"`
-	LayerLinks int   `json:"layer_links"`
-	MetaBytes  int64 `json:"meta_bytes"`
-	APIRepos   int   `json:"api_repos"`
-	APITags    int   `json:"api_tags"`
+	Repos       int   `json:"repos"`
+	Tags        int   `json:"tags"`
+	Revisions   int   `json:"revisions"`
+	Blobs       int   `json:"blobs"`
+	BlobBytes   int64 `json:"blob_bytes"`
+	Uploads     int   `json:"uploads"`
+	LayerLinks  int   `json:"layer_links"`
+	LinkBytes   int64 `json:"link_bytes"`
+	UploadBytes int64 `json:"upload_bytes"`
+	APIRepos    int   `json:"api_repos"`
+	APITags     int   `json:"api_tags"`
 }
 
-// gib renders bytes as fractional GiB with two decimals: exact
-// bytes stay in --json, humans get a sense of scale.
-func gib(b int64) string {
-	return fmt.Sprintf("%.2f GiB", float64(b)/1024/1024/1024)
-}
-
-// mib renders bytes as fractional MiB with two decimals: the
-// metadata scale, where GiB would read 0.00.
-func mib(b int64) string {
-	return fmt.Sprintf("%.2f MiB", float64(b)/1024/1024)
+// humanBytes renders bytes in the largest binary unit that keeps
+// the value at one or more whole units, two decimals: bytes stay
+// bytes, gibibytes stay gibibytes. Exact bytes stay in --json,
+// humans get a sense of scale at any magnitude.
+func humanBytes(b int64) string {
+	if b < 1024 {
+		return fmt.Sprintf("%d B", b)
+	}
+	v := float64(b)
+	unit := "B"
+	for _, u := range []string{"KiB", "MiB", "GiB", "TiB", "PiB"} {
+		v /= 1024
+		unit = u
+		if v < 1024 {
+			break
+		}
+	}
+	return fmt.Sprintf("%.2f %s", v, unit)
 }
 
 // analyzeRow labels one magnitude line: names pad to one width so
@@ -103,7 +112,8 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, delta bool) 
 		analyzeRow("fs", fsBody),
 		analyzeRow("revs", fmt.Sprintf("%d revisions, %d untagged", fs.Revisions, untagged)),
 		analyzeRow("blobs", fmt.Sprintf("%d blobs, %d layer links, %d uploads", fs.Blobs, fs.LayerLinks, fs.Uploads)),
-		analyzeRow("size", fmt.Sprintf("%s blobs, %s metadata", gib(fs.BlobBytes), mib(fs.MetaBytes))),
+		analyzeRow("size", fmt.Sprintf("%s blobs, %s links, %s uploads",
+			humanBytes(fs.BlobBytes), humanBytes(fs.LinkBytes), humanBytes(fs.UploadBytes))),
 	}
 }
 
@@ -162,8 +172,8 @@ func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg
 			Repos: rep.Repos, Tags: rep.Tags, Revisions: rep.Revisions,
 			Blobs: rep.Blobs, BlobBytes: rep.BlobBytes,
 			Uploads: rep.Uploads, LayerLinks: rep.LayerLinks,
-			MetaBytes: rep.MetaBytes,
-			APIRepos:  api.Repos, APITags: api.Tags,
+			LinkBytes: rep.LinkBytes, UploadBytes: rep.UploadBytes,
+			APIRepos: api.Repos, APITags: api.Tags,
 		})
 	}
 	return nil
