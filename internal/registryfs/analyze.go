@@ -39,11 +39,13 @@ type Report struct {
 // links, repo _layers links, per-session _uploads dirs, blob data
 // files with their sizes. Repo names nest, so only the tail is
 // pinned — with the _manifests anchor where the layout fixes one.
-// A nil token refuses before touching the disk; a missing root
-// refuses; a root with no v2 tree yet reads as a fresh store
-// (zeros); a v2 that is not a directory refuses. A walk error
-// names its path — magnitude is exact or refused, never guessed.
-func Analyze(store proof.FilesystemStore) (Report, error) {
+// Progress reports the running report every 1024 visits (nil skips
+// it) — the caller throttles rendering. A nil token refuses before
+// touching the disk; a missing root refuses; a root with no v2 tree
+// yet reads as a fresh store (zeros); a v2 that is not a directory
+// refuses. A walk error names its path — magnitude is exact or
+// refused, never guessed.
+func Analyze(store proof.FilesystemStore, progress func(Report)) (Report, error) {
 	var rep Report
 	if store == nil {
 		return rep, fmt.Errorf("analyze without filestore proof: refusing to walk blind (prove the registry config first)")
@@ -66,9 +68,14 @@ func Analyze(store proof.FilesystemStore) (Report, error) {
 	if !v2Info.IsDir() {
 		return rep, fmt.Errorf("analyze %s: not a directory", v2)
 	}
+	visits := 0
 	err = filepath.WalkDir(v2, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
+		}
+		visits++
+		if progress != nil && visits%1024 == 0 {
+			progress(rep)
 		}
 		rel, rerr := filepath.Rel(v2, path)
 		if rerr != nil {
@@ -141,6 +148,9 @@ func Analyze(store proof.FilesystemStore) (Report, error) {
 	})
 	if err != nil {
 		return rep, fmt.Errorf("analyze %s: %w", v2, err)
+	}
+	if progress != nil {
+		progress(rep)
 	}
 	return rep, nil
 }

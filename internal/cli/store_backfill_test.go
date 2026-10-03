@@ -28,7 +28,7 @@ func TestStoreBackfillHelpNamesContract(t *testing.T) {
 	defer func() { _ = storeBackfillCmd.Flags().Set("help", "false") }()
 	Execute()
 	out := buf.String()
-	for _, want := range []string{"repo-glob", "no-dry-run", "accept-rollback"} {
+	for _, want := range []string{"repo-glob", "no-dry-run", "accept-rollback", "output"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("backfill help omits %q", want)
 		}
@@ -63,6 +63,31 @@ func TestStoreBackfillRefusesWithoutRegistryConfig(t *testing.T) {
 		t.Error("store backfill without registry config succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "nope.yml") {
 		t.Errorf("store backfill error = %q, want it to name the config", err.Error())
+	}
+}
+
+// --output to an uncreatable path refuses before any walk: the sink
+// must exist before the run spends API calls. If this fails, the
+// flag is declared but unwired.
+func TestStoreBackfillOutputBadPathRefuses(t *testing.T) {
+	clearStoreEnv(t)
+	dir := t.TempDir()
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, dir)
+	root := t.TempDir()
+	cfg := "storage:\n  filesystem:\n    rootdirectory: " + root + "\n"
+	cfgPath := filepath.Join(t.TempDir(), "registry.yml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatalf("stage registry config: %v", err)
+	}
+	if err := store.NewFileStore(dir).SetUnlocked(context.Background(), true); err != nil {
+		t.Fatalf("unlock file store: %v", err)
+	}
+	t.Setenv(config.EnvRegistryConfig, cfgPath)
+	RootCmd.SetArgs([]string{"store", "backfill", "--output", filepath.Join(t.TempDir(), "gone", "stream.log")})
+	defer RootCmd.SetArgs(nil)
+	if err := RootCmd.Execute(); err == nil {
+		t.Error("store backfill --output into missing dir succeeded, want refusal")
 	}
 }
 

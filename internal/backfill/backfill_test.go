@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,9 +175,38 @@ func TestBackfillRecordsAbsentWithMtimes(t *testing.T) {
 	}
 }
 
-// A preview prints what it would stamp and records nothing: the
-// operator reviews before arming. If this fails, dry runs lie or
-// write.
+// Progress reports every verdict as it lands: the caller renders
+// live counters from it. If this fails, counters lag the run.
+func TestBackfillProgressReportsVerdicts(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	stageTagDir(t, root, "app", "v1")
+	stageTagDir(t, root, "app", "v2")
+	reg := &stubRegistry{
+		repos:   []string{"app"},
+		tags:    map[string][]string{"app": {"v1", "v2"}},
+		digests: map[string]string{"app\x00v1": "sha256:abc", "app\x00v2": "sha256:def"},
+	}
+	var last Summary
+	n := 0
+	opts := Options{DryRun: true, Log: io.Discard, Progress: func(sum Summary) {
+		last, n = sum, n+1
+	}}
+	if _, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, opts, nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("no progress reported")
+	}
+	if last.Recorded != 2 || last.Skipped != 0 || last.Failed != 0 {
+		t.Errorf("last progress = %+v, want 2 recorded", last)
+	}
+}
+
+// A preview prints what it would stamp to the log sink and records
+// nothing: the operator reviews before arming. No sink, no stream
+// — the per-tag lines need an explicit Log. If this fails, dry
+// runs lie or write.
 func TestBackfillDryRunPrintsWithoutRecording(t *testing.T) {
 	ctx := context.Background()
 	root, s, _, _ := stagePaired(t)
@@ -187,7 +217,7 @@ func TestBackfillDryRunPrintsWithoutRecording(t *testing.T) {
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{DryRun: true}, nil)
+	sum, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, Options{DryRun: true, Log: &out}, nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

@@ -7,7 +7,13 @@ one-shot import for tags the receiver never saw.
 kpr store backfill                  # preview everything
 kpr store backfill 'myteam/*'       # preview one scope
 kpr store backfill --no-dry-run     # record for real
+kpr store backfill --output -       # stream per-tag lines to stdout
+kpr store backfill --output run.log # same stream to a file
 ```
+
+Counters repaint live on a terminal; the per-tag stream needs
+`--output` (default discards it). Pipes get the final summary
+only — no control codes in logs.
 
 ## Contents
 

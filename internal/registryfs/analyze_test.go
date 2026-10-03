@@ -73,9 +73,33 @@ func stageLayout(t *testing.T) (proof.FilesystemStore, Report) {
 // hostile names. If this fails, analyze reports fiction.
 func TestAnalyzeCountsLayout(t *testing.T) {
 	fstore, want := stageLayout(t)
-	got, err := Analyze(fstore)
+	got, err := Analyze(fstore, nil)
 	if err != nil {
 		t.Fatalf("Analyze = %v, want counts", err)
+	}
+	if got != want {
+		t.Errorf("Analyze = %+v, want %+v", got, want)
+	}
+}
+
+// Progress fires every 1024 visits and once at the end with the
+// final report: the caller renders live counters from it. If
+// this fails, counters never move.
+func TestAnalyzeProgressReports(t *testing.T) {
+	fstore, want := stageLayout(t)
+	var last Report
+	n := 0
+	got, err := Analyze(fstore, func(rep Report) {
+		last, n = rep, n+1
+	})
+	if err != nil {
+		t.Fatalf("Analyze = %v, want counts", err)
+	}
+	if n == 0 {
+		t.Fatal("no progress reported")
+	}
+	if last != want {
+		t.Errorf("last progress = %+v, want %+v", last, want)
 	}
 	if got != want {
 		t.Errorf("Analyze = %+v, want %+v", got, want)
@@ -85,7 +109,7 @@ func TestAnalyzeCountsLayout(t *testing.T) {
 // A root with no v2 tree yet is a fresh store: zeros, not a
 // refusal. If this fails, empty registries refuse.
 func TestAnalyzeEmptyRootZeroes(t *testing.T) {
-	got, err := Analyze(proveRoot(t, t.TempDir()))
+	got, err := Analyze(proveRoot(t, t.TempDir()), nil)
 	if err != nil {
 		t.Fatalf("Analyze empty = %v, want zeros", err)
 	}
@@ -106,7 +130,7 @@ func TestAnalyzeNoRepositoriesCountsBlobs(t *testing.T) {
 	if err := os.WriteFile(p, []byte("123456"), 0o644); err != nil {
 		t.Fatalf("stage file: %v", err)
 	}
-	got, err := Analyze(proveRoot(t, root))
+	got, err := Analyze(proveRoot(t, root), nil)
 	if err != nil {
 		t.Fatalf("Analyze = %v, want counts", err)
 	}
@@ -118,7 +142,7 @@ func TestAnalyzeNoRepositoriesCountsBlobs(t *testing.T) {
 // A nil token refuses before touching the disk: no proof, no
 // walk. If this fails, unproven paths analyze.
 func TestAnalyzeNilProofRefuses(t *testing.T) {
-	if _, err := Analyze(nil); err == nil {
+	if _, err := Analyze(nil, nil); err == nil {
 		t.Error("Analyze(nil) succeeded, want refusal")
 	}
 }
@@ -128,7 +152,7 @@ func TestAnalyzeNilProofRefuses(t *testing.T) {
 // empty or nameless.
 func TestAnalyzeMissingRootRefuses(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "absent")
-	if _, err := Analyze(proveRoot(t, root)); err == nil {
+	if _, err := Analyze(proveRoot(t, root), nil); err == nil {
 		t.Error("Analyze on absent root succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), root) {
 		t.Errorf("refusal = %q, want it to name %q", err.Error(), root)
@@ -147,7 +171,7 @@ func TestAnalyzeFileV2Refuses(t *testing.T) {
 	if err := os.WriteFile(v2, []byte("not a dir"), 0o644); err != nil {
 		t.Fatalf("stage file: %v", err)
 	}
-	if _, err := Analyze(proveRoot(t, root)); err == nil {
+	if _, err := Analyze(proveRoot(t, root), nil); err == nil {
 		t.Error("Analyze on file v2 succeeded, want refusal")
 	}
 }
@@ -165,7 +189,7 @@ func TestAnalyzeUnreadableDirAborts(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(repodir, 0o755) })
-	if _, err := Analyze(fstore); err == nil {
+	if _, err := Analyze(fstore, nil); err == nil {
 		t.Error("Analyze over unreadable dir succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "_manifests") {
 		t.Errorf("refusal = %q, want it to name the path", err.Error())

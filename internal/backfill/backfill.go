@@ -56,9 +56,14 @@ type Recorder interface {
 }
 
 // Options tunes a backfill run: which repos, preview or armed.
+// Log takes the per-tag stream (would record/recorded lines); nil
+// discards it. Progress reports running counters after every tag
+// verdict — the caller throttles rendering; nil skips it.
 type Options struct {
 	RepoGlob string
 	DryRun   bool
+	Log      io.Writer
+	Progress func(Summary)
 }
 
 // Summary counts a run: stamped, deliberately skipped, and
@@ -79,6 +84,15 @@ type Summary struct {
 // stranger store refuses; mid-run vanishes skip by count.
 func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows Rows, rec Recorder, ids lineage.IdentityStore, lock proof.Locker, root string, opts Options, rollback proof.AcceptedRisk) (Summary, error) {
 	var sum Summary
+	log := opts.Log
+	if log == nil {
+		log = io.Discard
+	}
+	progress := func() {
+		if opts.Progress != nil {
+			opts.Progress(sum)
+		}
+	}
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words as gc.
 	if _, err := proof.ProveUnlockedStore(ctx, lock); err != nil {
@@ -138,6 +152,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 		if err != nil {
 			if isNotFound(err) {
 				sum.Failed++
+				progress()
 				if _, werr := fmt.Fprintf(w, "Warning: %s vanished mid-run, skipping\n", repo); werr != nil {
 					return sum, werr
 				}
@@ -148,11 +163,13 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 		for _, tag := range tags {
 			if tracked[repo+"\x00"+tag] {
 				sum.Skipped++
+				progress()
 				continue
 			}
 			digest, mediaType, derr := reg.ManifestDigest(ctx, repo, tag)
 			if derr != nil {
 				sum.Failed++
+				progress()
 				if _, werr := fmt.Fprintf(w, "Warning: %s:%s digest unreadable (%v), skipping\n", repo, tag, derr); werr != nil {
 					return sum, werr
 				}
@@ -161,6 +178,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 			mtime, merr := tagMtime(root, repo, tag)
 			if merr != nil || mtime.IsZero() {
 				sum.Failed++
+				progress()
 				if _, werr := fmt.Fprintf(w, "Warning: %s:%s mtime unreadable (%v), skipping\n", repo, tag, merr); werr != nil {
 					return sum, werr
 				}
@@ -173,7 +191,8 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 			}
 			if opts.DryRun {
 				sum.Recorded++
-				if _, werr := fmt.Fprintf(w, "would record %s:%s %s\n", repo, tag, digest); werr != nil {
+				progress()
+				if _, werr := fmt.Fprintf(log, "would record %s:%s %s\n", repo, tag, digest); werr != nil {
 					return sum, werr
 				}
 				continue
@@ -182,7 +201,8 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 				return sum, fmt.Errorf("backfill record %s:%s: %w", repo, tag, err)
 			}
 			sum.Recorded++
-			if _, werr := fmt.Fprintf(w, "recorded %s:%s %s\n", repo, tag, digest); werr != nil {
+			progress()
+			if _, werr := fmt.Fprintf(log, "recorded %s:%s %s\n", repo, tag, digest); werr != nil {
 				return sum, werr
 			}
 		}
