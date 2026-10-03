@@ -149,6 +149,18 @@ and `--threshold-mcover=85` (covered mutants over all mutants), exiting
 nonzero below either. Both sit below the achieved baseline with room to
 tighten — raise them, don't lower them, when the suite improves.
 
+Not every survivor is a missing test. Four kinds are expected, and
+reaching for a test to kill them is wasted work:
+
+- **Timing mutants** — a changed duration no assertion can observe.
+- **Provable equivalents** — the mutation yields identical behavior.
+  NOTE these at the site so the next run doesn't re-litigate them.
+- **Dead-server error convergence** — several failure paths produce
+  the same error, so swapping between them is invisible.
+- **Live-redis branches** — only reachable under `-tags e2e`.
+
+Anything outside those four is killable: write the focused test.
+
 Gremlins mislabels mutants on statement-continuation lines as NOT
 COVERED and skips them: a multi-line `if` whose condition sits on
 a later line, a `case` sharing its operator line. The label is a

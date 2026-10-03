@@ -221,9 +221,9 @@ four. Testing approach and coverage gates: [docs/TESTING.md](docs/TESTING.md).
 ## Deliberately out
 
 Policy/workflow engine, scheduler, per-repo rule sets, auth,
-signing, replication, cloud integrations, online registry GC. Where
-each of these stands is tracked in the
-[current state](docs/ARCHITECTURE.md#current-state).
+signing, replication, cloud integrations, online registry GC. The
+reasoning for each is in
+[ARCHITECTURE](docs/ARCHITECTURE.md#deliberately-out).
 
 ## License
 

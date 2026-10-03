@@ -1,7 +1,7 @@
 # Architecture — future work
 
-What is open or coming. What currently ships is in
-[ARCHITECTURE.md](ARCHITECTURE.md#current-state).
+What is open or coming. [ARCHITECTURE.md](ARCHITECTURE.md)
+describes what ships today.
 
 ## Open, in no order
 

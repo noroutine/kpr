@@ -21,7 +21,6 @@ the components are unchanged. Both backends: [STORES](STORES.md).
 - [Feedback, not log streaming](#feedback-not-log-streaming)
 - [Deliberately out](#deliberately-out)
 - [Background: why a sidecar](#background-why-a-sidecar)
-- [Current state](#current-state)
 
 Open and upcoming work: [ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md).
 
@@ -391,39 +390,3 @@ kpr's position: stay a dumb-registry companion. Speak the plain
 distribution API (keeps zot working as a backend for free), keep
 all policy in testable Go with colocated tunings, absorb ttl.sh's
 sidecar semantics minus the hosted-service load.
-
-## Current state
-
-Built on `master`: CI green, full unit suite and lint clean, e2e
-green in compose.
-
-Proven live, end to end:
-
-```
-push → receiver tracks → reap --no-dry-run marks → sweep deletes by
-digest → kpr gc previews, --no-dry-run collects
-```
-
-Marks can come from a single policy (`reap <name>`), be hand-picked
-(`plan add`), or be pruned (`plan remove`).
-
-What is settled:
-
-- **Policies.** All five live and selectable. `latest` is spared
-  everywhere (10 + `latest`). Ensure-survivor tripwires per tag
-  style, plus the `isBareHash` a/f boundary pins.
-- **keep-N.** Live, N fixed at 10, excludes via `reap --exclude`.
-  Per-repo tuning declined by decision.
-- **Proof chain.** Sentinel generations tagged with keep-N reaping;
-  lineage-gated altering paths (`gc`, `unlock`, sweeper) with the
-  explicit `kpr store adopt` pairing ceremony; a checked clock
-  (local default, compose pins `https`) opens every altering path.
-- **GC lock** verified advisory against the distribution source —
-  `MarkAndSweep` at v3.1.2 sets none.
-- **Mutation testing** (gremlins, local): 94.84% efficacy on the
-  clock tree, 588 killed and 32 lived. Survivors are timing mutants,
-  provable equivalents (NOTE'd at the site), dead-server error
-  convergence, and live-redis branches that only die under
-  `-tags e2e`. Scaffolding is excluded from candidacy — see
-  [TESTING.md](TESTING.md). Killable survivors were fixed with
-  focused tests.
