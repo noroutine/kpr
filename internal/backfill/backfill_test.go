@@ -132,6 +132,107 @@ func stageTagDir(t *testing.T, root, repo, tag string) time.Time {
 	return fi.ModTime().UTC()
 }
 
+// Fossil sentinels adopt and the floater records once: a rerun
+// skips both by row. If this fails, the store never learns the
+// generations pushed while kpr was unwired.
+func TestBackfillAdoptsSentinelFossils(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	repo := "noroutine/kpr-shadow"
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	stageTagDir(t, root, repo, "fossil")
+	retime(t, root, repo, "fossil", old)
+	stageTagDir(t, root, repo, sentinel.Tag)
+	reg := &stubRegistry{
+		repos: []string{repo},
+		tags:  map[string][]string{repo: {"fossil", sentinel.Tag}},
+		digests: map[string]string{
+			repo + "\x00fossil":          "sha256:fossil",
+			repo + "\x00" + sentinel.Tag: "sha256:floater",
+		},
+	}
+	var out strings.Builder
+	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if sum.Recorded != 2 || sum.Skipped != 0 {
+		t.Fatalf("sum = %+v, want 2 recorded, 0 skipped", sum)
+	}
+	rows, _ := s.All(ctx)
+	byTag := map[string]policy.Row{}
+	for _, r := range rows {
+		if r.Repo == repo {
+			byTag[r.Tag] = r
+		}
+	}
+	fossil, ok := byTag["fossil"]
+	if !ok {
+		t.Fatal("no fossil row recorded")
+	}
+	if fossil.Actor != ActorBackfill || fossil.Due || !fossil.PushedAt.Equal(old) {
+		t.Errorf("fossil = %+v, want kpr-backfill + not-due + old link mtime", fossil)
+	}
+	if _, ok := byTag[sentinel.Tag]; !ok {
+		t.Fatal("no latest row recorded")
+	}
+	if sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil); err != nil {
+		t.Fatalf("rerun: %v", err)
+	} else if sum.Recorded != 0 || sum.Skipped != 2 {
+		t.Fatalf("rerun = %+v, want 0 recorded, 2 skipped", sum)
+	}
+}
+
+// A fossil rewritten past the live generation clamps at the
+// floater's push: nothing backfilled may outrank latest in
+// keep-N ordering. If this fails, a touched fossil sorts as
+// fresher than the generation it predates.
+func TestBackfillClampsSentinelNewerThanLatest(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	repo := "noroutine/kpr-shadow"
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	stageTagDir(t, root, repo, sentinel.Tag)
+	retime(t, root, repo, sentinel.Tag, old)
+	stageTagDir(t, root, repo, "fossil")
+	reg := &stubRegistry{
+		repos: []string{repo},
+		tags:  map[string][]string{repo: {"fossil", sentinel.Tag}},
+		digests: map[string]string{
+			repo + "\x00fossil":          "sha256:fossil",
+			repo + "\x00" + sentinel.Tag: "sha256:floater",
+		},
+	}
+	var out strings.Builder
+	if _, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	rows, _ := s.All(ctx)
+	found := false
+	for _, r := range rows {
+		if r.Repo != repo || r.Tag != "fossil" {
+			continue
+		}
+		found = true
+		if r.PushedAt.After(old) {
+			t.Fatalf("fossil PushedAt = %v, want clamped at latest %v", r.PushedAt, old)
+		}
+	}
+	if !found {
+		t.Fatal("no fossil row recorded")
+	}
+}
+
+// retime backdates a staged tag link: stageTagDir stamps now,
+// fossils need age.
+func retime(t *testing.T, root, repo, tag string, at time.Time) {
+	t.Helper()
+	link := filepath.Join(root, "docker", "registry", "v2", "repositories", repo, "_manifests", "tags", tag, "current", "link")
+	if err := os.Chtimes(link, at, at); err != nil {
+		t.Fatalf("retime link: %v", err)
+	}
+}
+
 func accept(t *testing.T) proof.AcceptedRisk {
 	t.Helper()
 	return proof.Force(proof.Arm(true, false), true)
@@ -357,24 +458,35 @@ func TestBackfillSkipsTracked(t *testing.T) {
 	}
 }
 
-// Sentinel machinery is inventory, not backfill: our repos never
-// become rows. If this fails, generations get TTL'd like workloads.
-func TestBackfillSkipsSentinelRepos(t *testing.T) {
+// A tracked generation skips while its untracked sibling adopts:
+// the skip is per row, never per repo. If this fails, reruns
+// re-record the live generation.
+func TestBackfillSkipsTrackedSentinelGen(t *testing.T) {
 	ctx := context.Background()
-	root, s, _, _ := stagePaired(t)
-	stageTagDir(t, root, "app", "v1")
+	root, s, gen, _ := stagePaired(t)
+	stageTagDir(t, root, sentinel.Repo, gen)
+	stageTagDir(t, root, sentinel.Repo, "fossil")
 	reg := &stubRegistry{
-		repos:   []string{sentinel.Repo, "app"},
-		tags:    map[string][]string{sentinel.Repo: {"gen1"}, "app": {"v1"}},
-		digests: map[string]string{"app\x00v1": "sha256:abc"},
+		repos: []string{sentinel.Repo},
+		tags:  map[string][]string{sentinel.Repo: {gen, "fossil"}},
+		digests: map[string]string{
+			sentinel.Repo + "\x00" + gen: "sha256:new",
+			sentinel.Repo + "\x00fossil": "sha256:fossil",
+		},
 	}
 	var out strings.Builder
 	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if sum.Recorded != 1 {
-		t.Errorf("sum = %+v, want exactly the app row", sum)
+	if sum.Recorded != 1 || sum.Skipped != 1 {
+		t.Errorf("sum = %+v, want 1 recorded (fossil), 1 skipped (live gen)", sum)
+	}
+	rows, _ := s.All(ctx)
+	for _, r := range rows {
+		if r.Repo == sentinel.Repo && r.Tag == gen && r.Digest != "" {
+			t.Errorf("live generation clobbered: %+v", r)
+		}
 	}
 }
 

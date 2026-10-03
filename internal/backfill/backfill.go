@@ -150,9 +150,6 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 	}
 	var matched []string
 	for _, repo := range repos {
-		if strings.HasPrefix(repo, SentinelPrefix) {
-			continue
-		}
 		if opts.RepoGlob != "" {
 			ok, merr := policy.MatchImage(opts.RepoGlob, repo)
 			if merr != nil || !ok {
@@ -180,6 +177,23 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 		sum.Repos++
 		sum.Tags += len(tags)
 		progress()
+		// The floater caps sentinel rows: a fossil rewritten past
+		// the live generation would otherwise outrank it in keep-N
+		// ordering. No floater, no cap; an unreadable one warns
+		// and runs uncapped.
+		newest := time.Time{}
+		if strings.HasPrefix(repo, SentinelPrefix) {
+			lm, lerr := tagMtime(root, repo, sentinel.Tag)
+			switch {
+			case lerr == nil:
+				newest = lm
+			case os.IsNotExist(lerr):
+			default:
+				if _, werr := fmt.Fprintf(w, "Warning: %s:%s mtime unreadable (%v), sentinel rows uncapped\n", repo, sentinel.Tag, lerr); werr != nil {
+					return sum, werr
+				}
+			}
+		}
 		for _, tag := range tags {
 			if tracked[repo+"\x00"+tag] {
 				sum.Skipped++
@@ -203,6 +217,9 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 					return sum, werr
 				}
 				continue
+			}
+			if !newest.IsZero() && mtime.After(newest) {
+				mtime = newest
 			}
 			row := policy.Row{
 				Repo: repo, Tag: tag,

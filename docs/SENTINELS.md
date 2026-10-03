@@ -56,8 +56,9 @@ content round-trip), worse citizenship:
 - **cache:** each blob GET writes redis blobdescriptor
   entries with no TTL — permanent residue per digest.
 - **kpr pipeline:** a tagged repo appears in backfill
-  enumeration → tracked rows → sweeper marks due → DELETEs
-  the proof out from under itself, loudly.
+  enumeration → tracked rows, not due. Fossils age into keep-N
+  like any generation; `latest` is policy-spared, so the
+  sweeper never DELETEs the proof out from under itself.
 
 Content round-trip proves nothing the catalog signal
 doesn't: both read through the same driver off the same
@@ -119,8 +120,10 @@ written once and never repointed.
 
 **Why this name.** Three constraints settled it:
 
-- Nested under `kpr/`, so one glob excludes every kpr-owned repo
-  from backfill enumeration.
+- Nested under `kpr/`, so one prefix splits every kpr-owned repo
+  from workloads in all views (scan counts, analyze, store ls,
+  backfill baseline share the literal). Backfill adopts sentinel
+  tags as rows, capped at the floater's push.
 - Namespaced under `noroutine/` (owned) rather than the bare tool
   name, so it can't collide with another tenant's repo.
 - Leading-underscore namespaces are out: name components must

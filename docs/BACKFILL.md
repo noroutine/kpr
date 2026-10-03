@@ -88,6 +88,7 @@ Each of these ends tracked, with a digest, not due:
 | Ordinary pushed tags, stable volume | mtime reads true push time, HEAD resolves the digest, row lands with real age |
 | Multi-arch index tags | HEAD returns the index digest, recorded like any other; the sweeper deletes indexes by digest the same way |
 | Signatures and attestations (`.sig`, `.att`) | plain tags to enumeration — tracked with their own digests and ages |
+| Sentinel fossils (pre-kpr generations, `noroutine/kpr-*`) | adopted like any tag; PushedAt caps at the `latest` floater's push, so nothing backfilled outranks the live generation in keep-N ordering |
 | A tag re-pushed mid-backfill | benign race: backfill may record the older digest, then the receiver's notification overwrites it (newer wins by `Record` semantics) |
 | Already-tracked tags | skipped silently by count, so re-running after an outage only fills the gap |
 

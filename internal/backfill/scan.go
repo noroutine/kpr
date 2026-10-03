@@ -41,8 +41,9 @@ func ScanCatalog(ctx context.Context, w io.Writer, reg Registry, progress func(C
 	for _, repo := range repos {
 		// No sentinel skip: this counts what the API names, and
 		// the fs walk counts machinery too — the comparison only
-		// holds when both sides see everything. (Adoption still
-		// skips sentinels in Run; counting is not adopting.)
+		// holds when both sides see everything. (Run adopts them
+		// too, capped at the floater's push; counting is still
+		// not adopting.)
 		tags, err := reg.Catalog(ctx, repo)
 		if err != nil {
 			if isNotFound(err) {
