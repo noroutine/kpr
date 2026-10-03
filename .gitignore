@@ -1,8 +1,5 @@
 # Binaries for programs and plugins
 /kpr
-# FileStore dev-stack state (./kpr bind mount); the binary rule above
-# already ignores the name, this names the directory on purpose.
-/kpr/
 *.exe
 *.exe~
 *.dll

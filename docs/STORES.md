@@ -37,8 +37,8 @@ whatever carries them.
 Rooted at `KPR_STORE_DIR`, default `kpr` (relative to the
 working directory — run serve and CLI from one place, or
 set an absolute path; a split cwd silently forks state,
-so compose always sets it absolute (the file stack mounts
-`./kpr` at `KPR_STORE_DIR=/var/lib/kpr`):
+so compose always sets it absolute (the file stack mounts the
+`kpr-data` volume at `KPR_STORE_DIR=/var/lib/kpr`):
 
 - `rows/<repo-path…>/<tag>.json` — one file per row, the
   repo split into subdirs mirroring the registry

@@ -210,10 +210,10 @@ dead tags otherwise; `docs/GC.md` has the matrix).
   registry 500s on push, `unlock` fails `permission denied` on
   the sentinel. `make up` / `just up` claims the shared store
   (CLAIM_STORE recipe); hand-started stacks need one
-  `docker exec -u 0 kpr chown -R 1000:1000 /var/lib/registry`.
-  FileStore state (`./kpr`) survives on its bind mount while the
-  registry volume is fresh: `unlock` then warns it is re-minting
-  under an existing pairing — expected, not a stranger.
+  `docker exec -u 0 kpr chown -R 1000:1000 /var/lib/registry /var/lib/kpr`.
+  Both state volumes (`kpr-data`, `registry-data`) wipe as one
+  unit on `down -v`: re-`up` needs a fresh `store adopt`, the
+  old pairing died with the volume.
 - **Clock-source unreachable warning is harmless.** The default
   `local` method checks nothing; with `https`/`ntp` selected, a
   host that can't reach the source warns and proceeds on local

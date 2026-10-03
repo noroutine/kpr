@@ -28,10 +28,9 @@ services:
       # this port used to belong to the registry below).
       - "KPR_EDGE_ADDR=:5000"
 
-      # State backend: FileStore on the bind-mounted ./kpr (see
-      # docs/STORES.md). KPR_STORE_DIR must be absolute — the M3
-      # derivation refuses to guess, and compose can't interpolate
-      # a host path into the container anyway.
+      # State backend: FileStore on the kpr-data volume (see
+      # docs/STORES.md) — one cleanup unit with the registry
+      # volume, never a host bind. KPR_STORE_DIR must be absolute.
       - "KPR_STORE=file"
       - "KPR_STORE_DIR=/var/lib/kpr"
 
@@ -52,11 +51,12 @@ services:
       # - OTEL_ENVIRONMENT=production
       # - OTEL_SERVICE_VERSION=${VERSION:-dev}
     volumes:
-      # FileStore state, bind-mounted so the operator can watch it
-      # breathe: rows/ ring/ locks/ straight on the host. `make up`
-      # creates ./kpr owned by you, so the container's kpr user
-      # (uid 1000) can write without a chown dance. Git-ignored.
-      - ./kpr:/var/lib/kpr
+      # FileStore state on a named volume: `down -v` wipes kpr rows
+      # and registry blobs as one unit, no host bind to go stale
+      # beside it. Fresh volumes arrive root-owned; `make up` /
+      # `just up` claims them (CLAIM_STORE recipe) since the
+      # container's kpr user (uid 1000) can't write those.
+      - kpr-data:/var/lib/kpr
       # GC shares the registry's store: config read-only, blob data
       # read-write. `make gc` runs the stock collector (embedded in
       # the kpr image) against these after taking the file lock.
@@ -109,4 +109,5 @@ networks:
     driver: bridge
 
 volumes:
+  kpr-data:
   registry-data:
