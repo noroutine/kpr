@@ -1,81 +1,74 @@
-# Adopting kpr: bolting the keeper onto an existing registry (+ Traefik)
+# Adopting kpr: bolting the keeper onto an existing registry
 
-> Not to be confused with `kpr store adopt` — the lineage-pairing ceremony
-> (`docs/SENTINELS.md`: whose registry is this). This guide attaches
-> kpr to your registry; that command pairs a store to a lineage.
+> Not to be confused with `kpr store adopt` — the lineage-pairing
+> ceremony ([SENTINELS.md](SENTINELS.md): whose registry is this).
+> This guide attaches kpr to your registry; that command pairs a
+> store to a lineage.
 
-You already run `distribution` (maybe behind Traefik, maybe with redis
-blob-descriptor cache) and you want ephemeral tags without migrating
-to Harbor. kpr attaches as a sidecar: no registry fork, no data
-migration, three wires. Start disarmed — it only plans until you say
-otherwise. (No registry yet? Start at [docs/QUICKSTART.md](QUICKSTART.md).)
+You already run `distribution`, maybe behind Traefik, and you want
+ephemeral tags without migrating to Harbor. kpr attaches as a
+sidecar: no registry fork, no data migration, no database.
+
+Start disarmed — it only plans until you say otherwise.
+
+No registry yet? Start at [QUICKSTART.md](QUICKSTART.md) instead.
 
 ## Contents
 
-- [The three wires](#the-three-wires)
+- [What gets wired](#what-gets-wired)
 - [Step 0 — pin the image](#step-0--pin-the-image)
-- [Step 1 — redis: one free DB](#step-1--redis-one-free-db)
-- [Step 2 — registry config: notify + allow deletes](#step-2--registry-config-notify--allow-deletes)
-- [Step 3 — the kpr service](#step-3--the-kpr-service)
-- [Step 4 — Traefik checklist](#step-4--traefik-checklist)
-- [Step 5 — first run, still disarmed](#step-5--first-run-still-disarmed)
-- [What to expect (and what not to)](#what-to-expect-and-what-not-to)
+- [Step 1 — registry config](#step-1--registry-config)
+- [Step 2 — the kpr service](#step-2--the-kpr-service)
+- [Step 3 — Traefik, if you use it](#step-3--traefik-if-you-use-it)
+- [Step 4 — first run, still disarmed](#step-4--first-run-still-disarmed)
+- [Step 5 — arming it](#step-5--arming-it)
+- [Troubleshooting](#troubleshooting)
+- [Using redis instead of files](#using-redis-instead-of-files)
 
-## The three wires
+## What gets wired
 
 ```mermaid
 flowchart LR
     PUSH[your pushes] -- "edge :5000\ntransparent + fenced" --> KPR[kpr serve]
     KPR -- "forward" --> REG[your registry]
-    REG -- "POST /events\n(push notifications)" --> KPR
+    REG -- "POST /events\npush notifications" --> KPR
     KPR -- "catalog reads +\nmanifest deletes" --> REG
-    REG -. "your existing redis\n(blob cache, DB 3?)" .-> REDIS[(redis)]
-    KPR -- "rows on a free DB\n(DB 4 here)" --> REDIS
+    KPR -- "rows as files" --> VOL[(shared\nregistry volume)]
+    REG --- VOL
     TRF[Traefik] -. "optional: console :9300 only" .-> KPR
 ```
 
-1. **Registry → kpr**: push notifications to the receiver
-   (`POST http://kpr:8080/events`). The registry container must reach
-   kpr by service name — same Docker network, internal URL.
-2. **kpr → registry**: catalog reads (`reap`) and manifest deletes by
-   digest (sweeper). Needs `storage.delete.enabled: true`.
-3. **Both → state**: kpr rows live on one logical DB of your (or a
-   new) redis. Never the registry's blob-cache DB — pick a free one.
-   (No redis at all? `KPR_STORE=file` keeps rows as plain files on a
-   shared volume instead — see [docs/STORES.md](STORES.md). The rest
-   of this guide assumes redis.)
+Two wires and a volume:
 
-Traefik only ever fronts the **console** (`:9300`). The receiver stays
-off Traefik: notifications from inside the registry container to a
-public URL hairpin through TLS and any auth middleware — don't.
-Pushes stay off Traefik too: they land on the edge (`:5000` on kpr,
-moved off the registry) — a transparent proxy that fences mutating
-routes (DENY while the store is locked, HOLD around the armed collect).
+1. **Registry → kpr.** Push notifications to the receiver at
+   `POST http://kpr:8080/events`. The registry container reaches kpr
+   by service name on a shared Docker network.
+2. **kpr → registry.** Catalog reads for `reap`, and manifest
+   deletes by digest for the sweeper. Needs
+   `storage.delete.enabled: true`.
+3. **The registry's storage volume, mounted into kpr.** Not
+   optional. kpr proves it is looking at the registry's own store
+   before it ever deletes, and that proof reads and writes real
+   bytes. Rows live on that same volume by default, so the registry
+   root carries images and kpr's memory of them as one unit.
+
+**What stays off Traefik.** Notifications from inside the registry
+container to a public URL would hairpin through TLS and any auth
+middleware — don't. Pushes stay off it too: they land on kpr's edge
+(`:5000`, moved off the registry), a transparent proxy that fences
+mutating routes. Traefik only ever fronts the console.
 
 ## Step 0 — pin the image
 
-Multiplatform images publish on tags only (per-push builds are
-heat): `nrtn.dev/catalyst/kpr:<release-tag>` (`latest` tracks semver
-releases). Pin a tag; don't float.
+Multiplatform images publish on tags only, since per-push builds
+are heat: `nrtn.dev/catalyst/kpr:<release-tag>` (`latest` tracks
+semver releases). Pin a tag; don't float.
 
-## Step 1 — redis: one free DB
+## Step 1 — registry config
 
-Reuse your existing redis. kpr needs a logical DB nobody else uses —
-this repo's convention is **DB 4** (0–2 belong to other tenants, 3 is
-the registry blob-descriptor cache in a realistic setup), plus the
-password if auth is on:
-
-```bash
-redis-cli -a "$REDIS_PASSWORD" INFO keyspace  # confirm DB 4 empty
-```
-
-Or copy the `redis` service from this repo's `docker-compose.redis.yml`
-(password + persistence + healthcheck included).
-
-## Step 2 — registry config: notify + allow deletes
-
-Merge into your `registry-config.yml` (keys are stock
-`distribution` — nothing kpr-specific to install server-side):
+Merge into your `registry-config.yml`. These are all stock
+`distribution` keys — there is nothing kpr-specific to install
+server-side:
 
 ```yaml
 notifications:
@@ -91,55 +84,74 @@ storage:
     enabled: true   # without this every sweeper DELETE 405s
 
 http:
-  relativeurls: true   # the edge fronts this registry: upstream
-    # URLs must never name the backend. Never set `host` alongside
-    # — it silently overrides this knob (and fails the edge proof:
-    # no proof, no edge).
+  relativeurls: true   # the edge fronts this registry, so upstream
+                       # URLs must never name the backend
 ```
 
-Notes:
+Three things to get right:
 
-- `url` resolves **from the registry container**. `http://kpr:8080`
+- **`url` resolves from the registry container.** `http://kpr:8080`
   means "a container named `kpr` on our shared network" — not
-  Traefik, not `localhost` (that's the registry container itself).
-- Your existing `storage.cache.blobdescriptor.redis` (DB 3 or
-  wherever) is untouched; kpr never reads blob metadata.
-- Restart the registry after the config change — it reads the file
-  once at boot.
+  Traefik, and not `localhost`, which is the registry container
+  itself.
+- **Never set `http.host` alongside `relativeurls`.** It silently
+  overrides the knob, and that fails the edge proof. No proof, no
+  edge.
+- **Restart the registry.** It reads the config file once, at boot.
 
-## Step 3 — the kpr service
+Your existing `storage.cache.blobdescriptor` config is untouched —
+kpr never reads blob metadata. It does matter at gc time, though;
+see [GC.md](GC.md#after-an-armed-run-stale-blob-descriptors).
 
-Same network as the registry (and Traefik, if you want the console
-routed). `CMD` already runs `kpr serve`; one-shots stay disarmed
-until `KPR_CLI_NO_DRY_RUN=true`:
+## Step 2 — the kpr service
+
+Same network as the registry. `CMD` already runs `kpr serve`, and
+one-shot commands stay disarmed until `KPR_CLI_NO_DRY_RUN=true`.
 
 ```yaml
 services:
   kpr:
     image: nrtn.dev/catalyst/kpr:<release-tag>   # pin it, see Step 0
     container_name: kpr
+    volumes:
+      # Both are required. kpr resolves the store root from the
+      # registry's own config, then proves that mount is the store
+      # the registry serves.
+      - registry-data:/var/lib/registry
+      - ./registry-config.yml:/etc/distribution/config.yml:ro
     ports:
       # The published registry port moves here: pushes land on the
-      # edge (default-on inside `serve`). `KPR_EDGE=false` opts out;
-      # a failed RelativeURLs proof closes it loudly either way.
+      # edge, which is default-on inside `serve`.
       - "5000:5000"
     environment:
-      # Edge listen address (default :5000, said out loud: this port
-      # used to belong to the registry).
       - KPR_EDGE_ADDR=:5000
-      # Registry peer: internal service URL, as the kpr container sees it.
       - KPR_REGISTRY_URL=http://registry:5000
-      - KPR_REDIS_ADDR=redis:6379
-      - KPR_REDIS_PASSWORD=${REDIS_PASSWORD:?set a redis password}
-      - KPR_REDIS_DB=4
-      # Arm only after the first dry run (Step 5). Anything but exactly
-      # "true" keeps implicit dry-run: plans, never deletes.
+      # Rows beside the images, so the registry root is a complete,
+      # self-contained backup. Must be absolute.
+      - KPR_STORE_DIR=/var/lib/registry/kpr
+      # Arm only after the first dry run (Step 4). Anything but
+      # exactly "true" keeps implicit dry-run: plans, never deletes.
       # - KPR_CLI_NO_DRY_RUN=true
     networks:
-      - registry-net        # shared with registry (+ traefik below)
+      - registry-net
     restart: unless-stopped
-    # Optional: console via Traefik. The receiver (:8080) stays
-    # internal — no route for it.
+```
+
+Make sure the registry service drops its own `ports:` entry for
+5000 — that port belongs to the edge now — and that both containers
+run as the **same uid**, since they share the blob store. `user:
+"1000:1000"` on both is the simple answer.
+
+`KPR_APP_PORT` (receiver, default `8080`) and
+`KPR_MANAGEMENT_PORT` (console, default `9300`) only matter if
+those ports collide on your network. Full wiring reference:
+[CONFIG.md](CONFIG.md).
+
+## Step 3 — Traefik, if you use it
+
+One router, console port 9300 only:
+
+```yaml
     labels:
       - traefik.enable=true
       - traefik.http.routers.kpr.rule=Host(`kpr.example.com`)
@@ -148,33 +160,28 @@ services:
       - traefik.http.services.kpr.loadbalancer.server.port=9300
 ```
 
-`KPR_APP_PORT` (receiver, default `8080`) and
-`KPR_MANAGEMENT_PORT` (console, default `9300`) only matter if those
-ports collide on your network. Full wiring reference:
-[CONFIG.md](CONFIG.md).
+- kpr must join the network Traefik watches, or the router has no
+  backend.
+- Put your usual auth middleware on that router if the console
+  shouldn't be public. The receiver is a different port and is
+  unaffected.
+- Notifications bypass Traefik entirely, by Step 1's internal URL.
 
-## Step 4 — Traefik checklist
+## Step 4 — first run, still disarmed
 
-- kpr joins the network Traefik watches (your `registry-net` or
-  Traefik's own) — otherwise the router has no backend.
-- One router, console port 9300 only. Put your usual auth middleware
-  on it if the console shouldn't be public — the receiver is a
-  different port and unaffected.
-- Notifications bypass Traefik entirely (Step 2's internal URL). If
-  rows never appear, the registry log saying `notification error`
-  means it can't reach `http://kpr:8080` — network first, config
-  second.
-
-## Step 5 — first run, still disarmed
-
-Bootstrap order matters: `unlock` first (mints the baseline and
-pairs the store), `adopt` only ever re-pairs. On a fresh registry
-`kpr store adopt` correctly refuses — nothing served, nothing to pair
-to — so don't start there.
+Order matters. `unlock` mints the baseline and pairs the store;
+`adopt` only ever *re*-pairs, so on a fresh registry it correctly
+refuses — nothing is served yet, so there is nothing to pair to.
+Don't start there.
 
 ```bash
 docker compose up -d kpr
 docker exec kpr kpr store unlock    # proves the shared store, pairs it
+```
+
+Then push something ephemeral and watch it get tracked:
+
+```bash
 crane copy busybox:latest registry.example.com/test/hello:10m
 
 docker exec kpr kpr status    # tracked: 1, due: 0
@@ -184,41 +191,83 @@ docker exec kpr kpr reap --no-dry-run   # marks ttl:10m elapsed
 docker exec kpr kpr sweep               # dry-run: plans, deletes nothing
 ```
 
-When the plan looks right, set `KPR_CLI_NO_DRY_RUN=true`, recreate kpr,
-and repeat — this time `sweep` deletes by digest. Then reclaim blob
-bytes with the registry's offline GC (`registry garbage-collect
---delete-untagged <config>`): deletes drop the manifest reference
-only; GC needs the registry stopped, so schedule the downtime.
-After GC, restart the registry before re-pushing (its blob
-descriptor cache vouches for deleted blobs until it drops —
-dead tags otherwise; `docs/GC.md` has the matrix).
+Nothing has been deleted: the plan shows only what *would* go.
 
-## What to expect (and what not to)
+## Step 5 — arming it
 
-- **Old images are kept.** Rows are anchored at receiver push time;
-  tags pushed before kpr arrived have unknown age and default to keep.
-  Backfill is a known gap (see PLAN status) — kpr guards the future,
-  it doesn't audit the past.
-- **405 on delete** → `storage.delete.enabled` didn't apply: check the
-  running registry really loaded the patched config (restart it).
-- **No rows after push** → registry → kpr path: `url` typo, wrong
-  network, or kpr down. The registry logs the failed POSTs.
-- **Recreating kpr pauses sweeping** up to the 5-minute sweep lock —
-  self-heals at expiry, plan with `kpr status` meanwhile.
-- **Fresh volumes are root-owned; both writers run as uid 1000.**
-  After `down -v` (or first-ever `up`) the first write fails —
-  registry 500s on push, `unlock` fails `permission denied` on
-  the sentinel. `make up` / `just up` claims the shared store
-  (CLAIM_STORE recipe); hand-started stacks need one
-  `docker exec -u 0 kpr chown -R 1000:1000 /var/lib/registry /var/lib/kpr`.
-  Both state volumes (`kpr-data`, `registry-data`) wipe as one
-  unit on `down -v`: re-`up` needs a fresh `store adopt`, the
-  old pairing died with the volume.
-- **Clock-source unreachable warning is harmless.** The default
-  `local` method checks nothing; with `https`/`ntp` selected, a
-  host that can't reach the source warns and proceeds on local
-  time (see `docs/TIMESTAMPS.md`). Skew (a wrong clock, not an
-  unreachable one) still refuses — fix the clock, then retry.
-- **macOS dev only**: AirPlay Receiver squats `localhost:5000`.
-  Production Linux hosts don't have it; `make up` and serve boot warn
-  when they see `Server: AirTunes` anyway.
+When the plan looks right, set `KPR_CLI_NO_DRY_RUN=true`, recreate
+kpr, and repeat. This time `sweep` deletes by digest.
+
+Manifest deletes drop the reference only. To reclaim blob bytes,
+use `kpr gc` — it previews by default and proves the store is
+yours before collecting:
+
+```bash
+docker exec kpr kpr gc                  # preview, deletes nothing
+docker exec kpr kpr gc --no-dry-run     # collect
+```
+
+Full ceremony, including when the registry has to go readonly and
+what to do about a stale blob-descriptor cache afterwards:
+[GC.md](GC.md).
+
+## Troubleshooting
+
+| Symptom | Cause |
+| --- | --- |
+| 405 on delete | `storage.delete.enabled` didn't apply — did the registry reload the patched config? |
+| No rows after a push | the registry → kpr path: `url` typo, wrong network, or kpr down. The registry logs the failed POSTs. |
+| `unlock` fails `permission denied` | uid mismatch on the shared volume (below) |
+| `no filesystem storage root` | the registry config isn't mounted into kpr, or uses a non-filesystem driver |
+| Sweeping paused after a restart | the 5-minute sweep lock, if the old instance died mid-pass. Self-heals at expiry. |
+
+**Fresh volumes are root-owned, and both writers run as uid 1000.**
+After a first-ever `up` (or a `down -v`), the first write fails:
+the registry 500s on push, and `unlock` hits `permission denied` on
+the sentinel. `make up` / `just up` claims the store for you;
+hand-started stacks need one:
+
+```bash
+docker exec -u 0 kpr chown -R 1000:1000 /var/lib/registry
+```
+
+**A clock-source warning is harmless.** The default `local` method
+checks nothing. With `https` or `ntp` selected, a host that can't
+reach the source warns and proceeds on local time. Actual skew — a
+wrong clock, not an unreachable source — still refuses: fix the
+clock, then retry. See [TIMESTAMPS.md](TIMESTAMPS.md).
+
+**Old images are kept.** Rows are anchored at receiver push time,
+so tags that predate kpr have unknown age and default to keep. To
+adopt them, run `kpr store backfill`, which reads real push times
+off the tag-link mtimes — see [BACKFILL.md](BACKFILL.md).
+
+**macOS dev only:** AirPlay Receiver squats `localhost:5000`.
+Production Linux hosts don't have it, and serve warns at boot when
+it sees `Server: AirTunes` anyway.
+
+## Using redis instead of files
+
+Files are the default and need nothing. Reach for redis when one
+host and one directory stop being enough — multiple kpr processes,
+or state you want off the registry volume.
+
+Drop `KPR_STORE_DIR` and set instead:
+
+```yaml
+      - KPR_REDIS_ADDR=redis:6379
+      - KPR_REDIS_PASSWORD=${REDIS_PASSWORD:?set a redis password}
+      - KPR_REDIS_DB=4
+```
+
+kpr needs a logical DB nobody else uses. This repo's convention is
+**DB 4**: 0–2 belong to other tenants, and 3 is the registry
+blob-descriptor cache in a realistic setup. Confirm it's free:
+
+```bash
+redis-cli -a "$REDIS_PASSWORD" INFO keyspace
+```
+
+The volume mounts in Step 2 stay exactly as they are — redis holds
+rows, not proof. Backend details and trade-offs:
+[STORES.md](STORES.md).
