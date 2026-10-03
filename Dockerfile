@@ -37,8 +37,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Runtime stage
 FROM alpine:latest
 
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata
+# Install runtime dependencies (bash: a normal shell for exec-ing
+# into the dev stack; sh alone gets old fast)
+RUN apk add --no-cache bash ca-certificates tzdata
 
 # Create non-root user
 RUN addgroup -g 1000 kpr && \
