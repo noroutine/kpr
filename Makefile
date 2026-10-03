@@ -131,19 +131,22 @@ coverage:
 	@# not product code: exclude it from the roll-up the way *_test.go is excluded.
 	grep -v '^nrtn.dev/catalyst/kpr/internal/storetest/' coverage.raw.out > coverage.out
 	rm -f coverage.raw.out
-	go tool cover -func=coverage.out | tail -n 20
+	go tool cover -func=coverage.out | grep '^total:'
+	go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | tail -n 20
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
 ## coverage-report: Reprint the coverage summary from the last run without re-running tests
 coverage-report:
 	@if [ ! -f coverage.out ]; then echo "No coverage.out found — run 'make coverage' first."; exit 1; fi
-	go tool cover -func=coverage.out | tail -n 20
+	go tool cover -func=coverage.out | grep '^total:'
+	go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | tail -n 20
 
 ## coverage-e2e: Union of unit + e2e coverage over product packages (needs docker)
 coverage-e2e:
 	go test -race -tags e2e -coverpkg='./internal/...,./cmd/...' -coverprofile=coverage-e2e.out ./...
-	go tool cover -func=coverage-e2e.out | tail -n 5
+	go tool cover -func=coverage-e2e.out | grep '^total:'
+	go tool cover -func=coverage-e2e.out | grep -v '^total:' | sort -k3 -rn | tail -n 5
 
 ## bench: Run benchmarks (no tests, measurements only)
 bench:

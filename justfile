@@ -201,7 +201,8 @@ coverage:
         echo ""
         go test -race -coverprofile=coverage.out ./...
     fi
-    go tool cover -func=coverage.out | tail -n 20
+    go tool cover -func=coverage.out | grep '^total:'
+    go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | tail -n 20
     go tool cover -html=coverage.out -o coverage.html
     echo "Coverage report: coverage.html"
 
