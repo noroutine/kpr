@@ -4,16 +4,20 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // CatalogReport is what the registry API sees: repos the catalog
-// lists, tags their lists name, and what failed to enumerate. The
-// API cannot see revisions, blobs, uploads, or layer links — there
-// are no endpoints for them — so an fs/API comparison covers repos
-// and tags only, and the rest stays fs-side.
+// lists, tags their lists name, sentinel tags apart (machinery
+// counts on both sides of the comparison), and what failed to
+// enumerate. The API cannot see revisions, blobs, uploads, or
+// layer links — there are no endpoints for them — so an fs/API
+// comparison covers repos and tags only, and the rest stays
+// fs-side.
 type CatalogReport struct {
 	Repos       int
 	Tags        int
+	Sentinels   int
 	FailedRepos int
 	FailedTags  int
 }
@@ -53,6 +57,9 @@ func ScanCatalog(ctx context.Context, w io.Writer, reg Registry, progress func(C
 		}
 		rep.Repos++
 		rep.Tags += len(tags)
+		if strings.HasPrefix(repo, SentinelPrefix) {
+			rep.Sentinels += len(tags)
+		}
 		report()
 	}
 	return rep, nil

@@ -99,7 +99,8 @@ func backfillLines(sum backfill.Summary) []string {
 		noun = "sentinel"
 	}
 	return []string{
-		analyzeRow("catalog", fmt.Sprintf("%d repos, %d tags", sum.Repos, sum.Tags)),
+		analyzeRow("catalog", fmt.Sprintf("%s, %s",
+			plural(sum.Repos, "repo", "repos"), plural(sum.Tags, "tag", "tags"))),
 		analyzeRow("store", fmt.Sprintf("%d tracked (+%d %s), %d recorded, %d skipped, %d failed",
 			sum.Tracked, sum.Sentinels, noun, sum.Recorded, sum.Skipped, sum.Failed)),
 	}

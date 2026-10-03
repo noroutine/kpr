@@ -161,6 +161,35 @@ func TestAnalyzeNoBlobsCountsRepos(t *testing.T) {
 	}
 }
 
+// Tags under the sentinel prefix count apart: machinery tags are
+// inventory, and the catalog side splits them the same way — the
+// comparison only holds when both sides agree on what is what.
+// If this fails, sentinel tags inflate the adoptable count.
+func TestAnalyzeCountsSentinelTags(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	files := map[string]string{
+		"repositories/app/_manifests/tags/v1/current/link":                     "sha256:aaa",
+		"repositories/noroutine/kpr-sentinel/_manifests/tags/gen/current/link": "sha256:bbb",
+	}
+	for rel, body := range files {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	got, err := Analyze(proveRoot(t, root), nil)
+	if err != nil {
+		t.Fatalf("Analyze = %v, want counts", err)
+	}
+	if got.Tags != 2 || got.Sentinels != 1 {
+		t.Errorf("Analyze = %+v, want 2 tags with 1 sentinel", got)
+	}
+}
+
 // A nil token refuses before touching the disk: no proof, no
 // walk. If this fails, unproven paths analyze.
 func TestAnalyzeNilProofRefuses(t *testing.T) {

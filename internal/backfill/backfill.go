@@ -30,9 +30,12 @@ import (
 // Unknown-age rows default keep — backfill lands not-due.
 const ActorBackfill = "kpr-backfill"
 
-// sentinelPrefix bounds the machinery namespace: our sentinels
-// live here, and enumeration skips the whole prefix (docs/BACKFILL.md).
-const sentinelPrefix = "noroutine/kpr-"
+// SentinelPrefix bounds the machinery namespace: our sentinels
+// live here, and enumeration skips the whole prefix
+// (docs/BACKFILL.md). Exported so the catalog scan, the fs walk,
+// and the store view split machinery the same way — three
+// literals would drift, and the comparison would follow.
+const SentinelPrefix = "noroutine/kpr-"
 
 // Registry is the API surface backfill needs: enumerate repos,
 // list tags, HEAD digests. *registry.Client satisfies it; tests
@@ -134,7 +137,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 	tracked := map[string]bool{}
 	for _, r := range allRows {
 		tracked[r.Repo+"\x00"+r.Tag] = true
-		if strings.HasPrefix(r.Repo, sentinelPrefix) {
+		if strings.HasPrefix(r.Repo, SentinelPrefix) {
 			sum.Sentinels++
 			continue
 		}
@@ -147,7 +150,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 	}
 	var matched []string
 	for _, repo := range repos {
-		if strings.HasPrefix(repo, sentinelPrefix) {
+		if strings.HasPrefix(repo, SentinelPrefix) {
 			continue
 		}
 		if opts.RepoGlob != "" {

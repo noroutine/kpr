@@ -28,19 +28,31 @@ yet built live in [ANALYSIS_FUTURE.md](ANALYSIS_FUTURE.md).
 ## The five lines
 
 ```
-catalog: 600 repos, 17050 tags
-fs     : 600 repos, 17050 tags, Δ repos: +0, Δ tags: +0
+catalog: 600 repos, 17050 tags, 5 sentinels
+store  : 599 repos, 17047 tags, 1 sentinel, Δ repos: -1, Δ tags: -3, Δ sentinels: -4
+fs     : 600 repos, 17050 tags, 5 sentinels, Δ repos: +0, Δ tags: +0, Δ sentinels: +0
 revs   : 24993 revisions, 7943 untagged
-blobs  : 55077 blobs, 101173 layer links, 1 uploads
+blobs  : 55077 blobs, 101173 layer links, 1 upload
 size   : 632.18 GiB blobs
 ```
 
-- `catalog` — what the API names. The API has no endpoints
-  for revisions, blobs, uploads, or layer links, so those stay
-  fs-side.
-- `fs` — what the walk finds, plus the running fs-minus-API
-  delta, negative while the walk counts up, converging on the
-  skew.
+Counted nouns pluralize (1 repo, 2 repos); participles
+(tracked, untagged) and substance labels (GiB blobs) stay
+invariant.
+
+- `catalog` — what the API names, sentinel tags apart. The
+  API has no endpoints for revisions, blobs, uploads, or
+  layer links, so those stay fs-side.
+- `store` — the tracked state, a static snapshot of
+  `store ls` read before the slow walks: distinct repos over
+  everything, adoptable tags, sentinel rows apart, deltas
+  store-minus-API (what adoption and sweeping still owe the
+  registry). Best-effort: a dead backend degrades this line to
+  `unavailable` instead of refusing the walk.
+- `fs` — what the walk finds, sentinels apart, plus the
+  running fs-minus-API deltas, negative while the walk counts
+  up, converging on the skew. The sentinel delta is the
+  machinery-footprint mismatch: normally +0.
 - `revs` — manifests on disk (every push writes one, tagged
   or not) and `untagged` = revisions minus fs tags, clamped
   at zero. Tags are pointers; revisions are residents.

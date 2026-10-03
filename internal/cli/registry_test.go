@@ -11,11 +11,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/registryfs"
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // stageAnalyzeStore builds a one-repo v2 layout and points the
@@ -70,6 +73,11 @@ func stageCatalogServer(t *testing.T) *httptest.Server {
 
 func runAnalyzeCmd(t *testing.T, cfgPath string, reg backfill.Registry, args ...string) (string, error) {
 	t.Helper()
+	// The store view reads ambient config: pin an empty file
+	// store so the store line is deterministic, never whatever
+	// the developer's shell points at.
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
 	var buf bytes.Buffer
 	registryAnalyzeCmd.SetOut(&buf)
 	defer registryAnalyzeCmd.SetOut(nil)
@@ -106,10 +114,11 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 		t.Fatalf("analyze = %v, want report", err)
 	}
 	want := []string{
-		"catalog: 1 repos, 2 tags",
-		"fs     : 1 repos, 1 tags, Δ repos: +0, Δ tags: -1",
-		"revs   : 1 revisions, 0 untagged",
-		"blobs  : 1 blobs, 1 layer links, 1 uploads",
+		"catalog: 1 repo, 2 tags, 0 sentinels",
+		"store  : 0 repos, 0 tags, 0 sentinels, Δ repos: -1, Δ tags: -2, Δ sentinels: +0",
+		"fs     : 1 repo, 1 tag, 0 sentinels, Δ repos: +0, Δ tags: -1, Δ sentinels: +0",
+		"revs   : 1 revision, 0 untagged",
+		"blobs  : 1 blob, 1 layer link, 1 upload",
 		"size   : 8 B blobs",
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
@@ -130,17 +139,30 @@ func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 	fsRep := registryfs.Report{Repos: 600, Tags: 17050, Revisions: 24993, Blobs: 55077,
 		BlobBytes: 679001899008, Uploads: 1, LayerLinks: 101173}
 	api := backfill.CatalogReport{Repos: 600, Tags: 17050}
-	lines := analyzeLines(api, fsRep, true)
-	if len(lines) != 5 {
-		t.Fatalf("analyzeLines has %d lines, want 5", len(lines))
+	view := storeView{ok: true, repos: 599, tags: 17047, sentinels: 1}
+	lines := analyzeLines(api, fsRep, view, true)
+	if len(lines) != 6 {
+		t.Fatalf("analyzeLines has %d lines, want 6", len(lines))
 	}
 	for _, l := range lines {
 		if len(l) < 10 || l[7] != ':' || l[8] != ' ' {
 			t.Errorf("line misaligned: %q", l)
 		}
 	}
-	if !strings.HasSuffix(lines[3], "uploads") || !strings.HasSuffix(lines[4], "blobs") {
-		t.Errorf("trailing lines = %q, %q, want counts-then-scale order", lines[3], lines[4])
+	if !strings.HasPrefix(lines[1], "store  : ") || !strings.HasPrefix(lines[4], "blobs  : ") || !strings.HasPrefix(lines[5], "size   : ") {
+		t.Errorf("lines = %q, want store second, blobs-then-size last", lines)
+	}
+	if want := "store  : 599 repos, 17047 tags, 1 sentinel, Δ repos: -1, Δ tags: -3, Δ sentinels: +1"; lines[1] != want {
+		t.Errorf("store line = %q, want %q", lines[1], want)
+	}
+	single := analyzeLines(backfill.CatalogReport{Repos: 1, Tags: 1, Sentinels: 1},
+		registryfs.Report{Repos: 1, Tags: 1, Sentinels: 1},
+		storeView{ok: true, repos: 1, tags: 1, sentinels: 1}, true)
+	if !strings.Contains(single[0], "1 repo, 1 tag, 1 sentinel") {
+		t.Errorf("catalog line = %q, want singular nouns", single[0])
+	}
+	if !strings.Contains(single[2], "1 sentinel, Δ repos: +0, Δ tags: +0, Δ sentinels: +0") {
+		t.Errorf("fs line = %q, want singular nouns with sentinel delta", single[2])
 	}
 }
 
@@ -184,7 +206,10 @@ func TestRegistryAnalyzeJSON(t *testing.T) {
 		"repos": float64(1), "tags": float64(1), "revisions": float64(1),
 		"blobs": float64(1), "blob_bytes": float64(8),
 		"uploads": float64(1), "layer_links": float64(1),
-		"api_repos": float64(1), "api_tags": float64(2),
+		"sentinels":   float64(0),
+		"store_repos": float64(0), "store_tags": float64(0),
+		"store_sentinels": float64(0), "store_ok": true,
+		"api_repos": float64(1), "api_tags": float64(2), "api_sentinels": float64(0),
 	}
 	if len(got) != len(want) {
 		t.Fatalf("analyze --json has %d keys, want %d: %v", len(got), len(want), got)
@@ -203,6 +228,8 @@ func TestRegistryAnalyzeJSONViaArgv(t *testing.T) {
 	stageAnalyzeStore(t)
 	srv := stageCatalogServer(t)
 	t.Setenv(config.EnvRegistryURL, srv.URL)
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
 	RootCmd.SetArgs([]string{"registry", "analyze", "--json"})
 	defer RootCmd.SetArgs(nil)
 	var buf bytes.Buffer
@@ -217,6 +244,93 @@ func TestRegistryAnalyzeJSONViaArgv(t *testing.T) {
 	}
 	if got["repos"] != float64(1) || got["api_tags"] != float64(2) {
 		t.Errorf("argv --json = %v, want fs repos 1 + api tags 2", got)
+	}
+}
+
+// summarizeRows groups tracked rows the store line's way:
+// distinct repos over everything, tags outside the sentinel
+// prefix, sentinel rows apart. If this fails, the store view
+// drifts from `store ls`.
+func TestSummarizeRows(t *testing.T) {
+	rows := []policy.Row{
+		{Repo: "app", Tag: "v1"},
+		{Repo: "app", Tag: "v2"},
+		{Repo: "noroutine/kpr-sentinel", Tag: "gen"},
+	}
+	repos, tags, sentinels := summarizeRows(rows)
+	if repos != 2 || tags != 2 || sentinels != 1 {
+		t.Errorf("summarizeRows = %d repos, %d tags, %d sentinels, want 2, 2, 1",
+			repos, tags, sentinels)
+	}
+}
+
+// The store line reads tracked rows against the catalog: distinct
+// repos over everything, adoptable tags, sentinel rows apart,
+// deltas store-minus-API. If this fails, the store view lies
+// about what `store ls` holds.
+func TestRegistryAnalyzeStoreLine(t *testing.T) {
+	cfgPath := stageAnalyzeStore(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/_catalog":
+			_, _ = io.WriteString(w, `{"repositories":["app","noroutine/kpr-sentinel"]}`)
+		case "/v2/app/tags/list":
+			_, _ = io.WriteString(w, `{"name":"app","tags":["v1","v2"]}`)
+		case "/v2/noroutine/kpr-sentinel/tags/list":
+			_, _ = io.WriteString(w, `{"name":"noroutine/kpr-sentinel","tags":["gen"]}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, dir)
+	st := store.NewFileStore(dir)
+	for _, row := range []policy.Row{
+		{Repo: "app", Tag: "v1", Digest: "sha256:aaa", PushedAt: time.Now().UTC()},
+		{Repo: "noroutine/kpr-sentinel", Tag: "gen", Digest: "sha256:bbb", PushedAt: time.Now().UTC()},
+	} {
+		if err := st.Record(context.Background(), row); err != nil {
+			t.Fatalf("record %s:%s: %v", row.Repo, row.Tag, err)
+		}
+	}
+	var buf bytes.Buffer
+	err := runRegistryAnalyze(context.Background(), &buf, cfgPath, registry.NewClient(srv.URL), false)
+	if err != nil {
+		t.Fatalf("analyze = %v, want report", err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 6 {
+		t.Fatalf("analyze has %d lines, want 6:\n%s", len(lines), buf.String())
+	}
+	if want := "store  : 2 repos, 1 tag, 1 sentinel, Δ repos: +0, Δ tags: -2, Δ sentinels: +0"; lines[1] != want {
+		t.Errorf("store line = %q, want %q", lines[1], want)
+	}
+}
+
+// A dead backend degrades the store line instead of refusing the
+// walk: a read-only magnitude stays available when redis is
+// down. If this fails, store trouble vetoes registry insight.
+func TestRegistryAnalyzeStoreUnavailable(t *testing.T) {
+	cfgPath := stageAnalyzeStore(t)
+	srv := stageCatalogServer(t)
+	reg := registry.NewClient(srv.URL)
+	t.Setenv(config.EnvStore, "redis")
+	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
+	var buf bytes.Buffer
+	registryAnalyzeCmd.SetOut(&buf)
+	defer registryAnalyzeCmd.SetOut(nil)
+	err := runRegistryAnalyze(context.Background(), &buf, cfgPath, reg, false)
+	if err != nil {
+		t.Fatalf("analyze with dead store = %v, want degraded walk", err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 6 {
+		t.Fatalf("analyze has %d lines, want 6:\n%s", len(lines), buf.String())
+	}
+	if lines[1] != "store  : unavailable" {
+		t.Errorf("store line = %q, want honest unavailable", lines[1])
 	}
 }
 

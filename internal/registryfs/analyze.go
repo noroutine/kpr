@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -25,8 +26,11 @@ import (
 // names count once, at their own depth); it is the fs-side
 // catalog size.
 type Report struct {
-	Repos      int
-	Tags       int
+	Repos int
+	Tags  int
+	// Sentinels counts tags under the machinery prefix — the same
+	// split the catalog side makes, so the comparison holds.
+	Sentinels  int
 	Revisions  int
 	LayerLinks int
 	Uploads    int
@@ -121,11 +125,25 @@ type shard struct {
 func (r *Report) add(o Report) {
 	r.Repos += o.Repos
 	r.Tags += o.Tags
+	r.Sentinels += o.Sentinels
 	r.Revisions += o.Revisions
 	r.LayerLinks += o.LayerLinks
 	r.Uploads += o.Uploads
 	r.Blobs += o.Blobs
 	r.BlobBytes += o.BlobBytes
+}
+
+// isSentinelTag reports tags under the machinery prefix: the
+// repo components between repositories/ and the _manifests
+// anchor, joined back into a repo name. The prefix is
+// backfill's — one literal for every split, or the comparison
+// drifts.
+func isSentinelTag(parts []string) bool {
+	idx := slices.Index(parts, "_manifests")
+	if idx < 2 {
+		return false
+	}
+	return strings.HasPrefix(strings.Join(parts[1:idx], "/"), backfill.SentinelPrefix)
 }
 
 // walkShard walks one v2 subtree, classifying exactly as the old
@@ -204,6 +222,9 @@ func walkShard(v2, name string, progress func(Report)) (Report, error) {
 			switch {
 			case n >= 7 && parts[n-2] == "current" && parts[n-4] == "tags" && parts[n-5] == "_manifests":
 				rep.Tags++
+				if isSentinelTag(parts) {
+					rep.Sentinels++
+				}
 			case n >= 7 && parts[n-4] == "revisions" && parts[n-5] == "_manifests":
 				rep.Revisions++
 			case parts[n-4] == "_layers":
