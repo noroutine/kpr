@@ -3,6 +3,13 @@
 Every claim kpr acts on is backed by a proof. Each
 establishes something different; they compose by weakening only.
 
+## Contents
+
+- [Armed means proven](#armed-means-proven)
+- [Evidence flows inward](#evidence-flows-inward)
+- [How a proof is built](#how-a-proof-is-built)
+- [Proof as a compiler-enforced dependency](#proof-as-a-compiler-enforced-dependency)
+
 | Proof | Establishes | Cost | Used by | Provided by | Sealed as |
 |---|---|---|---|---|---|
 | Mint (write a fresh generation, read it back) | liveness + currency + same-store, all at once | a generation (blobs + tag + row; keep-N reaps it) | `gc` armed, `unlock` | the producers themselves (`gc`, `unlock`) | `FreshGeneration` (`fresh.go`) |
