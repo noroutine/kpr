@@ -23,12 +23,13 @@ const (
 )
 
 // ttlRe matches TTL tags in two forms: a bare ttl.sh-style number plus
-// one unit (10m), or a CI commit build — a lowercase hex stem of at
-// least six plus a -ttl suffix (abc1234-10m). The stem group is
-// non-capturing so submatch indices never move. Stems are lowercase
-// hex only (what git emits); non-hex names like myapp-10m never match,
-// while hex-spellable words (facade-7d) inherently do.
-var ttlRe = regexp.MustCompile(`^(?:[0-9a-f]{6,}-)?(\d+)([smhdw])` + `$`)
+// one unit (10m), or a suffixed tag — any alphanumeric+hyphen stem of
+// any length plus a -ttl suffix (abc1234-10m, myapp-10m). The stem
+// group is non-capturing so submatch indices never move. The suffix
+// is the explicit intent, so the stem carries no meaning: hex-only
+// scoping was dropped once CI tags stopped looking like git hashes.
+// Bare tags (no suffix) still go through isBareHash below.
+var ttlRe = regexp.MustCompile(`^(?:[A-Za-z0-9-]*-)?(\d+)([smhdw])` + `$`)
 
 // hashRe matches a bare commit hash: lowercase hex, at least six
 // chars. The letter check lives in isBareHash: hex without a single

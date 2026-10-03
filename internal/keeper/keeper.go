@@ -128,10 +128,12 @@ func FetchStatus(ctx context.Context, s store.Store, reg Prober) Status {
 }
 
 // PolicyNames are the reap selectors: every live policy plus all.
-// expired takes elapsed TTL tags, partial takes digest-less stale
-// uploads, untagged takes tags gone from the catalog past grace,
-// keep-n takes everything past the freshest ten per repo.
-var PolicyNames = []string{"all", "expired", "partial", "untagged", "keep-n"}
+// ttl takes elapsed explicit TTLs (bare numbers, suffixed tags),
+// hash takes bare commit hashes past the hash default, partial
+// takes digest-less stale uploads, untagged takes tags gone from
+// the catalog past grace, keep-n takes everything past the
+// freshest ten per repo.
+var PolicyNames = []string{"all", "ttl", "hash", "partial", "untagged", "keep-n"}
 
 // fetchCatalogs reads the live tag list per tracked repo. A repo
 // whose fetch fails stays out of the map, and catalog-dependent
@@ -159,8 +161,10 @@ func fetchCatalogs(ctx context.Context, reg CatalogSource, rows []policy.Row) ma
 // before anything marks, so a typo never reaps the world.
 func evalOne(name string, rows []policy.Row, catalogs map[string][]string, now time.Time, keepNExclude []string) ([]policy.Row, error) {
 	switch name {
-	case "expired":
-		return policy.SelectExpired(rows, now), nil
+	case "ttl":
+		return policy.SelectTTL(rows, now), nil
+	case "hash":
+		return policy.SelectHashes(rows, now), nil
 	case "partial":
 		return policy.SelectStaleUploads(rows, now), nil
 	case "untagged":
@@ -224,7 +228,7 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg CatalogSource, now
 	}
 	catalogs := fetchCatalogs(ctx, reg, rows)
 	marks := map[string][]string{}
-	for _, name := range []string{"expired", "partial", "untagged", "keep-n"} {
+	for _, name := range []string{"ttl", "hash", "partial", "untagged", "keep-n"} {
 		marked, serr := evalOne(name, rows, catalogs, now, keepNExclude)
 		if serr != nil {
 			return nil, serr

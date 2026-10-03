@@ -330,9 +330,10 @@ var reapCmd = &cobra.Command{
 	Short: "Evaluate policies and mark rows due",
 	Long: `Evaluate one policy (or all) and mark selected rows due with
 reasons. Bare reap means reap all. Marks accumulate across calls
-until sweep or plan discard. Policies: expired (elapsed TTL tags),
-partial (digest-less stale uploads), untagged (tag gone from the
-catalog past grace), keep-n (past the freshest ten per repo).
+until sweep or plan discard. Policies: ttl (elapsed explicit TTL),
+hash (bare hashes past the default), partial (digest-less stale
+uploads), untagged (tag gone from the catalog past grace), keep-n
+(past the freshest ten per repo).
 Dry-run unless --no-dry-run (or KPR_CLI_NO_DRY_RUN=true): unarmed, it
 only prints the plan. Repeat --exclude to spare keep-N for rows
 whose repo:tag matches (registry stripped).`,

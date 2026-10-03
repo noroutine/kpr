@@ -351,7 +351,7 @@ func TestReapArmedOnDeadStoreFails(t *testing.T) {
 	_ = inner.Record(c, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
 		PushedAt: keeperNow.Add(-time.Hour)})
 	s := markFailStore{inner}
-	if _, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "expired", true); err == nil {
+	if _, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "ttl", true); err == nil {
 		t.Error("armed reap on dead store succeeded, want an error")
 	} else if !strings.Contains(err.Error(), "redis unreachable") {
 		t.Errorf("refusal = %q, want redis named", err.Error())

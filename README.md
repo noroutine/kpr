@@ -6,7 +6,7 @@ without the weight of Harbor or Nexus. Inspired by ttl.sh.
 
 One binary, one state backend (redis by default, plain files with
 `KPR_STORE=file` — no redis required), opinions written as plain
-code — no policy engine. Push a tag like `app:10m` and it becomes
+code — simple use-case driven policies. Push a tag like `app:10m` and it becomes
 eligible for collection 10 minutes after push; `kpr reap` marks it,
 the sweeper in `kpr serve` deletes it by digest. Design lives in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the current state is in the
@@ -80,28 +80,23 @@ bolted on? Start here: [docs/ADOPT.md](docs/ADOPT.md) — three wires
 copy-paste kpr service with Traefik labels, and a disarmed first run.
 Pin `nrtn.dev/catalyst/kpr:<release-tag>`; images publish on tags.
 
-## Policies
+## Reaping policies
 
-Evaluated client-side by `kpr reap`; tunings live next to the code
-in `internal/policy`, not in the main config.
+`kpr reap [policy]` marks rows due with a reason (`reap all` runs
+every policy). Full table: [Reaping policies](docs/ARCHITECTURE.md#reaping-policies).
 
-| Policy | Reason | Tuning | State |
-|---|---|---|---|
-| Bare TTL tags (`10m`), eligible after push + TTL | `ttl:10s elapsed` | `DefaultTTL` (off), `MaxTTL` 30d | Done, proven live |
-| CI commit builds (`abc1234-10m`): lowercase hex stem of 6+ plus `-ttl` | `ttl:10s elapsed` | `MaxTTL` 30d | Done, proven live |
-| Bare hashes (`abc1234`): no suffix, 48h default for next-day triage | `ttl:48h0m0s elapsed` | `HashTTL` 48h | Done, proven live |
-| Digest-less rows older than max age (push residue) | `partial:older than 24h` | `StaleUploadMaxAge` 24h | Wired; rarely fires (receiver records digests) |
-| Tag vanished from catalog past grace | `untagged:past grace 168h` | `UntaggedGrace` 168h | Wired; needs catalog reads |
-| All but N freshest tags per repo | `keep-n:exceeds 10` | `KeepN` 10, **fixed**; `reap --exclude` spares release lines | Live, e2e-pinned; per-repo tuning declined by decision |
+| Policy | Reason |
+| --- | --- |
+| `ttl` | `ttl:<d> elapsed` — explicit TTL (`10m`, `myapp-10m`) elapsed since push |
+| `hash` | `ttl:<d> elapsed` — bare hash past the default (next-day triage) |
+| `partial` | `partial:older than <age>` — digest-less row past the max age |
+| `untagged` | `untagged:past grace <grace>` — tracked tag gone from the live catalog |
+| `keep-n` | `keep-n:exceeds <n>` — everything past the freshest 10 per repo |
 
-Hash forms never match (default keep):
-
-- human names with a TTL-shaped tail (`myapp-10m`, `release-7d`)
-- all-digit tags (`20240115`, `123456`) — a bare number is a build number
-- uppercase hashes (`ABC1234`) — git emits lowercase
-- short stems (`a-1h`, `face-7d`)
-
-One honest edge: hex-spellable words of 6+ (`facade-7d`) do match.
+Suffix is intent: any stem + `-ttl` matches (`myapp-10m`, `a-1h`);
+bare tags stay hex-scoped (6+ with a letter, `abc1234` yes,
+`20240115` no). Out: dotted versions (`v1.2.3-1h`), dangling forms
+(`abc1234-`, `10m-`), uppercase units (`10M`).
 
 Spared: `latest` is never swept by any policy and never counts into
 keep-N — a repo keeps 10 plus `latest`.

@@ -27,7 +27,7 @@ and what's still open.
 ## Principles
 
 - Small and boring: one binary, one state store, stdlib-first.
-  Opinions written as plain code — no policy engine.
+  Opinions written as plain code — simple use-case driven policies.
 - Safe defaults: policies opt-in, deletions logged and
   dry-runnable before real. Loud refusals, never silent runs.
 - Observable: console with health/metrics; every deletion

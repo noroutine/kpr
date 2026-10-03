@@ -80,7 +80,7 @@ cli.openDeps             the composition root
 - One slice at a time, TDD, pipeline green, coverage honest
   (the gate is the unit+e2e union; unit-only gaps need
   naming, not hiding).
-- No policy engine, no gRPC/IDL, no framework.
+- No gRPC/IDL, no framework.
 - `keeper` naming: `keeper` (repo vocabulary), not
   `usecase`/`service`.
 - New ports stay gated: each needs a "does it pay?" verdict,

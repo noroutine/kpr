@@ -47,7 +47,7 @@ Dead-simple companion for a stock `distribution` registry: one
 binary, state in redis or on disk (see `docs/STORES.md`). Receiver
 records pushes → `reap` marks rows due → sweeper deletes →
 `gc` shells the stock collector. Full picture:
-`docs/ARCHITECTURE.md`. No policy engine, scheduler, gRPC, or SPA.
+`docs/ARCHITECTURE.md`. No scheduler, gRPC, or SPA.
 
 ## Current shape (don't duplicate, point)
 

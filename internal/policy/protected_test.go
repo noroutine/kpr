@@ -109,8 +109,11 @@ func TestProtectedTagsSurviveAllButKeepN(t *testing.T) {
 					PushedAt: now.Add(-200 * time.Hour),
 				}}
 				catalog := map[string][]string{"infra/probe": {tag}}
-				if due := SelectExpired(rows, now); len(due) != 0 {
-					t.Errorf("SelectExpired marked protected %q: %+v", tag, due)
+				if due := SelectTTL(rows, now); len(due) != 0 {
+					t.Errorf("SelectTTL marked protected %q: %+v", tag, due)
+				}
+				if due := SelectHashes(rows, now); len(due) != 0 {
+					t.Errorf("SelectHashes marked protected %q: %+v", tag, due)
 				}
 				if due := SelectStaleUploads(rows, now); len(due) != 0 {
 					t.Errorf("SelectStaleUploads marked protected %q: %+v", tag, due)

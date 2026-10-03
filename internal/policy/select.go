@@ -47,17 +47,40 @@ func mark(r Row, reason string) Row {
 	return r
 }
 
-// SelectExpired marks rows whose TTL tag elapsed since push.
-func SelectExpired(rows []Row, now time.Time) []Row {
+// SelectTTL marks rows whose explicit TTL elapsed since push: bare
+// ttl.sh numbers and suffixed tags. Bare hashes are not TTL tags —
+// they go to SelectHashes.
+func SelectTTL(rows []Row, now time.Time) []Row {
 	var due []Row
 	for _, r := range rows {
 		if r.Tag == latestTag {
 			continue
 		}
-		if Eligible(r.Tag, r.PushedAt, now) {
-			if ttl, ok := EffectiveTTL(r.Tag); ok {
-				due = append(due, mark(r, fmt.Sprintf("ttl:%s elapsed", ttl)))
-			}
+		ttl, ok := parseTTL(r.Tag)
+		if !ok || r.PushedAt.IsZero() {
+			continue
+		}
+		if !r.PushedAt.Add(ttl).After(now) {
+			due = append(due, mark(r, fmt.Sprintf("ttl:%s elapsed", ttl)))
+		}
+	}
+	return due
+}
+
+// SelectHashes marks bare commit hashes past the hash default: pushes
+// with no TTL encoding at all, kept 48h for next-day triage. Unknown
+// age defaults keep, exactly like every other age-anchored selector.
+func SelectHashes(rows []Row, now time.Time) []Row {
+	var due []Row
+	for _, r := range rows {
+		if r.Tag == latestTag {
+			continue
+		}
+		if !isBareHash(r.Tag) || r.PushedAt.IsZero() {
+			continue
+		}
+		if !r.PushedAt.Add(HashTTL).After(now) {
+			due = append(due, mark(r, fmt.Sprintf("ttl:%s elapsed", HashTTL)))
 		}
 	}
 	return due

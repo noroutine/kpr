@@ -2,15 +2,15 @@
 
 Dead-simple companion that keeps a local `distribution` registry from
 becoming a pig. One binary, one state backend (redis by default, plain
-files with `KPR_STORE=file`), opinionated behaviors written as
-plain code — no policy engine. This page draws the redis deployment;
+files with `KPR_STORE=file`), opinionated, use-case driven policies written as
+plain code. This page draws the redis deployment;
 the file alternative is in [docs/STORES.md](STORES.md).
 
 ## Contents
 
 - [Components](#components)
 - [Layering](#layering)
-- [Behaviors](#behaviors)
+- [Reaping policies](#reaping-policies)
 - [The plan](#the-plan)
 - [Garbage collection](#garbage-collection)
 - [Data](#data)
@@ -110,20 +110,34 @@ the way).
   to clean what. The sweeper TTL floor (never wipe before the
   promise elapses) guards it.
 
-## Behaviors
+## Reaping policies
 
-All four policies are live behind `reap [policy]` (bare `reap` means
+All five policies are live behind `reap [policy]` (bare `reap` means
 `reap all`); one evaluation path (`EvaluatePolicy`/`EvaluatePolicies`)
 serves the CLI and the e2e suite alike. Marks accumulate across calls
 until `sweep` or `plan discard`. `latest` is spared by every policy
 and never counts into keep-N.
 
-| Policy | Selector | Tunings |
+| Policy | Reason (marks a row eligible) | Tuning (in code) |
 | --- | --- | --- |
-| `expired` | TTL tag elapsed since push (minimal promise: never wiped before, collectible after) | `MaxTTL` 30d clamp; `HashTTL` 48h default for bare commit hashes; suffix `<hex6+>-<ttl>`; all-digit tags default keep |
-| `partial` | digest-less rows older than the max age (pushes that never completed) | `StaleUploadMaxAge` 24h; unknown age defaults keep |
-| `untagged` | tracked tag gone from the live catalog past the grace period | `UntaggedGrace` 168h; unfetched repos skip (absent means unknown) |
-| `keep-n` | everything past the freshest N tags per repo | `KeepN` 10, fixed; `reap --exclude` regex spares release lines; catalog-only tags default keep |
+| `ttl` | `ttl:<d> elapsed` — explicit TTL (bare `10m`, suffixed `myapp-10m`) elapsed since push | `MaxTTL` |
+| `hash` | `ttl:<d> elapsed` — bare hash past the default (next-day triage) | `HashTTL` |
+| `partial` | `partial:older than <age>` — digest-less row older than the max age (a push that never completed) | `StaleUploadMaxAge` |
+| `untagged` | `untagged:past grace <grace>` — tracked tag gone from the live catalog past the grace period | `UntaggedGrace` |
+| `keep-n` | `keep-n:exceeds <n>` — everything past the freshest N tags per repo | `KeepN` |
+
+Tunings are consts in code (`internal/policy`, `internal/policy/select.go`),
+not config — the table names them, never their values.
+
+TTL shapes: `ttl` takes anything with an explicit duration, `hash`
+takes bare hashes with none. The suffix is the intent, so the stem
+carries no meaning; bare tags stay hex-scoped.
+
+| Shape | Reason | Tuning | Policy |
+| --- | --- | --- | --- |
+| CI commit builds `abc1234-10m`: any stem + `-ttl` suffix (explicit intent) | `ttl:10s elapsed` | `MaxTTL` | `ttl` |
+| Bare durations `10m`: number + unit, no stem | `ttl:10m0s elapsed` | `MaxTTL` | `ttl` |
+| Bare hashes `abc1234`: hex 6+ with a letter, no suffix (next-day triage) | `ttl:48h0m0s elapsed` | `HashTTL` | `hash` |
 
 keep-N is intentionally fixed: N is a const (10), include is unset,
 excludes arrive via the reap flag. Per-repo tuning stays out by

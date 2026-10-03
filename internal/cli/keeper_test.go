@@ -247,6 +247,8 @@ func reapStage(s *store.MemStore) {
 	c := context.Background()
 	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
 		PushedAt: cliNow.Add(-time.Hour)})
+	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "abc1234", Digest: "sha256:h",
+		PushedAt: cliNow.Add(-49 * time.Hour)})
 	_ = s.Record(c, policy.Row{Repo: "scratch", Tag: "partial",
 		PushedAt: cliNow.Add(-25 * time.Hour)})
 	for i := 1; i <= 11; i++ {
@@ -255,12 +257,14 @@ func reapStage(s *store.MemStore) {
 	}
 }
 
-// A named reap marks only that policy's rows: expired takes the TTL
-// row, partial the digest-less stale one, keep-n the pile's oldest.
-// If this fails, selective reaping leaks across policies.
+// A named reap marks only that policy's rows: ttl takes the TTL
+// row, hash the bare hash, partial the digest-less stale one,
+// keep-n the pile's oldest. If this fails, selective reaping leaks
+// across policies.
 func TestReapSelectivePolicy(t *testing.T) {
 	for pol, want := range map[string][2]string{
-		"expired": {"scratch", "10m"},
+		"ttl":     {"scratch", "10m"},
+		"hash":    {"scratch", "abc1234"},
 		"partial": {"scratch", "partial"},
 		"keep-n":  {"pile", "v01"},
 	} {
@@ -289,14 +293,14 @@ func dueTags(due []policy.Row) []string {
 }
 
 // Successive reaps accumulate in the plan until sweep or discard:
-// reaping expired then partial leaves both rows due. If this fails,
+// reaping ttl then partial leaves both rows due. If this fails,
 // a second reap wipes the first policy's marks.
 func TestReapAccumulatesAcrossPolicies(t *testing.T) {
 	s := store.NewMemStore()
 	reapStage(s)
 	var out bytes.Buffer
-	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow, "expired"); err != nil {
-		t.Fatalf("reap expired: %v", err)
+	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow, "ttl"); err != nil {
+		t.Fatalf("reap ttl: %v", err)
 	}
 	if err := runReap(cliCtx(), &out, s, nil, true, nil, cliNow, "partial"); err != nil {
 		t.Fatalf("reap partial: %v", err)
@@ -321,7 +325,7 @@ func TestReapUnknownPolicyRefuses(t *testing.T) {
 	if err == nil {
 		t.Fatal("reap bogus succeeded, want refusal")
 	}
-	for _, name := range []string{"all", "expired", "partial", "untagged", "keep-n"} {
+	for _, name := range []string{"all", "ttl", "hash", "partial", "untagged", "keep-n"} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("refusal %q does not list policy %q", err, name)
 		}
@@ -443,7 +447,7 @@ func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 func TestKeeperCommandsRefuseWithoutRedis(t *testing.T) {
 	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
 	for _, args := range [][]string{
-		{"status"}, {"plan"}, {"plan", "discard"}, {"reap"}, {"reap", "expired"}, {"sweep"},
+		{"status"}, {"plan"}, {"plan", "discard"}, {"reap"}, {"reap", "ttl"}, {"sweep"},
 	} {
 		RootCmd.SetArgs(args)
 		defer RootCmd.SetArgs(nil)
@@ -464,7 +468,7 @@ func TestReapCommandSelectsPolicy(t *testing.T) {
 	clearStoreEnv(t)
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
-	for _, args := range [][]string{{"reap"}, {"reap", "expired"}} {
+	for _, args := range [][]string{{"reap"}, {"reap", "ttl"}} {
 		RootCmd.SetArgs(args)
 		defer RootCmd.SetArgs(nil)
 		if err := RootCmd.Execute(); err != nil {

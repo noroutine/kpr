@@ -11,25 +11,51 @@ func mkrow(repo, tag string, age time.Duration) Row {
 	return Row{Repo: repo, Tag: tag, Digest: "sha256:abc", PushedAt: sliceNow.Add(-age)}
 }
 
-// An expired ephemeral tag must come back marked due with its reason
-// attached, while a fresh one and a :latest stay unmarked. If this
-// fails, reap either misses TTL rows or marks rows it shouldn't, and
-// the console plan lies about what the next sweep would delete.
-func TestSelectExpiredMarksOnlyDue(t *testing.T) {
+// An elapsed explicit TTL must come back marked due with its reason
+// attached, while a fresh one and a :latest stay unmarked — and a
+// bare hash past 48h stays unmarked here, it belongs to the hash
+// policy. If this fails, reap either misses TTL rows or marks rows
+// it shouldn't, and the console plan lies about what the next sweep
+// would delete.
+func TestSelectTTLMarksOnlyDue(t *testing.T) {
 	rows := []Row{
 		mkrow("scratch", "10m", 11*time.Minute),
 		mkrow("scratch", "10m", 9*time.Minute),
+		mkrow("scratch", "myapp-10m", 11*time.Minute),
+		mkrow("scratch", "abc1234", 49*time.Hour),
 		mkrow("app", "latest", 365*24*time.Hour),
 	}
-	got := SelectExpired(rows, sliceNow)
+	got := SelectTTL(rows, sliceNow)
+	if len(got) != 2 {
+		t.Fatalf("selected %d rows, want 2 (10m, myapp-10m)", len(got))
+	}
+	for _, r := range got {
+		if !r.Due || r.Reason == "" {
+			t.Errorf("selected row not marked due with reason: %+v", r)
+		}
+	}
+}
+
+// A bare hash past the 48h default must come back marked due, while
+// a fresh one, an explicit TTL, and a :latest stay unmarked here.
+// If this fails, commit builds pile up forever or the hash policy
+// eats rows the TTL policy owns.
+func TestSelectHashesMarksOnlyDue(t *testing.T) {
+	rows := []Row{
+		mkrow("scratch", "abc1234", 49*time.Hour),
+		mkrow("scratch", "abc1234", 47*time.Hour),
+		mkrow("scratch", "10m", 11*time.Minute),
+		mkrow("app", "latest", 365*24*time.Hour),
+	}
+	got := SelectHashes(rows, sliceNow)
 	if len(got) != 1 {
-		t.Fatalf("selected %d rows, want 1", len(got))
+		t.Fatalf("selected %d rows, want 1 (abc1234)", len(got))
 	}
 	if !got[0].Due || got[0].Reason == "" {
 		t.Errorf("selected row not marked due with reason: %+v", got[0])
 	}
-	if got[0].Repo != "scratch" || got[0].Tag != "10m" {
-		t.Errorf("selected %+v, want scratch:10m", got[0])
+	if got[0].Repo != "scratch" || got[0].Tag != "abc1234" {
+		t.Errorf("selected %+v, want scratch:abc1234", got[0])
 	}
 }
 
@@ -202,7 +228,8 @@ func TestSelectKeepNMatchesQualifiedNames(t *testing.T) {
 // view. If this fails, dry-run output and armed-run behavior diverge.
 func TestSelectorsDoNotMutateInput(t *testing.T) {
 	rows := []Row{mkrow("scratch", "10m", time.Hour)}
-	_ = SelectExpired(rows, sliceNow)
+	_ = SelectTTL(rows, sliceNow)
+	_ = SelectHashes(rows, sliceNow)
 	_ = SelectStaleUploads(rows, sliceNow)
 	_ = SelectKeepN(rows, 0, nil, nil, sliceNow)
 	if rows[0].Due || rows[0].Reason != "" {

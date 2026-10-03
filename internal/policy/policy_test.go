@@ -43,19 +43,28 @@ func TestEffectiveTTLNonMatchingTagNeverExpires(t *testing.T) {
 	}
 }
 
-// CI pushes app:<sha>-<ttl>: a lowercase hex stem of at least six plus
-// a -ttl suffix is a TTL tag, while a non-hex stem (a human name, an
-// uppercase hash) or a short stem never matches — the suffix form
-// stays scoped to commit builds instead of eating every -10m tag. If
-// this fails, either commit builds never expire or the blast radius is
-// back.
+// Suffixed tags carry an explicit TTL: any alphanumeric+hyphen stem
+// of any length plus number+unit (abc1234-10m, myapp-10m). The stem
+// carries no meaning, so scoping it was scoping the intent —
+// dropped. What stays out is anything without the suffix (dotted
+// versions, bare words). If this fails, explicit TTLs never expire
+// or suffix-less tags get eaten.
 func TestEffectiveTTLCommitHashSuffix(t *testing.T) {
 	matched := map[string]time.Duration{
 		"abc1234-10m": 10 * time.Minute,
-		"abc123-10m":  10 * time.Minute, // six is the minimum
-		"1234567-2h":  2 * time.Hour,    // all-digit stems are hex-valid
+		"abc123-10m":  10 * time.Minute,
+		"1234567-2h":  2 * time.Hour,
 		"facade-7d":   7 * 24 * time.Hour,
 		"fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e-30s": 30 * time.Second,
+		// Relaxed stems: the suffix is the explicit intent, so any
+		// alphanumeric+hyphen stem of any length matches.
+		"myapp-10m":    10 * time.Minute,
+		"release-7d":   7 * 24 * time.Hour,
+		"ABC1234-10m":  10 * time.Minute,
+		"a-1h":         1 * time.Hour,
+		"abc12-10m":    10 * time.Minute,
+		"face-7d":      7 * 24 * time.Hour,
+		"feature-x-2d": 2 * 24 * time.Hour,
 	}
 	for tag, want := range matched {
 		got, ok := EffectiveTTL(tag)
@@ -67,9 +76,10 @@ func TestEffectiveTTLCommitHashSuffix(t *testing.T) {
 			t.Errorf("EffectiveTTL(%q) = %v, want %v", tag, got, want)
 		}
 	}
-	// facade-7d above locks the documented edge: hex-spellable words
-	// match. Everything else human must not.
-	for _, tag := range []string{"myapp-10m", "release-7d", "v1.2.3-1h", "ABC1234-10m", "abc1234-", "-10m", "10m-", "a-1h", "abc12-10m", "face-7d"} {
+	// The suffix is the explicit intent, so the stem shape no longer
+	// refuses: what stays out is anything without number+unit at the
+	// end — dotted versions, dangling hyphens, unit-less stems.
+	for _, tag := range []string{"v1.2.3-1h", "abc1234-", "10m-", "latest", "myapp", "10x", "10M"} {
 		if ttl, ok := EffectiveTTL(tag); ok {
 			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
 		}
