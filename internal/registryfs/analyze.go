@@ -32,13 +32,6 @@ type Report struct {
 	Uploads    int
 	Blobs      int
 	BlobBytes  int64
-	// LinkBytes weighs the counted link files (tag, revision,
-	// layer membership) — the registry's own index.
-	LinkBytes int64
-	// UploadBytes weighs upload session files (startedAt,
-	// hashstates, partial data) — in-flight cargo and residue,
-	// neither blob nor index.
-	UploadBytes int64
 }
 
 // Analyze walks the proven store root, classifying by path shape
@@ -133,8 +126,6 @@ func (r *Report) add(o Report) {
 	r.Uploads += o.Uploads
 	r.Blobs += o.Blobs
 	r.BlobBytes += o.BlobBytes
-	r.LinkBytes += o.LinkBytes
-	r.UploadBytes += o.UploadBytes
 }
 
 // walkShard walks one v2 subtree, classifying exactly as the old
@@ -184,23 +175,8 @@ func walkShard(v2, name string, progress func(Report)) (Report, error) {
 					return kerr
 				}
 				for _, k := range kids {
-					if !k.IsDir() {
-						continue
-					}
-					rep.Uploads++
-					files, ferr := os.ReadDir(filepath.Join(path, k.Name()))
-					if ferr != nil {
-						return ferr
-					}
-					for _, f := range files {
-						if f.IsDir() {
-							continue
-						}
-						fi, ierr := f.Info()
-						if ierr != nil {
-							return ierr
-						}
-						rep.UploadBytes += fi.Size()
+					if k.IsDir() {
+						rep.Uploads++
 					}
 				}
 				return fs.SkipDir
@@ -225,24 +201,13 @@ func walkShard(v2, name string, progress func(Report)) (Report, error) {
 			// Index links (…/index/…) match none and stay
 			// uncounted, whatever the algorithm names.
 			n := len(parts)
-			counted := false
 			switch {
 			case n >= 7 && parts[n-2] == "current" && parts[n-4] == "tags" && parts[n-5] == "_manifests":
 				rep.Tags++
-				counted = true
 			case n >= 7 && parts[n-4] == "revisions" && parts[n-5] == "_manifests":
 				rep.Revisions++
-				counted = true
 			case parts[n-4] == "_layers":
 				rep.LayerLinks++
-				counted = true
-			}
-			if counted {
-				fi, ferr := d.Info()
-				if ferr != nil {
-					return ferr
-				}
-				rep.LinkBytes += fi.Size()
 			}
 		}
 		if !d.IsDir() && len(parts) >= 2 && parts[0] == "blobs" && filepath.Base(path) == "data" {

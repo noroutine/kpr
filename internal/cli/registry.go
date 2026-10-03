@@ -49,17 +49,15 @@ root). Point-in-time on a live registry.`,
 // analyzeJSON is the piped shape of a magnitude report: the fs
 // walk plus the two numbers the API walk sees.
 type analyzeJSON struct {
-	Repos       int   `json:"repos"`
-	Tags        int   `json:"tags"`
-	Revisions   int   `json:"revisions"`
-	Blobs       int   `json:"blobs"`
-	BlobBytes   int64 `json:"blob_bytes"`
-	Uploads     int   `json:"uploads"`
-	LayerLinks  int   `json:"layer_links"`
-	LinkBytes   int64 `json:"link_bytes"`
-	UploadBytes int64 `json:"upload_bytes"`
-	APIRepos    int   `json:"api_repos"`
-	APITags     int   `json:"api_tags"`
+	Repos      int   `json:"repos"`
+	Tags       int   `json:"tags"`
+	Revisions  int   `json:"revisions"`
+	Blobs      int   `json:"blobs"`
+	BlobBytes  int64 `json:"blob_bytes"`
+	Uploads    int   `json:"uploads"`
+	LayerLinks int   `json:"layer_links"`
+	APIRepos   int   `json:"api_repos"`
+	APITags    int   `json:"api_tags"`
 }
 
 // humanBytes renders bytes in the largest binary unit that keeps
@@ -112,8 +110,7 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, delta bool) 
 		analyzeRow("fs", fsBody),
 		analyzeRow("revs", fmt.Sprintf("%d revisions, %d untagged", fs.Revisions, untagged)),
 		analyzeRow("blobs", fmt.Sprintf("%d blobs, %d layer links, %d uploads", fs.Blobs, fs.LayerLinks, fs.Uploads)),
-		analyzeRow("size", fmt.Sprintf("%s blobs, %s links, %s uploads",
-			humanBytes(fs.BlobBytes), humanBytes(fs.LinkBytes), humanBytes(fs.UploadBytes))),
+		analyzeRow("size", fmt.Sprintf("%s blobs", humanBytes(fs.BlobBytes))),
 	}
 }
 
@@ -172,7 +169,6 @@ func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg
 			Repos: rep.Repos, Tags: rep.Tags, Revisions: rep.Revisions,
 			Blobs: rep.Blobs, BlobBytes: rep.BlobBytes,
 			Uploads: rep.Uploads, LayerLinks: rep.LayerLinks,
-			LinkBytes: rep.LinkBytes, UploadBytes: rep.UploadBytes,
 			APIRepos: api.Repos, APITags: api.Tags,
 		})
 	}

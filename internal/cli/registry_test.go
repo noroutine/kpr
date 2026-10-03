@@ -110,7 +110,7 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 		"fs     : 1 repos, 1 tags, Δ repos: +0, Δ tags: -1",
 		"revs   : 1 revisions, 0 untagged",
 		"blobs  : 1 blobs, 1 layer links, 1 uploads",
-		"size   : 8 B blobs, 30 B links, 1 B uploads",
+		"size   : 8 B blobs",
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != len(want) {
@@ -128,7 +128,7 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 // fails, a label width drifted and the block stops scanning.
 func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 	fsRep := registryfs.Report{Repos: 600, Tags: 17050, Revisions: 24993, Blobs: 55077,
-		BlobBytes: 679001899008, Uploads: 1, LayerLinks: 101173, LinkBytes: 9580388, UploadBytes: 4096}
+		BlobBytes: 679001899008, Uploads: 1, LayerLinks: 101173}
 	api := backfill.CatalogReport{Repos: 600, Tags: 17050}
 	lines := analyzeLines(api, fsRep, true)
 	if len(lines) != 5 {
@@ -139,7 +139,7 @@ func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 			t.Errorf("line misaligned: %q", l)
 		}
 	}
-	if !strings.HasSuffix(lines[3], "uploads") || !strings.HasSuffix(lines[4], "uploads") {
+	if !strings.HasSuffix(lines[3], "uploads") || !strings.HasSuffix(lines[4], "blobs") {
 		t.Errorf("trailing lines = %q, %q, want counts-then-scale order", lines[3], lines[4])
 	}
 }
@@ -184,7 +184,6 @@ func TestRegistryAnalyzeJSON(t *testing.T) {
 		"repos": float64(1), "tags": float64(1), "revisions": float64(1),
 		"blobs": float64(1), "blob_bytes": float64(8),
 		"uploads": float64(1), "layer_links": float64(1),
-		"link_bytes": float64(30), "upload_bytes": float64(1),
 		"api_repos": float64(1), "api_tags": float64(2),
 	}
 	if len(got) != len(want) {

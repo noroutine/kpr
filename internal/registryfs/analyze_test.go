@@ -65,7 +65,7 @@ func stageLayout(t *testing.T) (proof.FilesystemStore, Report) {
 	}
 	return proveRoot(t, root), Report{
 		Repos: 3, Tags: 6, Revisions: 3, LayerLinks: 2, Uploads: 1,
-		Blobs: 2, BlobBytes: 18, LinkBytes: 110, UploadBytes: 12,
+		Blobs: 2, BlobBytes: 18,
 	}
 }
 
