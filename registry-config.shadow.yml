@@ -24,6 +24,8 @@ storage:
     rootdirectory: /var/lib/registry
   maintenance:
     uploadpurging:
+      # Off: the main registry's purger covers this shared volume —
+      # one purger per store, whichever door the upload came through.
       enabled: false
 
 http:

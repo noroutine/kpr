@@ -34,11 +34,17 @@ storage:
     rootdirectory: /var/lib/registry
   maintenance:
     uploadpurging:
-      # Off: kpr owns stale-upload reaping (its stale-upload selector
-      # marks rows the sweeper deletes). Registry-side purging would
-      # remove orphaned upload dirs under kpr's feet — enable with an
-      # explicit age/interval only if abandoned uploads pile up on disk.
-      enabled: false
+      # On: reaps orphaned blob-upload sessions (_uploads/<uuid>)
+      # older than age. This is disk, not rows — kpr's partial
+      # policy reaps digest-less ROWS, a different thing entirely:
+      # it never touches _uploads, and purging never touches
+      # tracked tags, so nothing runs under anyone's feet. Off
+      # piles abandoned sessions no collector or prune step
+      # removes (uploads hold partial bytes, never empty dirs).
+      enabled: true
+      age: 24h
+      interval: 1h
+      dryrun: false
   tag:
     # Tag-reference lookup concurrency on manifest delete (each delete
     # scans the repo's tags for the digest); 0 would mean GOMAXPROCS.
