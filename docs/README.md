@@ -52,7 +52,8 @@ reference pages above. Each `X.md` states what ships today; its
 | Doc | Answers |
 |---|---|
 | [ARCHITECTURE_FUTURE](ARCHITECTURE_FUTURE.md) | open and upcoming work |
-| [GC_FUTURE](GC_FUTURE.md) | dangling tags, token-auth registries |
+| [GC_FUTURE](GC_FUTURE.md) | token-auth registries |
+| [GC_DANGLING](GC_DANGLING.md) | dangling references: classes, dead-tag-link design |
 | [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | shadow reader, digest-less enrichment |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |
 | [SENTINELS_FUTURE](SENTINELS_FUTURE.md) | backfill snapshot detection |

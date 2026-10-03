@@ -107,7 +107,7 @@ Cases that sound like backfill's problem but aren't:
 | Untagged manifests | `gc` — no tag points at them, so tag enumeration cannot see them by definition |
 | Space not returning after cleanup | nothing: deletes soft-delete, and blobs dedupe re-pushes until online GC (out of scope) |
 | Manifest without a usable digest | skipped, untracked until re-pushed — the next push re-enters through the receiver |
-| Dangling tag (listed, unresolvable) | skipped with a count; detection is [GC_FUTURE](GC_FUTURE.md#dangling-tags) work |
+| Dangling tag (listed, unresolvable) | skipped with a count; detection is [GC_DANGLING](GC_DANGLING.md#dead-tag-links-designed) work |
 
 ## Operational risks
 
