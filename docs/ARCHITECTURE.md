@@ -27,7 +27,7 @@ Open and upcoming work: [ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md).
 
 ```mermaid
 flowchart LR
-  dev((docker push)) --> serve
+  dev((docker push)) -- "to :5000" --> serve
   human((human)) --> cli
 
   subgraph serve["<b>kpr serve</b> · long-running"]
@@ -39,23 +39,33 @@ flowchart LR
 
   subgraph cli["<b>kpr …</b> · one-shot, nothing runs unasked"]
     direction TB
-    reap["<b>reap</b><br/>marks rows due<br/><i>reads the catalog</i>"] ~~~
-    sweepcmd["<b>sweep</b><br/>runs one pass<br/><i>DELETEs manifests</i>"] ~~~
-    gcc{{"<b>gc</b><br/>gates + stock collector<br/><i>reclaims blob bytes</i>"}} ~~~
-    backfill{{"<b>store backfill</b><br/>adopts pre-kpr tags<br/><i>enumerates the catalog</i>"}} ~~~
+    reap["<b>reap</b><br/>marks rows due"] ~~~
+    sweepcmd["<b>sweep</b><br/>runs one pass"] ~~~
+    gcc{{"<b>gc</b><br/>gates + stock collector"}} ~~~
+    backfill{{"<b>store backfill</b><br/>adopts pre-kpr tags"}} ~~~
     ceremony{{"<b>store lock/unlock/adopt</b><br/>lineage ceremony"}} ~~~
     rest["<b>plan</b> · <b>store</b> · <b>status</b><br/>read and edit rows"]
   end
 
-  state[("<b>state</b><br/>file · redis")]
+  state[("<b>kpr state</b><br/>rows · marks · locks<br/>file · redis")]
   dist["<b>distribution</b><br/>stock registry"]
+  blobs[("<b>registry store</b><br/>blobs · manifests · tags")]
 
-  serve -- "forward" --> dist
-  dist -- "notifications" --> serve
+  serve -- "edge forwards" --> dist
+  dist -- "events → receiver" --> serve
+  dist --- blobs
   serve <--> state
   cli <--> state
-  cli --> dist
+  cli -- "catalog reads<br/>DELETE manifests" --> dist
+  cli -- "gc: stock collector<br/>runs on the store" --> blobs
 ```
+
+Two stores, and the split matters: kpr's own state holds rows,
+marks and locks, while the registry owns the bytes. `gc` is the
+only thing that reaches the registry store directly — it runs the
+stock collector against that filesystem, never asking the running
+registry to delete anything. Everything else talks to the
+registry over its API.
 
 Hexagons are the recording paths: the receiver signs
 `kpr-receiver`, `gc` signs `kpr-gc` (mints) and `kpr-heal`
