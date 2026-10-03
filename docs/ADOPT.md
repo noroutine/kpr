@@ -50,7 +50,7 @@ off Traefik: notifications from inside the registry container to a
 public URL hairpin through TLS and any auth middleware — don't.
 Pushes stay off Traefik too: they land on the edge (`:5000` on kpr,
 moved off the registry) — a transparent proxy that fences mutating
-routes (DENY while the store is locked, HOLD around gc finalize).
+routes (DENY while the store is locked, HOLD around the armed collect).
 
 ## Step 0 — pin the image
 
@@ -124,6 +124,9 @@ services:
       # a failed RelativeURLs proof closes it loudly either way.
       - "5000:5000"
     environment:
+      # Edge listen address (default :5000, said out loud: this port
+      # used to belong to the registry).
+      - KPR_EDGE_ADDR=:5000
       # Registry peer: internal service URL, as the kpr container sees it.
       - KPR_REGISTRY_URL=http://registry:5000
       - KPR_REDIS_ADDR=redis:6379

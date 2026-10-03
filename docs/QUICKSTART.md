@@ -58,6 +58,9 @@ services:
       - KPR_STORE=file
       - KPR_STORE_DIR=/var/lib/registry/kpr   # rows live beside images
       - KPR_REGISTRY_URL=http://registry:5000
+      # Edge listen address (default :5000, said out loud: this port
+      # used to belong to the registry above).
+      - KPR_EDGE_ADDR=:5000
       # Arm only after the first dry run below:
       # - KPR_CLI_NO_DRY_RUN=true
       # - KPR_TIME_METHOD=https   # checked clock; local default otherwise

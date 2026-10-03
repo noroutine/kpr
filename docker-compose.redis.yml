@@ -16,12 +16,21 @@ services:
     ports:
       - "8080:8080"   # Application server
       - "9300:9300"   # Management console
+      # The registry's old edge: kpr fronts :5000 now (RelativeURLs
+      # proof gates it at open — absolute backend Locations close
+      # it loudly, never a boot refusal).
+      # Needs localhost:5000 free: macOS AirPlay Receiver squats it when
+      # enabled (answers 403 with Server: AirTunes) — keep that off.
+      - "127.0.0.1:5000:5000"
     environment:
       # Server configuration
       - "KPR_MANAGEMENT_HOST=::"
       - "KPR_MANAGEMENT_PORT=9300"
       - "KPR_APP_HOST=::"
       - "KPR_APP_PORT=8080"
+      # Edge proxy listen address (default :5000, said out loud:
+      # this port used to belong to the registry below).
+      - "KPR_EDGE_ADDR=:5000"
 
       # State backend (see docs/goals.md). The password must match the
       # redis service's REDIS_PASSWORD below; empty would mean no auth,
@@ -116,11 +125,8 @@ services:
     # the store (CLAIM_STORE recipe), then restarts are clean.
     user: "1000:1000"
     ports:
-      # Needs localhost:5000 free: macOS AirPlay Receiver squats it when
-      # enabled (answers 403 with Server: AirTunes) — keep that off.
-      # `make up` probes the port and kpr serve sniffs the peer at boot;
-      # both warn when they see AirTunes.
-      - "127.0.0.1:5000:5000"
+      # The registry's :5000 stays private to kpr-net now — kpr
+      # fronts it (see its ports above).
       # Debug + prometheus (/metrics) from registry-config.yml's
       # http.debug block; scraped by the observability overlay.
       - "127.0.0.1:5001:5001"
