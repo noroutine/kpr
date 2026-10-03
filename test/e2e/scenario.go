@@ -178,6 +178,37 @@ func (s *Scenario) PushUntracked(repo, tag string) string {
 	return pushImage(s.t, s.fx, ClientGGCR, repo, tag)
 }
 
+// PushUntrackedList pushes a docker manifest list (the shape real
+// multi-arch publishers ship) and records nothing — the pre-kpr
+// list tag. The docker list type is the point: registry:3 400s a
+// bare */* HEAD on it, so backfill must ask with an explicit
+// manifest Accept list. It returns the list digest.
+func (s *Scenario) PushUntrackedList(repo, tag string) string {
+	s.t.Helper()
+	var adds []mutate.IndexAddendum
+	for _, arch := range []string{"amd64", "arm64"} {
+		img, err := buildImage(repo, tag+"-"+arch)
+		if err != nil {
+			s.t.Fatalf("build e2e image for %s: %v", arch, err)
+		}
+		child := s.imageRef(repo, tag+"-"+arch)
+		if err := remote.Write(child, img); err != nil {
+			s.t.Fatalf("push e2e child for %s: %v", arch, err)
+		}
+		adds = append(adds, mutate.IndexAddendum{Add: img})
+	}
+	idx := mutate.IndexMediaType(mutate.AppendManifests(empty.Index, adds...), types.DockerManifestList)
+	ref := s.imageRef(repo, tag)
+	if err := remote.WriteIndex(ref, idx); err != nil {
+		s.t.Fatalf("push e2e list: %v", err)
+	}
+	d, err := idx.Digest()
+	if err != nil {
+		s.t.Fatalf("e2e list digest: %v", err)
+	}
+	return d.String()
+}
+
 // BackfillArmed runs one armed backfill pass — the import tick's
 // work, on demand — and returns its summary for the test's verdict.
 // Fatal on a plain fixture: backfill stats tag links off the mount,

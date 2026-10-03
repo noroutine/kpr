@@ -174,6 +174,27 @@ func TestManifestDigestReadsHeaders(t *testing.T) {
 	}
 }
 
+// A registry that 400s bare */* (registry:3 on docker manifest
+// lists: MANIFEST_INVALID) must still answer: the client sends an
+// explicit manifest Accept list, never */* alone. If this fails,
+// every multi-arch docker tag skips backfill with a 400.
+func TestManifestDigestAvoidsBareStarAccept(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept") == "*/*" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Docker-Content-Digest", "sha256:abc")
+		w.Header().Set("Content-Type", "application/vnd.docker.distribution.manifest.list.v2+json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if _, _, err := NewClient(srv.URL).ManifestDigest(testCtx(), "app", "v1"); err != nil {
+		t.Errorf("ManifestDigest(list) = %v, want digest", err)
+	}
+}
+
 func TestManifestDigestUnknownSkipsByCount(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

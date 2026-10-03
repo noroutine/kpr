@@ -243,7 +243,7 @@ func (c *Client) ManifestDigest(ctx context.Context, repo, tag string) (digest, 
 	if err != nil {
 		return "", "", err
 	}
-	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept", manifestAcceptTypes)
 	c.authorize(req)
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -263,6 +263,14 @@ func (c *Client) ManifestDigest(ctx context.Context, repo, tag string) (digest, 
 // ociManifestType is the media type the sentinel reader asks for:
 // without an Accept the registry 406s a manifest GET.
 const ociManifestType = "application/vnd.oci.image.manifest.v1+json"
+
+// manifestAcceptTypes is what manifest HEADs ask for: registry:3
+// 400s a bare */* on docker manifest lists (MANIFEST_INVALID),
+// so name every type instead of wildcarding.
+const manifestAcceptTypes = "application/vnd.docker.distribution.manifest.list.v2+json, " +
+	"application/vnd.docker.distribution.manifest.v2+json, " +
+	"application/vnd.oci.image.index.v1+json, " +
+	"application/vnd.oci.image.manifest.v1+json"
 
 // GetManifest returns the exact manifest bytes a tag serves. Any
 // non-200 is an error with the registry's status — absence of proof

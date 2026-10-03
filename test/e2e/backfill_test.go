@@ -19,10 +19,18 @@ func TestBackfillAdoptsPreKprTag(t *testing.T) {
 
 	s.Push("test/tracked", "1s", time.Hour)
 	shadow := s.PushUntracked("test/shadow", "1s")
+	list := s.PushUntrackedList("test/multilist", "1s")
 
 	sum := s.BackfillArmed()
-	if sum.Recorded != 1 || sum.Skipped != 1 || sum.Failed != 0 {
-		t.Fatalf("backfill = %+v, want 1 recorded, 1 skipped, 0 failed", sum)
+	// shadow + list + its two arch children adopted, tracked
+	// single skipped, nothing failed — the list 400s without an
+	// explicit manifest Accept.
+	if sum.Recorded != 4 || sum.Skipped != 1 || sum.Failed != 0 {
+		t.Fatalf("backfill = %+v, want 4 recorded, 1 skipped, 0 failed", sum)
+	}
+	listRow := s.ExpectRow("test/multilist", "1s")
+	if listRow.Digest != list {
+		t.Fatalf("list row digest = %q, want %q", listRow.Digest, list)
 	}
 
 	s.ExpectNotDue("test/shadow", "1s")
