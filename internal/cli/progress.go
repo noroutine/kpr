@@ -37,41 +37,21 @@ func newLiveLines(w io.Writer) *liveLines {
 	return &liveLines{w: w, tty: tty}
 }
 
-// tick repaints when due; done paints the final line plus newline.
-// Both are no-ops off-terminal except done's newline discipline:
-// done always ends the line it may have started, so the summary
-// that follows never glues onto a counter.
-func (l *liveLines) tick(line string) {
-	if !l.tty {
-		return
-	}
-	now := time.Now()
-	if now.Sub(l.last) < liveInterval {
-		return
-	}
-	l.last = now
-	l.paint(line)
-}
-
-func (l *liveLines) done(line string) {
-	if !l.tty {
-		return
-	}
-	l.paint(line)
-	_, _ = fmt.Fprintln(l.w)
-}
-
-func (l *liveLines) paint(line string) {
-	if len(line) > l.wide {
-		l.wide = len(line)
-	}
-	_, _ = fmt.Fprintf(l.w, "\r%s%s", line, strings.Repeat(" ", l.wide-len(line)))
-}
-
 // terminal reports whether repaints are live: callers flush cheap
 // early views straight to pipes, where nothing repaints.
 func (l *liveLines) terminal() bool {
 	return l.tty
+}
+
+// breakLine ends an in-progress repaint so an inline note starts
+// on its own line; the next tick repaints the block fresh. A
+// no-op off-terminal and when nothing is painted.
+func (l *liveLines) breakLine() {
+	if !l.tty || !l.block {
+		return
+	}
+	_, _ = fmt.Fprintln(l.w)
+	l.block = false
 }
 
 // tickBlock repaints an N-line block when due; doneBlock settles

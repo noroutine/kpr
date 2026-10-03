@@ -154,8 +154,8 @@ func TestBackfillRecordsAbsentWithMtimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if sum != (Summary{Recorded: 1}) {
-		t.Errorf("sum = %+v, want {Recorded:1}", sum)
+	if sum != (Summary{Recorded: 1, Tracked: 1, Repos: 1, Tags: 1}) {
+		t.Errorf("sum = %+v, want recorded + tracked + scan of 1 repo, 1 tag", sum)
 	}
 	rows, _ := s.All(ctx)
 	if len(rows) != 2 {
@@ -200,6 +200,74 @@ func TestBackfillProgressReportsVerdicts(t *testing.T) {
 	}
 	if last.Recorded != 2 || last.Skipped != 0 || last.Failed != 0 {
 		t.Errorf("last progress = %+v, want 2 recorded", last)
+	}
+}
+
+// Progress reports the scan as it lands: the tracked baseline,
+// then repos and tags accumulating per listed repo. If this
+// fails, the catalog line never moves.
+func TestBackfillProgressReportsScan(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	stageTagDir(t, root, "app1", "v1")
+	stageTagDir(t, root, "app2", "v1")
+	stageTagDir(t, root, "app2", "v2")
+	reg := &stubRegistry{
+		repos: []string{"app1", "app2"},
+		tags: map[string][]string{
+			"app1": {"v1"},
+			"app2": {"v1", "v2"},
+		},
+		digests: map[string]string{
+			"app1\x00v1": "sha256:aaa",
+			"app2\x00v1": "sha256:bbb",
+			"app2\x00v2": "sha256:ccc",
+		},
+	}
+	var snaps []Summary
+	opts := Options{DryRun: true, Log: io.Discard, Progress: func(sum Summary) {
+		snaps = append(snaps, sum)
+	}}
+	if _, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, opts, nil); err != nil {
+		t.Fatalf("Run: %v, want scan", err)
+	}
+	if len(snaps) == 0 {
+		t.Fatal("no progress reported")
+	}
+	if snaps[0].Tracked != 1 {
+		t.Errorf("baseline tracked = %d, want 1 generation row", snaps[0].Tracked)
+	}
+	var repos, tags int
+	for _, sn := range snaps {
+		if sn.Tracked != 1 {
+			t.Errorf("snapshot = %+v, want tracked baseline carried", sn)
+		}
+		repos, tags = max(repos, sn.Repos), max(tags, sn.Tags)
+	}
+	if repos != 2 || tags != 3 {
+		t.Errorf("scan peaks at %d repos, %d tags, want 2 and 3", repos, tags)
+	}
+}
+
+// The run prints no summary itself: warnings own the writer, the
+// caller renders the counters from the returned Summary. If this
+// fails, the display double-prints.
+func TestBackfillRunPrintsNoSummary(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	stageTagDir(t, root, "app", "v1")
+	reg := &stubRegistry{
+		repos:   []string{"app"},
+		tags:    map[string][]string{"app": {"v1"}},
+		digests: map[string]string{"app\x00v1": "sha256:abc"},
+	}
+	var out strings.Builder
+	opts := Options{DryRun: true, Log: io.Discard}
+	if _, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, opts, nil); err != nil {
+		t.Fatalf("Run: %v, want preview", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("run wrote %q, want warnings only (none here)", out.String())
 	}
 }
 

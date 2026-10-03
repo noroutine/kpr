@@ -57,8 +57,9 @@ type Recorder interface {
 
 // Options tunes a backfill run: which repos, preview or armed.
 // Log takes the per-tag stream (would record/recorded lines); nil
-// discards it. Progress reports running counters after every tag
-// verdict — the caller throttles rendering; nil skips it.
+// discards it. Progress reports the running summary on the
+// tracked baseline, per listed repo, and per tag verdict — the
+// caller throttles rendering; nil skips it.
 type Options struct {
 	RepoGlob string
 	DryRun   bool
@@ -66,10 +67,14 @@ type Options struct {
 	Progress func(Summary)
 }
 
-// Summary counts a run: stamped, deliberately skipped, and
-// error-skipped. Failed never refuses the run — catalog failures
-// do that, loudly.
+// Summary counts a run: the tracked baseline, the scan so far
+// (repos listed, tags named), then stamped, deliberately skipped,
+// and error-skipped. Failed never refuses the run — catalog
+// failures do that, loudly.
 type Summary struct {
+	Tracked  int
+	Repos    int
+	Tags     int
 	Recorded int
 	Skipped  int
 	Failed   int
@@ -127,6 +132,8 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 	for _, r := range allRows {
 		tracked[r.Repo+"\x00"+r.Tag] = true
 	}
+	sum.Tracked = len(allRows)
+	progress()
 	repos, err := reg.CatalogAll(ctx)
 	if err != nil {
 		return sum, fmt.Errorf("backfill enumeration: %w", err)
@@ -160,6 +167,9 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 			}
 			return sum, fmt.Errorf("backfill tags for %s: %w", repo, err)
 		}
+		sum.Repos++
+		sum.Tags += len(tags)
+		progress()
 		for _, tag := range tags {
 			if tracked[repo+"\x00"+tag] {
 				sum.Skipped++
@@ -207,14 +217,9 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 			}
 		}
 	}
-	suffix := ""
-	if opts.DryRun {
-		suffix = " (dry run — nothing recorded)"
-	}
-	if _, err := fmt.Fprintf(w, "backfill: %d recorded, %d skipped, %d failed%s\n",
-		sum.Recorded, sum.Skipped, sum.Failed, suffix); err != nil {
-		return sum, err
-	}
+	// No summary print: warnings own w, the caller renders the
+	// counters from the returned Summary — one renderer, never a
+	// live line plus a settled line saying the same.
 	return sum, nil
 }
 

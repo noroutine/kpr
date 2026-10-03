@@ -11,9 +11,12 @@ kpr store backfill --output -       # stream per-tag lines to stdout
 kpr store backfill --output run.log # same stream to a file
 ```
 
-Counters repaint live on a terminal; the per-tag stream needs
-`--output` (default discards it). Pipes get the final summary
-only — no control codes in logs.
+Two lines repaint live on a terminal — what the catalog names,
+and what the store holds against it (the tracked baseline plus
+running verdicts); mid-run warnings break above them onto their
+own lines. The per-tag stream needs `--output` (default discards
+it). Pipes get the settled lines only — no control codes in
+logs.
 
 ## Contents
 

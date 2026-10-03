@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -88,6 +89,31 @@ func TestStoreBackfillOutputBadPathRefuses(t *testing.T) {
 	defer RootCmd.SetArgs(nil)
 	if err := RootCmd.Execute(); err == nil {
 		t.Error("store backfill --output into missing dir succeeded, want refusal")
+	}
+}
+
+// The display is two copypastable lines sharing analyze's
+// column: what the catalog names, and what the store holds
+// against it — the tracked baseline plus running verdicts. The
+// preview notice prints up front, never as a trailing suffix.
+// If this fails, backfill miscounts or misrenders.
+func TestStoreBackfillRendersBlock(t *testing.T) {
+	sum := backfill.Summary{Tracked: 17147, Repos: 600, Tags: 17050, Recorded: 16933, Skipped: 114}
+	lines := backfillLines(sum)
+	want := []string{
+		"catalog: 600 repos, 17050 tags",
+		"store  : 17147 tracked, 16933 recorded, 114 skipped, 0 failed",
+	}
+	if len(lines) != len(want) {
+		t.Fatalf("backfill block has %d lines, want %d", len(lines), len(want))
+	}
+	for i, w := range want {
+		if lines[i] != w {
+			t.Errorf("line %d = %q, want %q", i, lines[i], w)
+		}
+		if len(lines[i]) < 10 || lines[i][7] != ':' || lines[i][8] != ' ' {
+			t.Errorf("line misaligned: %q", lines[i])
+		}
 	}
 }
 
