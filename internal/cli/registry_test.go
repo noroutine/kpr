@@ -88,11 +88,11 @@ func runAnalyzeCmd(t *testing.T, cfgPath string, reg backfill.Registry, args ...
 	return buf.String(), err
 }
 
-// Analyze reports the staged magnitude in columns, each value
-// under its header, then the API view with the delta: a
-// transposed column fails. If this fails, the command miscounts
-// or misrenders.
-func TestRegistryAnalyzeReportsColumns(t *testing.T) {
+// Analyze reports the staged magnitude as live-counter lines: the
+// fs line with GiB bytes, then the API view with the delta. The
+// API sees the same repo but two tags, so the delta reads +1 tag.
+// If this fails, the command miscounts or misrenders.
+func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 	cfgPath := stageAnalyzeStore(t)
 	srv := stageCatalogServer(t)
 	reg := registry.NewClient(srv.URL)
@@ -101,31 +101,14 @@ func TestRegistryAnalyzeReportsColumns(t *testing.T) {
 		t.Fatalf("analyze = %v, want report", err)
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("analyze has %d lines, want header + row + api:\n%s", len(lines), out)
+	if len(lines) != 2 {
+		t.Fatalf("analyze has %d lines, want api + fs:\n%s", len(lines), out)
 	}
-	header := strings.Fields(lines[0])
-	row := strings.Fields(lines[1])
-	want := map[string]string{
-		"REPOS": "1", "TAGS": "1", "REVISIONS": "1", "BLOBS": "1",
-		"BLOB_BYTES": "8", "UPLOADS": "1", "LAYER_LINKS": "1",
+	if want := "api: 1 repos, 2 tags (fs delta +0 repos, +1 tags)"; lines[0] != want {
+		t.Errorf("api line = %q, want %q", lines[0], want)
 	}
-	if len(header) != len(want) || len(row) != len(want) {
-		t.Fatalf("width mismatch:\n%s", out)
-	}
-	for i, h := range header {
-		w, ok := want[h]
-		if !ok {
-			t.Errorf("unexpected column %q", h)
-			continue
-		}
-		if row[i] != w {
-			t.Errorf("column %s = %q, want %q", h, row[i], w)
-		}
-	}
-	// API sees the same repo but two tags: delta +1 tag.
-	if !strings.Contains(lines[2], "api: 1 repos, 2 tags (fs delta +0 repos, +1 tags)") {
-		t.Errorf("api line = %q, want the +1 tag delta", lines[2])
+	if want := "fs: 1 repos, 1 tags, 1 revisions, 1 blobs, 0.00 GiB, 1 uploads, 1 layer links"; lines[1] != want {
+		t.Errorf("fs line = %q, want %q", lines[1], want)
 	}
 }
 
