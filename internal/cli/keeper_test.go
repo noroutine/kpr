@@ -413,6 +413,9 @@ func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 	if !strings.Contains(out.String(), "0 performed") || !strings.Contains(out.String(), "1 planned") {
 		t.Errorf("dry-run summary missing counts:\n%s", out.String())
 	}
+	if !strings.Contains(out.String(), "(dry run — nothing deleted)") {
+		t.Errorf("dry-run summary hides the mode:\n%s", out.String())
+	}
 	if rows, _ := s.All(context.Background()); len(rows) != 1 {
 		t.Errorf("dry-run kept %d rows, want the 1 planned row kept", len(rows))
 	}
@@ -424,6 +427,9 @@ func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 	}
 	if !strings.Contains(aout.String(), "1 performed") {
 		t.Errorf("armed summary missing counts:\n%s", aout.String())
+	}
+	if strings.Contains(aout.String(), "dry run") {
+		t.Errorf("armed summary claims dry-run:\n%s", aout.String())
 	}
 	if rows, _ := as.All(context.Background()); len(rows) != 0 {
 		t.Errorf("armed kept %d rows, want the deleted row dropped", len(rows))

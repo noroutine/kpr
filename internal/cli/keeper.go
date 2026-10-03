@@ -162,8 +162,12 @@ type sweepPeer interface {
 func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, armed bool) error {
 	sw := &sweep.Sweeper{Store: s, Registry: peer, Sentinel: peer, DryRun: !armed}
 	sum := sw.RunPass(ctx, "sweep")
-	_, err := fmt.Fprintf(w, "sweep %s: %d performed, %d planned, %d failed, %d untracked\n",
-		sum.PassID, sum.Performed, sum.Planned, sum.Failed, sum.Untracked)
+	suffix := ""
+	if !armed {
+		suffix = " (dry run — nothing deleted)"
+	}
+	_, err := fmt.Fprintf(w, "sweep %s: %d performed, %d planned, %d failed, %d untracked%s\n",
+		sum.PassID, sum.Performed, sum.Planned, sum.Failed, sum.Untracked, suffix)
 	if err != nil {
 		return err
 	}
