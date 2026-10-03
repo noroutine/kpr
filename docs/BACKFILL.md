@@ -11,12 +11,13 @@ kpr store backfill --output -       # stream per-tag lines to stdout
 kpr store backfill --output run.log # same stream to a file
 ```
 
-Two lines repaint live on a terminal — what the catalog names,
-and what the store holds against it (the tracked baseline plus
-running verdicts); mid-run warnings break above them onto their
-own lines. The per-tag stream needs `--output` (default discards
-it). Pipes get the settled lines only — no control codes in
-logs.
+Three lines repaint live on a terminal — what the catalog
+names, what the store holds (tracked over everything, like
+analyze counts it, sentinels as a memo), and the run's own
+verdicts; only the last line moves per verdict. Mid-run warnings
+break above them onto their own lines. The per-tag stream needs
+`--output` (default discards it). Pipes get the settled lines
+only — no control codes in logs.
 
 ## Contents
 

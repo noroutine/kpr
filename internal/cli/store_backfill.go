@@ -89,20 +89,27 @@ stdout, a path for a file) and is otherwise discarded.`,
 	},
 }
 
-// backfillLines renders the two-line block: what the catalog
-// names, and what the store holds against it — the tracked
-// baseline plus running verdicts. Values share analyze's
-// column, so the blocks scan as one.
+// backfillLines renders the three-line block: what the catalog
+// names, what the store holds, and the run's own verdicts. The
+// store line matches analyze's store line (tracked over
+// everything, sentinels as a memo); only the backfill line moves
+// per verdict. Labels pad one wider than analyze's — backfill is
+// the longest noun here.
 func backfillLines(sum backfill.Summary) []string {
+	row := func(name, body string) string {
+		return fmt.Sprintf("%-8s: %s", name, body)
+	}
 	noun := "sentinels"
 	if sum.Sentinels == 1 {
 		noun = "sentinel"
 	}
 	return []string{
-		analyzeRow("catalog", fmt.Sprintf("%s, %s",
+		row("catalog", fmt.Sprintf("%s, %s",
 			plural(sum.Repos, "repo", "repos"), plural(sum.Tags, "tag", "tags"))),
-		analyzeRow("store", fmt.Sprintf("%d tracked (+%d %s), %d recorded, %d skipped, %d failed",
-			sum.Tracked, sum.Sentinels, noun, sum.Recorded, sum.Skipped, sum.Failed)),
+		row("store", fmt.Sprintf("%d tracked, %d %s",
+			sum.Tracked+sum.Sentinels, sum.Sentinels, noun)),
+		row("backfill", fmt.Sprintf("%d recorded, %d skipped, %d failed",
+			sum.Recorded, sum.Skipped, sum.Failed)),
 	}
 }
 

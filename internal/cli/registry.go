@@ -134,17 +134,18 @@ type storeView struct {
 }
 
 // summarizeRows groups tracked rows the store line's way:
-// distinct repos over everything, adoptable tags outside the
-// machinery prefix, sentinel rows apart.
+// distinct repos over everything, tags over everything, sentinel
+// rows split out as a memo. Tags stay inclusive so the Δ tags
+// compares against the catalog's inclusive count — an exclusive
+// count reads the sentinel memo as adoption debt.
 func summarizeRows(rows []policy.Row) (repos, tags, sentinels int) {
 	seen := map[string]bool{}
 	for _, r := range rows {
 		seen[r.Repo] = true
+		tags++
 		if strings.HasPrefix(r.Repo, backfill.SentinelPrefix) {
 			sentinels++
-			continue
 		}
-		tags++
 	}
 	return len(seen), tags, sentinels
 }

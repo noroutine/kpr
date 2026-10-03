@@ -139,7 +139,7 @@ func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 	fsRep := registryfs.Report{Repos: 600, Tags: 17050, Revisions: 24993, Blobs: 55077,
 		BlobBytes: 679001899008, Uploads: 1, LayerLinks: 101173}
 	api := backfill.CatalogReport{Repos: 600, Tags: 17050}
-	view := storeView{ok: true, repos: 599, tags: 17047, sentinels: 1}
+	view := storeView{ok: true, repos: 599, tags: 17048, sentinels: 1}
 	lines := analyzeLines(api, fsRep, view, true)
 	if len(lines) != 6 {
 		t.Fatalf("analyzeLines has %d lines, want 6", len(lines))
@@ -152,7 +152,7 @@ func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 	if !strings.HasPrefix(lines[1], "store  : ") || !strings.HasPrefix(lines[4], "blobs  : ") || !strings.HasPrefix(lines[5], "size   : ") {
 		t.Errorf("lines = %q, want store second, blobs-then-size last", lines)
 	}
-	if want := "store  : 599 repos, 17047 tags, 1 sentinel, Δ repos: -1, Δ tags: -3, Δ sentinels: +1"; lines[1] != want {
+	if want := "store  : 599 repos, 17048 tags, 1 sentinel, Δ repos: -1, Δ tags: -2, Δ sentinels: +1"; lines[1] != want {
 		t.Errorf("store line = %q, want %q", lines[1], want)
 	}
 	single := analyzeLines(backfill.CatalogReport{Repos: 1, Tags: 1, Sentinels: 1},
@@ -248,9 +248,10 @@ func TestRegistryAnalyzeJSONViaArgv(t *testing.T) {
 }
 
 // summarizeRows groups tracked rows the store line's way:
-// distinct repos over everything, tags outside the sentinel
-// prefix, sentinel rows apart. If this fails, the store view
-// drifts from `store ls`.
+// distinct repos over everything, tags over everything (like the
+// catalog and fs views count them), sentinel rows split out as a
+// memo. If this fails, the store Δ tags compares scoped counts
+// against unscoped ones.
 func TestSummarizeRows(t *testing.T) {
 	rows := []policy.Row{
 		{Repo: "app", Tag: "v1"},
@@ -258,15 +259,15 @@ func TestSummarizeRows(t *testing.T) {
 		{Repo: "noroutine/kpr-sentinel", Tag: "gen"},
 	}
 	repos, tags, sentinels := summarizeRows(rows)
-	if repos != 2 || tags != 2 || sentinels != 1 {
-		t.Errorf("summarizeRows = %d repos, %d tags, %d sentinels, want 2, 2, 1",
+	if repos != 2 || tags != 3 || sentinels != 1 {
+		t.Errorf("summarizeRows = %d repos, %d tags, %d sentinels, want 2, 3, 1",
 			repos, tags, sentinels)
 	}
 }
 
 // The store line reads tracked rows against the catalog: distinct
-// repos over everything, adoptable tags, sentinel rows apart,
-// deltas store-minus-API. If this fails, the store view lies
+// repos over everything, tags over everything, sentinel rows as a
+// memo, deltas store-minus-API. If this fails, the store view lies
 // about what `store ls` holds.
 func TestRegistryAnalyzeStoreLine(t *testing.T) {
 	cfgPath := stageAnalyzeStore(t)
@@ -304,7 +305,7 @@ func TestRegistryAnalyzeStoreLine(t *testing.T) {
 	if len(lines) != 6 {
 		t.Fatalf("analyze has %d lines, want 6:\n%s", len(lines), buf.String())
 	}
-	if want := "store  : 2 repos, 1 tag, 1 sentinel, Δ repos: +0, Δ tags: -2, Δ sentinels: +0"; lines[1] != want {
+	if want := "store  : 2 repos, 2 tags, 1 sentinel, Δ repos: +0, Δ tags: -1, Δ sentinels: +0"; lines[1] != want {
 		t.Errorf("store line = %q, want %q", lines[1], want)
 	}
 }

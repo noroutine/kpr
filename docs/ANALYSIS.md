@@ -29,7 +29,7 @@ yet built live in [ANALYSIS_FUTURE.md](ANALYSIS_FUTURE.md).
 
 ```
 catalog: 600 repos, 17050 tags, 5 sentinels
-store  : 599 repos, 17047 tags, 1 sentinel, Δ repos: -1, Δ tags: -3, Δ sentinels: -4
+store  : 599 repos, 17048 tags, 1 sentinel, Δ repos: -1, Δ tags: -2, Δ sentinels: -4
 fs     : 600 repos, 17050 tags, 5 sentinels, Δ repos: +0, Δ tags: +0, Δ sentinels: +0
 revs   : 24993 revisions, 7943 untagged
 blobs  : 55077 blobs, 101173 layer links, 1 upload
@@ -45,8 +45,9 @@ invariant.
   layer links, so those stay fs-side.
 - `store` — the tracked state, a static snapshot of
   `store ls` read before the slow walks: distinct repos over
-  everything, adoptable tags, sentinel rows apart, deltas
-  store-minus-API (what adoption and sweeping still owe the
+  everything, tags over everything (like the catalog counts
+  them), sentinel rows as a memo, deltas store-minus-API (what
+  adoption and sweeping still owe the
   registry). Best-effort: a dead backend degrades this line to
   `unavailable` instead of refusing the walk.
 - `fs` — what the walk finds, sentinels apart, plus the
