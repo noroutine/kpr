@@ -24,17 +24,16 @@ var registryCmd = &cobra.Command{
 var registryAnalyzeCmd = &cobra.Command{
 	Use:   "analyze",
 	Short: "Report registry store magnitude, fs vs API",
-	Long: `Report magnitude as two live lines: the fast API view first
-(repos, tags — a rough size up front), the slow fs walk beneath
-it (repos, tags, revisions, blobs, uploads, layer links, GiB
-last). The api line carries the running fs-minus-API delta in
-braces — negative while the walk counts up, converging on the
-skew. The API has no endpoints for revisions, blobs, uploads,
-or layer links, so those stay fs-side. Read-only and
-verdict-free: the live block is the display, nothing reprints
-it. Needs the filestore proof (KPR_REGISTRY_CONFIG names a
-config with a filesystem storage root). Point-in-time on a live
-registry.`,
+	Long: `Report magnitude as five live lines, grouped by sense: the
+fast catalog view first (repos, tags — a rough size up front),
+then the fs-vs-catalog shape, manifests, blobs, and bytes. The
+fs line carries the running fs-minus-catalog delta — negative
+while the walk counts up, converging on the skew. The API has
+no endpoints for revisions, blobs, uploads, or layer links, so
+those stay fs-side. Read-only and verdict-free: the live block
+is the display, nothing reprints it. Needs the filestore proof
+(KPR_REGISTRY_CONFIG names a config with a filesystem storage
+root). Point-in-time on a live registry.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// No openDeps: analyze never touches the state store — a
 		// down redis must not refuse a read-only walk. The
@@ -57,6 +56,7 @@ type analyzeJSON struct {
 	BlobBytes  int64 `json:"blob_bytes"`
 	Uploads    int   `json:"uploads"`
 	LayerLinks int   `json:"layer_links"`
+	MetaBytes  int64 `json:"meta_bytes"`
 	APIRepos   int   `json:"api_repos"`
 	APITags    int   `json:"api_tags"`
 }
@@ -67,38 +67,66 @@ func gib(b int64) string {
 	return fmt.Sprintf("%.2f GiB", float64(b)/1024/1024/1024)
 }
 
-// fsWaiting holds the fs line while the API view runs first: the
-// walk it reports on hasn't started yet.
-const fsWaiting = "fs:  walk pending"
+// mib renders bytes as fractional MiB with two decimals: the
+// metadata scale, where GiB would read 0.00.
+func mib(b int64) string {
+	return fmt.Sprintf("%.2f MiB", float64(b)/1024/1024)
+}
 
-// apiLine renders the API view: repos and tags the catalog names.
-// With delta it appends the running fs-minus-API gap in braces —
-// negative while the walk counts up, converging on the skew. The
-// gap is information, not a verdict: a live registry shifts under
-// both walks, and empty-but-listed repos legitimately differ.
-func apiLine(api backfill.CatalogReport, delta bool, fs registryfs.Report) string {
-	s := fmt.Sprintf("api: %d repos, %d tags", api.Repos, api.Tags)
-	if !delta {
-		return s
+// analyzeRow labels one magnitude line: names pad to one width so
+// values start in one column down the whole block.
+func analyzeRow(name, body string) string {
+	return fmt.Sprintf("%-7s: %s", name, body)
+}
+
+// analyzeLines renders the five-line block, grouped by sense:
+// catalog shape, fs-vs-catalog shape, manifests, blobs, bytes.
+// The fs deltas are fs-minus-catalog — negative while the walk
+// counts up, converging on the skew. Untagged is revisions minus
+// fs tags, clamped at zero: a live registry can push tags
+// mid-walk, and negative untagged is nonsense, not information.
+// Layer links ride the blobs line: links-per-blob reads straight
+// off it. The gap numbers are information, not verdicts: a live
+// registry shifts under both walks, and empty-but-listed repos
+// legitimately differ.
+func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, delta bool) []string {
+	fsBody := fmt.Sprintf("%d repos, %d tags", fs.Repos, fs.Tags)
+	if delta {
+		fsBody += fmt.Sprintf(", Δ repos: %+d, Δ tags: %+d", fs.Repos-api.Repos, fs.Tags-api.Tags)
 	}
-	return fmt.Sprintf("%s (Δ %+d repos, %+d tags)", s, fs.Repos-api.Repos, fs.Tags-api.Tags)
+	untagged := fs.Revisions - fs.Tags
+	if untagged < 0 {
+		untagged = 0
+	}
+	return []string{
+		analyzeRow("catalog", fmt.Sprintf("%d repos, %d tags", api.Repos, api.Tags)),
+		analyzeRow("fs", fsBody),
+		analyzeRow("revs", fmt.Sprintf("%d revisions, %d untagged", fs.Revisions, untagged)),
+		analyzeRow("blobs", fmt.Sprintf("%d blobs, %d layer links, %d uploads", fs.Blobs, fs.LayerLinks, fs.Uploads)),
+		analyzeRow("size", fmt.Sprintf("%s blobs, %s metadata", gib(fs.BlobBytes), mib(fs.MetaBytes))),
+	}
 }
 
-// fsLine renders the fs walk: object counts first, byte scale last
-// — blobs are many, bytes are one number of a different kind. The
-// label pads to the api width so values start in one column.
-func fsLine(rep registryfs.Report) string {
-	return fmt.Sprintf("fs:  %d repos, %d tags, %d revisions, %d blobs, %d uploads, %d layer links, %s",
-		rep.Repos, rep.Tags, rep.Revisions, rep.Blobs, rep.Uploads, rep.LayerLinks, gib(rep.BlobBytes))
+// pendingBlock holds the block while the catalog view runs first:
+// the walk those lines report on hasn't started yet.
+func pendingBlock(api backfill.CatalogReport) []string {
+	lines := []string{analyzeRow("catalog", fmt.Sprintf("%d repos, %d tags", api.Repos, api.Tags))}
+	for _, name := range []string{"fs", "revs", "blobs", "size"} {
+		lines = append(lines, analyzeRow(name, "walk pending"))
+	}
+	return lines
 }
 
-// runRegistryAnalyze proves the filestore, runs the fast API view
-// first (rough size up front), then the slow fs walk beneath it,
-// both repainting one two-line block — the block is the display,
-// nothing reprints it. The fs walker takes the token, never a
-// bare path. The API pass reuses backfill's enumeration port. A
-// refused API walk fails the command: a comparison against an
-// unknown API view misleads.
+// runRegistryAnalyze proves the filestore, runs the fast catalog
+// view first (rough size up front), then the slow fs walk beneath
+// it, both repainting one five-line block — the block is the
+// display, nothing reprints it. Off-terminal the catalog line
+// flushes right after its walk (cheap and fast) and the rest
+// follows the fs walk; the settled lines never repeat either.
+// The fs walker takes the token, never a bare path. The catalog
+// pass reuses backfill's enumeration port. A refused catalog walk
+// fails the command: a comparison against an unknown view
+// misleads.
 func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg backfill.Registry, asJSON bool) error {
 	fsStore, err := proof.ProveFilesystemStore(configPath)
 	if err != nil {
@@ -112,24 +140,30 @@ func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg
 	}
 	live := newLiveLines(liveW)
 	api, err := backfill.ScanCatalog(ctx, io.Discard, reg, func(running backfill.CatalogReport) {
-		live.tickTwo(apiLine(running, false, registryfs.Report{}), fsWaiting)
+		live.tickBlock(pendingBlock(running))
 	})
 	if err != nil {
 		return err
+	}
+	head := 0
+	if !asJSON && !live.terminal() {
+		_, _ = fmt.Fprintln(w, analyzeLines(api, registryfs.Report{}, false)[0])
+		head = 1
 	}
 	rep, err := registryfs.Analyze(fsStore, func(running registryfs.Report) {
-		live.tickTwo(apiLine(api, true, running), fsLine(running))
+		live.tickBlock(analyzeLines(api, running, true))
 	})
 	if err != nil {
 		return err
 	}
-	live.doneTwo(apiLine(api, true, rep), fsLine(rep))
+	live.doneBlock(analyzeLines(api, rep, true), head)
 	if asJSON {
 		return json.NewEncoder(w).Encode(analyzeJSON{
 			Repos: rep.Repos, Tags: rep.Tags, Revisions: rep.Revisions,
 			Blobs: rep.Blobs, BlobBytes: rep.BlobBytes,
 			Uploads: rep.Uploads, LayerLinks: rep.LayerLinks,
-			APIRepos: api.Repos, APITags: api.Tags,
+			MetaBytes: rep.MetaBytes,
+			APIRepos:  api.Repos, APITags: api.Tags,
 		})
 	}
 	return nil

@@ -89,13 +89,14 @@ func runAnalyzeCmd(t *testing.T, cfgPath string, reg backfill.Registry, args ...
 	return buf.String(), err
 }
 
-// Analyze reports the staged magnitude as two copypastable lines:
-// the API view carrying the live fs-vs-API delta in braces, then
-// the fs walk with GiB pushed last. The API sees the same repo but
-// two tags, so the delta reads -1 tag (fs minus API, converging
-// from below as the walk counts up). Values start in the same
-// column under both labels. If this fails, the command miscounts
-// or misrenders.
+// Analyze reports the staged magnitude as five copypastable
+// lines, grouped by sense: catalog shape, fs-vs-catalog shape,
+// manifests, blobs, bytes. The API sees the same repo but two
+// tags, so the fs delta reads -1 tag (fs minus API, converging
+// from below as the walk counts up); one revision is tag-named,
+// so untagged is 0; the staged links hold 30 bytes of metadata.
+// Values start in the same column under every label. If this
+// fails, the command miscounts or misrenders.
 func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 	cfgPath := stageAnalyzeStore(t)
 	srv := stageCatalogServer(t)
@@ -104,31 +105,42 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("analyze = %v, want report", err)
 	}
+	want := []string{
+		"catalog: 1 repos, 2 tags",
+		"fs     : 1 repos, 1 tags, Δ repos: +0, Δ tags: -1",
+		"revs   : 1 revisions, 0 untagged",
+		"blobs  : 1 blobs, 1 layer links, 1 uploads",
+		"size   : 0.00 GiB blobs, 0.00 MiB metadata",
+	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("analyze has %d lines, want api + fs:\n%s", len(lines), out)
+	if len(lines) != len(want) {
+		t.Fatalf("analyze has %d lines, want %d:\n%s", len(lines), len(want), out)
 	}
-	if want := "api: 1 repos, 2 tags (Δ +0 repos, -1 tags)"; lines[0] != want {
-		t.Errorf("api line = %q, want %q", lines[0], want)
-	}
-	if want := "fs:  1 repos, 1 tags, 1 revisions, 1 blobs, 1 uploads, 1 layer links, 0.00 GiB"; lines[1] != want {
-		t.Errorf("fs line = %q, want %q", lines[1], want)
+	for i, w := range want {
+		if lines[i] != w {
+			t.Errorf("line %d = %q, want %q", i, lines[i], w)
+		}
 	}
 }
 
-// The two lines align: values start in the same column under both
-// labels, and the byte scale sits last on the fs line. If this
+// All five lines align: values start in the same column under
+// every label, and each byte scale sits last on its line. If this
 // fails, a label width drifted and the block stops scanning.
 func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 	fsRep := registryfs.Report{Repos: 600, Tags: 17050, Revisions: 24993, Blobs: 55077,
-		BlobBytes: 679001899008, Uploads: 1, LayerLinks: 101173}
-	api := apiLine(backfill.CatalogReport{Repos: 600, Tags: 17050}, true, fsRep)
-	fs := fsLine(fsRep)
-	if !strings.HasPrefix(api, "api: ") || !strings.HasPrefix(fs, "fs:  ") {
-		t.Fatalf("labels misaligned:\n%s\n%s", api, fs)
+		BlobBytes: 679001899008, Uploads: 1, LayerLinks: 101173, MetaBytes: 9580388}
+	api := backfill.CatalogReport{Repos: 600, Tags: 17050}
+	lines := analyzeLines(api, fsRep, true)
+	if len(lines) != 5 {
+		t.Fatalf("analyzeLines has %d lines, want 5", len(lines))
 	}
-	if !strings.HasSuffix(fs, " GiB") {
-		t.Errorf("fs line = %q, want byte scale last", fs)
+	for _, l := range lines {
+		if len(l) < 10 || l[7] != ':' || l[8] != ' ' {
+			t.Errorf("line misaligned: %q", l)
+		}
+	}
+	if !strings.HasSuffix(lines[3], "uploads") || !strings.HasSuffix(lines[4], "metadata") {
+		t.Errorf("trailing lines = %q, %q, want counts-then-scale order", lines[3], lines[4])
 	}
 }
 
@@ -150,7 +162,8 @@ func TestRegistryAnalyzeJSON(t *testing.T) {
 		"repos": float64(1), "tags": float64(1), "revisions": float64(1),
 		"blobs": float64(1), "blob_bytes": float64(8),
 		"uploads": float64(1), "layer_links": float64(1),
-		"api_repos": float64(1), "api_tags": float64(2),
+		"meta_bytes": float64(30),
+		"api_repos":  float64(1), "api_tags": float64(2),
 	}
 	if len(got) != len(want) {
 		t.Fatalf("analyze --json has %d keys, want %d: %v", len(got), len(want), got)

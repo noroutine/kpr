@@ -68,12 +68,20 @@ func (l *liveLines) paint(line string) {
 	_, _ = fmt.Fprintf(l.w, "\r%s%s", line, strings.Repeat(" ", l.wide-len(line)))
 }
 
-// tickTwo repaints a two-line block when due; doneTwo settles it.
-// The first paint prints both lines; later paints step back up one
-// line and overwrite. One escape, no libs. Pipes and files get
-// nothing until doneTwo, which prints both lines once — the live
-// block is the display, never duplicated by a trailing summary.
-func (l *liveLines) tickTwo(first, second string) {
+// terminal reports whether repaints are live: callers flush cheap
+// early views straight to pipes, where nothing repaints.
+func (l *liveLines) terminal() bool {
+	return l.tty
+}
+
+// tickBlock repaints an N-line block when due; doneBlock settles
+// it. The first paint prints every line; later paints step back
+// up N-1 lines and overwrite. One escape, no libs. Pipes and
+// files get nothing until doneBlock, which prints lines[head:] —
+// leading lines the caller already flushed (the cheap fast view,
+// printed right away) are not repeated. The block is the
+// display, never duplicated by a trailing summary.
+func (l *liveLines) tickBlock(lines []string) {
 	if !l.tty {
 		return
 	}
@@ -82,31 +90,34 @@ func (l *liveLines) tickTwo(first, second string) {
 		return
 	}
 	l.last = now
-	l.paintTwo(first, second)
+	l.paintBlock(lines)
 }
 
-func (l *liveLines) doneTwo(first, second string) {
+func (l *liveLines) doneBlock(lines []string, head int) {
 	if !l.tty {
-		_, _ = fmt.Fprintf(l.w, "%s\n%s\n", first, second)
+		for _, s := range lines[head:] {
+			_, _ = fmt.Fprintln(l.w, s)
+		}
 		return
 	}
-	l.paintTwo(first, second)
+	l.paintBlock(lines)
 	_, _ = fmt.Fprintln(l.w)
 }
 
-func (l *liveLines) paintTwo(first, second string) {
-	for _, s := range []string{first, second} {
+func (l *liveLines) paintBlock(lines []string) {
+	for _, s := range lines {
 		if len(s) > l.wide {
 			l.wide = len(s)
 		}
 	}
-	pad := func(s string) string {
-		return s + strings.Repeat(" ", l.wide-len(s))
+	padded := make([]string, len(lines))
+	for i, s := range lines {
+		padded[i] = s + strings.Repeat(" ", l.wide-len(s))
 	}
 	if !l.block {
-		_, _ = fmt.Fprintf(l.w, "%s\n%s", pad(first), pad(second))
+		_, _ = fmt.Fprint(l.w, strings.Join(padded, "\n"))
 		l.block = true
 		return
 	}
-	_, _ = fmt.Fprintf(l.w, "\r\x1b[1A\r%s\n%s", pad(first), pad(second))
+	_, _ = fmt.Fprintf(l.w, "\r\x1b[%dA\r%s", len(lines)-1, strings.Join(padded, "\n"))
 }

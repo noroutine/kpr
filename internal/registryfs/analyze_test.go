@@ -65,7 +65,7 @@ func stageLayout(t *testing.T) (proof.FilesystemStore, Report) {
 	}
 	return proveRoot(t, root), Report{
 		Repos: 3, Tags: 6, Revisions: 3, LayerLinks: 2, Uploads: 1,
-		Blobs: 2, BlobBytes: 18,
+		Blobs: 2, BlobBytes: 18, MetaBytes: 110,
 	}
 }
 
@@ -136,6 +136,28 @@ func TestAnalyzeNoRepositoriesCountsBlobs(t *testing.T) {
 	}
 	if got.Repos != 0 || got.Blobs != 1 || got.BlobBytes != 6 {
 		t.Errorf("Analyze = %+v, want 0 repos, 1 blob of 6 bytes", got)
+	}
+}
+
+// A root with no blobs dir reads as no blobs, while repos still
+// count: the shards walk independently, neither gates the other.
+// Mirrors NoRepositories on the other side of the split. If this
+// fails, one shard's absence zeroes the whole report.
+func TestAnalyzeNoBlobsCountsRepos(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", "_manifests", "tags", "v1", "current", "link")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("stage dir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("sha256:aaa"), 0o644); err != nil {
+		t.Fatalf("stage file: %v", err)
+	}
+	got, err := Analyze(proveRoot(t, root), nil)
+	if err != nil {
+		t.Fatalf("Analyze = %v, want counts", err)
+	}
+	if got.Repos != 1 || got.Tags != 1 || got.Blobs != 0 || got.BlobBytes != 0 {
+		t.Errorf("Analyze = %+v, want 1 repo, 1 tag, 0 blobs", got)
 	}
 }
 
