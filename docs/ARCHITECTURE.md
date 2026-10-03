@@ -3,9 +3,7 @@
 Dead-simple gateway and keeper that stops a local `distribution`
 registry from becoming a pig. One binary, one state backend (plain
 files by default, redis with `KPR_REDIS_ADDR`), opinionated,
-use-case driven policies written as plain code. The diagrams below
-name redis because that is the multi-process shape; swap in the
-file store and the components are unchanged. Both backends:
+use-case driven policies written as plain code. Both state backends:
 [STORES](STORES.md).
 
 ## Contents
@@ -28,32 +26,45 @@ Open and upcoming work: [ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md).
 ## Components
 
 ```mermaid
-flowchart TB
-    dev[docker push] --> edge{{gateway\nedge proxy in kpr serve}}
-    edge -- forward + HOLD/DENY fence --> dist[distribution\nstock registry]
-    redis -- lock marker --> edge
-    dist -- notifications --> recv{{receiver\nin kpr serve}}
-    recv -- records rows --> redis[(redis\nthe shared state)]
-    sweep[sweeper\nin kpr sweep] <-- reads due rows --> redis
-    sweep -- DELETE manifests --> dist
-    sweep -- activity log --> redis
-    console[console\nin kpr serve] <-- counters, plan, history --> redis
-    reap[kpr reap\npolicies live here] -- marks rows due --> redis
-    reap -- reads catalog for keep-N and untagged --> dist
-    sweepcmd[kpr sweep\nruns the pass in-process] --- redis
-    gc{{kpr gc\nsentinel + stock collector}} -- reclaims blob bytes --> dist
-    status[kpr status] --- redis
-    plan[kpr plan\nadd, remove, discard] --- redis
-    store[kpr store\nls, inspect, rm, status] --- redis
-    ceremony{{kpr store\nlock/unlock/adopt\nlineage ceremony}} --- redis
-    human((human)) --> console
-    human --> status
-    human --> plan
-    human --> store
-    human --> reap
-    human --> sweepcmd
-    human --> gc
-    human --> ceremony
+flowchart LR
+  dev((docker push)) --> edge
+  human((human)) --> cli
+
+  subgraph serve["<b>kpr serve</b> · long-running"]
+    direction TB
+    edge{{"<b>edge proxy</b> :5000<br/>forwards byte-identical<br/>HOLD / DENY fence"}}
+    recv{{"<b>receiver</b> :8080<br/>records pushed rows"}}
+    console["<b>console</b> :9300<br/>counters · plan · activity"]
+  end
+
+  subgraph cli["<b>kpr …</b> · one-shot, nothing runs unasked"]
+    direction TB
+    reap["<b>reap</b><br/>policies mark rows due"]
+    sweepcmd["<b>sweep</b><br/>runs one pass in-process"]
+    gcc{{"<b>gc</b><br/>gates + stock collector"}}
+    backfill{{"<b>store backfill</b><br/>adopts pre-kpr tags"}}
+    ceremony{{"<b>store lock/unlock/adopt</b><br/>lineage ceremony"}}
+    rest["<b>plan</b> · <b>store</b> · <b>status</b><br/>read and edit rows"]
+  end
+
+  state[("<b>state</b><br/>file · redis")]
+  dist["<b>distribution</b><br/>stock registry"]
+
+  edge -- forward --> dist
+  dist -- notifications --> recv
+  recv --> state
+  console <--> state
+  state -- lock marker --> edge
+
+  reap --> state
+  reap -- catalog --> dist
+  sweepcmd <--> state
+  sweepcmd -- "DELETE manifests" --> dist
+  gcc -- "reclaim blob bytes" --> dist
+  backfill -- enumerate --> dist
+  backfill --> state
+  ceremony <--> state
+  rest <--> state
 ```
 
 Hexagons are the recording paths: the receiver signs
@@ -63,16 +74,15 @@ Hexagons are the recording paths: the receiver signs
 the ring), backfill signs `kpr-backfill` (absent rows stamped
 not-due, never mints). Full vocabulary in Data below.
 
-The gateway is a future actor living in `serve` today, not a
-separate command: the edge proxy forwards pushes to the registry
-byte-identical and fences mutating routes — HOLD leases around
-the armed collect, DENY on the lock marker — through the same
-evaluation the use cases mint from (boolean, not a mint). It
-opens only on a RelativeURLs proof over the registry config (no
-proof, no edge); `KPR_EDGE=false` opts out. Either way serve
-keeps serving, and the console carries its live posture
-(open/closed, deny/held) in its own section. Full story in
-`docs/GATEWAY.md`.
+The edge is part of `serve`, not a separate command. It forwards
+pushes to the registry byte-identical and fences mutating routes
+— HOLD leases around an armed collect, DENY on the lock marker —
+through the same evaluation the use cases mint from (a boolean
+here, not a mint). It opens only on a RelativeURLs proof over the
+registry config: no proof, no edge. `KPR_EDGE=false` opts out,
+and either way the other servers keep serving. The console
+carries the edge's live posture (open/closed, deny/held) in its
+own section. Full story in [GATEWAY.md](GATEWAY.md).
 
 Deletes have one owner: the sweeper is the only deleter of
 registry manifests and tracked rows — `store rm` calls into it
@@ -80,14 +90,14 @@ registry manifests and tracked rows — `store rm` calls into it
 specific sweep going around the plan) instead of deleting past it.
 The CLI splits along the decision line:
 `reap` marks, `sweep` runs, `plan` edits, `gc` reclaims. `reap`
-evaluates the policies (reading candidates from redis, and the catalog
+evaluates the policies (reading candidates from state, and the catalog
 from the registry for keep-N and untagged) and marks rows due with a
 reason — analysis-heavy, fast, no registry writes. `sweep` runs the
 pass in-process (`Sweeper.RunPass` drives the due rows, then prints
 the summary) — no opinions, just running and reporting. `serve`
 serves endpoints (events, console); it never sweeps. Nothing runs
 on its own: kpr is not a scheduler, so a marked row waits until
-someone runs `sweep`. `status`/`plan` stay pure redis reads.
+someone runs `sweep`. `status`/`plan` stay pure state reads.
 
 ## Layering
 
@@ -107,7 +117,7 @@ the way).
   contract), `registry`, `clock` (local/https/ntp time sources), `otel`.
 - **Driving adapters**: `cli`, `web` — parse, call, render.
   `cli.openDeps` is the composition root.
-- **Inbound bypass, by design**: the redis due-mark is a public
+- **Inbound bypass, by design**: the due-mark is a public
   surface — anything that can write the mark decides how and when
   to clean what. The sweeper TTL floor (never wipe before the
   promise elapses) guards it.
@@ -152,7 +162,7 @@ they are the operator's explicit hand, like discard always was.
 
 ## The plan
 
-Due marks plus reasons, in redis. `plan` shows them (optionally
+Due marks plus reasons, in the state backend. `plan` shows them (optionally
 `--json`); three subcommands edit them:
 
 - `plan add <pattern>...` — Kyverno-style globs (`*` crosses slashes,
@@ -201,9 +211,11 @@ rather than the procedure:
 
 ## Data
 
-Redis holds state, never log streams. Rows carry no redis key TTL:
-the sweeper must see an expired row to delete it, and removes the row
-only after the registry confirms.
+State holds rows, never log streams. Rows carry no backend-level
+expiry — no redis key TTL, no file mtime sweep: the sweeper must
+see an expired row to delete it, and removes the row only after
+the registry confirms. The keys below are the redis spelling; the
+file backend's equivalents are in [STORES](STORES.md).
 
 | Key | Shape |
 | --- | --- |
@@ -234,7 +246,7 @@ earn better ones later; the split stays.
 ## Surfaces
 
 Console (server-rendered, no SPA) shows only what kpr tracks — never
-a registry catalog: banner (registry/redis reachability),
+a registry catalog: banner (registry and state reachability),
 counters, plan with reasons, activity ring. It advertises no sweep
 posture: the console never sweeps, arming is per-invocation. The
 front page is the keeper face: hero line, glowing health ball
@@ -262,8 +274,9 @@ CLI, next to `serve` and `env`:
   No opinions, no marks: only rows already marked due are processed.
 - `kpr gc` — previews by default; `--no-dry-run` collects for real.
 
-Colocation constraint: the CLI talks to redis directly, so it runs in
-the same environment as `serve` (same network, same redis auth). An
+Colocation constraint: the CLI talks to state directly, so it runs
+in the same environment as `serve` — the same volume for files, the
+same network and auth for redis. An
 API head for detached operation is explicitly deferred.
 
 Registry auth scope: kpr's registry client speaks anonymous or basic
@@ -297,7 +310,7 @@ auth provider, only a client of the registry's.
 A sweep pass is a long, multi-stage operation — modeled on a fixed
 stage vocabulary with one event struct, emitted in-process and (later)
 on the wire. Silence stays cheap: events are small JSON, written to
-redis run-state, never fail the pass.
+run-state, never fail the pass.
 
 ```mermaid
 stateDiagram-v2
@@ -316,22 +329,22 @@ stateDiagram-v2
 | `skip` | nothing due, or another pass holds the lock |
 | `row` | one due row attempted (repo, tag, reason, outcome) |
 | `done` | rows exhausted (performed / planned / failed counts) |
-| `failure` | pass-level error, e.g. redis lost mid-pass, lineage refused (foreign/silent/rolled-back registry — skipped with the cause in `failures`, before the lock) |
+| `failure` | pass-level error, e.g. state lost mid-pass, lineage refused (foreign/silent/rolled-back registry — skipped with the cause in `failures`, before the lock) |
 
-Run state lives in redis under two keys: `current` (one JSON record,
+Run state lives under two keys: `current` (one JSON record,
 overwritten through the pass: pass id, stage, started_at, trigger,
 due/done counts) and the capped outcome `activity` ring. That is what
 lets a CLI report "what the sweeper is doing right now" without
 anyone streaming logs.
 
-Transport for live stages is undecided (redis polling of `current`
+Transport for live stages is undecided (polling `current`
 vs. a websocket on the console) — deliberately deferred. The
 vocabulary and the keys are the contract; the wire comes later.
 
 Anti-scheduler guardrails, so the event flow doesn't grow a task
 manager:
 
-- Single-flight via a redis lock with expiry (a crashed sweeper
+- Single-flight via a lock with expiry (a crashed sweeper
   can't hold it forever). A trigger that finds the lock emits `skip`.
 - Triggers are exactly the asked ones: `kpr sweep`, `untag`. No
   queue, no backlog, no cron inside the server — kpr is not a
@@ -350,12 +363,12 @@ Two feedback paths, both bounded:
 - **Pass summary**: `Sweeper.RunPass` returns the outcome of the
   pass it ran (performed / planned / failed counts plus failures)
   and `sweep` prints it. That is `sweep`'s feedback — synchronous,
-  no redis polling, no HTTP round-trip.
-- **Activity**: a capped ring in redis (last ~100 small outcome
+  no polling, no HTTP round-trip.
+- **Activity**: a capped ring in state (last ~100 small outcome
   records: repo, tag, reason, outcome, timestamp) backing the
   console's Activity section. A ring of outcomes is state — it
   answers "what happened" at a glance. Verbose operational logs stay
-  where they are (stdout / OTLP), never in redis, never pushed to
+  where they are (stdout / OTLP), never in state, never pushed to
   clients.
 
 ## Deliberately out
