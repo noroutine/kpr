@@ -583,7 +583,8 @@ func TestBackfillMidRun404Skips(t *testing.T) {
 		},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	var logged strings.Builder
+	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{Log: &logged}, nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -592,6 +593,9 @@ func TestBackfillMidRun404Skips(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "vanished mid-run") {
 		t.Errorf("output warns per husk:\n%s", out.String())
+	}
+	if !strings.Contains(logged.String(), "skipped gone (husk: no tags)") {
+		t.Errorf("log names no husk, want the skipped repo greppable:\n%s", logged.String())
 	}
 }
 

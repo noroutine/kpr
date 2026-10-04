@@ -170,9 +170,17 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 		if err != nil {
 			if isNotFound(err) {
 				// Tagless, nothing to adopt: a husk, counted
-				// apart and never warned per repo.
+				// apart and never warned per repo — but named
+				// in the stream, or no grep ever finds it.
 				sum.Husks++
 				progress()
+				verb := "skipped"
+				if opts.DryRun {
+					verb = "would skip"
+				}
+				if _, werr := fmt.Fprintf(log, "%s %s (husk: no tags)\n", verb, repo); werr != nil {
+					return sum, werr
+				}
 				continue
 			}
 			return sum, fmt.Errorf("backfill tags for %s: %w", repo, err)
