@@ -7,9 +7,11 @@ import (
 	"time"
 )
 
-// latestTag is spared by every policy and never counts into keep-N: it
-// always points at the current image, so collecting it deletes whatever
-// is newest, and the next push recreates it anyway.
+// latestTag is spared by every collecting policy and never counts
+// into keep-N: it always points at the current image, so collecting
+// it deletes whatever is newest, and the next push recreates it
+// anyway. SelectUntagged is the exception: it only sees tags the
+// catalog already dropped, where no image is left to protect.
 const latestTag = "latest"
 
 // Tunings for the housekeeping behaviors (docs/ARCHITECTURE.md, Behaviors). They live
@@ -117,9 +119,6 @@ func SelectUntagged(rows []Row, catalog map[string][]string, now time.Time) []Ro
 	}
 	var due []Row
 	for _, r := range rows {
-		if r.Tag == latestTag {
-			continue
-		}
 		if _, known := catalog[r.Repo]; !known {
 			continue
 		}

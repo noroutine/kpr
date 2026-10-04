@@ -143,6 +143,24 @@ func TestSelectUntaggedNeedsCatalogAbsenceAndGrace(t *testing.T) {
 	}
 }
 
+// A vanished :latest is dead weight, not a floating pointer: the
+// catalog proves the tag is gone past grace, so it marks alongside a
+// vanished versioned tag — while a :latest still listed stays spared.
+// If this fails, orphan :latest rows pile up where reap can never
+// reach them and the store catalog delta never converges.
+func TestSelectUntaggedMarksVanishedLatest(t *testing.T) {
+	rows := []Row{
+		mkrow("app", "latest", 200*24*time.Hour),
+		mkrow("app", "gone", 200*24*time.Hour),
+		mkrow("pinned", "latest", 200*24*time.Hour),
+	}
+	catalog := map[string][]string{"app": {"kept"}, "pinned": {"latest"}}
+	got := SelectUntagged(rows, catalog, sliceNow)
+	if len(got) != 2 || got[0].Tag != "latest" || got[1].Tag != "gone" {
+		t.Fatalf("selected %v, want [app:latest app:gone]", got)
+	}
+}
+
 // A repo keeping its N freshest tags marks everything older, with the
 // reason naming the tuning. Fresh-enough tags stay regardless of age.
 // If this fails, long-lived repos grow unbounded (or the policy eats

@@ -44,11 +44,13 @@ var protectedTagStyles = []struct {
 }
 
 // latest always points at the current image: collecting it deletes
-// whatever is newest, and the next push recreates it anyway. So it is
-// spared everywhere — stale-shaped rows, vanished-from-catalog rows,
-// and keep-N (which neither counts nor takes it: 10 versioned plus
-// latest stays 10+latest, never 11 vying for 10). If this fails,
-// some policy learned to eat current.
+// whatever is newest, and the next push recreates it anyway. So the
+// collecting policies spare it — stale-shaped rows and keep-N (which
+// neither counts nor takes it: 10 versioned plus latest stays
+// 10+latest, never 11 vying for 10). Untagged is the exception: once
+// the catalog drops the tag there is no current image left, so the
+// row marks as dead weight. If this fails, some policy learned to
+// eat current.
 func TestLatestSparedEverywhere(t *testing.T) {
 	now := time.Now()
 	if ttl, ok := EffectiveTTL("latest"); ok {
@@ -60,10 +62,13 @@ func TestLatestSparedEverywhere(t *testing.T) {
 	if due := SelectStaleUploads(stale, now); len(due) != 0 {
 		t.Errorf("SelectStaleUploads marked latest: %+v", due)
 	}
-	// Untagged shape: old, gone from the catalog.
+	// Untagged shape: old, gone from the catalog — dead weight, not
+	// a floating pointer, so it marks with its reason attached. A
+	// listed :latest stays spared (pinned by TestProtectedTagsSurviveAllButKeepN
+	// and TestSelectUntaggedMarksVanishedLatest).
 	gone := []Row{{Repo: "infra/probe", Tag: "latest", Digest: digest, PushedAt: now.Add(-200 * time.Hour)}}
-	if due := SelectUntagged(gone, map[string][]string{"infra/probe": {"v1"}}, now); len(due) != 0 {
-		t.Errorf("SelectUntagged marked latest: %+v", due)
+	if due := SelectUntagged(gone, map[string][]string{"infra/probe": {"v1"}}, now); len(due) != 1 || !due[0].Due || due[0].Reason == "" {
+		t.Errorf("SelectUntagged spared vanished latest: %+v", due)
 	}
 	// keep-N over latest alone: eleven rows, nothing due, nothing counted.
 	var onlyLatest []Row
