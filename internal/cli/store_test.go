@@ -163,49 +163,87 @@ func TestStoreLsSortsSameRepoByTag(t *testing.T) {
 }
 
 // ghosts is the read-only convergence view: rows both witnesses
-// agree are gone, with the evidence printed beside each. Live rows
-// stay out, unreadable repos degrade to a footer count (never to
-// ghosts), machinery never lists, and an unproven fs refuses
-// instead of guessing. If this fails, operators act blind on the
-// store-vs-registry delta.
+// agree are gone, each with its evidence. Live rows stay out,
+// conflicts surface apart (catalog lists, fs absent — never
+// ghosts), unreadable repos degrade to a footer (never to ghosts),
+// machinery never lists, and an unproven store or fs refuses
+// instead of guessing. --long names the footers, --json pipes
+// ghosts plus both degraded buckets. If this fails, operators act
+// blind on the store-vs-registry delta.
 func TestStoreLsGhostsNamesEvidence(t *testing.T) {
 	s := store.NewMemStore()
 	c := cliCtx()
 	old := cliNow.Add(-200 * 24 * time.Hour)
 	for _, r := range []policy.Row{
 		{Repo: "gone", Tag: "v1", Digest: "sha256:a", PushedAt: old},
-		{Repo: "live", Tag: "v1", Digest: "sha256:b", PushedAt: old},
-		{Repo: "flaky", Tag: "v1", Digest: "sha256:c", PushedAt: old},
+		{Repo: "split", Tag: "v1", Digest: "sha256:b", PushedAt: old},
+		{Repo: "live", Tag: "v1", Digest: "sha256:c", PushedAt: old},
+		{Repo: "flaky", Tag: "v1", Digest: "sha256:d", PushedAt: old},
+		{Repo: "noroutine/kpr-sentinel", Tag: "v1", Digest: "sha256:e", PushedAt: old},
 	} {
 		_ = s.Record(c, r)
 	}
 	reg := ghostReg{
-		tags: map[string][]string{"live": {"v1"}},
-		gone: map[string]bool{"gone": true},
+		tags: map[string][]string{"live": {"v1"}, "split": {"other"}},
+		gone: map[string]bool{"gone": true, "noroutine/kpr-sentinel": true},
 	}
+	same := untagProof(t, s)
+	fs := map[string]bool{"live": true}
 	var out bytes.Buffer
-	if err := runStoreGhosts(cliCtx(), &out, s, reg, map[string]bool{}, storeLsOpts{now: cliNow}); err != nil {
+	if err := runStoreGhosts(cliCtx(), &out, s, reg, fs, same, storeLsOpts{now: cliNow}); err != nil {
 		t.Fatalf("runStoreGhosts: %v", err)
 	}
 	body := out.String()
-	for _, want := range []string{"REPO:TAG", "EVIDENCE", "gone:v1", "catalog 404, fs absent"} {
+	for _, want := range []string{"REPO:TAG", "EVIDENCE", "gone:v1", "catalog 404, fs absent",
+		"skipped 1 repo", "conflict 1 repo"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ghosts missing %q:\n%s", want, body)
 		}
 	}
-	for _, leak := range []string{"live:v1", "flaky:v1"} {
+	for _, leak := range []string{"live:v1", "split:v1", "flaky:v1", "kpr-sentinel"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("ghosts leaks %q:\n%s", leak, body)
 		}
 	}
-	if !strings.Contains(body, "skipped 1 repo") {
-		t.Errorf("ghosts missing unreadable footer:\n%s", body)
+	var long bytes.Buffer
+	if err := runStoreGhosts(cliCtx(), &long, s, reg, fs, same, storeLsOpts{now: cliNow, long: true}); err != nil {
+		t.Fatalf("runStoreGhosts long: %v", err)
 	}
-	if err := runStoreGhosts(cliCtx(), io.Discard, s, reg, nil, storeLsOpts{now: cliNow}); err == nil {
+	for _, want := range []string{"DIGEST", "EVIDENCE", "sha256:a", "skipped 1 repo (catalog unreadable): flaky",
+		"conflict 1 repo (catalog lists, fs absent): split"} {
+		if !strings.Contains(long.String(), want) {
+			t.Errorf("ghosts long missing %q:\n%s", want, long.String())
+		}
+	}
+	var js bytes.Buffer
+	if err := runStoreGhosts(cliCtx(), &js, s, reg, fs, same, storeLsOpts{now: cliNow, json: true}); err != nil {
+		t.Fatalf("runStoreGhosts json: %v", err)
+	}
+	var decoded struct {
+		Ghosts []struct {
+			Repo     string `json:"repo"`
+			Evidence string `json:"evidence"`
+		} `json:"ghosts"`
+		Conflicts  []string `json:"conflicts"`
+		Unreadable []string `json:"unreadable"`
+	}
+	if err := json.Unmarshal(js.Bytes(), &decoded); err != nil {
+		t.Fatalf("ghosts json unparseable: %v\n%s", err, js.String())
+	}
+	if len(decoded.Ghosts) != 1 || decoded.Ghosts[0].Repo != "gone" || decoded.Ghosts[0].Evidence == "" {
+		t.Errorf("ghosts json = %+v, want [gone + evidence]", decoded.Ghosts)
+	}
+	if len(decoded.Conflicts) != 1 || len(decoded.Unreadable) != 1 {
+		t.Errorf("ghosts json buckets = %v/%v, want [split]/[flaky]", decoded.Conflicts, decoded.Unreadable)
+	}
+	if err := runStoreGhosts(cliCtx(), io.Discard, s, reg, nil, same, storeLsOpts{now: cliNow}); err == nil {
 		t.Error("runStoreGhosts(nil fs) succeeded, want refusal")
 	}
+	if err := runStoreGhosts(cliCtx(), io.Discard, s, reg, fs, nil, storeLsOpts{now: cliNow}); err == nil {
+		t.Error("runStoreGhosts(nil proof) succeeded, want refusal")
+	}
 	var empty bytes.Buffer
-	if err := runStoreGhosts(cliCtx(), &empty, store.NewMemStore(), reg, map[string]bool{}, storeLsOpts{now: cliNow}); err != nil {
+	if err := runStoreGhosts(cliCtx(), &empty, store.NewMemStore(), reg, fs, same, storeLsOpts{now: cliNow}); err != nil {
 		t.Fatalf("runStoreGhosts empty: %v", err)
 	}
 	if !strings.Contains(empty.String(), "no ghost rows") {

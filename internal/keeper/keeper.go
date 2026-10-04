@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -285,22 +286,35 @@ func catalogGone(err error) bool {
 	return errors.As(err, &serr) && serr.Status == http.StatusNotFound
 }
 
+// Ghost is a tracked row both witnesses agree is gone, with the
+// account beside it: the stored row untouched (marks stay exactly
+// as the store holds them — the listing judges nothing), Evidence
+// naming what catalog and fs each said.
+type Ghost struct {
+	Row      policy.Row
+	Evidence string
+}
+
 // ListGhosts names tracked rows both witnesses agree are gone: the
-// catalog 404s the repo (or lists it without the tag) and the fs
-// holds no manifest dir for it. Read-only down to the signature —
-// it marks nothing, so a wrong answer costs an eyeball, never a
-// manifest. A nil fs set refuses: one witness is the old ambiguity,
-// not a listing. Catalog failures skip the repo as unreadable
-// (returned alongside, sorted); sentinel machinery never lists.
-// Evidence rides in Reason with Due false — the listing prints it,
-// the sweeper never sees it (only marks go there).
-func ListGhosts(ctx context.Context, s store.Store, reg CatalogSource, fsRepos map[string]bool) ([]policy.Row, []string, error) {
-	if fsRepos == nil {
-		return nil, nil, fmt.Errorf("ghosts need the fs second opinion: refusing to name ghosts off one witness (prove the registry config first)")
+// catalog 404s the repo and the fs holds no manifest dir for it.
+// Read-only down to the signature — it marks nothing, so a wrong
+// answer costs an eyeball, never a manifest. The same-store proof
+// gates it (foreign rows are not ours to judge); a nil or empty fs
+// set refuses (one witness, or none, is the old ambiguity, not a
+// listing). A catalog-200 on an fs-absent repo is a conflict, not
+// an agreement — it surfaces in its own bucket and lists nothing.
+// Other catalog failures skip the repo as unreadable. All buckets
+// sort; sentinel machinery never lists.
+func ListGhosts(ctx context.Context, s store.Store, reg CatalogSource, fsRepos map[string]bool, same proof.SameStore) ([]Ghost, []string, []string, error) {
+	if same == nil {
+		return nil, nil, nil, fmt.Errorf("ghosts need same-store proof: refusing to judge rows from an unproven store")
 	}
 	rows, err := s.All(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("redis unreachable: %w", err)
+		return nil, nil, nil, fmt.Errorf("redis unreachable: %w", err)
+	}
+	if len(fsRepos) == 0 && len(rows) > 0 {
+		return nil, nil, nil, fmt.Errorf("ghosts need a live fs view: refusing to name ghosts off an empty set (fresh volume and dead mount look identical)")
 	}
 	seen := map[string]bool{}
 	var repos []string
@@ -311,19 +325,17 @@ func ListGhosts(ctx context.Context, s store.Store, reg CatalogSource, fsRepos m
 		seen[r.Repo] = true
 		repos = append(repos, r.Repo)
 	}
-	var ghosts []policy.Row
-	var unreadable []string
+	var ghosts []Ghost
+	var conflicts, unreadable []string
 	for _, repo := range repos {
-		tags, cerr := reg.Catalog(ctx, repo)
+		_, cerr := reg.Catalog(ctx, repo)
 		if cerr != nil {
 			if !catalogGone(cerr) {
 				unreadable = append(unreadable, repo)
 			} else if !fsRepos[repo] {
 				for _, r := range rows {
 					if r.Repo == repo {
-						r.Due = false
-						r.Reason = "ghost: catalog 404, fs absent"
-						ghosts = append(ghosts, r)
+						ghosts = append(ghosts, Ghost{Row: r, Evidence: "catalog 404, fs absent"})
 					}
 				}
 			}
@@ -332,24 +344,15 @@ func ListGhosts(ctx context.Context, s store.Store, reg CatalogSource, fsRepos m
 		if fsRepos[repo] {
 			continue
 		}
-		live := map[string]bool{}
-		for _, t := range tags {
-			live[t] = true
-		}
-		for _, r := range rows {
-			if r.Repo == repo && !live[r.Tag] {
-				r.Due = false
-				r.Reason = "ghost: tag dropped, repo absent on fs"
-				ghosts = append(ghosts, r)
-			}
-		}
+		conflicts = append(conflicts, repo)
 	}
 	sort.Slice(ghosts, func(i, j int) bool {
-		if ghosts[i].Repo != ghosts[j].Repo {
-			return ghosts[i].Repo < ghosts[j].Repo
+		if ghosts[i].Row.Repo != ghosts[j].Row.Repo {
+			return ghosts[i].Row.Repo < ghosts[j].Row.Repo
 		}
-		return ghosts[i].Tag < ghosts[j].Tag
+		return ghosts[i].Row.Tag < ghosts[j].Row.Tag
 	})
+	sort.Strings(conflicts)
 	sort.Strings(unreadable)
-	return ghosts, unreadable, nil
+	return ghosts, conflicts, unreadable, nil
 }

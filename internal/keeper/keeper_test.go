@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -106,12 +107,13 @@ func TestEvaluateUntaggedUsesStubCatalog(t *testing.T) {
 }
 
 // Ghosts list what both witnesses agree is gone: the catalog 404s
-// the repo (or lists it without the tag) and the fs holds no
-// manifest dir. A repo the catalog fails on skips as unreadable
-// (blip, not gone); a repo the fs still holds skips too. Sentinel
-// machinery never lists, and nothing comes back marked due — the
-// listing judges nothing, the operator does. If this fails, ghosts
-// either hide (operator acts blind) or the listing overclaims.
+// the repo and the fs holds no manifest dir. A repo the catalog
+// fails on skips as unreadable (blip, not gone); a repo the fs
+// still holds skips too; a repo the catalog lists but the fs lacks
+// conflicts, never ghosts. Sentinel machinery never lists. Rows
+// come back untouched with the evidence beside them — the listing
+// judges nothing, the operator does. If this fails, ghosts either
+// hide (operator acts blind) or the listing overclaims.
 func TestListGhostsNeedsBothWitnesses(t *testing.T) {
 	s := store.NewMemStore()
 	c := context.Background()
@@ -127,26 +129,28 @@ func TestListGhostsNeedsBothWitnesses(t *testing.T) {
 		_ = s.Record(c, r)
 	}
 	reg := ghostCatalog{
-		tags:  map[string][]string{"live": {"v1"}, "dropped": {"other"}},
+		tags:  map[string][]string{"live": {"v1"}, "held": {"v1"}, "dropped": {"other"}},
 		gone:  map[string]bool{"gone": true, "noroutine/kpr-sentinel": true},
 		flaky: map[string]bool{"flaky": true},
 	}
-	ghosts, unreadable, err := ListGhosts(keeperCtx(), s, reg, map[string]bool{"held": true})
+	ghosts, conflicts, unreadable, err := ListGhosts(keeperCtx(), s, reg,
+		map[string]bool{"held": true, "live": true}, ghostProof(t, s))
 	if err != nil {
 		t.Fatalf("ListGhosts: %v", err)
 	}
-	if len(ghosts) != 2 || ghosts[0].Repo != "dropped" || ghosts[1].Repo != "gone" {
-		t.Fatalf("ghosts = %v, want [dropped:v1 gone:v1]", ghosts)
+	if len(ghosts) != 1 || ghosts[0].Row.Repo != "gone" {
+		t.Fatalf("ghosts = %v, want [gone:v1]", ghosts)
 	}
-	for _, g := range ghosts {
-		if g.Due || g.Reason == "" {
-			t.Errorf("%s:%s Due=%v Reason=%q, want unmarked with evidence", g.Repo, g.Tag, g.Due, g.Reason)
-		}
+	if ghosts[0].Evidence == "" {
+		t.Errorf("ghost evidence empty, want the catalog/fs account")
+	}
+	if len(conflicts) != 1 || conflicts[0] != "dropped" {
+		t.Errorf("conflicts = %v, want [dropped]", conflicts)
 	}
 	if len(unreadable) != 1 || unreadable[0] != "flaky" {
 		t.Errorf("unreadable = %v, want [flaky]", unreadable)
 	}
-	if _, _, err := ListGhosts(keeperCtx(), s, reg, nil); err == nil {
+	if _, _, _, err := ListGhosts(keeperCtx(), s, reg, nil, ghostProof(t, s)); err == nil {
 		t.Error("ListGhosts(nil fs) succeeded, want refusal (one witness is not a listing)")
 	}
 }
@@ -168,6 +172,136 @@ func (g ghostCatalog) Catalog(_ context.Context, repo string) ([]string, error) 
 		return nil, &registry.StatusError{Op: "catalog " + repo, Status: 500}
 	}
 	return g.tags[repo], nil
+}
+
+// A catalog-200 on an fs-absent repo is a witness conflict, not an
+// agreement: the registry says the repo exists, the fs says it
+// does not — usually a wrong volume, never a ghost. Conflicts
+// surface in their own bucket and list nothing. If this fails, a
+// misrooted fs turns live tags into deletion candidates.
+func TestListGhostsSeparatesConflictBucket(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(keeperCtx(), policy.Row{Repo: "split", Tag: "v1", Digest: "sha256:a",
+		PushedAt: keeperNow.Add(-200 * 24 * time.Hour)})
+	reg := ghostCatalog{tags: map[string][]string{"split": {"other"}}}
+	ghosts, conflicts, _, err := ListGhosts(keeperCtx(), s, reg, map[string]bool{"unrelated": true}, ghostProof(t, s))
+	if err != nil {
+		t.Fatalf("ListGhosts: %v", err)
+	}
+	if len(ghosts) != 0 {
+		t.Errorf("ghosts = %v, want none (conflict is not agreement)", ghosts)
+	}
+	if len(conflicts) != 1 || conflicts[0] != "split" {
+		t.Errorf("conflicts = %v, want [split]", conflicts)
+	}
+}
+
+// An empty fs view proves nothing: a fresh volume and an unmounted
+// one look identical, so tracked rows plus an empty set refuses
+// instead of naming every 404 a ghost. If this fails, a dead mount
+// reads as proof everything is gone.
+func TestListGhostsRefusesEmptyFs(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(keeperCtx(), policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
+		PushedAt: keeperNow.Add(-200 * 24 * time.Hour)})
+	reg := ghostCatalog{gone: map[string]bool{"gone": true}}
+	if _, _, _, err := ListGhosts(keeperCtx(), s, reg, map[string]bool{}, ghostProof(t, s)); err == nil {
+		t.Error("ListGhosts(empty fs, rows held) succeeded, want refusal")
+	}
+}
+
+// The listing judges nothing, so it touches nothing: an already-due
+// row comes back with its mark intact and the evidence beside it,
+// never merged into it. If this fails, the view contradicts the
+// store and hides rows the sweeper will act on.
+func TestListGhostsKeepsRowState(t *testing.T) {
+	s := store.NewMemStore()
+	c := keeperCtx()
+	_ = s.Record(c, policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
+		PushedAt: keeperNow.Add(-200 * 24 * time.Hour)})
+	if err := s.MarkDue(c, "gone", "v1", "ttl:2160h0m0s elapsed"); err != nil {
+		t.Fatalf("stage due mark: %v", err)
+	}
+	reg := ghostCatalog{gone: map[string]bool{"gone": true}}
+	ghosts, _, _, err := ListGhosts(c, s, reg, map[string]bool{"other": true}, ghostProof(t, s))
+	if err != nil {
+		t.Fatalf("ListGhosts: %v", err)
+	}
+	if len(ghosts) != 1 {
+		t.Fatalf("ghosts = %v, want [gone:v1]", ghosts)
+	}
+	if !ghosts[0].Row.Due || ghosts[0].Row.Reason != "ttl:2160h0m0s elapsed" {
+		t.Errorf("row = %+v, want the stored mark untouched", ghosts[0].Row)
+	}
+	if ghosts[0].Evidence == "" {
+		t.Error("evidence empty, want the catalog/fs account beside the row")
+	}
+}
+
+// Without the same-store proof there is no listing: judging rows
+// from a foreign or unpaired store is the ambiguity proofs exist
+// to refuse. If this fails, the guard is decorative.
+func TestListGhostsRefusesNilProof(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(keeperCtx(), policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
+		PushedAt: keeperNow.Add(-200 * 24 * time.Hour)})
+	reg := ghostCatalog{gone: map[string]bool{"gone": true}}
+	if _, _, _, err := ListGhosts(keeperCtx(), s, reg, map[string]bool{}, nil); err == nil {
+		t.Error("ListGhosts(nil proof) succeeded, want refusal")
+	}
+}
+
+// catalogGone pins the real adapter's 404 shape: a NAME_UNKNOWN
+// listing names a gone repo, anything else is unknown. If this
+// fails, the ghost branch reads the transport instead of the
+// status it carries.
+func TestCatalogGoneMatchesRealClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/gone/tags/list" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errors":[{"code":"NAME_UNKNOWN"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	reg := registry.NewClient(srv.URL)
+	if _, err := reg.Catalog(keeperCtx(), "gone"); !catalogGone(err) {
+		t.Errorf("catalogGone(404) = false, want true (real client shape)")
+	}
+	if _, err := reg.Catalog(keeperCtx(), "down"); catalogGone(err) {
+		t.Errorf("catalogGone(500) = true, want false")
+	}
+}
+
+// ghostProof mints on paired ground the way the cli does: the
+// caller proves, ListGhosts checks. If minting fails here, the test
+// ground (not the guard) is broken.
+func ghostProof(t *testing.T, s *store.MemStore) proof.SameStore {
+	t.Helper()
+	if err := s.SetIdentity(keeperCtx(), store.Identity{ID: "test-id", BaselineGen: "gen-test"}); err != nil {
+		t.Fatalf("stage identity: %v", err)
+	}
+	same, err := proof.Prover{
+		Sentinel: ghostSentinel{}, Store: s,
+		Now: func() time.Time { return keeperNow },
+	}.Prove(keeperCtx())
+	if err != nil {
+		t.Fatalf("prove on paired ground: %v", err)
+	}
+	return same
+}
+
+// ghostSentinel serves one paired generation: id and baseline the
+// proof judges the store against.
+type ghostSentinel struct{}
+
+func (ghostSentinel) GetManifest(context.Context, string, string) ([]byte, error) {
+	return []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc"}}`), nil
+}
+
+func (ghostSentinel) GetBlob(context.Context, string, string) ([]byte, error) {
+	return []byte(`{"v":1,"gen":"gen-test","id":"test-id","ts":"2026-09-27T12:00:00Z","writer":"kpr-gc"}`), nil
 }
 
 // An armed reap marks the evaluated rows due; unarmed it evaluates

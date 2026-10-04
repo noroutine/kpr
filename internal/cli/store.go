@@ -158,31 +158,49 @@ func runStoreLs(ctx context.Context, w io.Writer, s store.Store, opts storeLsOpt
 	return tw.Flush()
 }
 
+// ghostJSON is a ghost row for piping: the stored row plus the
+// evidence beside it (never merged into the row's own reason).
+type ghostJSON struct {
+	rowJSON
+	Evidence string `json:"evidence"`
+}
+
 // runStoreGhosts prints the convergence view: tracked rows both
-// witnesses agree are gone, each with its evidence (catalog 404 vs
-// tag dropped, both fs-absent). Read-only — it marks nothing, so
-// acting on a row stays an operator decision (`store rm`). An
-// unproven fs refuses instead of guessing; unreadable repos degrade
-// to a footer count, never to ghosts. Sorted for stable reads.
-func runStoreGhosts(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, fsRepos map[string]bool, opts storeLsOpts) error {
-	ghosts, unreadable, err := keeper.ListGhosts(ctx, s, reg, fsRepos)
+// witnesses agree are gone, each with its evidence. Read-only —
+// rows come back untouched, so acting on one stays an operator
+// decision (`store rm`). The same-store proof gates it; an empty
+// fs view refuses instead of guessing. Unreadable repos and
+// witness conflicts degrade to footers (names under --long, full
+// lists in --json), never to ghosts. Sorted for stable reads.
+// Partial answers still exit 0 — the footers say what was skipped.
+func runStoreGhosts(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, fsRepos map[string]bool, same proof.SameStore, opts storeLsOpts) error {
+	ghosts, conflicts, unreadable, err := keeper.ListGhosts(ctx, s, reg, fsRepos, same)
 	if err != nil {
 		return err
 	}
-	footer := ""
+	footers := []string{}
 	if len(unreadable) > 0 {
-		footer = fmt.Sprintf("skipped %s (catalog unreadable)\n", plural(len(unreadable), "repo", "repos"))
+		footers = append(footers, fmt.Sprintf("skipped %s (catalog unreadable)%s",
+			plural(len(unreadable), "repo", "repos"), ghostNames(opts.long, unreadable)))
+	}
+	if len(conflicts) > 0 {
+		footers = append(footers, fmt.Sprintf("conflict %s (catalog lists, fs absent)%s",
+			plural(len(conflicts), "repo", "repos"), ghostNames(opts.long, conflicts)))
 	}
 	if opts.json {
 		out := struct {
-			Ghosts     []rowJSON `json:"ghosts"`
-			Unreadable []string  `json:"unreadable"`
-		}{Unreadable: unreadable}
-		for _, r := range ghosts {
-			out.Ghosts = append(out.Ghosts, rowToJSON(r))
+			Ghosts     []ghostJSON `json:"ghosts"`
+			Conflicts  []string    `json:"conflicts"`
+			Unreadable []string    `json:"unreadable"`
+		}{Conflicts: conflicts, Unreadable: unreadable}
+		for _, g := range ghosts {
+			out.Ghosts = append(out.Ghosts, ghostJSON{rowJSON: rowToJSON(g.Row), Evidence: g.Evidence})
 		}
 		if out.Ghosts == nil {
-			out.Ghosts = []rowJSON{}
+			out.Ghosts = []ghostJSON{}
+		}
+		if out.Conflicts == nil {
+			out.Conflicts = []string{}
 		}
 		if out.Unreadable == nil {
 			out.Unreadable = []string{}
@@ -193,18 +211,23 @@ func runStoreGhosts(ctx context.Context, w io.Writer, s store.Store, reg keeper.
 		if _, err := io.WriteString(w, "no ghost rows\n"); err != nil {
 			return err
 		}
-		_, err := io.WriteString(w, footer)
-		return err
+		for _, f := range footers {
+			if _, err := io.WriteString(w, f+"\n"); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	if opts.long {
 		if _, err := fmt.Fprintln(tw, "REPO:TAG\tDIGEST\tPUSHED\tACTOR\tEVIDENCE"); err != nil {
 			return err
 		}
-		for _, r := range ghosts {
+		for _, g := range ghosts {
+			r := g.Row
 			if _, err := fmt.Fprintf(tw, "%s:%s\t%s\t%s\t%s\t%s\n",
 				r.Repo, r.Tag, r.Digest,
-				r.PushedAt.UTC().Format(time.RFC3339), r.Actor, r.Reason); err != nil {
+				r.PushedAt.UTC().Format(time.RFC3339), r.Actor, g.Evidence); err != nil {
 				return err
 			}
 		}
@@ -212,9 +235,9 @@ func runStoreGhosts(ctx context.Context, w io.Writer, s store.Store, reg keeper.
 		if _, err := fmt.Fprintln(tw, "REPO:TAG\tAGE\tEVIDENCE"); err != nil {
 			return err
 		}
-		for _, r := range ghosts {
+		for _, g := range ghosts {
 			if _, err := fmt.Fprintf(tw, "%s:%s\t%s\t%s\n",
-				r.Repo, r.Tag, shortAge(opts.now, r.PushedAt), r.Reason); err != nil {
+				g.Row.Repo, g.Row.Tag, shortAge(opts.now, g.Row.PushedAt), g.Evidence); err != nil {
 				return err
 			}
 		}
@@ -222,8 +245,21 @@ func runStoreGhosts(ctx context.Context, w io.Writer, s store.Store, reg keeper.
 	if err := tw.Flush(); err != nil {
 		return err
 	}
-	_, err = io.WriteString(w, footer)
-	return err
+	for _, f := range footers {
+		if _, err := io.WriteString(w, f+"\n"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ghostNames appends footer names under --long only: the short
+// view counts, the long view accounts.
+func ghostNames(long bool, repos []string) string {
+	if !long || len(repos) == 0 {
+		return ""
+	}
+	return ": " + strings.Join(repos, ", ")
 }
 
 // runStoreInspect prints the full row for one exact repo:tag. An
@@ -445,9 +481,12 @@ var storeLsCmd = &cobra.Command{
 state. Sentinel generations stay out — machinery, not inventory;
 ` + "`ls sentinels`" + ` shows only them (same columns, wider
 names). ` + "`ls ghosts`" + ` shows only rows both witnesses agree
-are gone (catalog 404 or tag dropped, fs absent), each with its
-evidence — read-only, acting on one stays ` + "`store rm`" + `'s
-job. --long restores the full row (digest, pushed, actor).`,
+are gone (catalog 404, fs absent), each with its evidence —
+read-only, acting on one stays plain ` + "`store rm`" + `'s job
+(the tag is already gone upstream, so ` + "`--untag`" + ` has
+nothing to delete). Skipped and conflicting repos degrade to
+footers, never to ghosts; partial answers still exit 0. --long
+restores the full row (digest, pushed, actor).`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) > 1 || (len(args) == 1 && args[0] != "sentinels" && args[0] != "ghosts") {
 			return fmt.Errorf("want `ls`, `ls sentinels`, or `ls ghosts`, got %q", args)
@@ -463,6 +502,13 @@ job. --long restores the full row (digest, pushed, actor).`,
 		long, _ := cmd.Flags().GetBool("long")
 		asJSON, _ := cmd.Flags().GetBool("json")
 		if len(args) == 1 && args[0] == "ghosts" {
+			// Identity first: judging rows from a foreign store is
+			// the ambiguity proofs exist to refuse. The fs view
+			// follows — an unprovable root refuses just as loudly.
+			same, serr := proof.Prover{Sentinel: d.reg, Store: d.store}.Prove(cmd.Context())
+			if serr != nil {
+				return serr
+			}
 			fsStore, ferr := proof.ProveFilesystemStore(d.cfg.RegistryConfig)
 			if ferr != nil {
 				return fmt.Errorf("ghosts need the fs second opinion: %w", ferr)
@@ -471,7 +517,7 @@ job. --long restores the full row (digest, pushed, actor).`,
 			if ferr != nil {
 				return fmt.Errorf("ghosts need the fs second opinion: %w", ferr)
 			}
-			return runStoreGhosts(cmd.Context(), cmd.OutOrStdout(), d.store, d.reg, fsRepos,
+			return runStoreGhosts(cmd.Context(), cmd.OutOrStdout(), d.store, d.reg, fsRepos, same,
 				storeLsOpts{now: time.Now().UTC(), long: long, json: asJSON})
 		}
 		return runStoreLs(cmd.Context(), cmd.OutOrStdout(), d.store, storeLsOpts{

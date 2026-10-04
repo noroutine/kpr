@@ -269,8 +269,10 @@ CLI, next to `serve` and `env`:
 - `kpr plan` — pending candidates, optionally JSON for piping, plus
   `add` / `remove` / `discard`.
 - `kpr store` — the rows themselves: `ls` (short columns, `--long`,
-  `--json`; sentinels take `ls sentinels`, catalog-and-fs-agreed
-  deletions take `ls ghosts` — read-only, acting stays `rm`'s job),
+  `--json`; sentinels take `ls sentinels`, `ls ghosts` names rows
+  catalog-404s with no fs dir (same-store proof gates it;
+  catalog-listed-but-fs-absent conflicts surface apart, never as
+  ghosts — read-only, acting stays `rm`'s job),
   `inspect <repo:tag>` (one full row), `rm` (drop rows; tag stays,
   untracked — exact spellings, all-or-nothing, no dry-run;
   `--untag` deletes the manifest by digest first, row drops on
