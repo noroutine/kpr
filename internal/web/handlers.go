@@ -21,7 +21,11 @@ var (
 )
 
 type pageData struct {
-	Hostname  string
+	Hostname string
+	// BasePath prefixes console hrefs (KPR_CONSOLE_BASE_PATH,
+	// normalized): empty renders the historic root-relative hrefs,
+	// "/kpr" renders "/kpr/api/..." behind a stripped prefix.
+	BasePath  string
 	Version   string
 	Commit    string
 	BuildTime string
@@ -152,6 +156,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 
 	data := pageData{
 		Hostname:       hostname,
+		BasePath:       cfg.ConsoleBasePath,
 		Version:        config.Version,
 		Commit:         config.Commit,
 		BuildTime:      config.BuildTime,

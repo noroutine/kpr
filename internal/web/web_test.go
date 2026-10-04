@@ -143,6 +143,37 @@ func TestIndexHandlerShowsConfiguredLinks(t *testing.T) {
 	}
 }
 
+// Behind a subpath reverse proxy (stripped prefix), console links
+// must carry the prefix or they 404 against the outer host. If
+// this fails, the dashboard links at root while served under /kpr.
+// Empty base keeps the bare hrefs.
+func TestIndexHandlerPrefixesLinksWithBasePath(t *testing.T) {
+	t.Cleanup(config.SetCurrent(config.NewBuilder().
+		WithConsoleBasePath("/kpr").
+		Build()))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	IndexHandler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`href="/kpr/api/activity"`,
+		`href="/kpr/health"`,
+		`href="/kpr/metrics"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+	if strings.Contains(body, `href="/api/activity"`) {
+		t.Errorf("dashboard links at root while based under /kpr")
+	}
+}
+
 // Anything but the exact root path must 404: the dashboard handler owns
 // "/" and nothing else. If this fails, unknown console paths render the
 // dashboard instead of a proper 404.

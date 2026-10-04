@@ -70,6 +70,11 @@ const (
 	// default (see AppPortWarning).
 	EnvAppPort = "KPR_APP_PORT"
 
+	// EnvConsoleBasePath prefixes console hrefs when the management
+	// console serves under a reverse-proxy subpath (stripped prefix).
+	// Empty (the default) renders bare root-relative hrefs.
+	EnvConsoleBasePath = "KPR_CONSOLE_BASE_PATH"
+
 	// EnvRedisAddr overrides the redis address kpr uses for TTL tracking
 	// and cleanup bookkeeping. Defaults to DefaultRedisAddr.
 	EnvRedisAddr = "KPR_REDIS_ADDR"
@@ -208,6 +213,7 @@ var EnvVars = []EnvVar{
 	{EnvManagementPort, "Management console port. Defaults to 9300; invalid values fall back to the default."},
 	{EnvAppHost, "Application server bind address. Defaults to \"::\" (dual-stack IPv4+IPv6)."},
 	{EnvAppPort, "Application server port. Defaults to 8080; invalid values fall back to the default."},
+	{EnvConsoleBasePath, "Management console subpath prefix for hrefs (e.g. /kpr behind a stripped PathPrefix). Empty renders root-relative hrefs."},
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
 	{EnvRedisPassword, "Redis password (empty means no auth). Shown as set/unset only, never rendered."},
 	{EnvRedisDB, "Redis logical database for kpr rows. Defaults to 0; compose uses 4 (0-2 taken, 3 is the registry cache)."},
@@ -313,6 +319,11 @@ type Config struct {
 	// AppPortWarning is non-nil when EnvAppPort was set but not a valid
 	// port; AppPort still falls back to DefaultAppPort.
 	AppPortWarning error
+	// ConsoleBasePath is EnvConsoleBasePath's normalized value, or ""
+	// when unset. Normalized to empty-or-leading-slash-no-trailing
+	// (see normalizeConsoleBasePath) so templates join hrefs by
+	// concatenation.
+	ConsoleBasePath string
 
 	// RedisAddr is EnvRedisAddr's value, or DefaultRedisAddr if unset.
 	RedisAddr string
@@ -512,6 +523,7 @@ func (w *DBWarning) Error() string {
 func (b *Builder) FromEnv() *Builder {
 	b.cfg.ManagementHost = envOr(EnvManagementHost, DefaultManagementHost)
 	b.cfg.AppHost = envOr(EnvAppHost, DefaultAppHost)
+	b.cfg.ConsoleBasePath = normalizeConsoleBasePath(os.Getenv(EnvConsoleBasePath))
 	b.cfg.RedisAddr = envOr(EnvRedisAddr, DefaultRedisAddr)
 	b.cfg.RedisPassword = os.Getenv(EnvRedisPassword)
 	b.cfg.RedisDB, b.cfg.RedisDBWarning = parseDB(os.Getenv(EnvRedisDB))
@@ -574,6 +586,17 @@ func stripScheme(endpoint string) string {
 	return endpoint
 }
 
+// normalizeConsoleBasePath shapes the href prefix: empty stays
+// empty, anything else gains a leading slash and loses trailing
+// ones, so templates concatenate without doubling or relativizing.
+func normalizeConsoleBasePath(base string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return ""
+	}
+	return "/" + strings.TrimPrefix(base, "/")
+}
+
 // Build returns the built Config. It never fails: unusable values fall
 // back to defaults with a companion *Warning field (see FromEnv).
 func (b *Builder) Build() *Config {
@@ -581,10 +604,14 @@ func (b *Builder) Build() *Config {
 	return &cfg
 }
 
-func (b *Builder) WithManagementHost(v string) *Builder         { b.cfg.ManagementHost = v; return b }
-func (b *Builder) WithManagementPort(v int) *Builder            { b.cfg.ManagementPort = v; return b }
-func (b *Builder) WithAppHost(v string) *Builder                { b.cfg.AppHost = v; return b }
-func (b *Builder) WithAppPort(v int) *Builder                   { b.cfg.AppPort = v; return b }
+func (b *Builder) WithManagementHost(v string) *Builder { b.cfg.ManagementHost = v; return b }
+func (b *Builder) WithManagementPort(v int) *Builder    { b.cfg.ManagementPort = v; return b }
+func (b *Builder) WithAppHost(v string) *Builder        { b.cfg.AppHost = v; return b }
+func (b *Builder) WithAppPort(v int) *Builder           { b.cfg.AppPort = v; return b }
+func (b *Builder) WithConsoleBasePath(v string) *Builder {
+	b.cfg.ConsoleBasePath = normalizeConsoleBasePath(v)
+	return b
+}
 func (b *Builder) WithRedisAddr(v string) *Builder              { b.cfg.RedisAddr = v; return b }
 func (b *Builder) WithRedisPassword(v string) *Builder          { b.cfg.RedisPassword = v; return b }
 func (b *Builder) WithRedisDB(v int) *Builder                   { b.cfg.RedisDB = v; return b }
