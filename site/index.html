@@ -92,6 +92,36 @@
             color: #808080;
         }
 
+        .try h2 {
+            font-size: 1.6em;
+            margin-bottom: 14px;
+            color: #dcdcaa;
+        }
+
+        .try p {
+            line-height: 1.6;
+            margin-bottom: 14px;
+            max-width: 60ch;
+        }
+
+        .try a {
+            color: #569cd6;
+            text-decoration: none;
+        }
+
+        .try a:hover {
+            text-decoration: underline;
+        }
+
+        .loud {
+            color: #ce9178;
+            font-weight: bold;
+        }
+
+        footer a {
+            color: #808080;
+        }
+
         footer {
             text-align: center;
             color: #808080;
@@ -120,6 +150,19 @@ $ docker push my-registry:5000/my-app:10m
 # …10 minutes later it's due — the next sweep deletes it.</pre>
             </section>
 
+            <section class="try">
+                <h2>Try it.</h2>
+                <p><span class="loud">Not a drop-in replacement:</span>
+                kpr is not a registry — it keeps one. You run a stock
+                registry:3 beside it on a shared volume; kpr marks,
+                sweeps, and collects around it.</p>
+                <p>Ten minutes, two containers, no database:
+                <a href="https://github.com/noroutine/kpr/blob/master/docs/QUICKSTART.md">quickstart</a>.
+                Already run distribution?
+                <a href="https://github.com/noroutine/kpr/blob/master/docs/ADOPT_KPR.md">bolt it on</a>
+                instead.</p>
+            </section>
+
             <section class="links">
                 <a href="https://github.com/noroutine/kpr">github.com/noroutine/kpr</a> <span class="note">— source, issues, releases</span><br>
                 <a href="https://github.com/noroutine/kpr/pkgs/container/kpr">ghcr.io/noroutine/kpr</a> <span class="note">— multiplatform images</span><br>
@@ -128,7 +171,7 @@ $ docker push my-registry:5000/my-app:10m
         </main>
 
         <footer>
-            <p>kpr · reap marks, sweep deletes</p>
+            <p>kpr · <a href="https://github.com/noroutine/kpr/blob/master/LICENSE">GPLv3</a> · reap marks, sweep deletes</p>
         </footer>
     </div>
 </body>
