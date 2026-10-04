@@ -122,28 +122,33 @@ func runPlan(ctx context.Context, w io.Writer, s store.Store, asJSON bool) error
 	return nil
 }
 
-// runReap renders the reap verdict: the dry-run plan, or the marked
-// count once armed. Evaluation and marking live in keeper.Reap; this
-// stays printing-only.
+// runReap renders the reap verdict: the plan in both modes —
+// rows read identically dry or armed, only the trailer says
+// whether they were marked. Evaluation and marking live in
+// keeper.Reap; this stays printing-only.
 func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, armed bool, excludes []string, now time.Time, policyName string) error {
 	marked, err := keeper.Reap(ctx, s, reg, now, excludes, policyName, armed)
 	if err != nil {
 		return err
 	}
-	if !armed {
-		if len(marked) == 0 {
-			_, err := io.WriteString(w, "nothing due (dry-run)\n")
+	if len(marked) == 0 {
+		if armed {
+			_, err := io.WriteString(w, "marked 0 rows due\n")
 			return err
 		}
-		for _, r := range marked {
-			if _, err := fmt.Fprintf(w, "%s:%s — %s\n", r.Repo, r.Tag, r.Reason); err != nil {
-				return err
-			}
-		}
-		_, err := io.WriteString(w, "(dry-run: nothing marked; re-run with --no-dry-run to mark)\n")
+		_, err := io.WriteString(w, "nothing due (dry-run)\n")
 		return err
 	}
-	_, err = fmt.Fprintf(w, "marked %d rows due\n", len(marked))
+	for _, r := range marked {
+		if _, err := fmt.Fprintf(w, "%s:%s — %s\n", r.Repo, r.Tag, r.Reason); err != nil {
+			return err
+		}
+	}
+	if armed {
+		_, err = fmt.Fprintf(w, "marked %d rows due\n", len(marked))
+		return err
+	}
+	_, err = io.WriteString(w, "(dry-run: nothing marked; re-run with --no-dry-run to mark)\n")
 	return err
 }
 

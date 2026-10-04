@@ -214,6 +214,12 @@ func TestReapArmedMarksOnlySelected(t *testing.T) {
 	if due[0].Reason == "" {
 		t.Error("marked row carries no reason")
 	}
+	// Armed prints what it marked, like the dry-run plan: only
+	// the trailer differs. If this fails, the modes diverge and
+	// the armed run is a bare count.
+	if !strings.Contains(out.String(), "scratch:10m") {
+		t.Errorf("armed prints no rows:\n%s", out.String())
+	}
 }
 
 // Armed reap with --exclude skips keep-N for matching qualified names:
