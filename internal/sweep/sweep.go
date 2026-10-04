@@ -70,6 +70,9 @@ type Sweeper struct {
 	// text when telemetry is off, stdout plus Quickwit via OTLP when
 	// the observability overlay enables it.
 	Log func(ctx context.Context, msg string, args ...any)
+	// Progress reports the running summary after every settled
+	// row: the CLI repaints one live line off it. Nil skips it.
+	Progress func(Summary)
 }
 
 func (s *Sweeper) now() time.Time {
@@ -177,6 +180,12 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 		return sum
 	}
 	setStage(StageStart, len(due), 0)
+	progress := func() {
+		if s.Progress != nil {
+			s.Progress(sum)
+		}
+	}
+	progress()
 
 	done := 0
 	for _, r := range due {
@@ -187,6 +196,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 		if _, isTTL := policy.EffectiveTTL(r.Tag); isTTL && !policy.Eligible(r.Tag, r.PushedAt, now) {
 			resolve(r, "skipped", nil)
 			done++
+			progress()
 			continue
 		}
 		// Pre-delete re-read: the pass holds pass-start state, but a
@@ -205,17 +215,20 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			resolve(r, "failed", gerr)
 			sum.Failed++
 			done++
+			progress()
 			continue
 		}
 		if !ok || !cur.Due || cur.Digest != r.Digest {
 			resolve(r, "skipped", nil)
 			done++
+			progress()
 			continue
 		}
 		if s.DryRun {
 			resolve(r, "planned", nil)
 			sum.Planned++
 			done++
+			progress()
 			continue
 		}
 		outcome, derr := s.deleteManifest(ctx, r)
@@ -238,6 +251,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			}
 		}
 		done++
+		progress()
 	}
 	setStage(StageDone, len(due), done)
 	return sum

@@ -417,7 +417,7 @@ func pairedSweepStore(t *testing.T) (*store.MemStore, sweepStub) {
 func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 	s, stub := pairedSweepStore(t)
 	var out bytes.Buffer
-	if err := runSweep(cliCtx(), &out, s, stub, false); err != nil {
+	if err := runSweep(cliCtx(), &out, s, stub, false, ""); err != nil {
 		t.Fatalf("dry-run sweep: %v", err)
 	}
 	if !strings.Contains(out.String(), "0 performed") || !strings.Contains(out.String(), "1 planned") {
@@ -432,7 +432,7 @@ func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 
 	as, astub := pairedSweepStore(t)
 	var aout bytes.Buffer
-	if err := runSweep(cliCtx(), &aout, as, astub, true); err != nil {
+	if err := runSweep(cliCtx(), &aout, as, astub, true, ""); err != nil {
 		t.Fatalf("armed sweep: %v", err)
 	}
 	if !strings.Contains(aout.String(), "1 performed") {
@@ -687,7 +687,7 @@ func TestReapDryRunRendersFullLine(t *testing.T) {
 func TestSweepOutageReportsInsteadOfFailing(t *testing.T) {
 	var out bytes.Buffer
 	stub := sweepStub{stubProofAPI: stubProofAPI{err: errors.New("redis: connection refused")}}
-	if err := runSweep(cliCtx(), &out, deadStore{}, stub, false); err != nil {
+	if err := runSweep(cliCtx(), &out, deadStore{}, stub, false, ""); err != nil {
 		t.Errorf("sweep on dead state failed: %v", err)
 	}
 	if !strings.Contains(out.String(), "failed:") {
@@ -715,7 +715,7 @@ func (w *failAfterWriter) Write(p []byte) (int, error) {
 // passes silently.
 func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
 	s, stub := pairedSweepStore(t)
-	if err := runSweep(cliCtx(), &failAfterWriter{}, s, stub, false); err == nil {
+	if err := runSweep(cliCtx(), &failAfterWriter{}, s, stub, false, ""); err == nil {
 		t.Error("sweep into failing pipe succeeded, want an error")
 	}
 }
@@ -989,7 +989,7 @@ func TestSweepSurfacesFailureLineWriteError(t *testing.T) {
 	s, stub := pairedSweepStore(t)
 	stub.delErr = errors.New("registry: 500")
 	var ok bytes.Buffer
-	if err := runSweep(cliCtx(), &ok, s, stub, true); err != nil {
+	if err := runSweep(cliCtx(), &ok, s, stub, true, ""); err != nil {
 		t.Fatalf("armed failing sweep: %v", err)
 	}
 	if !strings.Contains(ok.String(), "failed:") {
@@ -997,8 +997,38 @@ func TestSweepSurfacesFailureLineWriteError(t *testing.T) {
 	}
 	fs, fstub := pairedSweepStore(t)
 	fstub.delErr = errors.New("registry: 500")
-	if err := runSweep(cliCtx(), &failAfterWriter{n: 1}, fs, fstub, true); err == nil {
+	if err := runSweep(cliCtx(), &failAfterWriter{n: 1}, fs, fstub, true, ""); err == nil {
 		t.Error("sweep failing on the failures line succeeded, want an error")
+	}
+}
+
+// --output tees failure lines into a file while stdout keeps
+// them: an outage narrates in both places. A bad path refuses
+// before the pass. If this fails, the stream lands in one
+// place only, or nowhere.
+func TestSweepOutputTeesFailuresToFile(t *testing.T) {
+	s, stub := pairedSweepStore(t)
+	stub.delErr = errors.New("registry: 500")
+	stream := filepath.Join(t.TempDir(), "sweep.log")
+	var out bytes.Buffer
+	if err := runSweep(cliCtx(), &out, s, stub, true, stream); err != nil {
+		t.Fatalf("armed failing sweep: %v", err)
+	}
+	raw, err := os.ReadFile(stream)
+	if err != nil {
+		t.Fatalf("read stream file: %v", err)
+	}
+	if !strings.Contains(string(raw), "failed:") {
+		t.Errorf("stream file names no failure:\n%s", raw)
+	}
+	if !strings.Contains(out.String(), "failed:") {
+		t.Errorf("stdout lost its failure lines:\n%s", out.String())
+	}
+	fs, fstub := pairedSweepStore(t)
+	fstub.delErr = errors.New("registry: 500")
+	if err := runSweep(cliCtx(), io.Discard, fs, fstub, true,
+		filepath.Join(t.TempDir(), "gone", "sweep.log")); err == nil {
+		t.Error("sweep --output into missing dir succeeded, want refusal")
 	}
 }
 

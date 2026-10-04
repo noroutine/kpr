@@ -160,24 +160,49 @@ type sweepPeer interface {
 	sentinel.API
 }
 
-// runSweep runs one sweep pass in-process and prints the summary:
-// the sweeper lives in the CLI, not behind the console (serve
-// serves endpoints; it never sweeps). Armed deletes for real;
-// disarmed plans only.
-func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, armed bool) error {
+// sweepLines renders the one-line block: the pass id plus its
+// verdicts, repainting in place and converging to the settled
+// summary below.
+func sweepLines(sum sweep.Summary) []string {
+	return []string{fmt.Sprintf("sweep %s: %d performed, %d planned, %d failed, %d untracked",
+		sum.PassID, sum.Performed, sum.Planned, sum.Failed, sum.Untracked)}
+}
+
+// runSweep runs one sweep pass in-process with a live line on
+// terminals: counters repaint in place and converge to the
+// settled summary. Failure lines stream to stdout always (an
+// outage narrates, never counts quietly); --output tees a copy
+// into a file. Evaluation and marking live in sweep.RunPass;
+// this stays wiring and printing.
+func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, armed bool, output string) error {
+	live := newLiveLines(w)
 	sw := &sweep.Sweeper{Store: s, Registry: peer, Sentinel: peer, DryRun: !armed}
-	sum := sw.RunPass(ctx, "sweep")
-	suffix := ""
-	if !armed {
-		suffix = " (dry run — nothing deleted)"
+	sw.Progress = func(sum sweep.Summary) {
+		live.tickBlock(sweepLines(sum))
 	}
-	_, err := fmt.Fprintf(w, "sweep %s: %d performed, %d planned, %d failed, %d untracked%s\n",
-		sum.PassID, sum.Performed, sum.Planned, sum.Failed, sum.Untracked, suffix)
-	if err != nil {
+	failures := io.Writer(breakWriter{w: w, live: live})
+	if output != "" && output != "-" {
+		f, ferr := os.Create(output)
+		if ferr != nil {
+			return ferr
+		}
+		defer func() { _ = f.Close() }()
+		failures = io.MultiWriter(failures, f)
+	}
+	sum := sw.RunPass(ctx, "sweep")
+	lines := sweepLines(sum)
+	if !armed {
+		lines[0] += " (dry run — nothing deleted)"
+	}
+	if live.terminal() {
+		live.doneBlock(lines, 0)
+	} else if _, err := fmt.Fprintln(w, lines[0]); err != nil {
+		// A half-printed summary must not read as success:
+		// the repaint path is best-effort, the pipe is not.
 		return err
 	}
 	for _, f := range sum.Failures {
-		if _, err := fmt.Fprintf(w, "  failed: %s\n", f); err != nil {
+		if _, err := fmt.Fprintf(failures, "  failed: %s\n", f); err != nil {
 			return err
 		}
 	}
@@ -381,6 +406,7 @@ sweep finds nothing until a fresh reap marks again.`,
 }
 
 var sweepNoDryRun bool
+var sweepOutput string
 
 var sweepCmd = &cobra.Command{
 	Use:   "sweep",
@@ -389,7 +415,9 @@ var sweepCmd = &cobra.Command{
 No opinions, no marks: only rows already marked due are processed.
 The sweeper lives here, not in serve (serve serves endpoints; it
 never sweeps). --no-dry-run (or KPR_CLI_NO_DRY_RUN=true) arms
-it: deletes for real. Disarmed plans only.`,
+it: deletes for real. Disarmed plans only. Counters repaint one
+live line on a terminal and converge to the summary; failure
+lines stream on stdout, with --output teeing a copy into a file.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()
 		if err != nil {
@@ -397,7 +425,8 @@ it: deletes for real. Disarmed plans only.`,
 		}
 		defer d.close()
 		cfg, s := d.cfg, d.store
-		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, d.reg, sweepArmed(cfg))
+		output, _ := cmd.Flags().GetString("output")
+		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, d.reg, sweepArmed(cfg), output)
 	},
 }
 
@@ -407,6 +436,7 @@ func init() {
 	reapCmd.Flags().BoolVar(&reapNoDryRun, "no-dry-run", false, "Mark rows due for real (default prints the plan only)")
 	reapCmd.Flags().StringSliceVar(&reapExclude, "exclude", nil, "Spare keep-N for rows whose repo:tag matches (repeatable regex, registry stripped)")
 	sweepCmd.Flags().BoolVar(&sweepNoDryRun, "no-dry-run", false, "Delete due rows for real (default plans only)")
+	sweepCmd.Flags().StringVar(&sweepOutput, "output", "", "Tee failure lines into a file (failures already stream on stdout)")
 	RootCmd.AddCommand(statusCmd, planCmd, reapCmd, sweepCmd)
 }
 

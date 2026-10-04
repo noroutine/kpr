@@ -103,6 +103,31 @@ type staleDueStore struct {
 
 func (s staleDueStore) Due(context.Context) ([]policy.Row, error) { return s.stale, nil }
 
+// Progress reports the running summary after every settled row:
+// the last report equals the returned summary, so a live line
+// converges instead of jumping. If this fails, the repaint
+// shows stale counts while the pass moves on.
+func TestRunPassProgressConverges(t *testing.T) {
+	s := store.NewMemStore()
+	c := testCtx()
+	_ = s.Record(c, duerow("app", "v1", time.Hour))
+	_ = s.Record(c, duerow("app", "v2", time.Hour))
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	var got []Summary
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s),
+		Now:      func() time.Time { return sweepNow },
+		Progress: func(sum Summary) { got = append(got, sum) }}
+	sum := sw.RunPass(c, "test")
+	if len(got) != 3 {
+		t.Fatalf("progress reports = %d, want initial + 2 settled rows", len(got))
+	}
+	last := got[len(got)-1]
+	if last.PassID != sum.PassID || last.Performed != sum.Performed ||
+		last.Planned != sum.Planned || last.Failed != sum.Failed || last.Untracked != sum.Untracked {
+		t.Errorf("last progress = %+v, want %+v", last, sum)
+	}
+}
+
 // A push landing mid-pass clears the mark in the store, but the
 // pass already holds the stale copy: the pre-delete re-read must
 // see the cleared row and skip it, so the fresh manifest survives
