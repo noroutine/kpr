@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
+	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/registryfs"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
@@ -124,9 +126,10 @@ func runPlan(ctx context.Context, w io.Writer, s store.Store, asJSON bool) error
 
 // runReap renders the reap verdict: the dry-run plan, or the marked
 // count once armed. Evaluation and marking live in keeper.Reap; this
-// stays printing-only.
-func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, armed bool, excludes []string, now time.Time, policyName string) error {
-	marked, err := keeper.Reap(ctx, s, reg, now, excludes, policyName, armed)
+// stays printing-only. fsRepos is the untagged selector's second
+// opinion (nil keeps the old catalog-only skip).
+func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, fsRepos map[string]bool, armed bool, excludes []string, now time.Time, policyName string) error {
+	marked, err := keeper.Reap(ctx, s, reg, fsRepos, now, excludes, policyName, armed)
 	if err != nil {
 		return err
 	}
@@ -337,7 +340,9 @@ reasons. Bare reap means reap all. Marks accumulate across calls
 until sweep or plan discard. Policies: ttl (elapsed explicit TTL),
 hash (bare hashes past the default), partial (digest-less stale
 uploads), untagged (tag gone from the catalog past grace), keep-n
-(past the freshest ten per repo).
+(past the freshest ten per repo). With a local registry config the
+untagged policy also checks the fs: a repo absent from the catalog
+AND the fs marks past grace (either alone still skips).
 Dry-run unless --no-dry-run (or KPR_CLI_NO_DRY_RUN=true): unarmed, it
 only prints the plan. Repeat --exclude to spare keep-N for rows
 whose repo:tag matches (registry stripped).`,
@@ -355,8 +360,25 @@ whose repo:tag matches (registry stripped).`,
 			name = args[0]
 		}
 		return runReap(cmd.Context(), cmd.OutOrStdout(), s,
-			d.reg, armed, reapExclude, time.Now().UTC(), name)
+			d.reg, secondOpinion(cfg), armed, reapExclude, time.Now().UTC(), name)
 	},
+}
+
+// secondOpinion builds the untagged selector's fs view: every repo
+// holding manifest dirs, or nil when the registry config won't prove
+// (remote registry, unreadable config). Nil keeps the old
+// catalog-only skip — a missing second opinion degrades ghost
+// detection, never fails the reap.
+func secondOpinion(cfg *config.Config) map[string]bool {
+	fsStore, err := proof.ProveFilesystemStore(cfg.RegistryConfig)
+	if err != nil {
+		return nil
+	}
+	repos, err := registryfs.ListRepos(fsStore)
+	if err != nil {
+		return nil
+	}
+	return repos
 }
 
 var planDiscardCmd = &cobra.Command{

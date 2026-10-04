@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,11 +103,11 @@ func TestSelectStaleUploadsBoundaryExact(t *testing.T) {
 func TestSelectUntaggedBoundaryExact(t *testing.T) {
 	catalog := map[string][]string{"app": {"other"}}
 	at := []Row{mkrow("app", "gone", UntaggedGrace)}
-	if got := SelectUntagged(at, catalog, sliceNow); len(got) != 0 {
+	if got := SelectUntagged(at, catalog, nil, sliceNow); len(got) != 0 {
 		t.Errorf("selected %v at exactly grace, want kept", got)
 	}
 	past := []Row{mkrow("app", "gone", UntaggedGrace+time.Nanosecond)}
-	if got := SelectUntagged(past, catalog, sliceNow); len(got) != 1 {
+	if got := SelectUntagged(past, catalog, nil, sliceNow); len(got) != 1 {
 		t.Errorf("selected %v past grace, want [gone]", got)
 	}
 }
@@ -116,7 +117,7 @@ func TestSelectUntaggedBoundaryExact(t *testing.T) {
 // untagged". If this fails, a registry blip mass-marks old rows.
 func TestSelectUntaggedSkipsUnknownRepo(t *testing.T) {
 	rows := []Row{mkrow("ghost", "v1", 200*24*time.Hour)}
-	if got := SelectUntagged(rows, map[string][]string{}, sliceNow); len(got) != 0 {
+	if got := SelectUntagged(rows, map[string][]string{}, nil, sliceNow); len(got) != 0 {
 		t.Errorf("selected %v without a catalog, want none (skip, not empty)", got)
 	}
 }
@@ -137,9 +138,56 @@ func TestSelectUntaggedNeedsCatalogAbsenceAndGrace(t *testing.T) {
 		mkrow("app", "live", 200*24*time.Hour),
 	}
 	catalog := map[string][]string{"app": {"live", "recently-gone"}}
-	got := SelectUntagged(rows, catalog, sliceNow)
+	got := SelectUntagged(rows, catalog, nil, sliceNow)
 	if len(got) != 1 || got[0].Tag != "gone" {
 		t.Fatalf("selected %v, want [gone]", got)
+	}
+}
+
+// A repo absent from the catalog AND the fs is gone, not a blip:
+// with the fs second opinion present, its past-grace rows mark.
+// Without the fs set (nil — unproven, e.g. a remote registry) the
+// old skip holds; a repo the fs still holds is a catalog-read
+// failure, never a deletion. If this fails, ghost rows either pile
+// up where reap can never reach them or a blip mass-marks live rows.
+func TestSelectUntaggedGhostNeedsFsSecondOpinion(t *testing.T) {
+	rows := []Row{mkrow("ghost", "v1", 200*24*time.Hour)}
+	empty := map[string][]string{}
+	if got := SelectUntagged(rows, empty, nil, sliceNow); len(got) != 0 {
+		t.Errorf("selected %v without fs opinion, want none (skip, not empty)", got)
+	}
+	holding := map[string]bool{"ghost": true}
+	if got := SelectUntagged(rows, empty, holding, sliceNow); len(got) != 0 {
+		t.Errorf("selected %v with fs holding the repo, want none (blip, not gone)", got)
+	}
+	absent := map[string]bool{"other": true}
+	got := SelectUntagged(rows, empty, absent, sliceNow)
+	if len(got) != 1 || !got[0].Due || got[0].Reason == "" {
+		t.Fatalf("selected %v with fs confirming absence, want [ghost:v1] due", got)
+	}
+	if want := "untagged:repo gone"; !strings.Contains(got[0].Reason, want) {
+		t.Errorf("reason %q, want it to name the second opinion (%q)", got[0].Reason, want)
+	}
+}
+
+// Grace still binds ghosts: a repo gone an hour ago may be mid-delete
+// or mid-push, so only past-grace rows mark. If this fails, reap
+// collects rows for repos that are merely being recreated.
+func TestSelectUntaggedGhostKeepsGrace(t *testing.T) {
+	rows := []Row{mkrow("ghost", "v1", 2*time.Hour)}
+	if got := SelectUntagged(rows, map[string][]string{}, map[string]bool{}, sliceNow); len(got) != 0 {
+		t.Errorf("selected %v inside grace, want none", got)
+	}
+}
+
+// Machinery never reaps: sentinel-prefix repos stay skipped even when
+// catalog and fs both lost them — backfill owns that lifecycle, not
+// the collecting policies. If this fails, reap can untrack rows the
+// sentinel writer still accounts for.
+func TestSelectUntaggedGhostSparesSentinels(t *testing.T) {
+	rows := []Row{mkrow("noroutine/kpr-deadbeef", "v1", 200*24*time.Hour)}
+	if got := SelectUntagged(rows, map[string][]string{}, map[string]bool{}, sliceNow); len(got) != 0 {
+		t.Errorf("selected %v, want none (sentinel machinery never reaps)", got)
 	}
 }
 
@@ -155,7 +203,7 @@ func TestSelectUntaggedMarksVanishedLatest(t *testing.T) {
 		mkrow("pinned", "latest", 200*24*time.Hour),
 	}
 	catalog := map[string][]string{"app": {"kept"}, "pinned": {"latest"}}
-	got := SelectUntagged(rows, catalog, sliceNow)
+	got := SelectUntagged(rows, catalog, nil, sliceNow)
 	if len(got) != 2 || got[0].Tag != "latest" || got[1].Tag != "gone" {
 		t.Fatalf("selected %v, want [app:latest app:gone]", got)
 	}

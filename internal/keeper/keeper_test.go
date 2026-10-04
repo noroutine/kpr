@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,7 +46,7 @@ func TestEvaluateUntaggedUsesCatalog(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"tags": tags})
 	}))
 	defer srv.Close()
-	marked, err := EvaluatePolicy(keeperCtx(), untaggedStage(), registry.NewClient(srv.URL), keeperNow, nil, "untagged")
+	marked, err := EvaluatePolicy(keeperCtx(), untaggedStage(), registry.NewClient(srv.URL), nil, keeperNow, nil, "untagged")
 	if err != nil {
 		t.Fatalf("EvaluatePolicy untagged: %v", err)
 	}
@@ -69,6 +70,10 @@ func (f stubCatalog) Catalog(ctx context.Context, repo string) ([]string, error)
 	return f.tags[repo], nil
 }
 
+// errCatalogGone is the stub's 404: every repo fetch fails, so no
+// repo gains a catalog entry — the ghost shape (absent, not empty).
+var errCatalogGone = errors.New("catalog: 404 gone")
+
 // Untagged marks sort repo-major across repos: two gone repos with
 // tag order opposing repo order, so a comparator falling through to
 // tags sorts deterministically wrong. If this fails, multi-repo
@@ -81,7 +86,7 @@ func TestEvaluateUntaggedSortsRepoMajor(t *testing.T) {
 	_ = s.Record(c, policy.Row{Repo: "apple", Tag: "z", Digest: "sha256:b",
 		PushedAt: keeperNow.Add(-200 * time.Hour)})
 	stub := stubCatalog{tags: map[string][]string{"zebra": {}, "apple": {}}}
-	marked, err := EvaluatePolicy(keeperCtx(), s, stub, keeperNow, nil, "untagged")
+	marked, err := EvaluatePolicy(keeperCtx(), s, stub, nil, keeperNow, nil, "untagged")
 	if err != nil {
 		t.Fatalf("EvaluatePolicy untagged: %v", err)
 	}
@@ -96,12 +101,39 @@ func TestEvaluateUntaggedSortsRepoMajor(t *testing.T) {
 // the transport instead of its port — or the selector misfires.
 func TestEvaluateUntaggedUsesStubCatalog(t *testing.T) {
 	stub := stubCatalog{tags: map[string][]string{"gone": {}, "kept": {"v9"}}}
-	marked, err := EvaluatePolicy(keeperCtx(), untaggedStage(), stub, keeperNow, nil, "untagged")
+	marked, err := EvaluatePolicy(keeperCtx(), untaggedStage(), stub, nil, keeperNow, nil, "untagged")
 	if err != nil {
 		t.Fatalf("EvaluatePolicy untagged: %v", err)
 	}
 	if len(marked) != 1 || marked[0].Repo != "gone" {
 		t.Errorf("untagged = %v, want only gone:v1", marked)
+	}
+}
+
+// A ghost row converges end to end: the catalog 404s the repo (no
+// entry, not an empty list) and the fs set confirms no manifest dir,
+// so untagged marks past grace — while a nil fs set (unproven) keeps
+// the old skip on the same input. If this fails, the second opinion
+// never reaches the selector and ghost rows pile up past every reap.
+func TestEvaluateUntaggedGhostConverges(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	_ = s.Record(c, policy.Row{Repo: "ghost", Tag: "v1", Digest: "sha256:a",
+		PushedAt: keeperNow.Add(-200 * 24 * time.Hour)})
+	stub := stubCatalog{tags: map[string][]string{}, err: errCatalogGone}
+	marked, err := EvaluatePolicy(keeperCtx(), s, stub, map[string]bool{}, keeperNow, nil, "untagged")
+	if err != nil {
+		t.Fatalf("EvaluatePolicy untagged ghost: %v", err)
+	}
+	if len(marked) != 1 || marked[0].Repo != "ghost" {
+		t.Errorf("untagged ghost = %v, want [ghost:v1]", marked)
+	}
+	unproven, err := EvaluatePolicy(keeperCtx(), s, stub, nil, keeperNow, nil, "untagged")
+	if err != nil {
+		t.Fatalf("EvaluatePolicy untagged unproven: %v", err)
+	}
+	if len(unproven) != 0 {
+		t.Errorf("untagged unproven = %v, want none (old skip holds)", unproven)
 	}
 }
 
@@ -119,7 +151,7 @@ func TestReapArmedMarksUnarmedEvaluates(t *testing.T) {
 		return s
 	}
 	s := stage()
-	marked, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "all", true)
+	marked, err := Reap(keeperCtx(), s, nil, nil, keeperNow, nil, "all", true)
 	if err != nil {
 		t.Fatalf("armed reap: %v", err)
 	}
@@ -130,7 +162,7 @@ func TestReapArmedMarksUnarmedEvaluates(t *testing.T) {
 		t.Errorf("armed reap left %d rows due, want 1 marked", len(due))
 	}
 	s = stage()
-	marked, err = Reap(keeperCtx(), s, nil, keeperNow, nil, "all", false)
+	marked, err = Reap(keeperCtx(), s, nil, nil, keeperNow, nil, "all", false)
 	if err != nil {
 		t.Fatalf("unarmed reap: %v", err)
 	}
@@ -146,7 +178,7 @@ func TestReapArmedMarksUnarmedEvaluates(t *testing.T) {
 // marks. If this fails, a typo reaps the world or errors cryptically.
 func TestReapUnknownPolicyRefuses(t *testing.T) {
 	s := untaggedStage()
-	_, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "bogus", true)
+	_, err := Reap(keeperCtx(), s, nil, nil, keeperNow, nil, "bogus", true)
 	if err == nil {
 		t.Fatal("reap bogus succeeded, want refusal")
 	}
@@ -298,11 +330,11 @@ func TestFetchStatusActivityLossKeepsRows(t *testing.T) {
 // and the sweeper evaluate different marks.
 func TestEvaluatePolicyAllFansOut(t *testing.T) {
 	s := untaggedStage()
-	one, err := EvaluatePolicy(keeperCtx(), s, stubCatalog{}, keeperNow, nil, "all")
+	one, err := EvaluatePolicy(keeperCtx(), s, stubCatalog{}, nil, keeperNow, nil, "all")
 	if err != nil {
 		t.Fatalf("all: %v", err)
 	}
-	all, err := EvaluatePolicies(keeperCtx(), s, stubCatalog{}, keeperNow, nil)
+	all, err := EvaluatePolicies(keeperCtx(), s, stubCatalog{}, nil, keeperNow, nil)
 	if err != nil {
 		t.Fatalf("policies: %v", err)
 	}
@@ -316,7 +348,7 @@ func TestEvaluatePolicyAllFansOut(t *testing.T) {
 // world as clean.
 func TestEvaluatePoliciesOnDeadStoreFails(t *testing.T) {
 	if _, err := EvaluatePolicies(keeperCtx(), &readFailStore{store.NewMemStore()},
-		stubCatalog{}, keeperNow, nil); err == nil {
+		stubCatalog{}, nil, keeperNow, nil); err == nil {
 		t.Error("policies on dead store succeeded, want an error")
 	}
 }
@@ -351,7 +383,7 @@ func TestReapArmedOnDeadStoreFails(t *testing.T) {
 	_ = inner.Record(c, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
 		PushedAt: keeperNow.Add(-time.Hour)})
 	s := markFailStore{inner}
-	if _, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "ttl", true); err == nil {
+	if _, err := Reap(keeperCtx(), s, nil, nil, keeperNow, nil, "ttl", true); err == nil {
 		t.Error("armed reap on dead store succeeded, want an error")
 	} else if !strings.Contains(err.Error(), "redis unreachable") {
 		t.Errorf("refusal = %q, want redis named", err.Error())

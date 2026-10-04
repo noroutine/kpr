@@ -67,7 +67,7 @@ func TestLatestSparedEverywhere(t *testing.T) {
 	// listed :latest stays spared (pinned by TestProtectedTagsSurviveAllButKeepN
 	// and TestSelectUntaggedMarksVanishedLatest).
 	gone := []Row{{Repo: "infra/probe", Tag: "latest", Digest: digest, PushedAt: now.Add(-200 * time.Hour)}}
-	if due := SelectUntagged(gone, map[string][]string{"infra/probe": {"v1"}}, now); len(due) != 1 || !due[0].Due || due[0].Reason == "" {
+	if due := SelectUntagged(gone, map[string][]string{"infra/probe": {"v1"}}, nil, now); len(due) != 1 || !due[0].Due || due[0].Reason == "" {
 		t.Errorf("SelectUntagged spared vanished latest: %+v", due)
 	}
 	// keep-N over latest alone: eleven rows, nothing due, nothing counted.
@@ -123,7 +123,7 @@ func TestProtectedTagsSurviveAllButKeepN(t *testing.T) {
 				if due := SelectStaleUploads(rows, now); len(due) != 0 {
 					t.Errorf("SelectStaleUploads marked protected %q: %+v", tag, due)
 				}
-				if due := SelectUntagged(rows, catalog, now); len(due) != 0 {
+				if due := SelectUntagged(rows, catalog, nil, now); len(due) != 0 {
 					t.Errorf("SelectUntagged marked protected %q: %+v", tag, due)
 				}
 			})
