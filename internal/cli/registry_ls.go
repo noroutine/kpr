@@ -105,12 +105,12 @@ func runRegistryLs(ctx context.Context, out, errW io.Writer, reg lsRegistry, tar
 		}
 		return tw.Flush()
 	}
-	if _, err := fmt.Fprintln(tw, "REPO:TAG\tGEN\tAGE\tWRITER"); err != nil {
+	if _, err := fmt.Fprintln(tw, "REPO:TAG\tAGE\tWRITER"); err != nil {
 		return err
 	}
 	for _, r := range rows {
-		if _, err := fmt.Fprintf(tw, "%s:%s\t%s\t%s\t%s\n",
-			sentinel.Repo, r.Tag, r.Gen, lsAge(now, r.TS), r.Writer); err != nil {
+		if _, err := fmt.Fprintf(tw, "%s:%s\t%s\t%s\n",
+			sentinel.Repo, r.Tag, lsAge(now, r.TS), r.Writer); err != nil {
 			return err
 		}
 	}

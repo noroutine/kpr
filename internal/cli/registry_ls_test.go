@@ -59,10 +59,11 @@ func (f mountAPI) GetBlob(_ context.Context, repo, digest string) ([]byte, error
 }
 
 // Registry sentinels list evaluated: every tag the registry names
-// with the identity behind it — generation, age, writer. A tag
-// whose manifest won't parse warns past on stderr and skips, so
-// one dangling tag never vetoes the listing. If this fails, the
-// registry view of machinery lies or refuses.
+// with age and writer — the generation duplicates the tag, so the
+// short view drops it (the store view shape, writer for due). A
+// tag whose manifest won't parse warns past on stderr and skips,
+// so one dangling tag never vetoes the listing. If this fails,
+// the registry view of machinery lies or refuses.
 func TestRegistryLsSentinels(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 10, 3, 22, 0, 0, 0, time.UTC)
@@ -85,14 +86,14 @@ func TestRegistryLsSentinels(t *testing.T) {
 	// tabwriter aligns: compare fields, not spacing.
 	fields := func(l string) []string { return strings.Fields(l) }
 	join := func(f []string) string { return strings.Join(f, " ") }
-	if join(fields(lines[0])) != "REPO:TAG GEN AGE WRITER" {
-		t.Errorf("header = %q, want tag/gen/age/writer columns", lines[0])
+	if join(fields(lines[0])) != "REPO:TAG AGE WRITER" {
+		t.Errorf("header = %q, want tag/age/writer columns", lines[0])
 	}
-	if got := join(fields(lines[1])); got != "noroutine/kpr-sentinel:gen-1 gen-1 1h30m0s ago kpr-unlock" {
-		t.Errorf("gen-1 = %q, want evaluated identity", got)
+	if got := join(fields(lines[1])); got != "noroutine/kpr-sentinel:gen-1 1h30m0s ago kpr-unlock" {
+		t.Errorf("gen-1 = %q, want evaluated age and writer", got)
 	}
-	if got := join(fields(lines[3])); got != "noroutine/kpr-sentinel:latest gen-2 1h30m0s ago kpr-gc" {
-		t.Errorf("latest = %q, want floater resolved to its generation", got)
+	if got := join(fields(lines[3])); got != "noroutine/kpr-sentinel:latest 1h30m0s ago kpr-gc" {
+		t.Errorf("latest = %q, want floater listed like any tag", got)
 	}
 	if !strings.Contains(errW.String(), "broken") {
 		t.Errorf("stderr = %q, want the dangling tag warned past", errW.String())
