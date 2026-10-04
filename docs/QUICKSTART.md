@@ -45,7 +45,7 @@ services:
     # No published ports: pushes arrive through the edge below.
 
   kpr:
-    image: ghcr.io/noroutine/kpr:<release-tag>   # pin it
+    image: ghcr.io/noroutine/kpr:latest   # copy-pasteable; pin a release tag instead, see Prerequisites
     user: "1000:1000"
     volumes:
       - registry-data:/var/lib/registry   # the shared store
