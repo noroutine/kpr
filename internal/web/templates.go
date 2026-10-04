@@ -6,6 +6,7 @@ const indexTemplate = `<!DOCTYPE html>
     <title>kpr - {{ .Hostname }}</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1e1e1e">
     <style>
         body { font-family: monospace; margin: 20px; background: #1e1e1e; color: #d4d4d4; }
         h1 { color: #4ec9b0; margin-bottom: 5px; }
