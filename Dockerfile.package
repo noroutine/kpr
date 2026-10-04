@@ -1,6 +1,14 @@
 # syntax=docker/dockerfile:1
 
 # Packaging-only Dockerfile - binary must be pre-built in dist/
+
+# Stock registry image (same one the stack runs): `kpr gc` shells out
+# to its garbage-collect, so collector and store versions match by
+# construction. Keep in sync with the registry service in compose
+# (and with the same stage in Dockerfile).
+ARG REGISTRY_IMAGE=registry:3
+FROM $REGISTRY_IMAGE AS registry-bin
+
 FROM alpine:latest
 
 # Install runtime dependencies
@@ -34,6 +42,9 @@ RUN set -ex; \
     chmod +x /usr/local/bin/kpr; \
     rm -rf /tmp/kpr-*; \
     echo "Installed: $(ls -lh /usr/local/bin/kpr)"
+
+# Stock registry binary for `kpr gc`, from the registry-bin stage above.
+COPY --from=registry-bin /bin/registry /bin/registry
 
 # Set ownership
 RUN chown -R kpr:kpr /app

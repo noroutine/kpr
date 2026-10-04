@@ -412,6 +412,8 @@ docker-build:
 		-t $(DOCKER_IMAGE):$(VERSION) \
 		$$(if echo "$(VERSION)" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+$$'; then echo "-t $(DOCKER_IMAGE):latest"; fi) \
 		--load .
+	@echo "Verifying stock registry binary for \`kpr gc\`..."
+	@docker run --rm --entrypoint ls $(DOCKER_IMAGE):$(VERSION) -lh /bin/registry
 
 ## docker-build-multiplatform: Build and push multiplatform Docker images
 docker-build-multiplatform: build-all
