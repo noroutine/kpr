@@ -234,4 +234,6 @@ reasoning for each is in
 
 ## License
 
-[Your License Here]
+GPLv3 ([LICENSE](LICENSE)). Third-party attributions ship in
+[LICENSES/](LICENSES/) and inside the image at `/app/licenses/`.
+
