@@ -158,7 +158,8 @@ func summarizeRows(rows []policy.Row) (repos, tags, sentinels int) {
 // store-minus-API: what adoption and sweeping still owe the
 // registry. Unavailable reads honest when the backend is down —
 // a read-only magnitude never refuses over it. The trust word
-// parenthesizes when set (readStoreView always sets it).
+// rides as its own field (readStoreView always sets it) — a
+// parenthesis would dangle off the sentinel count.
 func storeLine(view storeView, api backfill.CatalogReport) string {
 	if !view.ok {
 		return analyzeRow("store", "unavailable")
@@ -169,7 +170,7 @@ func storeLine(view storeView, api backfill.CatalogReport) string {
 		plural(view.sentinels, "sentinel", "sentinels"),
 		view.repos-api.Repos, view.tags-api.Tags, view.sentinels-api.Sentinels)
 	if view.note != "" {
-		body += " (" + view.note + ")"
+		body += ", store status: " + view.note
 	}
 	return analyzeRow("store", body)
 }

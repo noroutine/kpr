@@ -59,7 +59,8 @@ type Recorder interface {
 }
 
 // Options tunes a backfill run: which repos, preview or armed.
-// Log takes the per-tag stream (would record/recorded lines); nil
+// Log takes the per-tag stream (one line per verdict: would
+// record/recorded, would skip/skipped with the reason); nil
 // discards it. Progress reports the running summary on the
 // tracked baseline, per listed repo, and per tag verdict — the
 // caller throttles rendering; nil skips it.
@@ -196,19 +197,34 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 				}
 			}
 		}
+		// skip counts a deliberate skip and streams it: the
+		// per-tag log names every verdict, not just records, so a
+		// skip-heavy run stays greppable.
+		skip := func(tag, reason string) error {
+			sum.Skipped++
+			progress()
+			verb := "skipped"
+			if opts.DryRun {
+				verb = "would skip"
+			}
+			_, err := fmt.Fprintf(log, "%s %s:%s (%s)\n", verb, repo, tag, reason)
+			return err
+		}
 		for _, tag := range tags {
 			// The floater never becomes a row: it is a pointer,
 			// not inventory, and "latest" wins every
 			// newest-generation tiebreak by tag. Its mtime still
 			// caps fossil rows above; only the row is skipped.
 			if tag == sentinel.Tag && strings.HasPrefix(repo, SentinelPrefix) {
-				sum.Skipped++
-				progress()
+				if err := skip(tag, "floater"); err != nil {
+					return sum, err
+				}
 				continue
 			}
 			if tracked[repo+"\x00"+tag] {
-				sum.Skipped++
-				progress()
+				if err := skip(tag, "tracked"); err != nil {
+					return sum, err
+				}
 				continue
 			}
 			digest, mediaType, derr := reg.ManifestDigest(ctx, repo, tag)

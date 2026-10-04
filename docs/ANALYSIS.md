@@ -47,8 +47,8 @@ invariant.
   `store ls` read before the slow walks: distinct repos over
   everything, tags over everything (like the catalog counts
   them), sentinel rows as a memo, deltas store-minus-API (what
-  adoption and sweeping still owe the registry), plus one
-  trust word — `paired` when the dry verdict holds, or why not:
+  adoption and sweeping still owe the registry), plus a
+  `store status` field — `paired` when the dry verdict holds, or why not:
   `unpaired` (fresh/wiped), `unserved` (paired store, silent
   registry), `unproven` (evidence unusable), `foreign`,
   `rollback?`, `behind` (served generation untracked yet).

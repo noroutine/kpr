@@ -234,6 +234,61 @@ func retime(t *testing.T, root, repo, tag string, at time.Time) {
 	}
 }
 
+// Every verdict streams a line: record lines alone leave skips
+// invisible, and a 17k-skip run greps empty. If this fails, the
+// per-tag log omits an outcome the counters count.
+func TestBackfillLogsEveryVerdict(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	if err := s.Record(ctx, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:old", Actor: "kpr-receiver"}); err != nil {
+		t.Fatalf("pre-track: %v", err)
+	}
+	stageTagDir(t, root, "app", "v1")
+	stageTagDir(t, root, "app", "v2")
+	stageTagDir(t, root, "noroutine/kpr-shadow", "fossil")
+	stageTagDir(t, root, "noroutine/kpr-shadow", "latest")
+	reg := &stubRegistry{
+		repos: []string{"app", "noroutine/kpr-shadow"},
+		tags: map[string][]string{
+			"app":                  {"v1", "v2"},
+			"noroutine/kpr-shadow": {"fossil", "latest"},
+		},
+		digests: map[string]string{
+			"app\x00v1": "sha256:old", "app\x00v2": "sha256:abc",
+			"noroutine/kpr-shadow\x00fossil": "sha256:f",
+			"noroutine/kpr-shadow\x00latest": "sha256:l",
+		},
+	}
+	var dry strings.Builder
+	if _, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, Options{DryRun: true, Log: &dry}, nil); err != nil {
+		t.Fatalf("dry Run: %v", err)
+	}
+	for _, want := range []string{
+		"would record app:v2 sha256:abc",
+		"would skip app:v1 (tracked)",
+		"would record noroutine/kpr-shadow:fossil sha256:f",
+		"would skip noroutine/kpr-shadow:latest (floater)",
+	} {
+		if !strings.Contains(dry.String(), want) {
+			t.Errorf("dry stream missing %q:\n%s", want, dry.String())
+		}
+	}
+	var armed strings.Builder
+	if _, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, Options{Log: &armed}, nil); err != nil {
+		t.Fatalf("armed Run: %v", err)
+	}
+	for _, want := range []string{
+		"recorded app:v2 sha256:abc",
+		"skipped app:v1 (tracked)",
+		"recorded noroutine/kpr-shadow:fossil sha256:f",
+		"skipped noroutine/kpr-shadow:latest (floater)",
+	} {
+		if !strings.Contains(armed.String(), want) {
+			t.Errorf("armed stream missing %q:\n%s", want, armed.String())
+		}
+	}
+}
+
 func accept(t *testing.T) proof.AcceptedRisk {
 	t.Helper()
 	return proof.Force(proof.Arm(true, false), true)

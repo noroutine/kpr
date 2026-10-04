@@ -115,7 +115,7 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 	}
 	want := []string{
 		"catalog: 1 repo, 2 tags, 0 sentinels",
-		"store  : 0 repos, 0 tags, 0 sentinels, Δ repos: -1, Δ tags: -2, Δ sentinels: +0 (unpaired)",
+		"store  : 0 repos, 0 tags, 0 sentinels, Δ repos: -1, Δ tags: -2, Δ sentinels: +0, store status: unpaired",
 		"fs     : 1 repo, 1 tag, 0 sentinels, Δ repos: +0, Δ tags: -1, Δ sentinels: +0",
 		"revs   : 1 revision, 0 untagged",
 		"blobs  : 1 blob, 1 layer link, 1 upload",
@@ -305,7 +305,7 @@ func TestRegistryAnalyzeStoreLine(t *testing.T) {
 	if len(lines) != 6 {
 		t.Fatalf("analyze has %d lines, want 6:\n%s", len(lines), buf.String())
 	}
-	if want := "store  : 2 repos, 2 tags, 1 sentinel, Δ repos: +0, Δ tags: -1, Δ sentinels: +0 (unpaired)"; lines[1] != want {
+	if want := "store  : 2 repos, 2 tags, 1 sentinel, Δ repos: +0, Δ tags: -1, Δ sentinels: +0, store status: unpaired"; lines[1] != want {
 		t.Errorf("store line = %q, want %q", lines[1], want)
 	}
 }

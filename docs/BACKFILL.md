@@ -16,8 +16,11 @@ names, what the store holds (tracked over everything, like
 analyze counts it, sentinels as a memo), and the run's own
 verdicts; only the last line moves per verdict. Mid-run warnings
 break above them onto their own lines. The per-tag stream needs
-`--output` (default discards it). Pipes get the settled lines
-only — no control codes in logs.
+`--output` (default discards it): one line per verdict — would
+record/recorded with the digest, would skip/skipped with the
+reason (`tracked`, `floater`) — so a skip-heavy run stays
+greppable. Pipes get the settled lines only — no control codes
+in logs.
 
 ## Contents
 
