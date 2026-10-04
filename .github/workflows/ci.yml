@@ -46,6 +46,17 @@ jobs:
     - name: Run tests with coverage
       run: make coverage
 
+    # Tokenless OIDC upload (public repo, no secrets): codecov
+    # draws the badge from here. Soft-fail so a codecov outage
+    # never reds the gate — the local coverage report already ran.
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        files: ./coverage.out
+        use_oidc: true
+        fail_ci_if_error: false
+        verbose: true
+
     - name: Build
       run: make build
 

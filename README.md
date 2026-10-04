@@ -1,5 +1,12 @@
 # kpr (keeper)
 
+[![CI](https://github.com/noroutine/kpr/actions/workflows/ci.yml/badge.svg)](https://github.com/noroutine/kpr/actions)
+[![codecov](https://codecov.io/gh/noroutine/kpr/branch/master/graph/badge.svg)](https://codecov.io/gh/noroutine/kpr)
+[![release](https://img.shields.io/github/v/release/noroutine/kpr)](https://github.com/noroutine/kpr/releases)
+[![go](https://img.shields.io/github/go-mod/go-version/noroutine/kpr)](https://go.dev/)
+[![license](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
+[![bolted](https://img.shields.io/badge/bolted_together-noroutine_%26_muse-blue)](https://github.com/noroutine/kpr)
+
 Push `app:10m` to your registry and the tag is gone ten minutes
 later.
 
