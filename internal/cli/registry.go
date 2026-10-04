@@ -96,7 +96,11 @@ func humanBytes(b int64) string {
 // analyzeRow labels one magnitude line: names pad to one width so
 // values start in one column down the whole block.
 func analyzeRow(name, body string) string {
-	return fmt.Sprintf("%-7s: %s", name, body)
+	pad := 7 - len([]rune(name))
+	if pad < 0 {
+		pad = 0
+	}
+	return name + strings.Repeat(" ", pad) + ": " + body
 }
 
 // plural renders a counted noun: 1 repo, 2 repos. Participles
@@ -162,19 +166,41 @@ func summarizeRows(rows []policy.Row) (repos, tags, sentinels int) {
 // a read-only magnitude never refuses over it. The trust word
 // rides as its own field (readStoreView always sets it) — a
 // parenthesis would dangle off the sentinel count.
+// signedPlural signs a delta with singular nouns at ±1: +1 repo,
+// -1 tag, +0 sentinels. Deltas read signed; plain counts don't.
+func signedPlural(n int, one, many string) string {
+	noun := many
+	if n == 1 || n == -1 {
+		noun = one
+	}
+	return fmt.Sprintf("%+d %s", n, noun)
+}
+
 func storeLine(view storeView, api backfill.CatalogReport) string {
 	if !view.ok {
 		return analyzeRow("store", "unavailable")
 	}
-	body := fmt.Sprintf("%s, %s, %s, Δ repos: %+d, Δ tags: %+d, Δ sentinels: %+d",
+	body := fmt.Sprintf("%s, %s, %s",
 		plural(view.repos, "repo", "repos"),
 		plural(view.tags, "tag", "tags"),
-		plural(view.sentinels, "sentinel", "sentinels"),
-		view.repos-api.Repos, view.tags-api.Tags, view.sentinels-api.Sentinels)
+		plural(view.sentinels, "sentinel", "sentinels"))
 	if view.note != "" {
 		body += ", store status: " + view.note
 	}
 	return analyzeRow("store", body)
+}
+
+// storeDeltaLine is the store's adoption debt on its own row:
+// store-minus-API per noun, so wide deltas stop stretching the
+// counts line. Unavailable stays honest when the backend is down.
+func storeDeltaLine(view storeView, api backfill.CatalogReport) string {
+	if !view.ok {
+		return analyzeRow("store Δ", "unavailable")
+	}
+	return analyzeRow("store Δ", fmt.Sprintf("%s, %s, %s",
+		signedPlural(view.repos-api.Repos, "repo", "repos"),
+		signedPlural(view.tags-api.Tags, "tag", "tags"),
+		signedPlural(view.sentinels-api.Sentinels, "sentinel", "sentinels")))
 }
 
 // readStoreView snapshots tracked rows for the store line and
@@ -209,58 +235,60 @@ func readStoreView(ctx context.Context, reg backfill.Registry) storeView {
 }
 
 func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeView, delta bool) []string {
-	fsBody := fmt.Sprintf("%s, %s, %s",
-		plural(fs.Repos, "repo", "repos"),
-		plural(fs.Tags, "tag", "tags"),
-		plural(fs.Sentinels, "sentinel", "sentinels"))
+	// Undeltaed (the early pipe flush, the catalog-phase ticks)
+	// the fs half reads walk pending; the store half is already
+	// real — the snapshot predates the scan. One constructor for
+	// pending and settled keeps the block shape stable.
+	fsBody := "walk pending"
+	fsDelta := "walk pending"
+	revsBody := "walk pending"
+	blobsBody := "walk pending"
+	sizeBody := "walk pending"
 	if delta {
-		fsBody += fmt.Sprintf(", Δ repos: %+d, Δ tags: %+d, Δ sentinels: %+d",
-			fs.Repos-api.Repos, fs.Tags-api.Tags, fs.Sentinels-api.Sentinels)
-	}
-	untagged := fs.Revisions - fs.Tags
-	if untagged < 0 {
-		untagged = 0
-	}
-	// Dead pointers print only when present: a clean walk reads
-	// exactly as before, a dirty one names its count.
-	revsBody := fmt.Sprintf("%s, %d untagged",
-		plural(fs.Revisions, "revision", "revisions"), untagged)
-	if fs.DanglingTags > 0 {
-		revsBody += ", " + plural(fs.DanglingTags, "dangling tag link", "dangling tag links")
-	}
-	blobsBody := fmt.Sprintf("%s, %s, %s",
-		plural(fs.Blobs, "blob", "blobs"),
-		plural(fs.LayerLinks, "layer link", "layer links"),
-		plural(fs.Uploads, "upload", "uploads"))
-	if fs.DanglingLayers > 0 {
-		blobsBody += ", " + plural(fs.DanglingLayers, "dangling layer link", "dangling layer links")
+		fsBody = fmt.Sprintf("%s, %s, %s",
+			plural(fs.Repos, "repo", "repos"),
+			plural(fs.Tags, "tag", "tags"),
+			plural(fs.Sentinels, "sentinel", "sentinels"))
+		fsDelta = fmt.Sprintf("%s, %s, %s",
+			signedPlural(fs.Repos-api.Repos, "repo", "repos"),
+			signedPlural(fs.Tags-api.Tags, "tag", "tags"),
+			signedPlural(fs.Sentinels-api.Sentinels, "sentinel", "sentinels"))
+		untagged := fs.Revisions - fs.Tags
+		if untagged < 0 {
+			untagged = 0
+		}
+		// Dead pointers print only when present: a clean walk
+		// reads exactly as before, a dirty one names its count.
+		revsBody = fmt.Sprintf("%s, %d untagged",
+			plural(fs.Revisions, "revision", "revisions"), untagged)
+		if fs.DanglingTags > 0 {
+			revsBody += ", " + plural(fs.DanglingTags, "dangling tag link", "dangling tag links")
+		}
+		blobsBody = fmt.Sprintf("%s, %s, %s",
+			plural(fs.Blobs, "blob", "blobs"),
+			plural(fs.LayerLinks, "layer link", "layer links"),
+			plural(fs.Uploads, "upload", "uploads"))
+		if fs.DanglingLayers > 0 {
+			blobsBody += ", " + plural(fs.DanglingLayers, "dangling layer link", "dangling layer links")
+		}
+		sizeBody = fmt.Sprintf("%s blobs", humanBytes(fs.BlobBytes))
 	}
 	return []string{
 		catalogLine(api),
 		storeLine(store, api),
+		storeDeltaLine(store, api),
 		analyzeRow("fs", fsBody),
+		analyzeRow("fs Δ", fsDelta),
 		analyzeRow("revs", revsBody),
 		analyzeRow("blobs", blobsBody),
-		analyzeRow("size", fmt.Sprintf("%s blobs", humanBytes(fs.BlobBytes))),
+		analyzeRow("size", sizeBody),
 	}
-}
-
-// pendingBlock holds the block while the catalog view runs first:
-// the fs walk those lines report on hasn't started yet. The
-// catalog line is already live and the store snapshot predates
-// the scan — sentinels on both.
-func pendingBlock(api backfill.CatalogReport, store storeView) []string {
-	lines := []string{catalogLine(api), storeLine(store, api)}
-	for _, name := range []string{"fs", "revs", "blobs", "size"} {
-		lines = append(lines, analyzeRow(name, "walk pending"))
-	}
-	return lines
 }
 
 // runRegistryAnalyze proves the filestore, snapshots the tracked
 // store (static, cheap — a different view on `store ls`), runs
 // the fast catalog view (rough size up front), then the slow fs
-// walk beneath both, all repainting one six-line block — the
+// walk beneath both, all repainting one eight-line block — the
 // block is the display, nothing reprints it. Off-terminal the
 // catalog and store lines flush right after their walks (cheap
 // and fast) and the rest follows the fs walk; the settled lines
@@ -283,17 +311,17 @@ func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg
 	}
 	live := newLiveLines(liveW)
 	api, err := backfill.ScanCatalog(ctx, io.Discard, reg, func(running backfill.CatalogReport) {
-		live.tickBlock(pendingBlock(running, store))
+		live.tickBlock(analyzeLines(running, registryfs.Report{}, store, false))
 	})
 	if err != nil {
 		return err
 	}
 	head := 0
 	if !asJSON && !live.terminal() {
-		for _, line := range analyzeLines(api, registryfs.Report{}, store, false)[:2] {
+		for _, line := range analyzeLines(api, registryfs.Report{}, store, false)[:3] {
 			_, _ = fmt.Fprintln(w, line)
 		}
-		head = 2
+		head = 3
 	}
 	rep, err := registryfs.Analyze(fsStore, func(running registryfs.Report) {
 		live.tickBlock(analyzeLines(api, running, store, true))

@@ -11,7 +11,7 @@ kpr registry analyze --json  # exact bytes for scripts
 
 The fast catalog view prints first (repos, tags — a rough size
 up front), then the slow fs walk counts beneath it. On a
-terminal the five lines repaint in place; on a pipe the catalog
+terminal the eight lines repaint in place; on a pipe the catalog
 line flushes right after its walk and the rest follows the fs
 walk. Read-only and verdict-free: deltas are information, the
 command judges nothing. Needs the filestore proof
@@ -21,16 +21,18 @@ yet built live in [ANALYSIS_FUTURE.md](ANALYSIS_FUTURE.md).
 
 ## Contents
 
-- [The five lines](#the-five-lines)
+- [The eight lines](#the-eight-lines)
 - [How it walks](#how-it-walks)
 - [Why repositories content is not counted](#why-repositories-content-is-not-counted)
 
-## The five lines
+## The eight lines
 
 ```
 catalog: 600 repos, 17050 tags, 5 sentinels
-store  : 599 repos, 17048 tags, 1 sentinel, Δ repos: -1, Δ tags: -2, Δ sentinels: -4
-fs     : 600 repos, 17050 tags, 5 sentinels, Δ repos: +0, Δ tags: +0, Δ sentinels: +0
+store  : 599 repos, 17048 tags, 1 sentinel, store status: paired
+store Δ: -1 repo, -2 tags, -4 sentinels
+fs     : 600 repos, 17050 tags, 5 sentinels
+fs Δ   : +0 repos, +0 tags, +0 sentinels
 revs   : 24993 revisions, 7943 untagged
 blobs  : 55077 blobs, 101173 layer links, 1 upload
 size   : 632.18 GiB blobs

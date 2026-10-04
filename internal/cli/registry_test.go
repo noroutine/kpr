@@ -115,8 +115,10 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 	}
 	want := []string{
 		"catalog: 1 repo, 2 tags, 0 sentinels",
-		"store  : 0 repos, 0 tags, 0 sentinels, Δ repos: -1, Δ tags: -2, Δ sentinels: +0, store status: unpaired",
-		"fs     : 1 repo, 1 tag, 0 sentinels, Δ repos: +0, Δ tags: -1, Δ sentinels: +0",
+		"store  : 0 repos, 0 tags, 0 sentinels, store status: unpaired",
+		"store Δ: -1 repo, -2 tags, +0 sentinels",
+		"fs     : 1 repo, 1 tag, 0 sentinels",
+		"fs Δ   : +0 repos, -1 tag, +0 sentinels",
 		"revs   : 1 revision, 0 untagged",
 		"blobs  : 1 blob, 1 layer link, 1 upload",
 		"size   : 8 B blobs",
@@ -132,7 +134,7 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 	}
 }
 
-// All five lines align: values start in the same column under
+// All eight lines align: values start in the same column under
 // every label, and each byte scale sits last on its line. If this
 // fails, a label width drifted and the block stops scanning.
 func TestRegistryAnalyzeLinesAlign(t *testing.T) {
@@ -141,19 +143,24 @@ func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 	api := backfill.CatalogReport{Repos: 600, Tags: 17050}
 	view := storeView{ok: true, repos: 599, tags: 17048, sentinels: 1}
 	lines := analyzeLines(api, fsRep, view, true)
-	if len(lines) != 6 {
-		t.Fatalf("analyzeLines has %d lines, want 6", len(lines))
+	if len(lines) != 8 {
+		t.Fatalf("analyzeLines has %d lines, want 8", len(lines))
 	}
 	for _, l := range lines {
-		if len(l) < 10 || l[7] != ':' || l[8] != ' ' {
+		r := []rune(l)
+		if len(r) < 10 || r[7] != ':' || r[8] != ' ' {
 			t.Errorf("line misaligned: %q", l)
 		}
 	}
-	if !strings.HasPrefix(lines[1], "store  : ") || !strings.HasPrefix(lines[4], "blobs  : ") || !strings.HasPrefix(lines[5], "size   : ") {
-		t.Errorf("lines = %q, want store second, blobs-then-size last", lines)
+	if !strings.HasPrefix(lines[1], "store  : ") || !strings.HasPrefix(lines[2], "store Δ: ") ||
+		!strings.HasPrefix(lines[4], "fs Δ   : ") || !strings.HasPrefix(lines[6], "blobs  : ") || !strings.HasPrefix(lines[7], "size   : ") {
+		t.Errorf("lines = %q, want store/delta, fs/delta, blobs-then-size last", lines)
 	}
-	if want := "store  : 599 repos, 17048 tags, 1 sentinel, Δ repos: -1, Δ tags: -2, Δ sentinels: +1"; lines[1] != want {
+	if want := "store  : 599 repos, 17048 tags, 1 sentinel"; lines[1] != want {
 		t.Errorf("store line = %q, want %q", lines[1], want)
+	}
+	if want := "store Δ: -1 repo, -2 tags, +1 sentinel"; lines[2] != want {
+		t.Errorf("store delta = %q, want %q", lines[2], want)
 	}
 	single := analyzeLines(backfill.CatalogReport{Repos: 1, Tags: 1, Sentinels: 1},
 		registryfs.Report{Repos: 1, Tags: 1, Sentinels: 1},
@@ -161,8 +168,8 @@ func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 	if !strings.Contains(single[0], "1 repo, 1 tag, 1 sentinel") {
 		t.Errorf("catalog line = %q, want singular nouns", single[0])
 	}
-	if !strings.Contains(single[2], "1 sentinel, Δ repos: +0, Δ tags: +0, Δ sentinels: +0") {
-		t.Errorf("fs line = %q, want singular nouns with sentinel delta", single[2])
+	if !strings.Contains(single[4], "+0 repos, +0 tags, +0 sentinels") {
+		t.Errorf("fs delta = %q, want signed singular nouns", single[4])
 	}
 }
 
@@ -280,10 +287,10 @@ func TestAnalyzeLinesNamesDangling(t *testing.T) {
 	fsRep := registryfs.Report{Repos: 2, Tags: 3, Revisions: 2, Blobs: 2,
 		LayerLinks: 2, DanglingTags: 2, DanglingLayers: 1}
 	lines := analyzeLines(backfill.CatalogReport{}, fsRep, storeView{}, true)
-	if got := lines[3]; got != "revs   : 2 revisions, 0 untagged, 2 dangling tag links" {
+	if got := lines[5]; got != "revs   : 2 revisions, 0 untagged, 2 dangling tag links" {
 		t.Errorf("revs line = %q, want dangling tail", got)
 	}
-	if got := lines[4]; !strings.HasSuffix(got, "1 dangling layer link") {
+	if got := lines[6]; !strings.HasSuffix(got, "1 dangling layer link") {
 		t.Errorf("blobs line = %q, want dangling tail", got)
 	}
 	clean := analyzeLines(backfill.CatalogReport{}, registryfs.Report{}, storeView{}, true)
@@ -347,11 +354,14 @@ func TestRegistryAnalyzeStoreLine(t *testing.T) {
 		t.Fatalf("analyze = %v, want report", err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if len(lines) != 6 {
-		t.Fatalf("analyze has %d lines, want 6:\n%s", len(lines), buf.String())
+	if len(lines) != 8 {
+		t.Fatalf("analyze has %d lines, want 8:\n%s", len(lines), buf.String())
 	}
-	if want := "store  : 2 repos, 2 tags, 1 sentinel, Δ repos: +0, Δ tags: -1, Δ sentinels: +0, store status: unpaired"; lines[1] != want {
+	if want := "store  : 2 repos, 2 tags, 1 sentinel, store status: unpaired"; lines[1] != want {
 		t.Errorf("store line = %q, want %q", lines[1], want)
+	}
+	if want := "store Δ: +0 repos, -1 tag, +0 sentinels"; lines[2] != want {
+		t.Errorf("store delta = %q, want %q", lines[2], want)
 	}
 }
 
@@ -372,11 +382,14 @@ func TestRegistryAnalyzeStoreUnavailable(t *testing.T) {
 		t.Fatalf("analyze with dead store = %v, want degraded walk", err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if len(lines) != 6 {
-		t.Fatalf("analyze has %d lines, want 6:\n%s", len(lines), buf.String())
+	if len(lines) != 8 {
+		t.Fatalf("analyze has %d lines, want 8:\n%s", len(lines), buf.String())
 	}
 	if lines[1] != "store  : unavailable" {
 		t.Errorf("store line = %q, want honest unavailable", lines[1])
+	}
+	if lines[2] != "store Δ: unavailable" {
+		t.Errorf("store delta = %q, want honest unavailable", lines[2])
 	}
 }
 
