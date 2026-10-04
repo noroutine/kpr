@@ -226,6 +226,8 @@ test-docker:
 	@set -e; \
 	VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
 	HOST="[::1]"; \
+	echo "Smoking the stock registry binary \`kpr gc\` shells out to..."; \
+	docker run --rm --entrypoint /bin/registry $(DOCKER_IMAGE):$$VERSION garbage-collect --help >/dev/null; \
 	echo "Cleaning up any existing container..."; \
 	docker rm -f kpr-test 2>/dev/null || true; \
 	echo "Starting container..."; \
