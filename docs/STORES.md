@@ -8,6 +8,7 @@
 - [Invariants](#invariants)
 - [Wiring: deriving the backend](#wiring-deriving-the-backend)
 - [The self-contained backup](#the-self-contained-backup)
+- [Ghosts: rows both witnesses agree are gone](#ghosts-rows-both-witnesses-agree-are-gone)
 - [Limits](#limits)
 
 ## The three stores
@@ -170,6 +171,78 @@ Upgrading backends needs no migration helper today:
 backfill rebuilds rows from the registry itself
 (`docs/BACKFILL.md`), so a fresh file store refills on
 first pass. Deliberately left open otherwise.
+
+## Ghosts: rows both witnesses agree are gone
+
+A ghost is a tracked row whose repo died outside kpr: deleted
+past the janitor (manual `rm -rf`, a restored-older volume),
+so no policy can ever mark it — the untagged selector skips
+catalog-unknown repos by design (absent means unknown, only a
+fetched-but-empty list means "everything gone"). `kpr store
+ls ghosts` names them instead of marking them: read-only,
+evidence per row, acting stays `store rm`'s job (plain `rm` —
+the tag is already gone upstream, so `--untag` has nothing
+to delete).
+
+Two witnesses, both required:
+
+| Witness | Says | Proves |
+| --- | --- | --- |
+| Catalog | tag listing 404s the repo (`NAME_UNKNOWN`) | the registry index holds no such repo |
+| FS | no `_manifests` dir for the repo (`registryfs.ListRepos`) | the storage holds no such repo |
+
+A repo the catalog lists but the fs lacks is a **conflict**,
+not a ghost: the witnesses contradict each other, so it
+surfaces in its own bucket and lists nothing. Other catalog
+failures skip the repo as **unreadable** (blip, not gone).
+Sentinel machinery never lists. The same-store proof gates
+the command (foreign rows are not ours to judge); partial
+answers still exit 0, the footers say what was skipped.
+
+### The fs-root caveat
+
+The fs witness is only as good as the root it walks, and the
+proofs do not vouch for that. Precisely:
+
+- `FilesystemStore` proves the registry config parses and its
+  `rootdirectory` exists and is a directory. A wrong volume
+  passes: an old copy, a sibling stack's data, a path that
+  exists but is not what the queried registry serves.
+- `SameStore` does not cover this either. It proves the
+  *tracked store mount* (redis/file) is the paired one —
+  foreign or stale rows refused — and says nothing about
+  the registry fs root. Do not read it as a volume check;
+  it is an identity check on our side of the join.
+
+Consequences, per shape of wrongness:
+
+1. **Missing layout** (unmounted volume, wrong path, fresh
+   registry): the walk yields no view, and no view is
+   evidence of nothing — the command refuses instead of
+   naming every 404 a ghost. A fresh volume and a dead
+   mount look identical; the refusal is the honest answer.
+2. **Wrong non-empty volume**: the 404 branch cannot
+   false-positive — the catalog does the work there, and a
+   stray same-named dir on the wrong volume can only *hide*
+   a ghost (false negative, the accepted direction for a
+   listing). The tag-dropped shape would be the dangerous
+   one, which is why it is a conflict bucket instead.
+3. **Flood of conflicts** is the detector: catalog-200
+   against fs-absent at scale means the root is wrong (or
+   the walk stale), not that half the registry died. Treat
+   mass conflicts as a mount investigation, never as a
+   deletion list.
+4. **Snapshot staleness** (repo recreated between the walk
+   and the read): read-only, worst case a listed row is
+   already back. Verify with `store inspect` or the
+   catalog before `rm`.
+
+Net: the listing can under-report against a bad root, it
+cannot frame a live tag — provided conflicts stay a
+bucket and never become ghosts. If a future change lets
+the fs witness mark or delete, this section needs a
+recheck: every guarantee above assumes a human reads the
+evidence first.
 
 ## Limits
 
