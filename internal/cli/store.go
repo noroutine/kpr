@@ -16,6 +16,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
+	"nrtn.dev/catalyst/kpr/internal/trust"
 )
 
 // splitRef cuts an exact repo:tag, sharing the split with
@@ -280,18 +281,25 @@ type activityJSON struct {
 // on the ring degrades to unknown — the card above it already
 // answered.
 func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentinel.API, storeLine string, asJSON bool) error {
+	status := "unproven"
+	if rows, rerr := s.All(ctx); rerr == nil {
+		if id, ierr := s.GetIdentity(ctx); ierr == nil {
+			status = trust.Word(ctx, api, id, rows)
+		}
+	}
 	lock := lockState(ctx, s)
 	proof := proofState(ctx, api)
 	ident := identityState(ctx, s)
 	acts, actErr := s.Activity(ctx)
 	if asJSON {
 		out := struct {
+			Status   string         `json:"status"`
 			Store    string         `json:"store"`
 			Lock     string         `json:"lock"`
 			Proof    string         `json:"proof"`
 			Identity string         `json:"identity"`
 			Activity []activityJSON `json:"activity"`
-		}{Store: storeLine, Lock: lock, Proof: proof, Identity: ident}
+		}{Status: status, Store: storeLine, Lock: lock, Proof: proof, Identity: ident}
 		// NOTE(mutants): == is equivalent — every backend returns
 		// nil rows with a read error (redis/file) or never errors
 		// (mem), so ranging on the error path appends nothing either
@@ -306,8 +314,8 @@ func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentine
 		}
 		return json.NewEncoder(w).Encode(out)
 	}
-	if _, err := fmt.Fprintf(w, "store: %s\nstore-lock: %s\nproof: %s\nidentity: %s\n",
-		storeLine, lock, proof, ident); err != nil {
+	if _, err := fmt.Fprintf(w, "status: %s\nstore: %s\nstore-lock: %s\nproof: %s\nidentity: %s\n",
+		status, storeLine, lock, proof, ident); err != nil {
 		return err
 	}
 	if actErr != nil {
@@ -389,11 +397,13 @@ names). --long restores the full row (digest, pushed, actor).`,
 
 var storeStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show backend, lock, proof, identity, and activity",
-	Long: `The store card: wired backend, intent marker, live proof
-generation with its age, the lineage pairing the verdicts judge
-against, and the tail of the activity ring (the sweeper's per-row
-outcomes — what the counters count). --json renders it for piping.`,
+	Short: "Show trust, backend, lock, proof, identity, and activity",
+	Long: `The store card: the trust word on top (the same verdict
+analyze parentheses — paired, or why mistrusted), the wired
+backend, intent marker, live proof generation with its age, the
+lineage pairing the verdicts judge against, and the tail of the
+activity ring (the sweeper's per-row outcomes — what the counters
+count). --json renders it for piping.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		d, err := openDeps()
 		if err != nil {

@@ -14,6 +14,8 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/registryfs"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
+	"nrtn.dev/catalyst/kpr/internal/trust"
 )
 
 var registryAnalyzeJSON bool
@@ -51,21 +53,22 @@ root). Point-in-time on a live registry.`,
 // analyzeJSON is the piped shape of a magnitude report: the fs
 // walk plus the two numbers the API walk sees.
 type analyzeJSON struct {
-	Repos          int   `json:"repos"`
-	Tags           int   `json:"tags"`
-	Revisions      int   `json:"revisions"`
-	Blobs          int   `json:"blobs"`
-	BlobBytes      int64 `json:"blob_bytes"`
-	Uploads        int   `json:"uploads"`
-	LayerLinks     int   `json:"layer_links"`
-	Sentinels      int   `json:"sentinels"`
-	StoreRepos     int   `json:"store_repos"`
-	StoreTags      int   `json:"store_tags"`
-	StoreSentinels int   `json:"store_sentinels"`
-	StoreOK        bool  `json:"store_ok"`
-	APIRepos       int   `json:"api_repos"`
-	APITags        int   `json:"api_tags"`
-	APISentinels   int   `json:"api_sentinels"`
+	Repos          int    `json:"repos"`
+	Tags           int    `json:"tags"`
+	Revisions      int    `json:"revisions"`
+	Blobs          int    `json:"blobs"`
+	BlobBytes      int64  `json:"blob_bytes"`
+	Uploads        int    `json:"uploads"`
+	LayerLinks     int    `json:"layer_links"`
+	Sentinels      int    `json:"sentinels"`
+	StoreRepos     int    `json:"store_repos"`
+	StoreTags      int    `json:"store_tags"`
+	StoreSentinels int    `json:"store_sentinels"`
+	StoreOK        bool   `json:"store_ok"`
+	StoreNote      string `json:"store_note,omitempty"`
+	APIRepos       int    `json:"api_repos"`
+	APITags        int    `json:"api_tags"`
+	APISentinels   int    `json:"api_sentinels"`
 }
 
 // humanBytes renders bytes in the largest binary unit that keeps
@@ -131,6 +134,7 @@ func catalogLine(api backfill.CatalogReport) string {
 type storeView struct {
 	ok                     bool
 	repos, tags, sentinels int
+	note                   string
 }
 
 // summarizeRows groups tracked rows the store line's way:
@@ -153,23 +157,29 @@ func summarizeRows(rows []policy.Row) (repos, tags, sentinels int) {
 // storeLine renders the tracked state against the catalog, deltas
 // store-minus-API: what adoption and sweeping still owe the
 // registry. Unavailable reads honest when the backend is down —
-// a read-only magnitude never refuses over it.
+// a read-only magnitude never refuses over it. The trust word
+// parenthesizes when set (readStoreView always sets it).
 func storeLine(view storeView, api backfill.CatalogReport) string {
 	if !view.ok {
 		return analyzeRow("store", "unavailable")
 	}
-	return analyzeRow("store", fmt.Sprintf("%s, %s, %s, Δ repos: %+d, Δ tags: %+d, Δ sentinels: %+d",
+	body := fmt.Sprintf("%s, %s, %s, Δ repos: %+d, Δ tags: %+d, Δ sentinels: %+d",
 		plural(view.repos, "repo", "repos"),
 		plural(view.tags, "tag", "tags"),
 		plural(view.sentinels, "sentinel", "sentinels"),
-		view.repos-api.Repos, view.tags-api.Tags, view.sentinels-api.Sentinels))
+		view.repos-api.Repos, view.tags-api.Tags, view.sentinels-api.Sentinels)
+	if view.note != "" {
+		body += " (" + view.note + ")"
+	}
+	return analyzeRow("store", body)
 }
 
-// readStoreView snapshots tracked rows for the store line.
-// Best-effort by design: analyze never touches the state store
-// for its registry half, so a down backend degrades one line
-// instead of refusing the walk.
-func readStoreView(ctx context.Context) storeView {
+// readStoreView snapshots tracked rows for the store line and
+// names their mistrust, if any. Best-effort by design: analyze
+// never touches the state store for its registry half, so a down
+// backend degrades one line instead of refusing the walk — and a
+// note never refuses either, it only colors the stats.
+func readStoreView(ctx context.Context, reg backfill.Registry) storeView {
 	d, err := openDeps()
 	if err != nil {
 		return storeView{}
@@ -180,7 +190,19 @@ func readStoreView(ctx context.Context) storeView {
 		return storeView{}
 	}
 	repos, tags, sentinels := summarizeRows(rows)
-	return storeView{ok: true, repos: repos, tags: tags, sentinels: sentinels}
+	view := storeView{ok: true, repos: repos, tags: tags, sentinels: sentinels}
+	ident, ierr := d.store.GetIdentity(ctx)
+	if ierr != nil {
+		view.note = "unproven"
+		return view
+	}
+	api, ok := reg.(sentinel.API)
+	if !ok {
+		view.note = "unproven"
+		return view
+	}
+	view.note = trust.Word(ctx, api, ident, rows)
+	return view
 }
 
 func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeView, delta bool) []string {
@@ -239,7 +261,7 @@ func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg
 	if err != nil {
 		return err
 	}
-	store := readStoreView(ctx)
+	store := readStoreView(ctx, reg)
 	// JSON is for scripts: the live block goes nowhere, only the
 	// encoded report reaches w.
 	liveW := w
@@ -274,7 +296,7 @@ func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg
 			Uploads: rep.Uploads, LayerLinks: rep.LayerLinks,
 			Sentinels:  rep.Sentinels,
 			StoreRepos: store.repos, StoreTags: store.tags,
-			StoreSentinels: store.sentinels, StoreOK: store.ok,
+			StoreSentinels: store.sentinels, StoreOK: store.ok, StoreNote: store.note,
 			APIRepos: api.Repos, APITags: api.Tags, APISentinels: api.Sentinels,
 		})
 	}

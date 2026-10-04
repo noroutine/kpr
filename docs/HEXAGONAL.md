@@ -123,7 +123,7 @@ Every package, and what it may import:
 | --- | --- | --- |
 | Core (leaves) | `policy`, `sentinel` | nothing |
 | Core (pure logic) | `lineage`, `proof` | each other, `policy`, `sentinel`, plus adapter packages for types |
-| Use cases | `keeper`, `gc`, `sweep`, `backfill` | core + adapter packages for types |
+| Use cases | `keeper`, `gc`, `sweep`, `backfill`, `trust` | core + adapter packages for types |
 | Driving adapters | `cli`, `web`, `edge` | anything — `cli` is the composition root |
 | Outbound adapters | `store`, `registry`, `clock`, `otel` | `policy` only (`store`); the rest import nothing |
 | Shared wiring | `app`, `config` | `config` → `clock`; `app` → `config`, `otel`, `policy`, `store` |

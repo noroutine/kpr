@@ -347,6 +347,37 @@ func TestStoreStatusFreshStore(t *testing.T) {
 	}
 }
 
+// The status headline shares analyze's trust word: unpaired on a
+// fresh store, paired when the dry verdict over live reads holds.
+// It leads the card so mistrust reads before the numbers. If this
+// fails, status and analyze judge by different words.
+func TestStoreStatusHeadsWithTrust(t *testing.T) {
+	var fresh bytes.Buffer
+	if err := runStoreStatus(cliCtx(), &fresh, store.NewMemStore(), nil, "mem (tests only)", false); err != nil {
+		t.Fatalf("fresh status: %v", err)
+	}
+	if !strings.HasPrefix(fresh.String(), "status: unpaired\n") {
+		t.Errorf("fresh status heads %q, want status: unpaired first", fresh.String())
+	}
+	s := store.NewMemStore()
+	if err := s.SetIdentity(cliCtx(), store.Identity{ID: "lin", BaselineGen: "019-proof"}); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	if err := s.Record(cliCtx(), policy.Row{Repo: "noroutine/kpr-sentinel", Tag: "019-proof",
+		Digest: "sha256:ccc", MediaType: "application/vnd.oci.image.manifest.v1+json",
+		PushedAt: time.Now().UTC(), Actor: "kpr-unlock"}); err != nil {
+		t.Fatalf("track served gen: %v", err)
+	}
+	var out bytes.Buffer
+	api := stubProofAPI{ts: time.Now().UTC().Format(time.RFC3339), id: "lin"}
+	if err := runStoreStatus(cliCtx(), &out, s, api, "mem (tests only)", false); err != nil {
+		t.Fatalf("paired status: %v", err)
+	}
+	if !strings.HasPrefix(out.String(), "status: paired\n") {
+		t.Errorf("paired status heads %q, want status: paired first", out.String())
+	}
+}
+
 func TestStoreStatusJSON(t *testing.T) {
 	s := store.NewMemStore()
 	seedRows(s)

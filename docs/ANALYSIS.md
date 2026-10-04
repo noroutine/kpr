@@ -47,7 +47,13 @@ invariant.
   `store ls` read before the slow walks: distinct repos over
   everything, tags over everything (like the catalog counts
   them), sentinel rows as a memo, deltas store-minus-API (what
-  adoption and sweeping still owe the
+  adoption and sweeping still owe the registry), plus one
+  trust word — `paired` when the dry verdict holds, or why not:
+  `unpaired` (fresh/wiped), `unserved` (paired store, silent
+  registry), `unproven` (evidence unusable), `foreign`,
+  `rollback?`, `unadopted` (store behind the serving registry).
+  Stats print regardless: the word colors them, never refuses
+  them. `store status` headlines the same word.
   registry). Best-effort: a dead backend degrades this line to
   `unavailable` instead of refusing the walk.
 - `fs` — what the walk finds, sentinels apart, plus the
