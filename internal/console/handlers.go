@@ -1,8 +1,7 @@
-package web
+package console
 
 import (
 	"encoding/json"
-	"html/template"
 	"log"
 	"net"
 	"net/http"
@@ -177,17 +176,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		Sentinel:       sentinel,
 	}
 
-	tmpl, err := template.New("index").Parse(indexTemplate)
-	if err != nil {
-		log.Printf("Error parsing template: %v", err)
-		http.Error(w, "Template error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, data); err != nil {
-		log.Printf("Error executing template: %v", err)
-	}
+	renderIndex(w, data)
 }
 
 // MetricsHandler returns JSON metrics

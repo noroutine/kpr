@@ -1,6 +1,6 @@
 //go:build darwin
 
-package web
+package console
 
 import "syscall"
 
