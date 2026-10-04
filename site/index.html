@@ -166,6 +166,10 @@ $ docker push my-registry:5000/my-app:10m
                 Already run distribution?
                 <a href="https://github.com/noroutine/kpr/blob/master/docs/ADOPT_KPR.md">bolt it on</a>
                 instead.</p>
+                <pre class="commands"># compose.yml + registry-config.yml per the quickstart, then:
+$ docker compose up -d
+$ crane copy busybox:latest localhost:5000/test/hello:10m
+$ docker exec kpr kpr sweep   # dry-run: plans, deletes nothing</pre>
             </section>
 
             <section class="links">
