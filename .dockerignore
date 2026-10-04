@@ -25,6 +25,8 @@ coverage.html
 # Documentation
 *.md
 !README.md
+!LICENSES/
+!LICENSES/*.md
 
 # CI/CD
 .forgejo/

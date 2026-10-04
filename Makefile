@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc
+.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc licenses
 .DEFAULT_GOAL := help
 
 # Version information
@@ -403,8 +403,12 @@ info:
 DOCKER_REGISTRY ?= nrtn.dev/catalyst
 DOCKER_IMAGE ?= $(DOCKER_REGISTRY)/$(BINARY_NAME)
 
+## licenses: Regenerate the third-party attribution bundle
+licenses:
+	@bash scripts/licenses.sh
+
 ## docker-build: Build Docker image for current platform
-docker-build:
+docker-build: licenses
 	@echo "Building binary for current platform..."
 	@mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=linux go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(BINARY_NAME)-linux-$$(go env GOARCH) $(CMD_DIR)
@@ -418,7 +422,7 @@ docker-build:
 	@docker run --rm --entrypoint ls $(DOCKER_IMAGE):$(VERSION) -lh /bin/registry
 
 ## docker-build-multiplatform: Build and push multiplatform Docker images
-docker-build-multiplatform: build-all
+docker-build-multiplatform: build-all licenses
 	@echo "Packaging multiplatform Docker images $(DOCKER_IMAGE):$(VERSION)..."
 	@# Build all platforms at once (Dockerfile auto-picks binary based on platform)
 	@docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 \

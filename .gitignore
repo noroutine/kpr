@@ -25,6 +25,9 @@ _trial/
 dist/
 *.log
 
+# Generated license bundle (rebuilt by `make licenses`)
+LICENSES/THIRD-PARTY.md
+
 # Dependency directories (uncommon but possible)
 vendor/
 
