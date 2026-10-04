@@ -13,6 +13,12 @@ on:
   pull_request:
     branches: [ master, main ]
 
+# id-token: write mints the OIDC token the Codecov upload uses
+# (tokenless, no secrets); contents: read checks the code out.
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   test:
     name: Test & Build
