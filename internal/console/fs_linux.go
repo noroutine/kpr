@@ -1,6 +1,6 @@
 //go:build linux
 
-package web
+package console
 
 import "syscall"
 

@@ -15,12 +15,12 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/app"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/console"
 	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
-	"nrtn.dev/catalyst/kpr/internal/web"
 )
 
 var serveCmd = &cobra.Command{
@@ -137,7 +137,7 @@ var serveCmd = &cobra.Command{
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			managementServer := &web.Server{
+			managementServer := &console.Server{
 				Host:        managementHost,
 				Port:        managementPort,
 				OTELEnabled: otelCfg.Enabled,
