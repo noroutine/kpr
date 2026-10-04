@@ -333,12 +333,16 @@ none is silent — and each names what would actually retire it.
   bytes + gc first. Retired by push exclusion (readonly fence
   across deletes, or push-epoch CAS) — equivalently, sweep as
   a gc phase under such a fence. Deferred until bitten.
-- **Fs witness is unbound.** `FilesystemStore` proves the root
-  exists, `SameStore` proves our store mount is paired —
-  neither proves the root is the *right* volume. A bad root
-  can hide ghosts, never frame a live tag (conflicts stay a
-  bucket). Full account in `docs/STORES.md` ("Ghosts").
-  Retired by binding the fs proof to the served endpoint.
+- **Fs witness is unbound.** Two pairings, one proven:
+  `SameStore` pairs our *row* mount to the served lineage
+  (foreign rows refused); nothing pairs the *registry fs root*
+  to the queried API (`FilesystemStore` proves the path
+  exists, not whose data it holds). URL at staging, root at
+  a dev copy, and the join reads two registries at once:
+  conflicts flood, 404-ghosts may hide — never frame a live
+  tag while conflicts stay a bucket. Full account in
+  `docs/STORES.md` ("Ghosts"). Retired by binding the fs
+  proof to the served endpoint.
 - **Torn rows diverge by backend.** File refuses unparseable
   rows loudly; redis skips them silently. Same store, two
   answers about corrupt state. Retired by one rule in the
