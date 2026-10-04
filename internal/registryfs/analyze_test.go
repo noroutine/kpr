@@ -154,6 +154,108 @@ func TestRevisionsComponentClassifies(t *testing.T) {
 	}
 }
 
+// Refusals name the path they tripped on: a missing root, a file
+// where the root should be, and a layout without repositories
+// (zeros, not an error — a fresh volume holds no repos). If this
+// fails, operators get a bare error (or a panic) where the remedy
+// is the path itself.
+func TestWalksRefuseBlindPaths(t *testing.T) {
+	missing := proveRoot(t, filepath.Join(t.TempDir(), "nope"))
+	for name, call := range map[string]func() error{
+		"analyze": func() error { _, err := Analyze(missing, nil); return err },
+		"husks":   func() error { _, err := ListHusks(missing); return err },
+		"repos":   func() error { _, err := ListRepos(missing); return err },
+	} {
+		if err := call(); err == nil {
+			t.Errorf("%s over missing root succeeded, want the path named", name)
+		}
+	}
+	fileRoot := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(fileRoot, []byte("x"), 0o644); err != nil {
+		t.Fatalf("stage file root: %v", err)
+	}
+	fstore := proveRoot(t, fileRoot)
+	if _, err := Analyze(fstore, nil); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Errorf("analyze over file root = %v, want not-a-directory", err)
+	}
+	if _, err := ListHusks(fstore); err == nil {
+		t.Error("husks over file root succeeded, want refusal")
+	}
+	if _, err := ListRepos(fstore); err == nil {
+		t.Error("repos over file root succeeded, want refusal")
+	}
+	bare := proveRoot(t, t.TempDir())
+	if rep, err := Analyze(bare, nil); err != nil || rep.Repos != 0 {
+		t.Errorf("analyze over layout-less root = %+v, %v, want zeros", rep, err)
+	}
+	if husks, err := ListHusks(bare); err != nil || husks != nil {
+		t.Errorf("husks over layout-less root = %v, %v, want nil, nil", husks, err)
+	}
+	if repos, err := ListRepos(bare); err != nil || repos != nil {
+		t.Errorf("repos over layout-less root = %v, %v, want nil, nil", repos, err)
+	}
+	v2only := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(v2only, "docker", "registry", "v2"), 0o755); err != nil {
+		t.Fatalf("stage v2-only: %v", err)
+	}
+	vs := proveRoot(t, v2only)
+	if rep, err := Analyze(vs, nil); err != nil || rep.Repos != 0 {
+		t.Errorf("analyze without repositories = %+v, %v, want zeros", rep, err)
+	}
+	if husks, err := ListHusks(vs); err != nil || husks != nil {
+		t.Errorf("husks without repositories = %v, %v, want nil, nil", husks, err)
+	}
+	if repos, err := ListRepos(vs); err != nil || repos != nil {
+		t.Errorf("repos without repositories = %v, %v, want nil, nil", repos, err)
+	}
+}
+
+// An unreadable link fails the walk loudly: tag links and layer
+// links both resolve through linkTarget, and a target that cannot
+// be read must abort, never skip. One root per shape — the walk
+// stops at the first error, so a shared fixture would pin only
+// one site. If this fails, corrupt layouts analyze as healthy.
+func TestAnalyzeUnreadableLinkFails(t *testing.T) {
+	stage := func(t *testing.T, link string) proof.FilesystemStore {
+		t.Helper()
+		root := t.TempDir()
+		p := filepath.Join(root, "docker", "registry", "v2", filepath.FromSlash(link))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage link dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("sha256:aaa"), 0o000); err != nil {
+			t.Fatalf("stage link: %v", err)
+		}
+		return proveRoot(t, root)
+	}
+	for name, link := range map[string]string{
+		"tag":   "repositories/app/_manifests/tags/v1/current/link",
+		"layer": "repositories/app/_layers/sha256/111/link",
+	} {
+		if _, err := Analyze(stage(t, link), nil); err == nil {
+			t.Errorf("analyze with unreadable %s link succeeded, want failure", name)
+		}
+	}
+}
+
+// An unreadable upload session fails the walk: the uploader's
+// half-state must abort analysis, never silently uncount. If this
+// fails, permission trouble mid-layout reads as clean.
+func TestAnalyzeUnreadableUploadsFails(t *testing.T) {
+	root := t.TempDir()
+	up := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", "_uploads", "uuid-1")
+	if err := os.MkdirAll(up, 0o755); err != nil {
+		t.Fatalf("stage uploads: %v", err)
+	}
+	if err := os.Chmod(filepath.Dir(up), 0o000); err != nil {
+		t.Fatalf("chmod uploads: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(up), 0o755) })
+	if _, err := Analyze(proveRoot(t, root), nil); err == nil {
+		t.Error("analyze over unreadable uploads succeeded, want failure")
+	}
+}
+
 func TestAnalyzeReportsDanglingLinks(t *testing.T) {
 	root := t.TempDir()
 	v2 := filepath.Join(root, "docker", "registry", "v2")

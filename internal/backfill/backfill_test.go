@@ -716,3 +716,139 @@ func TestBackfillUnreachableCatalogRefuses(t *testing.T) {
 		t.Errorf("err = %v, want the enumeration refusal", err)
 	}
 }
+
+// An unreadable lock marker refuses distinctly from a locked one:
+// the prover cannot tell locked from broken, so the run names the
+// read failure instead of the ceremony. If this fails, storage
+// trouble reads as "go unlock".
+func TestBackfillUnreadableLockRefuses(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	reg := &stubRegistry{}
+	var out strings.Builder
+	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, lockFail{err: errors.New("i/o")}, root, Options{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "store lock unreadable") {
+		t.Errorf("err = %v, want the unreadable-lock refusal", err)
+	}
+}
+
+type lockFail struct{ err error }
+
+func (l lockFail) IsUnlocked(context.Context) (bool, error) { return false, l.err }
+
+// Unreadable tracked state refuses before enumeration: adopting
+// over rows that cannot be read would double-track or collide.
+// If this fails, a sick store imports blind.
+func TestBackfillUnreadableRowsRefuses(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	reg := &stubRegistry{}
+	var out strings.Builder
+	_, err := Run(ctx, &out, fileAPI{root}, reg, rowsFail{err: errors.New("i/o")}, s, s, s, root, Options{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "tracked state unreadable") {
+		t.Errorf("err = %v, want the unreadable-rows refusal", err)
+	}
+}
+
+type rowsFail struct{ err error }
+
+func (r rowsFail) All(context.Context) ([]policy.Row, error) { return nil, r.err }
+
+// Unreadable lineage refuses before enumeration: the run cannot
+// judge foreign against served without the pairing. If this
+// fails, identity trouble imports as a stranger's tags.
+func TestBackfillUnreadableIdentityRefuses(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	reg := &stubRegistry{}
+	var out strings.Builder
+	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, idsFail{err: errors.New("i/o")}, s, root, Options{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "lineage unreadable") {
+		t.Errorf("err = %v, want the unreadable-lineage refusal", err)
+	}
+}
+
+type idsFail struct{ err error }
+
+func (f idsFail) GetIdentity(context.Context) (store.Identity, error) {
+	return store.Identity{}, f.err
+}
+
+func (f idsFail) SetIdentity(context.Context, store.Identity) error { return f.err }
+
+// A non-404 tag listing failure refuses the run: only 404 reads
+// tagless, anything else is an outage mid-enumeration. If this
+// fails, a 500 on one repo aborts the import as husks.
+func TestBackfillTagsUnreachableRefuses(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	reg := &stubRegistry{
+		repos:   []string{"app"},
+		tagsErr: map[string]error{"app": &stubStatus{code: 500}},
+	}
+	var out strings.Builder
+	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "backfill tags for app") {
+		t.Errorf("err = %v, want the tags refusal", err)
+	}
+}
+
+// The log stream is load-bearing: husk lines, skip lines, and the
+// stale warning all fail the run when the writer does, so a dead
+// pipe never reads as a clean pass. If this fails, broken output
+// reports success.
+func TestBackfillLogWriteFailsRun(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	reg := &stubRegistry{repos: []string{"bare"}, tags: map[string][]string{"bare": {}}}
+	var out strings.Builder
+	if _, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{Log: errWriter{}}, nil); err == nil {
+		t.Error("husk over dead log succeeded, want the write failure")
+	}
+}
+
+// errWriter fails every write: the dead pipe behind warning and
+// verdict streams.
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) { return 0, errors.New("pipe dead") }
+
+// The stale warning fails the run when the pipe does: accepted
+// staleness still narrates, and narration is load-bearing. If this
+// fails, a dead pipe swallows the only record of running behind.
+func TestBackfillStaleWarnWriteFails(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, id := stagePaired(t)
+	next, nerr := sentinel.NewGen()
+	if nerr != nil {
+		t.Fatalf("mint next gen: %v", nerr)
+	}
+	if err := s.SetIdentity(ctx, store.Identity{ID: id, BaselineGen: next}); err != nil {
+		t.Fatalf("re-baseline: %v", err)
+	}
+	if err := s.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: next, PushedAt: time.Now().UTC().Add(time.Hour)}); err != nil {
+		t.Fatalf("track newer: %v", err)
+	}
+	reg := &stubRegistry{repos: []string{}}
+	if _, err := Run(ctx, errWriter{}, fileAPI{root}, reg, s, s, s, s, root, Options{}, accept(t)); err == nil {
+		t.Error("stale warning over dead pipe succeeded, want the write failure")
+	}
+}
+
+// An unreadable digest warns and skips by count — unless the
+// warning itself cannot be written, which fails the run. If this
+// fails, digest trouble during import reports a clean skip.
+func TestBackfillDigestWarnWriteFails(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	reg := &stubRegistry{
+		repos: []string{"app"},
+		tags:  map[string][]string{"app": {"v1"}},
+		digErr: map[string]error{
+			"app\x00v1": errors.New("boom"),
+		},
+	}
+	if _, err := Run(ctx, errWriter{}, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil); err == nil {
+		t.Error("digest warning over dead pipe succeeded, want the write failure")
+	}
+}
