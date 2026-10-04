@@ -1,90 +1,135 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>kpr - registry TTL companion</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>kpr · keeper for your homelab registry</title>
     <style>
-        body { font-family: monospace; margin: 20px auto; padding: 0 20px; max-width: 1024px; background: #1e1e1e; color: #d4d4d4; }
-        h1 { color: #4ec9b0; margin-bottom: 5px; }
-        .hostname { color: #808080; font-size: 0.9em; margin-bottom: 20px; }
-        h2 { color: #dcdcaa; margin-top: 20px; margin-bottom: 10px; font-size: 1.2em; }
-        .section { margin-bottom: 30px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
-        .grid + .card { margin-top: 15px; }
-        .card {
-            background: #2d2d30;
-            border-left: 4px solid #007acc;
-            padding: 16px;
+        /* Same voice as the :8080 app page (monospace, flat dark,
+           teal accents) — no gradients, no hover lifts, no glow. */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        .stat-card {
-            border-left-color: #4ec9b0;
+
+        body {
+            font-family: monospace;
+            background: #1e1e1e;
+            min-height: 100vh;
+            padding: 20px;
+            color: #d4d4d4;
         }
-        .label { color: #ce9178; font-size: 0.85em; margin-bottom: 4px; }
-        .value { color: #9cdcfe; font-size: 1em; font-weight: bold; overflow-wrap: anywhere; }
-        .meta { color: #808080; font-size: 0.9em; margin-top: 4px; }
-        a { color: #569cd6; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        hr { margin: 30px 0; border: 0; border-top: 1px solid #3e3e42; }
-        ul { line-height: 1.6; }
-        pre { margin: 12px 0 0; overflow-x: auto; background: #1e1e1e; padding: 12px; border: 1px solid #3e3e42; }
-        .footer { margin-top: 40px; text-align: center; color: #808080; font-size: 0.85em; }
+
+        .container {
+            max-width: 62ch;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 30px;
+            padding: 10px 0;
+        }
+
+        header h1 {
+            font-size: 2em;
+            margin-bottom: 5px;
+            color: #4ec9b0;
+        }
+
+        .subtitle {
+            font-size: 1em;
+            color: #808080;
+        }
+
+        main {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .hero h2 {
+            font-size: 2.6em;
+            line-height: 1.1;
+            margin-bottom: 22px;
+            color: #d4d4d4;
+        }
+
+        .hero p {
+            line-height: 1.6;
+            margin-bottom: 14px;
+            color: #d4d4d4;
+            max-width: 60ch;
+        }
+
+        .commands {
+            background: #1e1e1e;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+            line-height: 1.7;
+            color: #9cdcfe;
+            overflow-x: auto;
+            border: 1px solid #3e3e42;
+        }
+
+        .links {
+            margin-top: 15px;
+            line-height: 2;
+        }
+
+        .links a {
+            color: #569cd6;
+            text-decoration: none;
+        }
+
+        .links a:hover {
+            text-decoration: underline;
+        }
+
+        .links .note {
+            color: #808080;
+        }
+
+        footer {
+            text-align: center;
+            color: #808080;
+            margin-top: 40px;
+            padding: 20px;
+            font-size: 0.85em;
+        }
     </style>
 </head>
 <body>
-    <h1>kpr — reap marks, sweep deletes!</h1>
-    <div class="hostname">registry TTL companion · dry-run by default · GPLv3</div>
+    <div class="container">
+        <header>
+            <h1>kpr</h1>
+            <p class="subtitle">keeper for your homelab registry</p>
+        </header>
 
-    <div class="section">
-        <h2>What</h2>
-        <div class="grid">
-            <div class="card stat-card">
-                <div class="label">Keeper</div>
-                <div class="value">reap marks, sweep deletes</div>
-                <div class="meta">TTL retention for an OCI registry, dry-run by default</div>
-            </div>
-            <div class="card stat-card">
-                <div class="label">Gateway</div>
-                <div class="value">edge + fence</div>
-                <div class="meta">routes pushes past the keeper, holds writes during gc</div>
-            </div>
-            <div class="card stat-card">
-                <div class="label">License</div>
-                <div class="value">GPLv3</div>
-                <div class="meta">attributions ship inside the image at /app/licenses</div>
-            </div>
-        </div>
-    </div>
+        <main>
+            <section class="hero">
+                <h2>Push. Pull. Forget.</h2>
+                <p>Just enough on top of your registry to stop your disk
+                — and your life — from bloating. Push with a TTL, pull
+                while it lasts, forget the rest. Your registry, your
+                disk back.</p>
+                <pre class="commands">$ docker tag my-app:build my-registry:5000/my-app:10m
+$ docker push my-registry:5000/my-app:10m
+# …10 minutes later it's due — the next sweep deletes it.</pre>
+            </section>
 
-    <div class="section">
-        <h2>Run</h2>
-        <div class="card">
-            <div class="label">Docker</div>
-            <pre>docker run --rm -p 8080:8080 -p 9300:9300 ghcr.io/noroutine/kpr:latest</pre>
-            <div class="meta">console at :9300, app at :8080 — tag releases cut per-version images too</div>
-        </div>
-    </div>
+            <section class="links">
+                <a href="https://github.com/noroutine/kpr">github.com/noroutine/kpr</a> <span class="note">— source, issues, releases</span><br>
+                <a href="https://github.com/noroutine/kpr/pkgs/container/kpr">ghcr.io/noroutine/kpr</a> <span class="note">— multiplatform images</span><br>
+                <a href="https://github.com/noroutine/kpr/tree/master/docs">docs/</a> <span class="note">— architecture, proofs, dry-run</span>
+            </section>
+        </main>
 
-    <div class="section">
-        <h2>Links</h2>
-        <div class="grid">
-            <div class="card">
-                <div class="value"><a href="https://github.com/noroutine/kpr" target="_blank" rel="noopener">github.com/noroutine/kpr</a></div>
-                <div class="meta">source, issues, releases</div>
-            </div>
-            <div class="card">
-                <div class="value"><a href="https://github.com/noroutine/kpr/pkgs/container/kpr" target="_blank" rel="noopener">ghcr.io/noroutine/kpr</a></div>
-                <div class="meta">multiplatform images: amd64, arm64, arm/v7</div>
-            </div>
-            <div class="card">
-                <div class="value"><a href="https://github.com/noroutine/kpr/tree/master/docs" target="_blank" rel="noopener">docs/</a></div>
-                <div class="meta">architecture, proofs, dry-run, testing</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="footer">
-        kpr · registry TTL companion — reap marks, sweep deletes
+        <footer>
+            <p>kpr · reap marks, sweep deletes</p>
+        </footer>
     </div>
 </body>
 </html>
