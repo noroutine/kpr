@@ -20,12 +20,12 @@ Already run `distribution`? See [ADOPT_KPR.md](ADOPT_KPR.md) instead.
 Docker with compose, and something to push with — `crane`,
 `docker`, or `oras`. The examples use `crane`.
 
-The image is `noroutine/kpr:<release-tag>`. Pin a tag; don't float
-`latest`. No release cut yet? Build one from the repo and pin
-`dev`:
+The image is `ghcr.io/noroutine/kpr:<release-tag>`. Pin a tag;
+don't float `latest`. No release cut yet? Build one from the repo
+and pin `dev`:
 
 ```bash
-docker build -t noroutine/kpr:dev .
+docker build -t ghcr.io/noroutine/kpr:dev .
 ```
 
 ## The two files
@@ -45,7 +45,7 @@ services:
     # No published ports: pushes arrive through the edge below.
 
   kpr:
-    image: noroutine/kpr:<release-tag>   # pin it
+    image: ghcr.io/noroutine/kpr:<release-tag>   # pin it
     user: "1000:1000"
     volumes:
       - registry-data:/var/lib/registry   # the shared store
