@@ -55,6 +55,10 @@ func TestFileStoreContract(t *testing.T) {
 // error instead of a usable store. If this fails, the CLI's Ping gate
 // passes what it should refuse, or refuses what it should pass.
 func TestOpenStoreAgainstFixture(t *testing.T) {
+	// Backend selection is ambient env (KPR_STORE): pin redis, or a
+	// default-env run opens the file backend and the wrong password
+	// below proves nothing — this test failed exactly that way.
+	t.Setenv(config.EnvStore, "redis")
 	fx := NewFixture(t)
 	cfg := config.NewBuilder().
 		WithRedisAddr(fx.RedisAddr()).
