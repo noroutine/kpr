@@ -444,10 +444,24 @@ func TestFileStoreBlockedDirRefusesEveryOp(t *testing.T) {
 // reach the filesystem. If this fails, crafted names escape the
 // rows tree.
 func TestFileStoreBadNamesRefuseBeforeIO(t *testing.T) {
-	s := store.NewFileStore(t.TempDir())
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
 	ctx := t.Context()
 	if err := s.Record(ctx, policyRow("a/../b", "v1")); err == nil {
 		t.Error("Record with traversal repo succeeded, want refusal")
+	}
+	// Traversal tags neutralize, never escape: they record under rows
+	// (escaped) while the unescaped targets stay absent. If this
+	// fails, crafted tags write outside the rows tree.
+	for _, tag := range []string{"../evil", "a/b"} {
+		if err := s.Record(ctx, policyRow("app", tag)); err != nil {
+			t.Errorf("Record with %q tag refused: %v", tag, err)
+		}
+	}
+	for _, outside := range []string{"evil.json", filepath.Join("app", "a")} {
+		if _, err := os.Lstat(filepath.Join(dir, "rows", outside)); !os.IsNotExist(err) {
+			t.Errorf("unescaped %q exists, want containment under rows", outside)
+		}
 	}
 	if err := s.MarkDue(ctx, "app", "", "x"); err == nil {
 		t.Error("MarkDue with empty tag succeeded, want refusal")
