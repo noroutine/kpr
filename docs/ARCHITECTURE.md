@@ -269,7 +269,8 @@ CLI, next to `serve` and `env`:
 - `kpr plan` — pending candidates, optionally JSON for piping, plus
   `add` / `remove` / `discard`.
 - `kpr store` — the rows themselves: `ls` (short columns, `--long`,
-  `--json`; sentinels take `ls sentinels`),
+  `--json`; sentinels take `ls sentinels`, catalog-and-fs-agreed
+  deletions take `ls ghosts` — read-only, acting stays `rm`'s job),
   `inspect <repo:tag>` (one full row), `rm` (drop rows; tag stays,
   untracked — exact spellings, all-or-nothing, no dry-run;
   `--untag` deletes the manifest by digest first, row drops on

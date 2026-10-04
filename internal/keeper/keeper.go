@@ -6,12 +6,16 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -271,4 +275,81 @@ func Reap(ctx context.Context, s store.Store, reg CatalogSource, now time.Time, 
 		}
 	}
 	return marked, nil
+}
+
+// catalogGone reports the catalog's "no such repo": a 404 through
+// the StatusError the client carries, never a string match. Any
+// other failure is unknown (blip, auth, outage), never gone.
+func catalogGone(err error) bool {
+	var serr *registry.StatusError
+	return errors.As(err, &serr) && serr.Status == http.StatusNotFound
+}
+
+// ListGhosts names tracked rows both witnesses agree are gone: the
+// catalog 404s the repo (or lists it without the tag) and the fs
+// holds no manifest dir for it. Read-only down to the signature —
+// it marks nothing, so a wrong answer costs an eyeball, never a
+// manifest. A nil fs set refuses: one witness is the old ambiguity,
+// not a listing. Catalog failures skip the repo as unreadable
+// (returned alongside, sorted); sentinel machinery never lists.
+// Evidence rides in Reason with Due false — the listing prints it,
+// the sweeper never sees it (only marks go there).
+func ListGhosts(ctx context.Context, s store.Store, reg CatalogSource, fsRepos map[string]bool) ([]policy.Row, []string, error) {
+	if fsRepos == nil {
+		return nil, nil, fmt.Errorf("ghosts need the fs second opinion: refusing to name ghosts off one witness (prove the registry config first)")
+	}
+	rows, err := s.All(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("redis unreachable: %w", err)
+	}
+	seen := map[string]bool{}
+	var repos []string
+	for _, r := range rows {
+		if r.Repo == sentinel.Repo || seen[r.Repo] {
+			continue
+		}
+		seen[r.Repo] = true
+		repos = append(repos, r.Repo)
+	}
+	var ghosts []policy.Row
+	var unreadable []string
+	for _, repo := range repos {
+		tags, cerr := reg.Catalog(ctx, repo)
+		if cerr != nil {
+			if !catalogGone(cerr) {
+				unreadable = append(unreadable, repo)
+			} else if !fsRepos[repo] {
+				for _, r := range rows {
+					if r.Repo == repo {
+						r.Due = false
+						r.Reason = "ghost: catalog 404, fs absent"
+						ghosts = append(ghosts, r)
+					}
+				}
+			}
+			continue
+		}
+		if fsRepos[repo] {
+			continue
+		}
+		live := map[string]bool{}
+		for _, t := range tags {
+			live[t] = true
+		}
+		for _, r := range rows {
+			if r.Repo == repo && !live[r.Tag] {
+				r.Due = false
+				r.Reason = "ghost: tag dropped, repo absent on fs"
+				ghosts = append(ghosts, r)
+			}
+		}
+	}
+	sort.Slice(ghosts, func(i, j int) bool {
+		if ghosts[i].Repo != ghosts[j].Repo {
+			return ghosts[i].Repo < ghosts[j].Repo
+		}
+		return ghosts[i].Tag < ghosts[j].Tag
+	})
+	sort.Strings(unreadable)
+	return ghosts, unreadable, nil
 }

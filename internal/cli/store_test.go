@@ -13,6 +13,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
@@ -159,6 +160,74 @@ func TestStoreLsSortsSameRepoByTag(t *testing.T) {
 	if v1 < 0 || v2 < 0 || z < 0 || v1 > v2 || v2 > z {
 		t.Errorf("rows out of repo-then-tag order:\n%s", body)
 	}
+}
+
+// ghosts is the read-only convergence view: rows both witnesses
+// agree are gone, with the evidence printed beside each. Live rows
+// stay out, unreadable repos degrade to a footer count (never to
+// ghosts), machinery never lists, and an unproven fs refuses
+// instead of guessing. If this fails, operators act blind on the
+// store-vs-registry delta.
+func TestStoreLsGhostsNamesEvidence(t *testing.T) {
+	s := store.NewMemStore()
+	c := cliCtx()
+	old := cliNow.Add(-200 * 24 * time.Hour)
+	for _, r := range []policy.Row{
+		{Repo: "gone", Tag: "v1", Digest: "sha256:a", PushedAt: old},
+		{Repo: "live", Tag: "v1", Digest: "sha256:b", PushedAt: old},
+		{Repo: "flaky", Tag: "v1", Digest: "sha256:c", PushedAt: old},
+	} {
+		_ = s.Record(c, r)
+	}
+	reg := ghostReg{
+		tags: map[string][]string{"live": {"v1"}},
+		gone: map[string]bool{"gone": true},
+	}
+	var out bytes.Buffer
+	if err := runStoreGhosts(cliCtx(), &out, s, reg, map[string]bool{}, storeLsOpts{now: cliNow}); err != nil {
+		t.Fatalf("runStoreGhosts: %v", err)
+	}
+	body := out.String()
+	for _, want := range []string{"REPO:TAG", "EVIDENCE", "gone:v1", "catalog 404, fs absent"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ghosts missing %q:\n%s", want, body)
+		}
+	}
+	for _, leak := range []string{"live:v1", "flaky:v1"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("ghosts leaks %q:\n%s", leak, body)
+		}
+	}
+	if !strings.Contains(body, "skipped 1 repo") {
+		t.Errorf("ghosts missing unreadable footer:\n%s", body)
+	}
+	if err := runStoreGhosts(cliCtx(), io.Discard, s, reg, nil, storeLsOpts{now: cliNow}); err == nil {
+		t.Error("runStoreGhosts(nil fs) succeeded, want refusal")
+	}
+	var empty bytes.Buffer
+	if err := runStoreGhosts(cliCtx(), &empty, store.NewMemStore(), reg, map[string]bool{}, storeLsOpts{now: cliNow}); err != nil {
+		t.Fatalf("runStoreGhosts empty: %v", err)
+	}
+	if !strings.Contains(empty.String(), "no ghost rows") {
+		t.Errorf("ghosts empty = %q, want no-ghost verdict", empty.String())
+	}
+}
+
+// ghostReg 404s gone repos and fails everything else it does not
+// list — the two catalog answers the ghosts view joins.
+type ghostReg struct {
+	tags map[string][]string
+	gone map[string]bool
+}
+
+func (g ghostReg) Catalog(_ context.Context, repo string) ([]string, error) {
+	if g.gone[repo] {
+		return nil, &registry.StatusError{Op: "catalog " + repo, Status: 404}
+	}
+	if tags, ok := g.tags[repo]; ok {
+		return tags, nil
+	}
+	return nil, &registry.StatusError{Op: "catalog " + repo, Status: 500}
 }
 
 func TestStoreLsSentinelsOnly(t *testing.T) {

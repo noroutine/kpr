@@ -105,6 +105,71 @@ func TestEvaluateUntaggedUsesStubCatalog(t *testing.T) {
 	}
 }
 
+// Ghosts list what both witnesses agree is gone: the catalog 404s
+// the repo (or lists it without the tag) and the fs holds no
+// manifest dir. A repo the catalog fails on skips as unreadable
+// (blip, not gone); a repo the fs still holds skips too. Sentinel
+// machinery never lists, and nothing comes back marked due — the
+// listing judges nothing, the operator does. If this fails, ghosts
+// either hide (operator acts blind) or the listing overclaims.
+func TestListGhostsNeedsBothWitnesses(t *testing.T) {
+	s := store.NewMemStore()
+	c := context.Background()
+	old := keeperNow.Add(-200 * 24 * time.Hour)
+	for _, r := range []policy.Row{
+		{Repo: "gone", Tag: "v1", Digest: "sha256:a", PushedAt: old},
+		{Repo: "dropped", Tag: "v1", Digest: "sha256:b", PushedAt: old},
+		{Repo: "held", Tag: "v1", Digest: "sha256:c", PushedAt: old},
+		{Repo: "live", Tag: "v1", Digest: "sha256:d", PushedAt: old},
+		{Repo: "flaky", Tag: "v1", Digest: "sha256:e", PushedAt: old},
+		{Repo: "noroutine/kpr-sentinel", Tag: "v1", Digest: "sha256:f", PushedAt: old},
+	} {
+		_ = s.Record(c, r)
+	}
+	reg := ghostCatalog{
+		tags:  map[string][]string{"live": {"v1"}, "dropped": {"other"}},
+		gone:  map[string]bool{"gone": true, "noroutine/kpr-sentinel": true},
+		flaky: map[string]bool{"flaky": true},
+	}
+	ghosts, unreadable, err := ListGhosts(keeperCtx(), s, reg, map[string]bool{"held": true})
+	if err != nil {
+		t.Fatalf("ListGhosts: %v", err)
+	}
+	if len(ghosts) != 2 || ghosts[0].Repo != "dropped" || ghosts[1].Repo != "gone" {
+		t.Fatalf("ghosts = %v, want [dropped:v1 gone:v1]", ghosts)
+	}
+	for _, g := range ghosts {
+		if g.Due || g.Reason == "" {
+			t.Errorf("%s:%s Due=%v Reason=%q, want unmarked with evidence", g.Repo, g.Tag, g.Due, g.Reason)
+		}
+	}
+	if len(unreadable) != 1 || unreadable[0] != "flaky" {
+		t.Errorf("unreadable = %v, want [flaky]", unreadable)
+	}
+	if _, _, err := ListGhosts(keeperCtx(), s, reg, nil); err == nil {
+		t.Error("ListGhosts(nil fs) succeeded, want refusal (one witness is not a listing)")
+	}
+}
+
+// ghostCatalog 404s gone repos, fails flaky ones transiently, and
+// lists tags for the rest — the three catalog answers ghosts join
+// against the fs view.
+type ghostCatalog struct {
+	tags  map[string][]string
+	gone  map[string]bool
+	flaky map[string]bool
+}
+
+func (g ghostCatalog) Catalog(_ context.Context, repo string) ([]string, error) {
+	if g.gone[repo] {
+		return nil, &registry.StatusError{Op: "catalog " + repo, Status: 404}
+	}
+	if g.flaky[repo] {
+		return nil, &registry.StatusError{Op: "catalog " + repo, Status: 500}
+	}
+	return g.tags[repo], nil
+}
+
 // An armed reap marks the evaluated rows due; unarmed it evaluates
 // without marking. If this fails, dry-run marks or the armed run
 // evaluates something it never records.

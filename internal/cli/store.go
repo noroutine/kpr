@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/registryfs"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
@@ -154,6 +156,74 @@ func runStoreLs(ctx context.Context, w io.Writer, s store.Store, opts storeLsOpt
 		}
 	}
 	return tw.Flush()
+}
+
+// runStoreGhosts prints the convergence view: tracked rows both
+// witnesses agree are gone, each with its evidence (catalog 404 vs
+// tag dropped, both fs-absent). Read-only — it marks nothing, so
+// acting on a row stays an operator decision (`store rm`). An
+// unproven fs refuses instead of guessing; unreadable repos degrade
+// to a footer count, never to ghosts. Sorted for stable reads.
+func runStoreGhosts(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, fsRepos map[string]bool, opts storeLsOpts) error {
+	ghosts, unreadable, err := keeper.ListGhosts(ctx, s, reg, fsRepos)
+	if err != nil {
+		return err
+	}
+	footer := ""
+	if len(unreadable) > 0 {
+		footer = fmt.Sprintf("skipped %s (catalog unreadable)\n", plural(len(unreadable), "repo", "repos"))
+	}
+	if opts.json {
+		out := struct {
+			Ghosts     []rowJSON `json:"ghosts"`
+			Unreadable []string  `json:"unreadable"`
+		}{Unreadable: unreadable}
+		for _, r := range ghosts {
+			out.Ghosts = append(out.Ghosts, rowToJSON(r))
+		}
+		if out.Ghosts == nil {
+			out.Ghosts = []rowJSON{}
+		}
+		if out.Unreadable == nil {
+			out.Unreadable = []string{}
+		}
+		return json.NewEncoder(w).Encode(out)
+	}
+	if len(ghosts) == 0 {
+		if _, err := io.WriteString(w, "no ghost rows\n"); err != nil {
+			return err
+		}
+		_, err := io.WriteString(w, footer)
+		return err
+	}
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	if opts.long {
+		if _, err := fmt.Fprintln(tw, "REPO:TAG\tDIGEST\tPUSHED\tACTOR\tEVIDENCE"); err != nil {
+			return err
+		}
+		for _, r := range ghosts {
+			if _, err := fmt.Fprintf(tw, "%s:%s\t%s\t%s\t%s\t%s\n",
+				r.Repo, r.Tag, r.Digest,
+				r.PushedAt.UTC().Format(time.RFC3339), r.Actor, r.Reason); err != nil {
+				return err
+			}
+		}
+	} else {
+		if _, err := fmt.Fprintln(tw, "REPO:TAG\tAGE\tEVIDENCE"); err != nil {
+			return err
+		}
+		for _, r := range ghosts {
+			if _, err := fmt.Fprintf(tw, "%s:%s\t%s\t%s\n",
+				r.Repo, r.Tag, shortAge(opts.now, r.PushedAt), r.Reason); err != nil {
+				return err
+			}
+		}
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, footer)
+	return err
 }
 
 // runStoreInspect prints the full row for one exact repo:tag. An
@@ -358,7 +428,8 @@ var storeCmd = &cobra.Command{
 	Use:   "store",
 	Short: "Inspect and prune tracked store rows",
 	Long: `Lay of the field for tracked state: 'store ls' lists
-tracked rows short (sentinels take 'ls sentinels', --long the
+tracked rows short (sentinels take 'ls sentinels', ghosts agreed
+gone by catalog and fs take 'ls ghosts', --long the
 full row), 'store inspect' shows one full row, 'store rm' drops
 rows outright. rm removes tracking only —
 the registry tag survives, untracked until a re-push or backfill
@@ -368,15 +439,18 @@ writes behind a fresh proof; 'store adopt' pairs the lineage;
 }
 
 var storeLsCmd = &cobra.Command{
-	Use:   "ls [sentinels]",
-	Short: "List tracked rows (sentinels take `ls sentinels`)",
+	Use:   "ls [sentinels|ghosts]",
+	Short: "List tracked rows (sentinels and ghosts take their own target)",
 	Long: `Tracked rows as short aligned columns: repo:tag, age, due
 state. Sentinel generations stay out — machinery, not inventory;
 ` + "`ls sentinels`" + ` shows only them (same columns, wider
-names). --long restores the full row (digest, pushed, actor).`,
+names). ` + "`ls ghosts`" + ` shows only rows both witnesses agree
+are gone (catalog 404 or tag dropped, fs absent), each with its
+evidence — read-only, acting on one stays ` + "`store rm`" + `'s
+job. --long restores the full row (digest, pushed, actor).`,
 	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) > 1 || (len(args) == 1 && args[0] != "sentinels") {
-			return fmt.Errorf("want `ls` or `ls sentinels`, got %q", args)
+		if len(args) > 1 || (len(args) == 1 && args[0] != "sentinels" && args[0] != "ghosts") {
+			return fmt.Errorf("want `ls`, `ls sentinels`, or `ls ghosts`, got %q", args)
 		}
 		return nil
 	},
@@ -388,6 +462,18 @@ names). --long restores the full row (digest, pushed, actor).`,
 		defer d.close()
 		long, _ := cmd.Flags().GetBool("long")
 		asJSON, _ := cmd.Flags().GetBool("json")
+		if len(args) == 1 && args[0] == "ghosts" {
+			fsStore, ferr := proof.ProveFilesystemStore(d.cfg.RegistryConfig)
+			if ferr != nil {
+				return fmt.Errorf("ghosts need the fs second opinion: %w", ferr)
+			}
+			fsRepos, ferr := registryfs.ListRepos(fsStore)
+			if ferr != nil {
+				return fmt.Errorf("ghosts need the fs second opinion: %w", ferr)
+			}
+			return runStoreGhosts(cmd.Context(), cmd.OutOrStdout(), d.store, d.reg, fsRepos,
+				storeLsOpts{now: time.Now().UTC(), long: long, json: asJSON})
+		}
 		return runStoreLs(cmd.Context(), cmd.OutOrStdout(), d.store, storeLsOpts{
 			now: time.Now().UTC(), long: long,
 			sentinels: len(args) == 1, json: asJSON,
