@@ -855,6 +855,29 @@ func TestPassLogsRowVerdicts(t *testing.T) {
 	}
 }
 
+// A failing row stream must not fail the pass: the ring already
+// holds every verdict, so a broken --output file logs and the
+// counts stand. If this fails, a full disk aborts a good sweep.
+func TestLogRowWriteFailureKeepsPass(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
+	sw := &Sweeper{Store: s, Registry: &stubRegistry{outcome: registry.OutcomeDeleted},
+		Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }, RowLog: errSink{}}
+	if sum := sw.RunPass(testCtx(), "test"); sum.Performed != 1 || sum.Planned != 1 {
+		t.Errorf("summary = %+v, want the row counted despite the broken stream", sum)
+	}
+}
+
+type errSink struct{}
+
+func (errSink) Write([]byte) (int, error) { return 0, errSinkFull }
+
+type errSinkT string
+
+func (e errSinkT) Error() string { return string(e) }
+
+const errSinkFull = errSinkT("stream full")
+
 // A held manifest (owned by an index) untracks instead of retrying:
 // the row leaves the store and the pass counts it untracked. If this
 // fails, held rows either pile up due forever or count as performed.

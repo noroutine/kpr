@@ -339,6 +339,18 @@ func TestLogProofAgeNilIsSilent(t *testing.T) {
 	}
 }
 
+// A fresh proof logs without the warning: the boot line reads as
+// confirmation, not alarm. If this fails, every serve start warns
+// even when the proof is current.
+func TestLogProofAgeNarratesFresh(t *testing.T) {
+	logs := captureLog(t)
+	recent := time.Now().UTC().Format(time.RFC3339)
+	logProofAge(context.Background(), stubProofAPI{ts: recent})
+	if got := logs.String(); !strings.Contains(got, "Same-store proof:") || strings.Contains(got, "Warning:") {
+		t.Errorf("fresh proof logged %q, want confirmation without warning", got)
+	}
+}
+
 // The root command must handle --help without exiting: Execute's success
 // path returns instead of calling os.Exit. If this fails, even asking for
 // help kills the process with a nonzero status.

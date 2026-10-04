@@ -392,6 +392,27 @@ func TestRedisCorruptValuesRefuseOrSkip(t *testing.T) {
 	}
 }
 
+// Get reads one row by key: present decodes, absent reads
+// unmarked, torn reads absent (like the scans), wire errors
+// refuse. If this fails, single-row reads invent or hide state
+// the scans show differently.
+func TestRedisGetVerdicts(t *testing.T) {
+	ctx := context.Background()
+	rowKey := "kpr:rows\x00app\x00v1"
+	if r, ok, err := wireStore(t, &wireScript{str: map[string]string{rowKey: wireRowDue}}).Get(ctx, "app", "v1"); err != nil || !ok || r.Tag != "v1" || !r.Due {
+		t.Errorf("Get present = (%v, %v, %v), want the decoded due row", r, ok, err)
+	}
+	if r, ok, err := wireStore(t, &wireScript{}).Get(ctx, "app", "v1"); err != nil || ok || r != (policy.Row{}) {
+		t.Errorf("Get absent = (%v, %v, %v), want (zero, false, nil)", r, ok, err)
+	}
+	if r, ok, err := wireStore(t, &wireScript{str: map[string]string{rowKey: "not json"}}).Get(ctx, "app", "v1"); err != nil || ok {
+		t.Errorf("Get torn = (%v, %v, %v), want (zero, false, nil)", r, ok, err)
+	}
+	if _, _, err := wireStore(t, &wireScript{fail: map[string]bool{"HGET": true}}).Get(ctx, "app", "v1"); err == nil {
+		t.Error("Get over failing wire succeeded, want refusal")
+	}
+}
+
 // Pushes trim the ring to the cap on the wire: LTRIM carries
 // 0..ActivityCap-1, and a full scan reads 0..-1. The bounds are
 // the driver's promises — an off-by-one grows the ring forever

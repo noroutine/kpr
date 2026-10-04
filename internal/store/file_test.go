@@ -354,6 +354,52 @@ func blockedStore(t *testing.T) *store.FileStore {
 	return store.NewFileStore(filepath.Join(blocker, "sub"))
 }
 
+// A fresh store scans empty, never missing: the rows tree
+// doesn't exist until the first record, and a vanished entry
+// mid-walk skips instead of refusing. If this fails, empty
+// stores error where they should list nothing.
+func TestFileStoreFreshStoreScansEmpty(t *testing.T) {
+	s := store.NewFileStore(t.TempDir())
+	ctx := t.Context()
+	if rows, err := s.All(ctx); err != nil || len(rows) != 0 {
+		t.Errorf("All fresh = (%v, %v), want (empty, nil)", rows, err)
+	}
+	if rows, err := s.Due(ctx); err != nil || len(rows) != 0 {
+		t.Errorf("Due fresh = (%v, %v), want (empty, nil)", rows, err)
+	}
+}
+
+// A held lock reads false on re-acquire, even in-process: the
+// open handle keeps the flock, so single-flight holds within one
+// holder too. If this fails, the same process takes its own lock
+// twice. (The old-handle replacement below the Flock is
+// defensive: an entry always means self-locked, so the Flock
+// above never passes with one present.)
+func TestFileStoreHeldLockReadsFalse(t *testing.T) {
+	s := store.NewFileStore(t.TempDir())
+	ctx := t.Context()
+	if ok, err := s.AcquireLock(ctx, "k", time.Minute); err != nil || !ok {
+		t.Fatalf("first AcquireLock = (%v, %v), want (true, nil)", ok, err)
+	}
+	if ok, err := s.AcquireLock(ctx, "k", time.Minute); err != nil || ok {
+		t.Errorf("second AcquireLock = (%v, %v), want (false, nil)", ok, err)
+	}
+}
+
+// A torn activity ring fails the push that meets it: the ring
+// appends to what it reads, and garbage reads as failure, never
+// as an empty ring to overwrite. If this fails, a push buries
+// the torn history silently.
+func TestFileStorePushActivityOverTornRingRefuses(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "activity.json"), []byte(`{"half`), 0o644); err != nil {
+		t.Fatalf("stage torn activity: %v", err)
+	}
+	if err := store.NewFileStore(dir).PushActivity(t.Context(), store.Outcome{Repo: "app"}); err == nil {
+		t.Error("PushActivity over torn ring succeeded, want refusal")
+	}
+}
+
 // Mutations against an unmakable dir refuse at their own gate:
 // record, mark, unmark, delete, clear, current, activity, lock,
 // identity, ping — no op invents state it cannot hold. If this

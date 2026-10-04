@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -76,6 +77,28 @@ func TestLiveLinesSingleLineStaysPut(t *testing.T) {
 	live.paintBlock([]string{"b"})
 	if got := buf.String(); got != "aa\rb " {
 		t.Errorf("paints = %q, want one line overwritten in place", got)
+	}
+}
+
+// Throttled ticks paint on terminals: the first tick draws the
+// block, a tick inside the interval draws nothing, and done
+// settles with a newline. If this fails, terminal runs show no
+// live line (or redraw every row).
+func TestLiveLinesTickPaintsAndThrottles(t *testing.T) {
+	var buf bytes.Buffer
+	live := &liveLines{w: &buf, tty: true}
+	live.tickBlock([]string{"sweep 1: 1 performed, 0 planned"})
+	if !strings.Contains(buf.String(), "1 performed") {
+		t.Fatalf("first tick painted %q, want the line", buf.String())
+	}
+	n := len(buf.String())
+	live.tickBlock([]string{"sweep 1: 2 performed, 0 planned"})
+	if len(buf.String()) != n {
+		t.Errorf("throttled tick repainted, want silence inside the interval")
+	}
+	live.doneBlock([]string{"sweep 1: 2 performed, 0 planned"}, 0)
+	if !strings.HasSuffix(buf.String(), "\n") {
+		t.Errorf("done block = %q, want a settling newline", buf.String())
 	}
 }
 

@@ -56,6 +56,22 @@ func TestPruneEmptyDirsRefusesAbsentRoot(t *testing.T) {
 	}
 }
 
+// Missing roots and plain files prune clean: nothing to list is
+// not a failure, and a file is not a dir to empty. If this fails,
+// absent paths refuse or files read as prunable.
+func TestPruneDirMissingAndFileAreClean(t *testing.T) {
+	if n, err := pruneDir(filepath.Join(t.TempDir(), "missing")); err != nil || n != 0 {
+		t.Errorf("pruneDir missing = (%d, %v), want (0, nil)", n, err)
+	}
+	f := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatalf("stage file: %v", err)
+	}
+	if n, err := pruneDir(f); err != nil || n != 0 {
+		t.Errorf("pruneDir file = (%d, %v), want (0, nil)", n, err)
+	}
+}
+
 // An unreadable subdir fails the run loud: silently skipping what
 // cannot be listed would report a clean store over unknown state.
 // Root reads through permissions, so it sits this one out.

@@ -120,6 +120,70 @@ func TestCatalogAllPagesThroughLink(t *testing.T) {
 // first call ends the run, never a silent empty enumeration. If
 // this fails, a typo'd password backfills zero rows and reports
 // success.
+// Transport failures refuse with their own shape: a dead peer
+// passes through, a 500 reads as StatusError (not silent empty),
+// a torn page names the parse, a lying Content-Length names the
+// short read, and a bad Link target fails the follow-up request.
+// If this fails, transport trouble enumerates as nothing there.
+func TestCatalogAllTransportFailures(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close()
+	if _, err := NewClient(deadURL).CatalogAll(testCtx()); err == nil {
+		t.Error("CatalogAll against a dead peer succeeded, want refusal")
+	}
+	for name, code := range map[string]int{"boom": http.StatusInternalServerError} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(code)
+		}))
+		_, err := NewClient(srv.URL).CatalogAll(testCtx())
+		srv.Close()
+		var se *StatusError
+		if !errors.As(err, &se) || se.Status != code {
+			t.Errorf("CatalogAll %s = %v, want *StatusError %d", name, err, code)
+		}
+	}
+	badJSON := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("{half"))
+	}))
+	if _, err := NewClient(badJSON.URL).CatalogAll(testCtx()); err == nil {
+		t.Error("CatalogAll over torn JSON succeeded, want refusal")
+	}
+	badJSON.Close()
+	badLink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", `<http://exa mple.invalid/next>; rel="next"`)
+		_, _ = w.Write([]byte(`{"repositories":[]}`))
+	}))
+	if _, err := NewClient(badLink.URL).CatalogAll(testCtx()); err == nil {
+		t.Error("CatalogAll over bad Link target succeeded, want refusal")
+	}
+	badLink.Close()
+	shortBody := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("short"))
+	}))
+	if _, err := NewClient(shortBody.URL).CatalogAll(testCtx()); err == nil {
+		t.Error("CatalogAll over short body succeeded, want refusal")
+	}
+	shortBody.Close()
+}
+
+// A digest read fails where the wire fails: dead peer refuses,
+// and an unparseable base refuses the request before it forms.
+// If this fails, digest backfill invents digests over outage.
+func TestManifestDigestTransportFailures(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close()
+	if _, _, err := NewClient(deadURL).ManifestDigest(testCtx(), "app", "v1"); err == nil {
+		t.Error("ManifestDigest against a dead peer succeeded, want refusal")
+	}
+	if _, _, err := NewClient("http://exa mple.invalid").ManifestDigest(testCtx(), "app", "v1"); err == nil {
+		t.Error("ManifestDigest with bad base succeeded, want refusal")
+	}
+}
+
 func TestCatalogAllRefusesRejectedCreds(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

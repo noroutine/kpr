@@ -16,6 +16,117 @@ import (
 // skipped without aborting the walk. Names come back sorted for the
 // report. If this fails, gc either deletes live inventory or leaves
 // husks no later pass can find.
+// No skeleton, no husks: a root without the registry layout
+// classifies nothing instead of failing the stat. If this fails,
+// fresh roots refuse collection.
+func TestRemoveHusksMissingLayoutIsNil(t *testing.T) {
+	got, err := RemoveHusks(t.TempDir())
+	if err != nil {
+		t.Fatalf("RemoveHusks over bare root: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("RemoveHusks over bare root = %v, want nil", got)
+	}
+}
+
+// A tagged repo nested under a husk vetoes the ancestor's
+// removal: the parent may be dead layout, but the child is live
+// inventory. If this fails, gc wipes a live repo with its dead
+// parent.
+func TestRemoveHusksSparesNestedKept(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
+	for _, rel := range []string{
+		"outer/_manifests/revisions/sha256/a/link",
+		"outer/inner/_manifests/tags/v1/current/link",
+		"outer/inner/_manifests/revisions/sha256/b/link",
+	} {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("sha256:x"), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	got, err := RemoveHusks(root)
+	if err != nil {
+		t.Fatalf("RemoveHusks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("RemoveHusks = %v, want empty (nested kept vetoes the husk)", got)
+	}
+	if _, err := os.Stat(filepath.Join(v2, "outer")); err != nil {
+		t.Errorf("nested-kept ancestor removed: %v", err)
+	}
+}
+
+// A removed husk takes its tagless children with it without
+// naming them: sorted parents first, children skipped as gone.
+// If this fails, the report double-counts nested husks.
+func TestRemoveHusksSkipsRemovedChildren(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
+	for _, rel := range []string{
+		"p/_manifests/revisions/sha256/a/link",
+		"p/c/_manifests/revisions/sha256/b/link",
+	} {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("sha256:x"), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	got, err := RemoveHusks(root)
+	if err != nil {
+		t.Fatalf("RemoveHusks: %v", err)
+	}
+	if len(got) != 1 || got[0] != "p" {
+		t.Errorf("RemoveHusks = %v, want [p] (child skipped as gone)", got)
+	}
+}
+
+// Unreadable layout refuses instead of classifying blind: a
+// blinded uploads tree hides live pushes, a blinded tags tree
+// hides live tags. Root reads through permissions, so it sits
+// this one out. If this fails, blind spots classify as idle.
+func TestRemoveHusksUnreadableRefuses(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	stage := func(t *testing.T, blind string) string {
+		t.Helper()
+		root := t.TempDir()
+		v2 := filepath.Join(root, "docker", "registry", "v2", "repositories", "app")
+		for _, rel := range []string{
+			"_manifests/revisions/sha256/a/link",
+			"_manifests/tags/v1/current/link",
+			"_uploads/uuid-1/data",
+		} {
+			p := filepath.Join(v2, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatalf("stage dir: %v", err)
+			}
+			if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+				t.Fatalf("stage file: %v", err)
+			}
+		}
+		bp := filepath.Join(v2, blind)
+		if err := os.Chmod(bp, 0o000); err != nil {
+			t.Fatalf("blind %s: %v", blind, err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(bp, 0o755) })
+		return root
+	}
+	for _, blind := range []string{"_uploads", filepath.Join("_manifests", "tags")} {
+		if _, err := RemoveHusks(stage(t, blind)); err == nil {
+			t.Errorf("RemoveHusks over blinded %s succeeded, want refusal", blind)
+		}
+	}
+}
+
 func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
 	root := t.TempDir()
 	v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")

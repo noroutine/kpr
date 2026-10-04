@@ -301,6 +301,57 @@ func TestReadStoreViewWithoutProofPort(t *testing.T) {
 	}
 }
 
+// A long row name clamps its pad instead of running the gutter
+// negative: columns align, never overlap. If this fails, wide
+// names glue into their bodies.
+func TestAnalyzeRowClampsLongName(t *testing.T) {
+	if got := analyzeRow("averylongname", "b"); got != "averylongname: b" {
+		t.Errorf("analyzeRow(long) = %q, want zero pad", got)
+	}
+}
+
+// An unreadable store degrades the view instead of failing it:
+// no rows readable means an empty view, never an error. If this
+// fails, a blinded disk errors the analyze header.
+func TestReadStoreViewUnreadableStoreDegrades(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	if err := s.Record(context.Background(), policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:a", PushedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("stage row: %v", err)
+	}
+	rows := filepath.Join(dir, "rows")
+	if err := os.Chmod(rows, 0o000); err != nil {
+		t.Fatalf("blind rows: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(rows, 0o755) })
+	t.Setenv(config.EnvStoreDir, dir)
+	if view := readStoreView(context.Background(), blindRegistry{}); view.ok {
+		t.Errorf("view over unreadable store = %+v, want not-ok", view)
+	}
+}
+
+// A torn identity degrades the proof note instead of the rows:
+// the inventory reads, the lineage doesn't prove. If this fails,
+// an unparseable identity hides the whole store.
+func TestReadStoreViewTornIdentityDegrades(t *testing.T) {
+	dir := t.TempDir()
+	s := store.NewFileStore(dir)
+	if err := s.Record(context.Background(), policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:a", PushedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("stage row: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "identity.json"), []byte(`{"half`), 0o644); err != nil {
+		t.Fatalf("stage torn identity: %v", err)
+	}
+	t.Setenv(config.EnvStoreDir, dir)
+	view := readStoreView(context.Background(), blindRegistry{})
+	if !view.ok || view.note != "unproven" {
+		t.Errorf("view over torn identity = %+v, want ok with unproven note", view)
+	}
+}
+
 // Dead pointers tail the revs and blobs lines only when present:
 // a clean walk reads exactly as before, a dirty one names its
 // count (singular included). If this fails, dead links hide or

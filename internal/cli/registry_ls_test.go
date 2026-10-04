@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,6 +138,160 @@ func TestRegistryLsRefusesOtherTargets(t *testing.T) {
 	err := runRegistryLs(context.Background(), &out, &errW, mountAPI{t.TempDir()}, "app", time.Now().UTC(), false, false)
 	if err == nil || !strings.Contains(err.Error(), "sentinels") {
 		t.Errorf("ls app = %v, want the supported target named", err)
+	}
+}
+
+// An unreadable catalog refuses the listing instead of printing
+// an empty table: no tags is data, unreadable tags is failure. If
+// this fails, a down registry reads as an empty one.
+func TestRegistryLsCatalogFailureRefuses(t *testing.T) {
+	var out, errW bytes.Buffer
+	if err := runRegistryLs(context.Background(), &out, &errW, mountAPI{}, "sentinels", time.Now().UTC(), false, false); err == nil {
+		t.Error("ls sentinels off an empty mount succeeded, want refusal")
+	}
+}
+
+// Every write in the listing surfaces: short, long, and JSON
+// paths each fail loud at every failing prefix instead of
+// truncating quiet. If this fails, a broken pipe reads as a
+// complete listing.
+func TestRegistryLsWriteFailuresSurface(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 10, 3, 22, 0, 0, 0, time.UTC)
+	ts := now.Add(-90 * time.Minute).UTC().Format(time.RFC3339)
+	stageSentinelTag(t, root, "gen-1", sentinel.Payload{V: 1, Gen: "gen-1", ID: "id-1", TS: ts, Writer: "kpr-unlock"})
+	for _, tc := range []struct {
+		name   string
+		asJSON bool
+		long   bool
+	}{
+		{"short", false, false},
+		{"long", false, true},
+		{"json", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var good bytes.Buffer
+			if err := runRegistryLs(context.Background(), &good, io.Discard, mountAPI{root}, "sentinels", now, tc.asJSON, tc.long); err != nil {
+				t.Fatalf("stage success: %v", err)
+			}
+			sawNil := false
+			for n := 0; n < 100; n++ {
+				w := &failAfterWriter{n: n}
+				err := runRegistryLs(context.Background(), w, io.Discard, mountAPI{root}, "sentinels", now, tc.asJSON, tc.long)
+				if err == nil {
+					sawNil = true
+				} else if sawNil {
+					t.Fatalf("write %d failed after a success, want monotonic errors-then-clean", n)
+				}
+			}
+			if !sawNil {
+				t.Error("no write prefix succeeded, want the full run clean past its writes")
+			}
+		})
+	}
+}
+
+// An unreadable tag warns past on stderr — and a stderr that
+// won't take the warning fails the listing instead of swallowing
+// it. If this fails, a broken errW hides skipped tags.
+func TestRegistryLsErrWriterFailureRefuses(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docker", "registry", "v2",
+		"repositories", sentinel.Repo, "_manifests", "tags", "broken"), 0o755); err != nil {
+		t.Fatalf("stage broken tag dir: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runRegistryLs(context.Background(), &out, &failAfterWriter{}, mountAPI{root}, "sentinels", time.Now().UTC(), false, false); err == nil {
+		t.Error("ls with failing stderr succeeded, want refusal")
+	}
+}
+
+// A bad registry config refuses before any walk: the husk
+// listing proves its filesystem view first, never a bare path.
+// If this fails, a typo'd config walks the wrong tree.
+func TestRegistryLsHusksBadConfigRefuses(t *testing.T) {
+	if err := runRegistryLsHusks(io.Discard, filepath.Join(t.TempDir(), "missing.yml"), false, false); err == nil {
+		t.Error("ls husks off a missing config succeeded, want refusal")
+	}
+}
+
+// An unreadable mount fails the husk listing instead of
+// listing blind: the walk names its outage. Root reads through
+// permissions, so it sits this one out. If this fails, a
+// blinded registry lists partial husks as all.
+func TestRegistryLsHusksUnreadableRefuses(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	root := t.TempDir()
+	repos := filepath.Join(root, "docker", "registry", "v2", "repositories", "app")
+	if err := os.MkdirAll(filepath.Join(repos, "_manifests"), 0o755); err != nil {
+		t.Fatalf("stage repo: %v", err)
+	}
+	if err := os.Chmod(repos, 0o000); err != nil {
+		t.Fatalf("blind repo: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(repos, 0o755) })
+	cfg := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o600); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	if err := runRegistryLsHusks(io.Discard, cfg, false, false); err == nil {
+		t.Error("ls husks over blinded mount succeeded, want refusal")
+	}
+}
+
+// Empty husks encode as an empty array, never null: scripts
+// parsing the listing must not branch on null-vs-[]. If this
+// fails, clean roots emit null.
+func TestRegistryLsHusksEmptyIsArray(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docker", "registry", "v2", "repositories"), 0o755); err != nil {
+		t.Fatalf("stage empty repos: %v", err)
+	}
+	cfg := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o600); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runRegistryLsHusks(&out, cfg, true, false); err != nil {
+		t.Fatalf("ls husks --json = %v, want listing", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "[]" {
+		t.Errorf("empty husks = %q, want []", got)
+	}
+}
+
+// A failing stdout fails the husk listing, plain or JSON: names
+// stream, so any write can be the one that breaks. If this
+// fails, a truncated listing reads complete.
+func TestRegistryLsHusksWriteFailureRefuses(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	p := filepath.Join(v2, "repositories", "bare", "_manifests", "revisions", "sha256", "bbb", "link")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("stage husk dir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("sha256:bbb"), 0o644); err != nil {
+		t.Fatalf("stage husk link: %v", err)
+	}
+	cfg := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o600); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	if err := runRegistryLsHusks(&failAfterWriter{}, cfg, false, false); err == nil {
+		t.Error("ls husks with failing stdout succeeded, want refusal")
+	}
+	if err := runRegistryLsHusks(&failAfterWriter{}, cfg, true, false); err == nil {
+		t.Error("ls husks --json with failing stdout succeeded, want refusal")
+	}
+}
+
+// An unparseable payload stamp reads unknown, never a
+// million-hour age. If this fails, torn stamps age absurdly.
+func TestLsAgeUnknownOnBadStamp(t *testing.T) {
+	if got := lsAge(time.Now().UTC(), "not-a-time"); got != "unknown ts" {
+		t.Errorf("lsAge(bogus) = %q, want unknown ts", got)
 	}
 }
 

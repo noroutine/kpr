@@ -111,6 +111,122 @@ func TestListReposNamesManifestDirs(t *testing.T) {
 	}
 }
 
+// A path too short to hold a repo never names a sentinel tag: no
+// _manifests anchor, no verdict. If this fails, shallow paths
+// classify as machinery.
+func TestIsSentinelTagShortPath(t *testing.T) {
+	for _, parts := range [][]string{{}, {"app"}, {"app", "_manifests"}} {
+		if isSentinelTag(parts) {
+			t.Errorf("isSentinelTag(%v) = true, want false (no repo component)", parts)
+		}
+	}
+}
+
+// Files inside the repositories dir are not repos: WalkDir meets
+// them and moves on. If this fails, stray files list as repos.
+func TestListReposSkipsFiles(t *testing.T) {
+	root := t.TempDir()
+	repos := filepath.Join(root, "docker", "registry", "v2", "repositories")
+	if err := os.MkdirAll(repos, 0o755); err != nil {
+		t.Fatalf("stage repos: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repos, "stray"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("stage stray file: %v", err)
+	}
+	got, err := ListRepos(proveRoot(t, root))
+	if err != nil {
+		t.Fatalf("ListRepos: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("ListRepos = %v, want empty (files are not repos)", got)
+	}
+}
+
+// Unreadable layout fails both light walks instead of reading
+// partial: a blinded parent names itself in the error. If this
+// fails, permission loss lists half a registry as whole.
+func TestLightWalksUnreadableFail(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	root := t.TempDir()
+	repos := filepath.Join(root, "docker", "registry", "v2", "repositories", "app")
+	if err := os.MkdirAll(filepath.Join(repos, "_manifests"), 0o755); err != nil {
+		t.Fatalf("stage repo: %v", err)
+	}
+	if err := os.Chmod(repos, 0o000); err != nil {
+		t.Fatalf("blind repo: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(repos, 0o755) })
+	fstore := proveRoot(t, root)
+	if _, err := ListRepos(fstore); err == nil {
+		t.Error("ListRepos over blinded repo succeeded, want failure")
+	}
+	if _, err := ListHusks(fstore); err == nil {
+		t.Error("ListHusks over blinded repo succeeded, want failure")
+	}
+	// A blinded skeleton names itself too: the repositories and
+	// v2 stats refuse instead of reading absence. Restore runs
+	// parent-first: a blinded v2 would deny the chmod below it.
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	v2repos := filepath.Join(v2, "repositories")
+	unblind := func(t *testing.T) {
+		t.Helper()
+		for _, dir := range []string{v2, v2repos, repos} {
+			if err := os.Chmod(dir, 0o755); err != nil {
+				t.Fatalf("unblind %s: %v", dir, err)
+			}
+		}
+	}
+	for _, tc := range []struct{ name, dir string }{
+		{"repositories", v2repos},
+		{"v2", v2},
+	} {
+		unblind(t)
+		if err := os.Chmod(tc.dir, 0o000); err != nil {
+			t.Fatalf("blind %s: %v", tc.name, err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(tc.dir, 0o755) })
+		if _, err := ListRepos(fstore); err == nil {
+			t.Errorf("ListRepos over blinded %s succeeded, want failure", tc.name)
+		}
+	}
+	unblind(t)
+	// A blinded tags dir fails the husk verdict after a readable
+	// _manifests: the candidate stands, its tags don't.
+	tags := filepath.Join(repos, "_manifests", "tags")
+	if err := os.MkdirAll(tags, 0o755); err != nil {
+		t.Fatalf("stage tags: %v", err)
+	}
+	if err := os.Chmod(tags, 0o000); err != nil {
+		t.Fatalf("blind tags: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(tags, 0o755) })
+	if _, err := ListHusks(fstore); err == nil {
+		t.Error("ListHusks over blinded tags succeeded, want failure")
+	}
+}
+
+// _layers and _uploads dirs skip wholesale: session and layer
+// areas never read as husk candidates. If this fails, machinery
+// dirs list as tagless repos.
+func TestListHusksSkipsLayerDirs(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"_layers", "_uploads"} {
+		p := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", dir, "_manifests")
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatalf("stage %s: %v", dir, err)
+		}
+	}
+	got, err := ListHusks(proveRoot(t, root))
+	if err != nil {
+		t.Fatalf("ListHusks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("ListHusks = %v, want empty (layer areas skipped)", got)
+	}
+}
+
 // revisions is a legal repo path component (only _-prefixed names
 // are reserved for layout machinery): team/revisions must classify
 // on every walk — the full analyze, the husk listing, and ListRepos

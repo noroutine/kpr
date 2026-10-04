@@ -2,6 +2,7 @@ package otel
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,6 +51,33 @@ func TestInitDisabledIsNoop(t *testing.T) {
 // and an empty batch flush exports nothing. If this fails, enabling
 // tracing without a reachable collector breaks startup instead of
 // degrading to dropped spans at export time.
+// AttachStdout composes onto whatever Init attached: over a
+// single handler it fans out to two legs, over an existing fanout
+// it appends flat — never a fanout in a fanout. If this fails,
+// serve's stdout leg nests and every record logs twice (or the
+// OTLP leg drops off the composition).
+func TestAttachStdoutComposesFlat(t *testing.T) {
+	prevLog := accessLogger
+	t.Cleanup(func() { accessLogger = prevLog })
+
+	accessLogger = slog.New(slog.DiscardHandler)
+	AttachStdout()
+	h, ok := accessLogger.Handler().(fanoutHandler)
+	if !ok || len(h) != 2 {
+		t.Fatalf("handler = %T (%v), want flat 2-leg fanout", accessLogger.Handler(), accessLogger.Handler())
+	}
+	AttachStdout()
+	h, ok = accessLogger.Handler().(fanoutHandler)
+	if !ok || len(h) != 3 {
+		t.Fatalf("handler = %T (%v), want flat 3-leg fanout", accessLogger.Handler(), accessLogger.Handler())
+	}
+	for _, leg := range h {
+		if _, nested := leg.(fanoutHandler); nested {
+			t.Errorf("leg = %T, want no nested fanout", leg)
+		}
+	}
+}
+
 func TestInitEnabledShutsDownClean(t *testing.T) {
 	t.Cleanup(config.SetCurrent(config.NewBuilder().
 		WithOTELEnabled(true).

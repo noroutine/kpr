@@ -170,7 +170,12 @@ func TestStoreLsSortsSameRepoByTag(t *testing.T) {
 // instead of guessing. --long names the footers, --json pipes
 // ghosts plus both degraded buckets. If this fails, operators act
 // blind on the store-vs-registry delta.
-func TestStoreLsGhostsNamesEvidence(t *testing.T) {
+// seedGhostStore stages the convergence fixture: one agreed-gone
+// row, one split witness, one live row, one unreadable repo, one
+// machinery row. Shared by the evidence test and the write-failure
+// sweep so both fail over the same layout.
+func seedGhostStore(t *testing.T) (*store.MemStore, ghostReg, map[string]bool, proof.SameStore) {
+	t.Helper()
 	s := store.NewMemStore()
 	c := cliCtx()
 	old := cliNow.Add(-200 * 24 * time.Hour)
@@ -187,8 +192,47 @@ func TestStoreLsGhostsNamesEvidence(t *testing.T) {
 		tags: map[string][]string{"live": {"v1"}, "split": {"other"}},
 		gone: map[string]bool{"gone": true, "noroutine/kpr-sentinel": true},
 	}
-	same := untagProof(t, s)
-	fs := map[string]bool{"live": true}
+	return s, reg, map[string]bool{"live": true}, untagProof(t, s)
+}
+
+// Every write in the ghost listing surfaces: short, long, and
+// JSON paths each fail loud at every failing prefix instead of
+// truncating quiet. If this fails, a broken pipe reads as a
+// complete convergence view.
+func TestStoreLsGhostsWriteFailuresSurface(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts storeLsOpts
+	}{
+		{"short", storeLsOpts{now: cliNow}},
+		{"long", storeLsOpts{now: cliNow, long: true}},
+		{"json", storeLsOpts{now: cliNow, json: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, reg, fs, same := seedGhostStore(t)
+			var good bytes.Buffer
+			if err := runStoreGhosts(cliCtx(), &good, s, reg, fs, same, tc.opts); err != nil {
+				t.Fatalf("stage success: %v", err)
+			}
+			sawNil := false
+			for n := 0; n < 100; n++ {
+				s, reg, fs, same := seedGhostStore(t)
+				err := runStoreGhosts(cliCtx(), &failAfterWriter{n: n}, s, reg, fs, same, tc.opts)
+				if err == nil {
+					sawNil = true
+				} else if sawNil {
+					t.Fatalf("write %d failed after a success, want monotonic errors-then-clean", n)
+				}
+			}
+			if !sawNil {
+				t.Error("no write prefix succeeded, want the full run clean past its writes")
+			}
+		})
+	}
+}
+
+func TestStoreLsGhostsNamesEvidence(t *testing.T) {
+	s, reg, fs, same := seedGhostStore(t)
 	var out bytes.Buffer
 	if err := runStoreGhosts(cliCtx(), &out, s, reg, fs, same, storeLsOpts{now: cliNow}); err != nil {
 		t.Fatalf("runStoreGhosts: %v", err)
