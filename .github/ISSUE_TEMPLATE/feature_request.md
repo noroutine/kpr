@@ -1,4 +1,7 @@
-# Feature request
+---
+name: Feature request
+about: Propose something new
+---
 
 ## Problem
 

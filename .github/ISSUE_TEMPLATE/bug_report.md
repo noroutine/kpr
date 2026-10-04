@@ -1,4 +1,7 @@
-# Bug report
+---
+name: Bug report
+about: Tell us what broke
+---
 
 ## Observed
 
