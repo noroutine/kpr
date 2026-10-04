@@ -1,0 +1,14 @@
+# PR quality gate: Codecov posts project + patch commit statuses off
+# the CI upload (OIDC, tokenless); master requires both green
+# (repo Settings → Branches → ruleset → Require status checks).
+codecov:
+  require_ci_to_pass: true
+coverage:
+  status:
+    project:
+      default:
+        target: 90%
+        threshold: 0.5%
+    patch:
+      default:
+        target: 90%

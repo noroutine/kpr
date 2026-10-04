@@ -75,8 +75,10 @@ files are touched.
 `coverage` writes `coverage.out` (statement-based — Go has no
 branch-coverage mode) and `coverage.html`. The terminal table
 (`go tool cover -func`) is the report of record; CI prints it to the job
-log (the runners have no artifact service, so nothing is uploaded).
-Coverage is informational — no percentage gate.
+log (the Forgejo runners have no artifact service, so nothing is
+uploaded there). GitHub CI uploads `coverage.out` to Codecov
+(OIDC, tokenless), and `codecov.yml` gates pull requests on it:
+project stays above 90%, the patch itself at 90%.
 
 Unit-only coverage excludes the redis happy paths on purpose (they
 live in e2e now): `coverage-e2e` runs both suites with
