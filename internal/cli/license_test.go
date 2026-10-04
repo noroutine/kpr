@@ -15,7 +15,7 @@ import (
 // either proprietary or warranty-bearing.
 func TestLicenseBannerContent(t *testing.T) {
 	b := config.LicenseBanner()
-	for _, want := range []string{"Copyright (C)", "ABSOLUTELY NO WARRANTY", "redistribute", "LICENSE"} {
+	for _, want := range []string{"Copyright (C)", "ABSOLUTELY NO WARRANTY", "redistribute", "kpr license"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("banner = %q, want it to contain %q", b, want)
 		}
