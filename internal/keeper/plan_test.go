@@ -266,6 +266,10 @@ func (allFailStore) All(context.Context) ([]policy.Row, error) {
 	return nil, errTestDown
 }
 
+func (allFailStore) Get(context.Context, string, string) (policy.Row, bool, error) {
+	return policy.Row{}, false, errTestDown
+}
+
 // planMarkFailStore loses the mark write mid-add.
 type planMarkFailStore struct {
 	*store.MemStore

@@ -495,6 +495,9 @@ func (d deadStore) All(context.Context) ([]policy.Row, error) {
 func (d deadStore) Due(context.Context) ([]policy.Row, error) {
 	return nil, d.outage()
 }
+func (d deadStore) Get(context.Context, string, string) (policy.Row, bool, error) {
+	return policy.Row{}, false, d.outage()
+}
 func (d deadStore) MarkDue(context.Context, string, string, string) error {
 	return d.outage()
 }

@@ -195,6 +195,27 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			done++
 			continue
 		}
+		// Pre-delete re-read: the pass holds pass-start state, but a
+		// push may have cleared the mark (or untracked the row)
+		// since. Act on fresh state — delete the fresh digest, or
+		// skip what is no longer due. This narrows the
+		// mark-to-delete race to the check-delete instant; it does
+		// not close it (no lock binds the push path — fencing or
+		// epoch-CAS would; see docs/ARCHITECTURE.md).
+		cur, ok, gerr := s.Store.Get(ctx, r.Repo, r.Tag)
+		if gerr != nil {
+			sum.Failures = append(sum.Failures, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, gerr))
+			resolve(r, "failed", gerr)
+			sum.Failed++
+			done++
+			continue
+		}
+		if !ok || !cur.Due {
+			resolve(r, "skipped", nil)
+			done++
+			continue
+		}
+		r = cur
 		outcome, derr := s.deleteManifest(ctx, r)
 		switch {
 		case derr != nil:

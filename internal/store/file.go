@@ -245,6 +245,14 @@ func (s *FileStore) All(context.Context) ([]policy.Row, error) {
 	return s.collect()
 }
 
+func (s *FileStore) Get(_ context.Context, repo, tag string) (policy.Row, bool, error) {
+	path, err := s.rowFile(repo, tag)
+	if err != nil {
+		return policy.Row{}, false, err
+	}
+	return readRow(path)
+}
+
 func (s *FileStore) Due(context.Context) ([]policy.Row, error) {
 	rows, err := s.collect()
 	if err != nil {

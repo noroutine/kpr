@@ -106,6 +106,23 @@ func (s *RedisStore) Record(ctx context.Context, r policy.Row) error {
 	return s.rdb.HSet(ctx, RowsKey, k, encodeRow(r)).Err()
 }
 
+func (s *RedisStore) Get(ctx context.Context, repo, tag string) (policy.Row, bool, error) {
+	raw, err := s.rdb.HGet(ctx, RowsKey, key(repo, tag)).Bytes()
+	if err == redis.Nil {
+		return policy.Row{}, false, nil
+	}
+	if err != nil {
+		return policy.Row{}, false, err
+	}
+	var r policy.Row
+	// Unparseable rows read as absent, like All: the backend
+	// skips torn rows everywhere, never refuses on them.
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return policy.Row{}, false, nil
+	}
+	return r, true, nil
+}
+
 func (s *RedisStore) All(ctx context.Context) ([]policy.Row, error) {
 	vals, err := s.rdb.HVals(ctx, RowsKey).Result()
 	if err != nil {

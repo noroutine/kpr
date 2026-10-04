@@ -136,10 +136,18 @@ All five policies are live behind `reap [policy]` (bare `reap` means
 `reap all`); one evaluation path (`EvaluatePolicy`/`EvaluatePolicies`)
 serves the CLI and the e2e suite alike. Marks accumulate across calls
 until `sweep` or `plan discard`. `latest` is spared by every policy
-and never counts into keep-N. Known gap: `sweep` deletes by digest
-and never revalidates the mark — a row marked due, then recreated
-upstream before the sweep runs, still deletes the live manifest.
-Grace paces the mark, it does not close this window.
+and never counts into keep-N. Known gap, narrowed: a push clears
+the mark on record (newer-wins), and the pass re-reads each row
+before deleting — but check-then-act against pushes nothing
+serializes is TOCTOU by definition. A push landing between the
+re-read and the registry delete still wins; grace paces the mark,
+the re-read narrows the window, neither closes it. Full closure
+needs mutual exclusion with the push path (a readonly fence held
+across deletes, or a push-epoch CAS) — or, equivalently shaped,
+sweep as a gc phase under such a fence. Until then, fencing
+anyone who wants to shoot their own foot is out of scope: no
+lock kpr holds binds the receiver, and the registry fences
+nothing by itself.
 
 | Policy | Reason (marks a row eligible) | Tuning (in code) |
 | --- | --- | --- |

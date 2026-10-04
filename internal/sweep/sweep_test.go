@@ -93,6 +93,47 @@ func (f *stubRegistry) DeleteManifest(ctx context.Context, repo, ref string) (st
 	return f.outcome, nil
 }
 
+// staleDueStore replays the pass-start due list while the wrapped
+// store moves on: the mid-pass push the re-read exists for,
+// deterministically. Get delegates to live state; Due stays frozen.
+type staleDueStore struct {
+	store.Store
+	stale []policy.Row
+}
+
+func (s staleDueStore) Due(context.Context) ([]policy.Row, error) { return s.stale, nil }
+
+// A push landing mid-pass clears the mark in the store, but the
+// pass already holds the stale copy: the pre-delete re-read must
+// see the cleared row and skip it, so the fresh manifest survives.
+// If this fails, the sweeper deletes off pass-start state and a
+// re-push between mark and sweep wipes the live image.
+func TestRunPassRereadsDueBeforeDelete(t *testing.T) {
+	s := store.NewMemStore()
+	c := testCtx()
+	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:old",
+		PushedAt: sweepNow.Add(-2 * time.Hour), Due: true, Reason: "test"})
+	stale, err := s.Due(c)
+	if err != nil {
+		t.Fatalf("stage due: %v", err)
+	}
+	// The mid-pass push: strictly newer, so Record clears the mark.
+	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:new",
+		PushedAt: sweepNow.Add(-time.Hour), Actor: "kpr-receiver"})
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: staleDueStore{s, stale}, Registry: stub,
+		Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
+	sum := sw.RunPass(c, "test")
+	if sum.Performed != 0 {
+		t.Errorf("summary = %+v, want 0 performed (mark cleared mid-pass)", sum)
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.refs) != 0 {
+		t.Errorf("deleted %v, want no registry call (fresh row is not due)", stub.refs)
+	}
+}
+
 // An armed pass deletes through the Registry port: the stub records
 // the digest reference and the confirmed row leaves the store. If
 // this fails, the sweep use case bypasses its port or deletes by tag

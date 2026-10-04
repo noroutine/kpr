@@ -40,6 +40,13 @@ func (m *MemStore) Record(_ context.Context, r policy.Row) error {
 	return nil
 }
 
+func (m *MemStore) Get(_ context.Context, repo, tag string) (policy.Row, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.rows[key(repo, tag)]
+	return r, ok, nil
+}
+
 func (m *MemStore) All(context.Context) ([]policy.Row, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

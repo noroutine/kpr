@@ -90,6 +90,9 @@ type Store interface {
 	All(ctx context.Context) ([]policy.Row, error)
 	// Due returns only rows marked due.
 	Due(ctx context.Context) ([]policy.Row, error)
+	// Get reads one row: the pre-delete re-read (a pass acts on
+	// fresh state, never its pass-start copy). False means untracked.
+	Get(ctx context.Context, repo, tag string) (policy.Row, bool, error)
 	// MarkDue marks a row due with a sweep reason (the reap interface).
 	MarkDue(ctx context.Context, repo, tag, reason string) error
 	// ClearDue drops every due mark, returning how many went (the

@@ -436,6 +436,10 @@ func (readFailStore) All(context.Context) ([]policy.Row, error) {
 	return nil, errTestDown
 }
 
+func (readFailStore) Get(context.Context, string, string) (policy.Row, bool, error) {
+	return policy.Row{}, false, errTestDown
+}
+
 // activityFailStore tracks fine but loses the activity ring: the
 // rows print, the outcomes stay empty.
 type activityFailStore struct {

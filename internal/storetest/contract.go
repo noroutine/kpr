@@ -26,6 +26,7 @@ func RunContract(t *testing.T, setup func(t *testing.T) store.Store) {
 	t.Run("clear", func(t *testing.T) { testClearDueEmptiesMarks(t, setup(t)) })
 	t.Run("unmark", func(t *testing.T) { testUnmarkDueClearsOneMark(t, setup(t)) })
 	t.Run("repush", func(t *testing.T) { testRecordRepushClearsStaleMark(t, setup(t)) })
+	t.Run("get", func(t *testing.T) { testGetReadsOneRow(t, setup(t)) })
 	t.Run("delete", func(t *testing.T) { testDeleteRemovesRow(t, setup(t)) })
 	t.Run("current", func(t *testing.T) { testCurrentRoundTrip(t, setup(t)) })
 	t.Run("activity", func(t *testing.T) { testActivityRingCapped(t, setup(t)) })
@@ -38,6 +39,26 @@ var storeNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 
 func srow(repo, tag string) policy.Row {
 	return policy.Row{Repo: repo, Tag: tag, Digest: "sha256:abc", PushedAt: storeNow}
+}
+
+// Get is the pre-delete re-read: one row by key, false for untracked.
+// Every backend must serve it — the sweeper acts on fresh state,
+// never its pass-start copy. If this fails, the re-read has no leg
+// on some backend and the race it narrows stays wide open there.
+func testGetReadsOneRow(t *testing.T, s store.Store) {
+	c := ctx()
+	_ = s.Record(c, srow("app", "v1"))
+	_ = s.Record(c, srow("app", "v2"))
+	got, ok, err := s.Get(c, "app", "v1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !ok || got.Repo != "app" || got.Tag != "v1" || got.Digest != "sha256:abc" {
+		t.Errorf("Get = %+v, %v, want the v1 row held", got, ok)
+	}
+	if _, ok, err := s.Get(c, "app", "missing"); err != nil || ok {
+		t.Errorf("Get missing = %v, %v, want false, nil (untracked, not failed)", ok, err)
+	}
 }
 
 func ctx() context.Context {
