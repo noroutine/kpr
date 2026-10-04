@@ -61,7 +61,7 @@ mutating routes. Traefik only ever fronts the console.
 ## Step 0 — pin the image
 
 Multiplatform images publish on tags only, since per-push builds
-are heat: `nrtn.dev/catalyst/kpr:<release-tag>` (`latest` tracks
+are heat: `ghcr.io/noroutine/kpr:<release-tag>` (`latest` tracks
 semver releases). Pin a tag; don't float.
 
 ## Step 1 — registry config
@@ -111,7 +111,7 @@ one-shot commands stay disarmed until `KPR_CLI_NO_DRY_RUN=true`.
 ```yaml
 services:
   kpr:
-    image: nrtn.dev/catalyst/kpr:<release-tag>   # pin it, see Step 0
+    image: ghcr.io/noroutine/kpr:latest   # copy-pasteable; pin a release tag instead, see Step 0
     container_name: kpr
     volumes:
       # Both are required. kpr resolves the store root from the
