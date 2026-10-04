@@ -252,13 +252,11 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeV
 		// husks are confirmed, instead of carrying them to the
 		// delta. The tail still says how many were netted out.
 		liveRepos := fs.Repos - fs.Husks
-		fsBody = fmt.Sprintf("%s, %s, %s",
+		fsBody = fmt.Sprintf("%s, %s, %s, %s",
 			plural(liveRepos, "repo", "repos"),
 			plural(fs.Tags, "tag", "tags"),
-			plural(fs.Sentinels, "sentinel", "sentinels"))
-		if fs.Husks > 0 {
-			fsBody += ", " + plural(fs.Husks, "husk", "husks")
-		}
+			plural(fs.Sentinels, "sentinel", "sentinels"),
+			plural(fs.Husks, "husk", "husks"))
 		fsDelta = fmt.Sprintf("%s, %s, %s",
 			signedPlural(liveRepos-api.Repos, "repo", "repos"),
 			signedPlural(fs.Tags-api.Tags, "tag", "tags"),

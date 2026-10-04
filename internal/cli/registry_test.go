@@ -117,7 +117,7 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 		"catalog: 1 repo, 2 tags, 0 sentinels",
 		"store  : 0 repos, 0 tags, 0 sentinels, store status: unpaired",
 		"store Δ: -1 repo, -2 tags, +0 sentinels",
-		"fs     : 1 repo, 1 tag, 0 sentinels",
+		"fs     : 1 repo, 1 tag, 0 sentinels, 0 husks",
 		"fs Δ   : +0 repos, -1 tag, +0 sentinels",
 		"revs   : 1 revision, 0 untagged",
 		"blobs  : 1 blob, 1 layer link, 1 upload",
@@ -300,10 +300,9 @@ func TestAnalyzeLinesNamesDangling(t *testing.T) {
 	}
 }
 
-// Husk repos tail the fs line only when present: a clean walk reads
-// exactly as before, a husked one names its count. Names ride
-// --json only — 150 rows never fit a block. If this fails, husks
-// hide or clean blocks grow noise.
+// The fs line always carries its husk count: 0 husks on a clean
+// walk reads as a verdict, not a missing tail. Names ride --json
+// only — 150 rows never fit a block. If this fails, husks hide.
 func TestAnalyzeLinesNamesHusks(t *testing.T) {
 	fsRep := registryfs.Report{Repos: 3, Tags: 1, HuskRepos: []string{"bare", "nest/husk"}, Husks: 2}
 	lines := analyzeLines(backfill.CatalogReport{}, fsRep, storeView{}, true)
@@ -311,8 +310,8 @@ func TestAnalyzeLinesNamesHusks(t *testing.T) {
 		t.Errorf("fs line = %q, want repos-minus-husks with husk tail", got)
 	}
 	clean := analyzeLines(backfill.CatalogReport{}, registryfs.Report{}, storeView{}, true)
-	if strings.Contains(clean[3], "husk") {
-		t.Errorf("clean fs line = %q, want no husk tail", clean[3])
+	if got := clean[3]; got != "fs     : 0 repos, 0 tags, 0 sentinels, 0 husks" {
+		t.Errorf("clean fs line = %q, want zero husks shown", got)
 	}
 }
 

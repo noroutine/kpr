@@ -31,7 +31,7 @@ yet built live in [ANALYSIS_FUTURE.md](ANALYSIS_FUTURE.md).
 catalog: 600 repos, 17050 tags, 5 sentinels
 store  : 599 repos, 17048 tags, 1 sentinel, store status: paired
 store Δ: -1 repo, -2 tags, -4 sentinels
-fs     : 600 repos, 17050 tags, 5 sentinels
+fs     : 600 repos, 17050 tags, 5 sentinels, 0 husks
 fs Δ   : +0 repos, +0 tags, +0 sentinels
 revs   : 24993 revisions, 7943 untagged
 blobs  : 55077 blobs, 101173 layer links, 1 upload
@@ -61,11 +61,12 @@ invariant.
 - `fs` — what the walk finds, sentinels apart, plus the
   running fs-minus-API deltas, negative while the walk counts
   up, converging on the skew. The sentinel delta is the
-  machinery-footprint mismatch: normally +0. Tagless repos tail
-  the line as `N husks` when present (names ride `--json` as
-  `husk_repos`); the repo count reads net of them, converging
-  with the catalog as verdicts land live. `gc` removes them
-  armed, orphans go with the next collect.
+  machinery-footprint mismatch: normally +0. The line always
+  carries its husk count (`0 husks` is itself the verdict);
+  names ride `--json` as `husk_repos`. The repo count reads
+  net of tagless repos, converging with the catalog as verdicts
+  land live. `gc` removes them armed, orphans go with the next
+  collect.
 - `revs` — manifests on disk (every push writes one, tagged
   or not) and `untagged` = revisions minus fs tags, clamped
   at zero. Tags are pointers; revisions are residents. Dead
