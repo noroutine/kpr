@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -152,6 +153,66 @@ func TestListGhostsNeedsBothWitnesses(t *testing.T) {
 	}
 	if _, _, _, err := ListGhosts(keeperCtx(), s, reg, nil, ghostProof(t, s)); err == nil {
 		t.Error("ListGhosts(nil fs) succeeded, want refusal (one witness is not a listing)")
+	}
+}
+
+// Buckets sort for stable reads: ghosts repo-major, conflicts and
+// unreadable each alphabetical — so a plan diff means a state
+// diff, never map order. If this fails, the listing reads
+// nondeterministic across identical states.
+func TestListGhostsSortsBuckets(t *testing.T) {
+	s := store.NewMemStore()
+	c := keeperCtx()
+	old := keeperNow.Add(-200 * 24 * time.Hour)
+	for _, r := range []policy.Row{
+		{Repo: "zebra", Tag: "v1", Digest: "sha256:a", PushedAt: old},
+		{Repo: "apple", Tag: "v1", Digest: "sha256:b", PushedAt: old},
+		{Repo: "apple", Tag: "a2", Digest: "sha256:c", PushedAt: old},
+		{Repo: "split-b", Tag: "v1", Digest: "sha256:d", PushedAt: old},
+		{Repo: "split-a", Tag: "v1", Digest: "sha256:e", PushedAt: old},
+		{Repo: "flaky-b", Tag: "v1", Digest: "sha256:f", PushedAt: old},
+		{Repo: "flaky-a", Tag: "v1", Digest: "sha256:g", PushedAt: old},
+	} {
+		_ = s.Record(c, r)
+	}
+	reg := ghostCatalog{
+		tags:  map[string][]string{"split-a": {"other"}, "split-b": {"other"}},
+		gone:  map[string]bool{"zebra": true, "apple": true},
+		flaky: map[string]bool{"flaky-a": true, "flaky-b": true},
+	}
+	ghosts, conflicts, unreadable, err := ListGhosts(c, s, reg, map[string]bool{"other": true}, ghostProof(t, s))
+	if err != nil {
+		t.Fatalf("ListGhosts: %v", err)
+	}
+	var names []string
+	for _, g := range ghosts {
+		names = append(names, g.Row.Repo+":"+g.Row.Tag)
+	}
+	want := []string{"apple:a2", "apple:v1", "zebra:v1"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("ghosts = %v, want %v (repo-major, tag-minor)", names, want)
+	}
+	if !reflect.DeepEqual(conflicts, []string{"split-a", "split-b"}) {
+		t.Errorf("conflicts = %v, want sorted", conflicts)
+	}
+	if !reflect.DeepEqual(unreadable, []string{"flaky-a", "flaky-b"}) {
+		t.Errorf("unreadable = %v, want sorted", unreadable)
+	}
+}
+
+// An empty store with an empty fs view lists nothing, successfully:
+// there are no absences to trust, so the live-view refusal (which
+// guards tracked rows against an empty set) does not apply. If
+// this fails, a fresh stack cannot ask about ghosts.
+func TestListGhostsEmptyStoreEmptyFs(t *testing.T) {
+	s := store.NewMemStore()
+	reg := ghostCatalog{}
+	ghosts, conflicts, unreadable, err := ListGhosts(keeperCtx(), s, reg, map[string]bool{}, ghostProof(t, s))
+	if err != nil {
+		t.Fatalf("ListGhosts empty/empty: %v (want success, nothing to trust)", err)
+	}
+	if len(ghosts) != 0 || len(conflicts) != 0 || len(unreadable) != 0 {
+		t.Errorf("buckets = %v/%v/%v, want all empty", ghosts, conflicts, unreadable)
 	}
 }
 

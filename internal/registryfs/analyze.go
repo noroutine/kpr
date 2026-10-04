@@ -191,6 +191,9 @@ func joinRefs(r *refs) (danglingTags, danglingLayers int) {
 // drifts.
 func isSentinelTag(parts []string) bool {
 	idx := slices.Index(parts, "_manifests")
+	// NOTE(mutants): <= is equivalent — idx 2 joins a single
+	// path component, which can never carry the slashed
+	// sentinel prefix, so the check below saves it regardless.
 	if idx < 2 {
 		return false
 	}
@@ -274,13 +277,18 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 			// dir classification stops below _manifests. The
 			// tag's own current/link still counts through the
 			// file branch below.
+			// NOTE(mutants): > is equivalent — at len 2 the
+			// guarded slice is empty and never contains,
+			// short-circuit or evaluated.
 			if len(parts) >= 2 && slices.Contains(parts[1:len(parts)-1], "_manifests") {
 				return nil
 			}
 			switch {
-			case len(parts) >= 2 && parts[0] == "repositories" && parts[len(parts)-1] == "_uploads":
+			case len(parts) > 2 && parts[0] == "repositories" && parts[len(parts)-1] == "_uploads":
 				// Per-repo upload sessions: one subdir each.
-				// Counted here, never descended into.
+				// Counted here, never descended into. Deeper
+				// than two: a top-level repositories/_uploads
+				// is dead layout, not a repo's sessions.
 				kids, kerr := os.ReadDir(path)
 				if kerr != nil {
 					return kerr
@@ -299,6 +307,9 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 					if repo := strings.Join(parts[1:], "/"); !slices.Contains(parts[1:], "_manifests") && !strings.HasPrefix(repo, backfill.SentinelPrefix) {
 						open = append(open, openRepo{dir: path, name: repo})
 					}
+					// NOTE(mutants): == is equivalent — returning
+					// the nil error early lands where falling
+					// through lands (the return nil below).
 				} else if merr != nil && !os.IsNotExist(merr) {
 					return merr
 				}
@@ -322,6 +333,11 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 					rep.Sentinels++
 				}
 				repo := strings.Join(parts[1:slices.Index(parts, "_manifests")], "/")
+				// NOTE(mutants): i++ is equivalent — closeThrough
+				// keeps open to the current ancestry, so the
+				// tag's repo is always top-of-stack: the first
+				// check matches and the break skips the post
+				// statement either way.
 				for i := len(open) - 1; i >= 0; i-- {
 					if open[i].name == repo {
 						open[i].cleared = true
@@ -345,6 +361,10 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 				pointers.layers = append(pointers.layers, target)
 			}
 		}
+		// NOTE(mutants): > is equivalent on both guards — a data
+		// file at len 2 ([blobs, data]) or len 4 never occurs in
+		// registry-produced layouts (blob data sits five deep),
+		// so only hand-planted shapes distinguish them.
 		if !d.IsDir() && len(parts) >= 2 && parts[0] == "blobs" && filepath.Base(path) == "data" {
 			rep.Blobs++
 			fi, serr := d.Info()

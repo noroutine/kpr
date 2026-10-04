@@ -238,6 +238,104 @@ func TestAnalyzeUnreadableLinkFails(t *testing.T) {
 	}
 }
 
+// A top-level repositories/_uploads is dead layout, not a repo's
+// sessions: the walk counts per-repo areas only, deeper than two.
+// If this fails, stray dirs inflate the upload count.
+func TestAnalyzeSkipsTopLevelUploads(t *testing.T) {
+	root := t.TempDir()
+	junk := filepath.Join(root, "docker", "registry", "v2", "repositories", "_uploads", "sess-1")
+	if err := os.MkdirAll(junk, 0o755); err != nil {
+		t.Fatalf("stage junk uploads: %v", err)
+	}
+	got, err := Analyze(proveRoot(t, root), nil)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if got.Uploads != 0 {
+		t.Errorf("Analyze.Uploads = %d, want 0 (dead layout uncounted)", got.Uploads)
+	}
+}
+
+// Progress fires mid-walk and stays sparse: a long walk reports
+// before the final line, but per-visit snapshots would drown the
+// pipe. The cadence is a tuning (not pinned exact), the bounds
+// are the contract — at least one mid report on a long walk,
+// never a flood. If this fails, the live block either never
+// updates or spams one line per file.
+func TestAnalyzeProgressBounds(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	files := map[string]string{
+		"repositories/aaa/_manifests/revisions/sha256/bbb/link": "sha256:bbb",
+	}
+	for i := 0; i < 1050; i++ {
+		files[fmt.Sprintf("repositories/zzz/_layers/sha256/d%04d/link", i)] = "sha256:111"
+	}
+	for rel, body := range files {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	var mids int
+	var last Report
+	got, err := Analyze(proveRoot(t, root), func(rep Report) {
+		mids++
+		last = rep
+	})
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if mids < 2 {
+		t.Errorf("progress reports = %d, want mid-walk plus final", mids)
+	}
+	if mids > 100 {
+		t.Errorf("progress reports = %d, want sparse, not per-visit", mids)
+	}
+	if last.Husks != got.Husks || len(last.HuskRepos) != len(got.HuskRepos) {
+		t.Errorf("last mid %+v, want the final verdict %+v", last, got)
+	}
+}
+
+// A nested repo sorting before _manifests still classifies and
+// clears its parent: the open stack holds the current ancestry,
+// so the parent is top-of-stack at its tag's visit even though
+// 0sub opened earlier in lexical order. If this fails,
+// early-sorting nested repos orphan their parent's husk verdict.
+func TestAnalyzeNestedEarlyRepoClearsParent(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	files := map[string]string{
+		"repositories/r/_manifests/tags/v1/current/link":           "sha256:aaa",
+		"repositories/r/0sub/_manifests/revisions/sha256/bbb/link": "sha256:bbb",
+		"repositories/r/0sub/_manifests/tags/nightly/current/link": "sha256:bbb",
+	}
+	for rel, body := range files {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	got, err := Analyze(proveRoot(t, root), nil)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if got.Repos != 2 || got.Tags != 2 {
+		t.Errorf("Analyze = %+v, want 2 repos 2 tags", got)
+	}
+	for _, h := range got.HuskRepos {
+		if h == "r" {
+			t.Errorf("HuskRepos = %v, want r cleared by its tag", got.HuskRepos)
+		}
+	}
+}
+
 // An unreadable upload session fails the walk: the uploader's
 // half-state must abort analysis, never silently uncount. If this
 // fails, permission trouble mid-layout reads as clean.

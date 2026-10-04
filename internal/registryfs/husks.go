@@ -84,6 +84,9 @@ func ListRepos(store proof.FilesystemStore) (map[string]bool, error) {
 				return rerr
 			}
 			out[filepath.ToSlash(rel)] = true
+			// NOTE(mutants): == is equivalent — returning the
+			// nil error early lands where falling through
+			// lands (the return nil below).
 		} else if merr != nil && !os.IsNotExist(merr) {
 			return merr
 		}
@@ -133,6 +136,9 @@ func ListHusks(store proof.FilesystemStore) ([]string, error) {
 					names = append(names, name)
 					dirs = append(dirs, path)
 				}
+				// NOTE(mutants): == is equivalent — returning
+				// the nil error early lands where falling
+				// through lands (the return nil below).
 			} else if merr != nil && !os.IsNotExist(merr) {
 				return merr
 			}

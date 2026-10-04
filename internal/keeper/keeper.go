@@ -346,6 +346,9 @@ func ListGhosts(ctx context.Context, s store.Store, reg CatalogSource, fsRepos m
 		}
 		conflicts = append(conflicts, repo)
 	}
+	// NOTE(mutants): <= is equivalent on both legs — ghost
+	// repo:tag pairs are unique, so equal elements never compare
+	// and the order is total either way.
 	sort.Slice(ghosts, func(i, j int) bool {
 		if ghosts[i].Row.Repo != ghosts[j].Row.Repo {
 			return ghosts[i].Row.Repo < ghosts[j].Row.Repo
