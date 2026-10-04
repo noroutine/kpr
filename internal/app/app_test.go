@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -292,6 +293,69 @@ func TestIndexPageIsKeeperFront(t *testing.T) {
 		if strings.Contains(body, gone) {
 			t.Errorf("front page still carries %q (mock, link, ball, or dropped section)", gone)
 		}
+	}
+}
+
+// A client that goes away mid-write must not 500 the render: the
+// execute error is logged and the handler returns. If this fails,
+// renderIndex answers write failures with a second write.
+func TestRenderIndexLogsWriteFailure(t *testing.T) {
+	logs := captureLog(t)
+	renderIndex(failWriter{}, "/app")
+	if !strings.Contains(logs.String(), "Error executing index.html") {
+		t.Errorf("log = %q, want the execute refusal logged", logs.String())
+	}
+}
+
+// failWriter refuses every write: the gone-mid-write client.
+type failWriter struct{}
+
+func (failWriter) Header() http.Header { return http.Header{} }
+func (failWriter) Write([]byte) (int, error) {
+	return 0, errors.New("client gone")
+}
+func (failWriter) WriteHeader(int) {}
+
+// Behind a subpath reverse proxy (stripped prefix) the front page's
+// stylesheet must carry the prefix or it 404s against the outer
+// host. /events stays put regardless — only the UI href moves. If
+// this fails, the landing page is unstyled under a prefix, or the
+// receiver moved (which must never happen for a UI reason).
+func TestIndexPagePrefixesStylesheetWithBasePath(t *testing.T) {
+	t.Cleanup(config.SetCurrent(config.NewBuilder().
+		WithAppBasePath("/app").
+		Build()))
+
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = s.Start(ctx) }()
+	base := "http://" + ln.Addr().String()
+	waitFor(t, base+"/")
+
+	resp, err := testClient.Get(base + "/") //nolint:gosec,noctx // test-only loopback
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	drainAndClose(t, resp)
+	if err != nil {
+		t.Fatalf("read /: %v", err)
+	}
+	body := string(raw)
+	if !strings.Contains(body, `href="/app/static/style.css"`) {
+		t.Errorf("front page lacks prefixed stylesheet href")
+	}
+
+	// The receiver never moves for UI reasons.
+	resp2, err := testClient.Post(base+"/events", "application/json", strings.NewReader(`{}`)) //nolint:gosec,noctx // test-only loopback
+	if err != nil {
+		t.Fatalf("POST /events: %v", err)
+	}
+	drainAndClose(t, resp2)
+	if resp2.StatusCode == http.StatusNotFound {
+		t.Errorf("POST /events 404s with a base path set — the receiver moved")
 	}
 }
 

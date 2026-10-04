@@ -75,6 +75,11 @@ const (
 	// Empty (the default) renders bare root-relative hrefs.
 	EnvConsoleBasePath = "KPR_CONSOLE_BASE_PATH"
 
+	// EnvAppBasePath prefixes the app front page's asset hrefs under
+	// a reverse-proxy subpath, the same way. The receiver (/events)
+	// never moves — only UI hrefs do. Empty renders bare hrefs.
+	EnvAppBasePath = "KPR_APP_BASE_PATH"
+
 	// EnvRedisAddr overrides the redis address kpr uses for TTL tracking
 	// and cleanup bookkeeping. Defaults to DefaultRedisAddr.
 	EnvRedisAddr = "KPR_REDIS_ADDR"
@@ -214,6 +219,7 @@ var EnvVars = []EnvVar{
 	{EnvAppHost, "Application server bind address. Defaults to \"::\" (dual-stack IPv4+IPv6)."},
 	{EnvAppPort, "Application server port. Defaults to 8080; invalid values fall back to the default."},
 	{EnvConsoleBasePath, "Management console subpath prefix for hrefs (e.g. /kpr behind a stripped PathPrefix). Empty renders root-relative hrefs."},
+	{EnvAppBasePath, "Application front page subpath prefix for asset hrefs. The receiver (/events) never moves. Empty renders root-relative hrefs."},
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
 	{EnvRedisPassword, "Redis password (empty means no auth). Shown as set/unset only, never rendered."},
 	{EnvRedisDB, "Redis logical database for kpr rows. Defaults to 0; compose uses 4 (0-2 taken, 3 is the registry cache)."},
@@ -321,9 +327,13 @@ type Config struct {
 	AppPortWarning error
 	// ConsoleBasePath is EnvConsoleBasePath's normalized value, or ""
 	// when unset. Normalized to empty-or-leading-slash-no-trailing
-	// (see normalizeConsoleBasePath) so templates join hrefs by
+	// (see normalizeBasePath) so templates join hrefs by
 	// concatenation.
 	ConsoleBasePath string
+	// AppBasePath is EnvAppBasePath's normalized value, or "" when
+	// unset. Same shape as ConsoleBasePath, for the app front page's
+	// asset hrefs. Never the receiver path.
+	AppBasePath string
 
 	// RedisAddr is EnvRedisAddr's value, or DefaultRedisAddr if unset.
 	RedisAddr string
@@ -523,7 +533,8 @@ func (w *DBWarning) Error() string {
 func (b *Builder) FromEnv() *Builder {
 	b.cfg.ManagementHost = envOr(EnvManagementHost, DefaultManagementHost)
 	b.cfg.AppHost = envOr(EnvAppHost, DefaultAppHost)
-	b.cfg.ConsoleBasePath = normalizeConsoleBasePath(os.Getenv(EnvConsoleBasePath))
+	b.cfg.ConsoleBasePath = normalizeBasePath(os.Getenv(EnvConsoleBasePath))
+	b.cfg.AppBasePath = normalizeBasePath(os.Getenv(EnvAppBasePath))
 	b.cfg.RedisAddr = envOr(EnvRedisAddr, DefaultRedisAddr)
 	b.cfg.RedisPassword = os.Getenv(EnvRedisPassword)
 	b.cfg.RedisDB, b.cfg.RedisDBWarning = parseDB(os.Getenv(EnvRedisDB))
@@ -586,10 +597,10 @@ func stripScheme(endpoint string) string {
 	return endpoint
 }
 
-// normalizeConsoleBasePath shapes the href prefix: empty stays
+// normalizeBasePath shapes the href prefix: empty stays
 // empty, anything else gains a leading slash and loses trailing
 // ones, so templates concatenate without doubling or relativizing.
-func normalizeConsoleBasePath(base string) string {
+func normalizeBasePath(base string) string {
 	base = strings.TrimRight(strings.TrimSpace(base), "/")
 	if base == "" {
 		return ""
@@ -609,7 +620,11 @@ func (b *Builder) WithManagementPort(v int) *Builder    { b.cfg.ManagementPort =
 func (b *Builder) WithAppHost(v string) *Builder        { b.cfg.AppHost = v; return b }
 func (b *Builder) WithAppPort(v int) *Builder           { b.cfg.AppPort = v; return b }
 func (b *Builder) WithConsoleBasePath(v string) *Builder {
-	b.cfg.ConsoleBasePath = normalizeConsoleBasePath(v)
+	b.cfg.ConsoleBasePath = normalizeBasePath(v)
+	return b
+}
+func (b *Builder) WithAppBasePath(v string) *Builder {
+	b.cfg.AppBasePath = normalizeBasePath(v)
 	return b
 }
 func (b *Builder) WithRedisAddr(v string) *Builder              { b.cfg.RedisAddr = v; return b }

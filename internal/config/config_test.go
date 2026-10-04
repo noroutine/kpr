@@ -302,6 +302,23 @@ func TestConsoleBasePathNormalized(t *testing.T) {
 	}
 }
 
+// The app front page joins its asset href the same way: empty or
+// leading-slash-no-trailing, so the stylesheet resolves under a
+// stripped prefix. /events stays put — only UI hrefs move.
+func TestAppBasePathNormalized(t *testing.T) {
+	for in, want := range map[string]string{
+		"":      "",
+		"/app":  "/app",
+		"/app/": "/app",
+		"app":   "/app",
+		"/":     "",
+	} {
+		if got := NewBuilder().WithAppBasePath(in).Build().AppBasePath; got != want {
+			t.Errorf("base %q normalized to %q, want %q", in, got, want)
+		}
+	}
+}
+
 // A test scoping a Config override must not leak it into the next test:
 // SetCurrent's restore func has to put the previous value back. If this
 // fails, test order decides production behavior under test.
@@ -324,7 +341,7 @@ func TestSetCurrentRestoresPrevious(t *testing.T) {
 func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
-		EnvConsoleBasePath,
+		EnvConsoleBasePath, EnvAppBasePath,
 		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
 		EnvRegistryURL, EnvRegistryUser, EnvRegistryPassword,
 		EnvRegistryConfig,
