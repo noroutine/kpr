@@ -147,7 +147,16 @@ across deletes, or a push-epoch CAS) — or, equivalently shaped,
 sweep as a gc phase under such a fence. Until then, fencing
 anyone who wants to shoot their own foot is out of scope: no
 lock kpr holds binds the receiver, and the registry fences
-nothing by itself.
+nothing by itself. The harm, when the residual bites, is bounded:
+a digest delete leaves the tag link pointing at a missing
+revision (the `DanglingTags` state analyze names), so pulls fail
+until the next push restores the manifest — transient and
+retryable for anything re-pushable, which is nearly everything
+the sweeper meets. Permanent loss needs the full chain (marked,
+re-pushed same digest, bytes unrecoverable, gc collecting the
+orphans before anyone retries). No silent corruption, no
+cascade: the failure presents as a dangling tag. Fencing stays
+deferred until someone actually gets bitten.
 
 | Policy | Reason (marks a row eligible) | Tuning (in code) |
 | --- | --- | --- |
