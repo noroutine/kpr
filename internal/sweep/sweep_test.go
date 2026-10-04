@@ -359,6 +359,16 @@ func TestDryRunPlansWithoutDeleting(t *testing.T) {
 	}
 }
 
+// The single-flight bound stays positive: redis hands it to PX
+// as-is, and a zero TTL locks nothing (or errors) — file and mem
+// ignore it, so only this pin sees a collapse. If this fails, the
+// bound no longer bounds on redis.
+func TestLockTTLStaysPositive(t *testing.T) {
+	if LockTTL <= 0 {
+		t.Errorf("LockTTL = %v, want positive (redis PX)", LockTTL)
+	}
+}
+
 // Skipped rows settle too: one row untracked mid-pass, one whose mark
 // cleared, both advance Done so watchers can tell a finished pass
 // from a stalled one. If this fails, the run-state undercounts

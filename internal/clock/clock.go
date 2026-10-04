@@ -56,10 +56,8 @@ const (
 	// Tolerance bounds acceptable skew: NTP over the internet lands
 	// in milliseconds; a clock tens of seconds off is broken, not
 	// drifting. Larger skew refuses mint paths unless overridden.
-	// NOTE(mutants): tuning arithmetic is equivalent at unit steps —
-	// the lineage 1h-future literal pins the order (seconds, not
-	// minutes); no test stages skew inside the second, and none
-	// should.
+	// Pinned by the dashboard's "tolerance 30s" line, not by staged
+	// skew: no test stages skew inside the second, and none should.
 	Tolerance = 30 * time.Second
 	// Timeout bounds one exchange: a silent server must not stall a
 	// refusal path.

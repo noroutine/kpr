@@ -258,13 +258,17 @@ one earned, none by neglect):
   the exact values; the unit run never executes them.
 - `otel/telemetry.go:95` (`initMetrics` error): needs a broken global
   OTel SDK — same untestable family as the Once-guarded Warn survivor.
-- Tuning ±1 steps (each NOTE'd at the site): `ProofStaleAfter`
-  (3-day/8-day pins the order), clock `Tolerance` (lineage 1h
-  refusal pins seconds-against-minutes), `uploadStaleAge`
-  (fresh veto and 48h residue pin the order). Digit-scale typos
-  die on the order pins; unit wobbles change nothing observable.
-- Bounds, not budgets: sweep `LockTTL` (no test waits out 5
-  minutes — same family as gc's `lockTTL`/`holdLease`).
+- Tuning windows (each NOTE'd at the site): `ProofStaleAfter`
+  (3-day/8-day pins days-against-hours), `uploadStaleAge`
+  (fresh veto and 48h residue pin the order), repaint
+  `liveInterval` (collapse disables the throttle). Only the
+  collapse is observable — it dies on the order pins, each
+  proven by hand-flip; finer steps change nothing a test
+  should observe. Rendered tunings need no NOTE: the dashboard
+  pins `tolerance 30s`, the reasons pin `24h0m0s`/`168h0m0s`.
+- Bounds, not budgets: sweep `LockTTL` (minute steps
+  unobservable — same family as gc's `lockTTL`/`holdLease`);
+  collapse to zero dies on the positivity pin (redis PX).
 - Repaint throttle (`cli/progress.go` `liveInterval`): the
   throttle test pins paint-then-silence; no test measures 300ms.
 - Layout-only shapes (`gc/husk.go` walk guards): `_manifests`

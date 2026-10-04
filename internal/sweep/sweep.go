@@ -32,8 +32,11 @@ const (
 )
 
 // LockTTL bounds single-flight: a crashed sweeper can't hold it forever.
-// NOTE(mutants): bound arithmetic is equivalent — no test waits
-// out 5 minutes to distinguish the bound, and none should.
+// NOTE(mutants): minute steps are unobservable — no test waits out
+// 5 minutes, and none should. Collapse to zero is refused by the
+// positivity pin below: redis hands the bound to PX as-is, and a
+// zero TTL locks nothing (file and mem ignore it, so only the pin
+// sees the collapse).
 const LockTTL = 5 * time.Minute
 
 // Summary is the pass outcome: RunPass returns it, so `sweep` gets

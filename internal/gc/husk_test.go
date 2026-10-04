@@ -159,6 +159,19 @@ func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(v2, "cleartags", "_manifests", "tags"), 0o755); err != nil {
 		t.Fatalf("stage empty tags: %v", err)
 	}
+	// A stray file named _manifests does not end the descent: nested
+	// repos beneath it still classify. If this fails, a misplaced
+	// file hides a whole subtree from collection.
+	stray := filepath.Join(v2, "stray", "nest-husk", "_manifests", "revisions", "sha256", "h", "link")
+	if err := os.MkdirAll(filepath.Dir(stray), 0o755); err != nil {
+		t.Fatalf("stage nested husk: %v", err)
+	}
+	if err := os.WriteFile(stray, []byte("sha256:h"), 0o644); err != nil {
+		t.Fatalf("stage nested link: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(v2, "stray", "_manifests"), []byte("stray"), 0o644); err != nil {
+		t.Fatalf("stage stray file: %v", err)
+	}
 	// Crash residue from long ago never vetoes: only a session
 	// touched within the stale age may still be tagging.
 	old := time.Now().Add(-48 * time.Hour)
@@ -173,15 +186,15 @@ func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RemoveHusks: %v", err)
 	}
-	if strings.Join(got, ",") != "cleartags,husk,nest/husk,stale" {
-		t.Fatalf("removed %v, want [cleartags husk nest/husk stale]", got)
+	if strings.Join(got, ",") != "cleartags,husk,nest/husk,stale,stray/nest-husk" {
+		t.Fatalf("removed %v, want [cleartags husk nest/husk stale stray/nest-husk]", got)
 	}
 	for _, kept := range []string{"live", "noroutine/kpr-shadow", "busy"} {
 		if _, err := os.Lstat(filepath.Join(v2, filepath.FromSlash(kept))); err != nil {
 			t.Errorf("%s unreadable, want kept: %v", kept, err)
 		}
 	}
-	for _, gone := range []string{"cleartags", "husk", "nest/husk", "stale"} {
+	for _, gone := range []string{"cleartags", "husk", "nest/husk", "stale", "stray/nest-husk"} {
 		if _, err := os.Lstat(filepath.Join(v2, filepath.FromSlash(gone))); !os.IsNotExist(err) {
 			t.Errorf("%s survives, want removed", gone)
 		}

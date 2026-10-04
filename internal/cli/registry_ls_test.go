@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +60,38 @@ func (f mountAPI) GetBlob(_ context.Context, repo, digest string) ([]byte, error
 	hex := strings.TrimPrefix(digest, "sha256:")
 	return os.ReadFile(filepath.Join(f.root, "docker", "registry", "v2",
 		"blobs", "sha256", hex[:2], hex, "data"))
+}
+
+// serveDiskRegistry serves a staged data dir as a registry:
+// sentinel manifests and blobs off the mount, a fixed _catalog
+// body, 404 everywhere else. Command-level procurement (prove, fs
+// view, catalog) runs against bytes instead of mocks.
+func serveDiskRegistry(t *testing.T, data, catalog string) *httptest.Server {
+	t.Helper()
+	disk := mountAPI{root: data}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/_catalog" {
+			_, _ = w.Write([]byte(catalog))
+			return
+		}
+		p := strings.TrimPrefix(r.URL.Path, "/v2/"+sentinel.Repo)
+		var raw []byte
+		var err error
+		switch {
+		case strings.HasPrefix(p, "/manifests/"):
+			raw, err = disk.GetManifest(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/manifests/"))
+		case strings.HasPrefix(p, "/blobs/"):
+			raw, err = disk.GetBlob(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/blobs/"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write(raw)
+	}))
 }
 
 // Registry sentinels list evaluated: every tag the registry names
@@ -342,6 +376,13 @@ func TestRegistryLsHusksCommandDispatches(t *testing.T) {
 		t.Fatalf("stage config: %v", err)
 	}
 	t.Setenv(config.EnvRegistryConfig, cfg)
+	// Cobra keeps parsed flag values on the shared command: start
+	// from defaults so no earlier invocation leaks in.
+	for _, f := range [][2]string{{"long", "false"}, {"json", "false"}} {
+		if err := registryLsCmd.Flags().Set(f[0], f[1]); err != nil {
+			t.Fatalf("reset --%s: %v", f[0], err)
+		}
+	}
 	out, err := runCmdWithArgs(t, t.TempDir(), "http://registry:5000", registryLsCmd, []string{"husks"})
 	if err != nil {
 		t.Fatalf("ls husks: %v", err)

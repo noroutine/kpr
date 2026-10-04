@@ -558,9 +558,15 @@ func TestClockSnapshotUnreachableSource(t *testing.T) {
 	httpsConfig(t, "http://127.0.0.1:1")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, _, skew, _ := clockSnapshot(ctx)
+	_, _, skew, note := clockSnapshot(ctx)
 	if skew != "unreachable" {
 		t.Errorf("skew = %q, want unreachable", skew)
+	}
+	// The bound voices its exact tuning: any arithmetic on Tolerance
+	// renames this line. If this fails, the card's 30s moved without
+	// the docs.
+	if note != "tolerance 30s" {
+		t.Errorf("note = %q, want the 30s tolerance named", note)
 	}
 }
 

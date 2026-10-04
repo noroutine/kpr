@@ -3,8 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -216,30 +214,7 @@ func TestStoreBackfillDryRunAnnouncesPreview(t *testing.T) {
 		sentinel.Payload{V: 1, Gen: gen, ID: id, TS: time.Now().UTC().Format(time.RFC3339), Writer: "kpr-gc"}); err != nil {
 		t.Fatalf("stage served generation: %v", err)
 	}
-	disk := mountAPI{root: data}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v2/_catalog" {
-			_, _ = w.Write([]byte(`{"repositories":[]}`))
-			return
-		}
-		p := strings.TrimPrefix(r.URL.Path, "/v2/"+sentinel.Repo)
-		var raw []byte
-		var err error
-		switch {
-		case strings.HasPrefix(p, "/manifests/"):
-			raw, err = disk.GetManifest(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/manifests/"))
-		case strings.HasPrefix(p, "/blobs/"):
-			raw, err = disk.GetBlob(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/blobs/"))
-		default:
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if err != nil {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		_, _ = w.Write(raw)
-	}))
+	srv := serveDiskRegistry(t, data, `{"repositories":[]}`)
 	defer srv.Close()
 	cfgPath := filepath.Join(t.TempDir(), "registry.yml")
 	if err := os.WriteFile(cfgPath, []byte("storage:\n  filesystem:\n    rootdirectory: "+data+"\n"), 0o644); err != nil {

@@ -10,8 +10,9 @@ import (
 
 // liveInterval is the repaint floor: faster runs still paint at
 // most this often, so a 17k-tag walk doesn't redraw per tag.
-// NOTE(mutants): timing arithmetic is equivalent — the throttle
-// test pins paint-then-silence, and no test measures 300ms.
+// NOTE(mutants): only the collapse is observable — zero disables
+// the throttle and the throttle test goes red; finer steps change
+// nothing a test should measure.
 const liveInterval = 300 * time.Millisecond
 
 // liveLines repaints one \r line for long runs: counters, not a

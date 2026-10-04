@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1024,9 +1022,6 @@ func TestStoreCommandTailsRunAgainstFileBackend(t *testing.T) {
 	}
 }
 
-// The ls flag plumbing splits at the command, not just the unit:
-// `ls sentinels` through RunE shows machinery, bare ls shows
-// inventory. If this fails, the flag misroutes the view.
 // The ghosts command wires all three witnesses through real deps:
 // the store pairs to the served generation, the fs view reads the
 // registry's own data dir, the catalog 404s the gone repo — and the
@@ -1048,28 +1043,7 @@ func TestStoreLsGhostsCommandListsAgreedGone(t *testing.T) {
 		sentinel.Payload{V: 1, Gen: gen, ID: id, TS: now, Writer: "kpr-gc"}); err != nil {
 		t.Fatalf("stage served generation: %v", err)
 	}
-	disk := mountAPI{root: data}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := strings.TrimPrefix(r.URL.Path, "/v2/"+sentinel.Repo)
-		switch {
-		case strings.HasPrefix(p, "/manifests/"):
-			raw, err := disk.GetManifest(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/manifests/"))
-			if err != nil {
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			_, _ = w.Write(raw)
-		case strings.HasPrefix(p, "/blobs/"):
-			raw, err := disk.GetBlob(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/blobs/"))
-			if err != nil {
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			_, _ = w.Write(raw)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
+	srv := serveDiskRegistry(t, data, `{"repositories":[]}`)
 	defer srv.Close()
 	cfgPath := filepath.Join(t.TempDir(), "config.yml")
 	if err := os.WriteFile(cfgPath, []byte("storage:\n  filesystem:\n    rootdirectory: "+data+"\n"), 0o644); err != nil {
@@ -1095,6 +1069,13 @@ func TestStoreLsGhostsCommandListsAgreedGone(t *testing.T) {
 		_ = s.Record(c, policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
 			PushedAt: cliNow.Add(-200 * 24 * time.Hour)})
 	}()
+	// Cobra keeps parsed flag values on the shared command: start
+	// from defaults so no earlier invocation leaks in.
+	for _, f := range [][2]string{{"long", "false"}, {"json", "false"}} {
+		if err := storeLsCmd.Flags().Set(f[0], f[1]); err != nil {
+			t.Fatalf("reset --%s: %v", f[0], err)
+		}
+	}
 	out, err := runCmdWithArgs(t, dir, srv.URL, storeLsCmd, []string{"ghosts"})
 	if err != nil {
 		t.Fatalf("ls ghosts: %v", err)
@@ -1104,6 +1085,9 @@ func TestStoreLsGhostsCommandListsAgreedGone(t *testing.T) {
 	}
 }
 
+// The ls flag plumbing splits at the command, not just the unit:
+// `ls sentinels` through RunE shows machinery, bare ls shows
+// inventory. If this fails, the flag misroutes the view.
 func TestStoreLsCommandSplitsSentinels(t *testing.T) {
 	dir := t.TempDir()
 	srv := serveRegistry(t, t.TempDir(), false)
