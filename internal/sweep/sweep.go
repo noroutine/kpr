@@ -189,19 +189,16 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			done++
 			continue
 		}
-		if s.DryRun {
-			resolve(r, "planned", nil)
-			sum.Planned++
-			done++
-			continue
-		}
 		// Pre-delete re-read: the pass holds pass-start state, but a
 		// push may have cleared the mark (or untracked the row)
-		// since. Act on fresh state — delete the fresh digest, or
-		// skip what is no longer due. This narrows the
-		// mark-to-delete race to the check-delete instant; it does
-		// not close it (no lock binds the push path — fencing or
-		// epoch-CAS would; see docs/ARCHITECTURE.md).
+		// since. The armed run deletes only what is still due
+		// under an unchanged digest; anything else skips for the
+		// next pass to re-evaluate. Dry-run previews through the
+		// same gate, so the plan promises what arming performs.
+		// This narrows the mark-to-delete race to the check-delete
+		// instant; it does not close it (no lock binds the push
+		// path — fencing or epoch-CAS would; the freshest state
+		// read here is stale again by the delete).
 		cur, ok, gerr := s.Store.Get(ctx, r.Repo, r.Tag)
 		if gerr != nil {
 			sum.Failures = append(sum.Failures, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, gerr))
@@ -210,12 +207,17 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			done++
 			continue
 		}
-		if !ok || !cur.Due {
+		if !ok || !cur.Due || cur.Digest != r.Digest {
 			resolve(r, "skipped", nil)
 			done++
 			continue
 		}
-		r = cur
+		if s.DryRun {
+			resolve(r, "planned", nil)
+			sum.Planned++
+			done++
+			continue
+		}
 		outcome, derr := s.deleteManifest(ctx, r)
 		switch {
 		case derr != nil:

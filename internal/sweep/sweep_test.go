@@ -105,21 +105,26 @@ func (s staleDueStore) Due(context.Context) ([]policy.Row, error) { return s.sta
 
 // A push landing mid-pass clears the mark in the store, but the
 // pass already holds the stale copy: the pre-delete re-read must
-// see the cleared row and skip it, so the fresh manifest survives.
-// If this fails, the sweeper deletes off pass-start state and a
-// re-push between mark and sweep wipes the live image.
+// see the cleared row and skip it, so the fresh manifest survives
+// and its tracking with it. If this fails, the sweeper deletes
+// off pass-start state and a re-push between mark and sweep wipes
+// the live image.
 func TestRunPassRereadsDueBeforeDelete(t *testing.T) {
 	s := store.NewMemStore()
 	c := testCtx()
-	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:old",
-		PushedAt: sweepNow.Add(-2 * time.Hour), Due: true, Reason: "test"})
+	if err := s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:old",
+		PushedAt: sweepNow.Add(-2 * time.Hour), Due: true, Reason: "test"}); err != nil {
+		t.Fatalf("stage due: %v", err)
+	}
 	stale, err := s.Due(c)
 	if err != nil {
 		t.Fatalf("stage due: %v", err)
 	}
 	// The mid-pass push: strictly newer, so Record clears the mark.
-	_ = s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:new",
-		PushedAt: sweepNow.Add(-time.Hour), Actor: "kpr-receiver"})
+	if err := s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:new",
+		PushedAt: sweepNow.Add(-time.Hour), Actor: "kpr-receiver"}); err != nil {
+		t.Fatalf("stage push: %v", err)
+	}
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	sw := &Sweeper{Store: staleDueStore{s, stale}, Registry: stub,
 		Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
@@ -131,6 +136,130 @@ func TestRunPassRereadsDueBeforeDelete(t *testing.T) {
 	defer stub.mu.Unlock()
 	if len(stub.refs) != 0 {
 		t.Errorf("deleted %v, want no registry call (fresh row is not due)", stub.refs)
+	}
+	kept, ok, err := s.Get(c, "app", "v1")
+	if err != nil || !ok || kept.Digest != "sha256:new" || kept.Due {
+		t.Errorf("Get = %+v, %v, %v, want the fresh row held, tracking intact", kept, ok, err)
+	}
+	acts, err := s.Activity(c)
+	if err != nil {
+		t.Fatalf("activity: %v", err)
+	}
+	skipped := false
+	for _, a := range acts {
+		if a.Repo == "app" && a.Tag == "v1" && a.Outcome == "skipped" {
+			skipped = true
+		}
+	}
+	if !skipped {
+		t.Errorf("activity = %+v, want a skipped outcome for app:v1", acts)
+	}
+}
+
+// A row untracked mid-pass (rm beats the sweep to it) re-reads
+// absent: the pass skips without a registry call. If this fails,
+// the zero Row's Due=false only accidentally saves it — or not at
+// all — and the pass deletes for a row that no longer exists.
+func TestRunPassSkipsUntrackedRow(t *testing.T) {
+	s := store.NewMemStore()
+	c := testCtx()
+	if err := s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:old",
+		PushedAt: sweepNow.Add(-2 * time.Hour), Due: true, Reason: "test"}); err != nil {
+		t.Fatalf("stage due: %v", err)
+	}
+	stale, err := s.Due(c)
+	if err != nil {
+		t.Fatalf("stage due: %v", err)
+	}
+	if err := s.Delete(c, "app", "v1"); err != nil {
+		t.Fatalf("stage untrack: %v", err)
+	}
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: staleDueStore{s, stale}, Registry: stub,
+		Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
+	if sum := sw.RunPass(c, "test"); sum.Performed != 0 {
+		t.Errorf("summary = %+v, want 0 performed (row untracked mid-pass)", sum)
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.refs) != 0 {
+		t.Errorf("deleted %v, want no registry call (row is gone)", stub.refs)
+	}
+}
+
+// A re-read the store cannot serve fails the row loudly: Failed,
+// named in Failures, resolved failed, no registry call. If this
+// fails, dropping the error's continue deletes off the stale copy
+// — the exact failure the re-read exists to prevent.
+func TestRunPassFailsRowOnUnreadableState(t *testing.T) {
+	s := store.NewMemStore()
+	c := testCtx()
+	if err := s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:old",
+		PushedAt: sweepNow.Add(-2 * time.Hour), Due: true, Reason: "test"}); err != nil {
+		t.Fatalf("stage due: %v", err)
+	}
+	stale, err := s.Due(c)
+	if err != nil {
+		t.Fatalf("stage due: %v", err)
+	}
+	boom := errors.New("store down")
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: getErrStore{staleDueStore{s, stale}, boom}, Registry: stub,
+		Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
+	sum := sw.RunPass(c, "test")
+	if sum.Failed != 1 || len(sum.Failures) != 1 || !strings.Contains(sum.Failures[0], "app:v1") {
+		t.Errorf("summary = %+v, want 1 failed naming app:v1", sum)
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.refs) != 0 {
+		t.Errorf("deleted %v, want no registry call (state unreadable)", stub.refs)
+	}
+}
+
+// getErrStore fails only the re-read: Due replays the pass-start
+// snapshot while Get refuses, the unreadable-state mid-pass.
+type getErrStore struct {
+	staleDueStore
+	err error
+}
+
+func (s getErrStore) Get(context.Context, string, string) (policy.Row, bool, error) {
+	return policy.Row{}, false, s.err
+}
+
+// A still-due row under a moved digest skips: the pass evaluated
+// the old digest, and deleting the fresh one is the dangerous
+// option. The next pass re-evaluates against current state. If
+// this fails, the substitution it pins is untested in both
+// directions and the pass deletes what it never approved.
+func TestRunPassSkipsMovedDigest(t *testing.T) {
+	s := store.NewMemStore()
+	c := testCtx()
+	if err := s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:old",
+		PushedAt: sweepNow.Add(-2 * time.Hour), Due: true, Reason: "test"}); err != nil {
+		t.Fatalf("stage due: %v", err)
+	}
+	stale, err := s.Due(c)
+	if err != nil {
+		t.Fatalf("stage due: %v", err)
+	}
+	// Synthetic (no production writer holds Due across a digest
+	// move): the mark survives, the digest does not.
+	if err := s.Record(c, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:new",
+		PushedAt: sweepNow.Add(-time.Hour), Due: true, Reason: "test"}); err != nil {
+		t.Fatalf("stage moved digest: %v", err)
+	}
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: staleDueStore{s, stale}, Registry: stub,
+		Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
+	if sum := sw.RunPass(c, "test"); sum.Performed != 0 {
+		t.Errorf("summary = %+v, want 0 performed (digest moved under the mark)", sum)
+	}
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	if len(stub.refs) != 0 {
+		t.Errorf("deleted %v, want no registry call (approved digest is stale)", stub.refs)
 	}
 }
 

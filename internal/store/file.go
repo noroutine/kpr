@@ -248,7 +248,9 @@ func (s *FileStore) All(context.Context) ([]policy.Row, error) {
 func (s *FileStore) Get(_ context.Context, repo, tag string) (policy.Row, bool, error) {
 	path, err := s.rowFile(repo, tag)
 	if err != nil {
-		return policy.Row{}, false, err
+		// Name-validation only (no IO yet): Record refuses these
+		// names too, so none was ever stored — absent, not failed.
+		return policy.Row{}, false, nil
 	}
 	return readRow(path)
 }

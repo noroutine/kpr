@@ -42,13 +42,29 @@ func srow(repo, tag string) policy.Row {
 }
 
 // Get is the pre-delete re-read: one row by key, false for untracked.
-// Every backend must serve it — the sweeper acts on fresh state,
-// never its pass-start copy. If this fails, the re-read has no leg
-// on some backend and the race it narrows stays wide open there.
+// Every backend must serve it — the sweeper checks the freshest
+// state it can read, never its pass-start copy. Marks ride inside
+// the row value on every backend, so Get must see them too. If this
+// fails, the re-read has no leg on some backend and the race it
+// narrows stays wide open there.
 func testGetReadsOneRow(t *testing.T, s store.Store) {
 	c := ctx()
-	_ = s.Record(c, srow("app", "v1"))
-	_ = s.Record(c, srow("app", "v2"))
+	if err := s.Record(c, srow("app", "v1")); err != nil {
+		t.Fatalf("stage v1: %v", err)
+	}
+	v2 := srow("app", "v2")
+	v2.Digest = "sha256:def"
+	if err := s.Record(c, v2); err != nil {
+		t.Fatalf("stage v2: %v", err)
+	}
+	nested := srow("team/app", "v1")
+	nested.Digest = "sha256:nested"
+	if err := s.Record(c, nested); err != nil {
+		t.Fatalf("stage nested: %v", err)
+	}
+	if err := s.MarkDue(c, "app", "v1", "ttl:10m elapsed"); err != nil {
+		t.Fatalf("stage mark: %v", err)
+	}
 	got, ok, err := s.Get(c, "app", "v1")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -56,8 +72,35 @@ func testGetReadsOneRow(t *testing.T, s store.Store) {
 	if !ok || got.Repo != "app" || got.Tag != "v1" || got.Digest != "sha256:abc" {
 		t.Errorf("Get = %+v, %v, want the v1 row held", got, ok)
 	}
+	if !got.Due || got.Reason != "ttl:10m elapsed" {
+		t.Errorf("Get mark = %v %q, want the due mark reap wrote", got.Due, got.Reason)
+	}
+	if got, ok, err := s.Get(c, "app", "v2"); err != nil || !ok || got.Digest != "sha256:def" {
+		t.Errorf("Get v2 = %+v, %v, %v, want the v2 row (distinct digest)", got, ok, err)
+	}
+	if got, ok, err := s.Get(c, "team/app", "v1"); err != nil || !ok || got.Digest != "sha256:nested" {
+		t.Errorf("Get nested = %+v, %v, %v, want the nested row", got, ok, err)
+	}
+	if _, err := s.UnmarkDue(c, "app", "v1"); err != nil {
+		t.Fatalf("stage unmark: %v", err)
+	}
+	if got, ok, err := s.Get(c, "app", "v1"); err != nil || !ok || got.Due {
+		t.Errorf("Get unmarked = %+v, %v, %v, want held row, mark gone", got, ok, err)
+	}
 	if _, ok, err := s.Get(c, "app", "missing"); err != nil || ok {
-		t.Errorf("Get missing = %v, %v, want false, nil (untracked, not failed)", ok, err)
+		t.Errorf("Get missing tag = %v, %v, want false, nil", ok, err)
+	}
+	if _, ok, err := s.Get(c, "ghost", "v1"); err != nil || ok {
+		t.Errorf("Get missing repo = %v, %v, want false, nil", ok, err)
+	}
+	if err := s.Delete(c, "app", "v2"); err != nil {
+		t.Fatalf("stage delete: %v", err)
+	}
+	if _, ok, err := s.Get(c, "app", "v2"); err != nil || ok {
+		t.Errorf("Get deleted = %v, %v, want false, nil", ok, err)
+	}
+	if _, ok, err := s.Get(c, "app", ""); err != nil || ok {
+		t.Errorf("Get empty tag = %v, %v, want false, nil (unrecordable reads absent)", ok, err)
 	}
 }
 
