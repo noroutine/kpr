@@ -227,6 +227,12 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 		if s.DryRun {
 			resolve(r, "planned", nil)
 			sum.Planned++
+			// Dry-run performs everything short of the delete: the
+			// row passed the same gate arming would enforce, so it
+			// counts as performed too. Read-path failures above
+			// already count as failed; registry-delete failures
+			// are undetectable without deleting (armed-only).
+			sum.Performed++
 			done++
 			progress()
 			continue

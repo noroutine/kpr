@@ -321,10 +321,11 @@ func TestSweeperDeletesViaStubRegistry(t *testing.T) {
 	}
 }
 
-// Dry-run is implicit safety: the pass plans every due row, calls the
-// registry zero times, and leaves rows marked for the armed run. If
-// this fails, "safe by default" deletes — or plans something the armed
-// run would not do.
+// Dry-run is implicit safety: the pass plans every due row, counts
+// each planned row as performed (everything short of the delete),
+// calls the registry zero times, and leaves rows marked for the
+// armed run. If this fails, "safe by default" deletes — or plans
+// something the armed run would not do.
 func TestDryRunPlansWithoutDeleting(t *testing.T) {
 	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
 	s := store.NewMemStore()
@@ -332,8 +333,8 @@ func TestDryRunPlansWithoutDeleting(t *testing.T) {
 	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), DryRun: true, Now: func() time.Time { return sweepNow }}
 
 	sum := sw.RunPass(testCtx(), "POST")
-	if sum.Planned != 1 || sum.Performed != 0 || sum.Failed != 0 {
-		t.Errorf("summary = %+v, want {Planned:1}", sum)
+	if sum.Planned != 1 || sum.Performed != 1 || sum.Failed != 0 {
+		t.Errorf("summary = %+v, want {Planned:1 Performed:1}", sum)
 	}
 	if n := len(stub.refs); n != 0 {
 		t.Errorf("registry DELETEs = %d, want 0 in dry-run", n)
