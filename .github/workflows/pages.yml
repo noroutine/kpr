@@ -1,0 +1,39 @@
+name: Pages
+
+# Static console-styled front page for GitHub Pages. Deploys
+# site/ on every master push; versioned release notes stay on
+# the release pages, this page stays timeless.
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Upload site
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: site/
+
+    - name: Deploy to Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
