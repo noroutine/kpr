@@ -169,7 +169,7 @@ the registry never writes there.
 
 Upgrading backends needs no migration helper today:
 backfill rebuilds rows from the registry itself
-(`docs/BACKFILL.md`), so a fresh file store refills on
+([`docs/BACKFILL.md`](BACKFILL.md)), so a fresh file store refills on
 first pass. Deliberately left open otherwise.
 
 ## Ghosts: rows both witnesses agree are gone

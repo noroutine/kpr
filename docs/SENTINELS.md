@@ -247,7 +247,7 @@ separate stores fork lineages and refuse by design.
 Clock: mint timestamps come from a checked clock —
 `KPR_TIME_METHOD` `local` (default) / `https` / `ntp`,
 `KPR_TIME_SERVER` defaulting to `zeitstempel.dfn.de`, compose
-pinning `https`. Full approach in `docs/TIMESTAMPS.md`; in
+pinning `https`. Full approach in [`docs/TIMESTAMPS.md`](TIMESTAMPS.md); in
 short: skew past 30s refuses unless `--accept-clock-skew`
 (accepted runs warn), an unreachable source warns and proceeds on local
 time — air-gapped sites stay working.

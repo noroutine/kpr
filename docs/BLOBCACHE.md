@@ -62,7 +62,7 @@ That limits the design space to three shapes:
 
 ## Decision
 
-Filesystem deployments: no cache (proven — `docs/GC.md`).
+Filesystem deployments: no cache (proven — [`docs/GC.md`](GC.md)).
 Cloud-backed deployments: real redis, flushed/DEL'd by the
 ceremony. Nothing built until a deployment needs warm restarts
 without a redis to operate.

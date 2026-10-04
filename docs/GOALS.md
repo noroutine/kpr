@@ -3,7 +3,7 @@
 kpr ("keeper") fronts a stock OCI `distribution` registry:
 ephemeral images plus lightweight retention cleanups, without the
 weight of Harbor or Nexus.
-Inspired by ttl.sh. The design lives in `docs/ARCHITECTURE.md`;
+Inspired by ttl.sh. The design lives in [`docs/ARCHITECTURE.md`](ARCHITECTURE.md);
 this page is the backdrop — what it is, what it won't become,
 and what's still open.
 
@@ -49,10 +49,10 @@ and what's still open.
 - Multi-registry support: one kpr per registry, or one-to-many?
 - Token-auth registries: same credential pair exchanged at the
   issuer per scope (client-side only — kpr never verifies JWT).
-  Design sketched in `docs/GC.md`; unbuilt.
+  Design sketched in [`docs/GC.md`](GC.md); unbuilt.
 - Digest-less row enrichment: `kpr store backfill` fills absent
-  rows only (`docs/BACKFILL_FUTURE.md`).
+  rows only ([`docs/BACKFILL_FUTURE.md`](BACKFILL_FUTURE.md)).
 - Detached operation over the console HTTP surface (the CLI
   talks to state directly today and runs colocated).
 - Dangling tag links (dead links from crashed deletes): design
-  in `docs/GC.md`; unbuilt.
+  in [`docs/GC.md`](GC.md); unbuilt.

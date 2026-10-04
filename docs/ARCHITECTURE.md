@@ -112,8 +112,8 @@ someone runs `sweep`. `status`/`plan` stay pure state reads.
 
 Hexagonal, taken to heart: behaviors live in use cases behind
 ports, adapters only translate. The full story is in
-`docs/HEXAGONAL.md` (the current port map) and
-`docs/HEXAGONAL_WISDOMS.md` (the port-cutting rules learned along
+[`docs/HEXAGONAL.md`](HEXAGONAL.md) (the current port map) and
+[`docs/HEXAGONAL_WISDOMS.md`](HEXAGONAL_WISDOMS.md) (the port-cutting rules learned along
 the way).
 
 - **Core**: `policy` — pure over `(rows, catalogs, now)`. No ports
@@ -278,7 +278,7 @@ CLI, next to `serve` and `env`:
   confirm);
   `lock` / `unlock` set / drop the intent marker (proof first);
   `adopt [IDENT] [--gen]` — the only pairing writer: pairs the
-  store to the served lineage. Full ceremony in `docs/SENTINELS.md`.
+  store to the served lineage. Full ceremony in [`docs/SENTINELS.md`](SENTINELS.md).
   `status` shows the card: backend, lock, proof, identity, and the
   activity tail (`--json` for piping).
 - `kpr reap [policy]` — evaluates one policy or all and marks rows
@@ -341,7 +341,7 @@ none is silent — and each names what would actually retire it.
   a dev copy, and the join reads two registries at once:
   conflicts flood, 404-ghosts may hide — never frame a live
   tag while conflicts stay a bucket. Full account in
-  `docs/STORES.md` ("Ghosts"). Retired by reading the sentinel
+  [`docs/STORES.md`](STORES.md) ("Ghosts"). Retired by reading the sentinel
   generation off the local root (filepath, not API) and
   requiring it to equal the served one — a wrong root serves
   a foreign generation and fails closed.

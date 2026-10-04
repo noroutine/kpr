@@ -250,7 +250,7 @@ Problem: undecided if correct — narrowly the lock guards mount
 bytes; broadly it means "don't mutate my registry".
 
 Decided: broad — locked means no destructive operations on
-registry and store (summarized in `docs/STORES.md`), never
+registry and store (summarized in [`docs/STORES.md`](STORES.md)), never
 registry-readonly (only registry config enforces that).
 
 Slice: thread `UnlockedStore` into `Sweeper.RunPass` and `Untag`

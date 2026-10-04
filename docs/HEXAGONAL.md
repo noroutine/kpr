@@ -40,9 +40,9 @@ The foundation, still true:
   implementations differing in a way someone uses, which is
   exactly the rule below. Mint timestamps arrive checked;
   future JWT checks reuse the exposed offset. Full approach in
-  `docs/TIMESTAMPS.md`.
+  [`docs/TIMESTAMPS.md`](TIMESTAMPS.md).
 
-Closed leaks (receipts in `docs/HEXAGONAL_WISDOMS.md`):
+Closed leaks (receipts in [`docs/HEXAGONAL_WISDOMS.md`](HEXAGONAL_WISDOMS.md)):
 
 1. `registry` had no port — now `sweep.Registry`,
    `keeper.CatalogSource`, `keeper.Prober`.

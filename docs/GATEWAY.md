@@ -6,7 +6,7 @@ proxy rides inside `serve`, HOLD/DENY fencing is live, and
 online gc collects under the fence (slices 1–3 below, each
 proven live before the next). What stays future lives at the
 bottom: generated config and observed tracking (this doc), the
-child registry (`docs/CHILD_REGISTRY.md`). Multiple registries
+child registry ([`docs/CHILD_REGISTRY.md`](CHILD_REGISTRY.md)). Multiple registries
 under one kpr (multiplexer) are explicitly out — their own
 effort, later. Downstream is filesystem-store only; s3-backed
 registries are out for the same reason. Mode scope:
@@ -38,8 +38,8 @@ registry: fencing (HOLD for finalize, DENY for lock) at the
 proxy replaces the readonly flip with edge enforcement, and
 the cache is handled by config, not ceremony (no descriptor
 cache on the file stack; restart/flush matrix for cached
-deployments — full story in `docs/GC.md`; the deferred
-redis-alike design space in `docs/BLOBCACHE.md`).
+deployments — full story in [`docs/GC.md`](GC.md); the deferred
+redis-alike design space in [`docs/BLOBCACHE.md`](BLOBCACHE.md)).
 
 ## Layer decisions
 
@@ -195,7 +195,7 @@ own flags everywhere, no umbrella: clock skew past tolerance
 (`--accept-rollback`), a registry mode flip mid-run
 (`--accept-mode-flip`, re-probed after the collect). After the
 collect the sentinel re-probes: a flip fails loudly, a dead
-post-probe only warns. Full spec in `docs/GC.md`.
+post-probe only warns. Full spec in [`docs/GC.md`](GC.md).
 
 Implemented: `gc.Fencer` port + `Options.Fence` (armed
 collects hold, previews never, failed fence refuses),
@@ -217,7 +217,7 @@ override, flip banner failing the run unless accepted.
   degrades to corroboration.
 - **Child registry (future effort, moved out).** Supervisor
   mode, control events, and everything about a kpr-launched
-  registry live in `docs/CHILD_REGISTRY.md`.
+  registry live in [`docs/CHILD_REGISTRY.md`](CHILD_REGISTRY.md).
 
 ## Non-goals
 
@@ -226,7 +226,7 @@ line), general-purpose S3/RESP-compat servers, authn/authz per
 slice, multiple registries under one kpr (multiplexer — own
 effort, later), s3-backed downstream registries (redirect
 flows, driver mechanics — own effort, later), and the
-child/supervisor mode (`docs/CHILD_REGISTRY.md`, later).
+child/supervisor mode ([`docs/CHILD_REGISTRY.md`](CHILD_REGISTRY.md), later).
 
 ## Appendix: where Location headers come from
 

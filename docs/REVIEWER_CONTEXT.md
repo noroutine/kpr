@@ -1,7 +1,7 @@
 # Reviewer context
 
 Stateless-call pack for the reviewer (Claude). Read this plus
-`docs/ARCHITECTURE.md` (what kpr is) and `docs/HEXAGONAL.md`
+[`docs/ARCHITECTURE.md`](ARCHITECTURE.md) (what kpr is) and [`docs/HEXAGONAL.md`](HEXAGONAL.md)
 (port map + progress = current shape), then the slice in the tree.
 
 ## Roles
@@ -45,17 +45,17 @@ compile-check observed green before commit.
 
 Dead-simple gateway and keeper for a stock `distribution`
 registry: one binary, state on disk by default or in redis (see
-`docs/STORES.md`). Receiver records pushes → `reap` marks rows
+[`docs/STORES.md`](STORES.md)). Receiver records pushes → `reap` marks rows
 due → sweeper deletes →
 `gc` shells the stock collector. Full picture:
-`docs/ARCHITECTURE.md`. No scheduler, gRPC, or SPA.
+[`docs/ARCHITECTURE.md`](ARCHITECTURE.md). No scheduler, gRPC, or SPA.
 
 ## Current shape (don't duplicate, point)
 
-Ports, adapters, and use cases: `docs/HEXAGONAL.md`. State
-backends and their invariants: `docs/STORES.md`. Same-store
-proofs, lineage, and the pairing ceremony: `docs/SENTINELS.md`.
-Checked clock: `docs/TIMESTAMPS.md`. Landed slices stay
+Ports, adapters, and use cases: [`docs/HEXAGONAL.md`](HEXAGONAL.md). State
+backends and their invariants: [`docs/STORES.md`](STORES.md). Same-store
+proofs, lineage, and the pairing ceremony: [`docs/SENTINELS.md`](SENTINELS.md).
+Checked clock: [`docs/TIMESTAMPS.md`](TIMESTAMPS.md). Landed slices stay
 landed; items flagged deferred in those docs stay deferred —
 don't relitigate, don't request.
 

@@ -45,8 +45,8 @@ paths take no evidence — the stage table's preview row takes
 none, and that is the whole statement.
 
 Mechanics live where they are used: mint/read-gate in
-`docs/SENTINELS.md`, mode probe in `docs/GC.md`, clock in
-`docs/TIMESTAMPS.md`, verdicts in `docs/SENTINELS.md`
+[`docs/SENTINELS.md`](SENTINELS.md), mode probe in [`docs/GC.md`](GC.md), clock in
+[`docs/TIMESTAMPS.md`](TIMESTAMPS.md), verdicts in [`docs/SENTINELS.md`](SENTINELS.md)
 (`kpr store adopt` ceremony included).
 
 ## Armed means proven
