@@ -46,8 +46,9 @@ type Report struct {
 	// Husks counts repos holding _manifests but no tag links:
 	// swept bare, collected, or never tagged. HuskRepos names
 	// them, sorted, sentinel-prefix repos excluded (machinery,
-	// never inventory). Like dangling, exact only at the end;
-	// nil when none, so huskless reports compare unchanged.
+	// never inventory). Unlike dangling, verdicts land live as
+	// the walk leaves each subtree; nil when none, so huskless
+	// reports compare unchanged.
 	Husks     int
 	HuskRepos []string
 }
@@ -222,15 +223,41 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 		return rep, fmt.Errorf("analyze %s: %w", dir, err)
 	}
 	visits := 0
-	// Every repo holding _manifests starts suspected; the first
-	// tag link clears it. Whatever stays suspected is a husk —
-	// swept bare, collected, or never tagged. Sentinel-prefix
-	// repos never enter: machinery, not inventory.
-	suspects := map[string]bool{}
+	// A repo verdict lands the moment the walk steps out of its
+	// subtree: lexical order visits a repo's contents before the
+	// next path outside it, so the first tag link clears a repo
+	// and subtree exit confirms a husk — swept bare, collected,
+	// or never tagged. Verdicts count live into the report, so
+	// progress already converges instead of dumping every husk
+	// at the end. Sentinel-prefix repos never enter: machinery,
+	// not inventory.
+	type openRepo struct {
+		dir, name string
+		cleared   bool
+	}
+	var open []openRepo
+	pop := func() {
+		top := open[len(open)-1]
+		open = open[:len(open)-1]
+		if !top.cleared {
+			rep.Husks++
+			rep.HuskRepos = append(rep.HuskRepos, top.name)
+		}
+	}
+	closeThrough := func(path string) {
+		for len(open) > 0 {
+			top := open[len(open)-1]
+			if path == top.dir || strings.HasPrefix(path, top.dir+string(filepath.Separator)) {
+				return
+			}
+			pop()
+		}
+	}
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
 		}
+		closeThrough(path)
 		visits++
 		if progress != nil && visits%1024 == 0 {
 			progress(rep)
@@ -270,7 +297,7 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 				if mi, merr := os.Stat(filepath.Join(path, "_manifests")); merr == nil && mi.IsDir() {
 					rep.Repos++
 					if repo := strings.Join(parts[1:], "/"); !slices.Contains(parts[1:], "_manifests") && !strings.HasPrefix(repo, backfill.SentinelPrefix) {
-						suspects[repo] = true
+						open = append(open, openRepo{dir: path, name: repo})
 					}
 				} else if merr != nil && !os.IsNotExist(merr) {
 					return merr
@@ -294,7 +321,13 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 				if isSentinelTag(parts) {
 					rep.Sentinels++
 				}
-				delete(suspects, strings.Join(parts[1:slices.Index(parts, "_manifests")], "/"))
+				repo := strings.Join(parts[1:slices.Index(parts, "_manifests")], "/")
+				for i := len(open) - 1; i >= 0; i-- {
+					if open[i].name == repo {
+						open[i].cleared = true
+						break
+					}
+				}
 				target, terr := linkTarget(path)
 				if terr != nil {
 					return terr
@@ -328,10 +361,9 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 	if err != nil {
 		return rep, fmt.Errorf("analyze %s: %w", v2, err)
 	}
-	for repo := range suspects {
-		rep.HuskRepos = append(rep.HuskRepos, repo)
+	for len(open) > 0 {
+		pop()
 	}
 	slices.Sort(rep.HuskRepos)
-	rep.Husks = len(rep.HuskRepos)
 	return rep, nil
 }

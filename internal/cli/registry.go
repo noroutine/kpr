@@ -247,15 +247,20 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeV
 	blobsBody := "walk pending"
 	sizeBody := "walk pending"
 	if delta {
+		// Husk repos hold no tags, so the fs repo count reads
+		// net of them: the line converges with the catalog as
+		// husks are confirmed, instead of carrying them to the
+		// delta. The tail still says how many were netted out.
+		liveRepos := fs.Repos - fs.Husks
 		fsBody = fmt.Sprintf("%s, %s, %s",
-			plural(fs.Repos, "repo", "repos"),
+			plural(liveRepos, "repo", "repos"),
 			plural(fs.Tags, "tag", "tags"),
 			plural(fs.Sentinels, "sentinel", "sentinels"))
 		if fs.Husks > 0 {
 			fsBody += ", " + plural(fs.Husks, "husk", "husks")
 		}
 		fsDelta = fmt.Sprintf("%s, %s, %s",
-			signedPlural(fs.Repos-api.Repos, "repo", "repos"),
+			signedPlural(liveRepos-api.Repos, "repo", "repos"),
 			signedPlural(fs.Tags-api.Tags, "tag", "tags"),
 			signedPlural(fs.Sentinels-api.Sentinels, "sentinel", "sentinels"))
 		untagged := fs.Revisions - fs.Tags

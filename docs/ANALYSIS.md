@@ -63,8 +63,9 @@ invariant.
   up, converging on the skew. The sentinel delta is the
   machinery-footprint mismatch: normally +0. Tagless repos tail
   the line as `N husks` when present (names ride `--json` as
-  `husk_repos`); `gc` removes them armed, orphans go with the
-  next collect.
+  `husk_repos`); the repo count reads net of them, converging
+  with the catalog as verdicts land live. `gc` removes them
+  armed, orphans go with the next collect.
 - `revs` — manifests on disk (every push writes one, tagged
   or not) and `untagged` = revisions minus fs tags, clamped
   at zero. Tags are pointers; revisions are residents. Dead

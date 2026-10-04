@@ -307,8 +307,8 @@ func TestAnalyzeLinesNamesDangling(t *testing.T) {
 func TestAnalyzeLinesNamesHusks(t *testing.T) {
 	fsRep := registryfs.Report{Repos: 3, Tags: 1, HuskRepos: []string{"bare", "nest/husk"}, Husks: 2}
 	lines := analyzeLines(backfill.CatalogReport{}, fsRep, storeView{}, true)
-	if got := lines[3]; got != "fs     : 3 repos, 1 tag, 0 sentinels, 2 husks" {
-		t.Errorf("fs line = %q, want husk tail", got)
+	if got := lines[3]; got != "fs     : 1 repo, 1 tag, 0 sentinels, 2 husks" {
+		t.Errorf("fs line = %q, want repos-minus-husks with husk tail", got)
 	}
 	clean := analyzeLines(backfill.CatalogReport{}, registryfs.Report{}, storeView{}, true)
 	if strings.Contains(clean[3], "husk") {

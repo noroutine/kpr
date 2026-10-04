@@ -1,6 +1,7 @@
 package registryfs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -143,6 +144,47 @@ func TestAnalyzeReportsHusks(t *testing.T) {
 	if strings.Join(got.HuskRepos, ",") != strings.Join(want, ",") {
 		t.Errorf("HuskRepos = %v, want %v", got.HuskRepos, want)
 	}
+}
+
+// Husk verdicts go live: a repo finalizes the moment the walk
+// steps out of its subtree, so a mid-walk progress already counts
+// confirmed husks instead of dumping 150 at the end. If this
+// fails, husks arrive only with the final report and the live
+// block misleads for the whole walk.
+func TestAnalyzeReportsHusksLive(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	files := map[string]string{
+		"repositories/aaa/_manifests/revisions/sha256/bbb/link": "sha256:bbb",
+	}
+	for i := 0; i < 1100; i++ {
+		files[fmt.Sprintf("repositories/zzz/_layers/sha256/d%04d/link", i)] = "sha256:111"
+	}
+	for rel, body := range files {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	var mids []Report
+	got, err := Analyze(proveRoot(t, root), func(rep Report) {
+		mids = append(mids, rep)
+	})
+	if err != nil {
+		t.Fatalf("Analyze = %v, want counts", err)
+	}
+	if got.Husks != 1 {
+		t.Fatalf("Husks = %d, want 1", got.Husks)
+	}
+	for _, mid := range mids[:len(mids)-1] {
+		if mid.Husks == 1 {
+			return
+		}
+	}
+	t.Errorf("no mid-walk progress showed the husk (%d progress calls)", len(mids))
 }
 
 // The walker counts every file kind exactly once on nesting and
