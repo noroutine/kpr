@@ -108,7 +108,14 @@ func (l *liveLines) paintBlock(lines []string) {
 		return
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "\r\x1b[%dA\r", len(l.prev)-1)
+	if len(l.prev) > 1 {
+		fmt.Fprintf(&b, "\r\x1b[%dA\r", len(l.prev)-1)
+	} else {
+		// A zero count reads as up-one (ECMA-48 defaults it
+		// to 1): single-line blocks step back with \r alone,
+		// or every tick climbs a row.
+		b.WriteString("\r")
+	}
 	for i, s := range lines {
 		if i > 0 {
 			b.WriteString("\n")

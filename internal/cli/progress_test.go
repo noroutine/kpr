@@ -65,6 +65,20 @@ func TestLiveLinesPipeStaysDark(t *testing.T) {
 	}
 }
 
+// A single-line block repaints with carriage return alone: a
+// zero-count cursor-up reads as up-one on real terminals
+// (ECMA-48 defaults the parameter to 1), so every tick would
+// climb a row. If this fails, one-line counters print upwards.
+func TestLiveLinesSingleLineStaysPut(t *testing.T) {
+	var buf bytes.Buffer
+	live := &liveLines{w: &buf, tty: true}
+	live.paintBlock([]string{"aa"})
+	live.paintBlock([]string{"b"})
+	if got := buf.String(); got != "aa\rb " {
+		t.Errorf("paints = %q, want one line overwritten in place", got)
+	}
+}
+
 // A block that grows or shrinks steps back by what was painted,
 // scrubbing stale rows with blanks. If this fails, mid-run view
 // changes glue onto old rows.
