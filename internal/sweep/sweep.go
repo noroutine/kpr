@@ -255,9 +255,13 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			progress()
 			continue
 		}
+		// Through the gate: the pass takes the row on in both
+		// modes, so it counts as planned before resolving as
+		// performed, failed, or untracked (armed) or performed
+		// without deleting (dry-run).
+		sum.Planned++
 		if s.DryRun {
 			resolve(r, "planned", nil)
-			sum.Planned++
 			// Dry-run performs everything short of the delete: the
 			// row passed the same gate arming would enforce, so it
 			// counts as performed too. Read-path failures above

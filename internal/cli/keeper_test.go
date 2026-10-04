@@ -435,7 +435,7 @@ func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 	if err := runSweep(cliCtx(), &aout, as, astub, true, ""); err != nil {
 		t.Fatalf("armed sweep: %v", err)
 	}
-	if !strings.Contains(aout.String(), "1 performed") {
+	if !strings.Contains(aout.String(), "1 performed") || !strings.Contains(aout.String(), "1 planned") {
 		t.Errorf("armed summary missing counts:\n%s", aout.String())
 	}
 	if strings.Contains(aout.String(), "dry run") {

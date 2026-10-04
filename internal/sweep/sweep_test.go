@@ -593,7 +593,9 @@ func TestPassEmitsActivityLogRecords(t *testing.T) {
 	}
 	pass := passes[0].attrs
 	for k, want := range map[string]any{
-		"trigger": "POST", "performed": 1, "planned": 0,
+		// Armed plans what it takes on: the taken row counts as
+		// planned before resolving as performed.
+		"trigger": "POST", "performed": 1, "planned": 1,
 		"failed": 0, "untracked": 0, "skipped": false, "dry_run": false,
 	} {
 		if pass[k] != want {
@@ -797,6 +799,20 @@ func TestSweeperFailedDeleteKeepsRowDue(t *testing.T) {
 		if !ok || len(fails) == 0 {
 			t.Errorf("pass log lacks failures: %v", r.attrs)
 		}
+	}
+}
+
+// An armed pass plans what it takes on, like dry-run does: every
+// row through the gate counts as planned, then resolves as
+// performed, failed, or untracked. If this fails, armed summaries
+// read "N performed, 0 planned" beside dry-run's "N/N".
+func TestArmedRunCountsPlanned(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
+	stub := &stubRegistry{outcome: registry.OutcomeDeleted}
+	sw := &Sweeper{Store: s, Registry: stub, Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
+	if sum := sw.RunPass(testCtx(), "test"); sum.Planned != 1 || sum.Performed != 1 {
+		t.Errorf("summary = %+v, want {Planned:1 Performed:1}", sum)
 	}
 }
 
