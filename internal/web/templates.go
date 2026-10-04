@@ -216,7 +216,7 @@ const indexTemplate = `<!DOCTYPE html>
     </ul>
 
     <div class="footer">
-        kpr {{ .Version }} · registry TTL companion — reap marks, sweep deletes
+        kpr {{ .Version }} · registry TTL companion — reap plans, sweep deletes
     </div>
 </body>
 </html>
