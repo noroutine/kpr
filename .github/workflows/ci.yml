@@ -63,6 +63,9 @@ jobs:
         fail_ci_if_error: false
         verbose: true
 
+    - name: Validate Codecov config
+      run: make codecov-validate
+
     - name: Build
       run: make build
 

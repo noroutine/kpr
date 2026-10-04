@@ -183,6 +183,11 @@ e2e:
     #!/usr/bin/env bash
     go test -race -tags e2e ./test/e2e/ -count=1 -v
 
+# Validate codecov.yml against Codecov's own validator (needs network)
+codecov-validate:
+    #!/usr/bin/env bash
+    curl -fsSL --data-binary @codecov.yml https://codecov.io/validate | grep -q '^Valid!' && echo "codecov.yml: valid"
+
 # Union of unit + e2e coverage over product packages (needs docker)
 coverage-e2e:
     #!/usr/bin/env bash

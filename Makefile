@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc licenses
+.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report codecov-validate bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc licenses
 .DEFAULT_GOAL := help
 
 # Version information
@@ -143,6 +143,10 @@ coverage-report:
 	@# Sub-90% functions, worst last; total closes the summary.
 	go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | awk '$$3+0 < 90'
 	go tool cover -func=coverage.out | grep '^total:'
+
+## codecov-validate: Validate codecov.yml against Codecov's own validator (needs network)
+codecov-validate:
+	@curl -fsSL --data-binary @codecov.yml https://codecov.io/validate | grep -q '^Valid!' && echo "codecov.yml: valid"
 
 ## coverage-e2e: Union of unit + e2e coverage over product packages (needs docker)
 coverage-e2e:

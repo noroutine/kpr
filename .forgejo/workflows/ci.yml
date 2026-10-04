@@ -46,6 +46,9 @@ jobs:
     - name: Run tests with coverage
       run: make coverage
 
+    - name: Validate Codecov config
+      run: make codecov-validate
+
     - name: Build
       run: make build
 
