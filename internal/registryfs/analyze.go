@@ -43,6 +43,13 @@ type Report struct {
 	// detectors, never verdicts.
 	DanglingTags   int
 	DanglingLayers int
+	// Husks counts repos holding _manifests but no tag links:
+	// swept bare, collected, or never tagged. HuskRepos names
+	// them, sorted, sentinel-prefix repos excluded (machinery,
+	// never inventory). Like dangling, exact only at the end;
+	// nil when none, so huskless reports compare unchanged.
+	Husks     int
+	HuskRepos []string
 }
 
 // Analyze walks the proven store root, classifying by path shape
@@ -142,6 +149,8 @@ func (r *Report) add(o Report) {
 	r.BlobBytes += o.BlobBytes
 	r.DanglingTags += o.DanglingTags
 	r.DanglingLayers += o.DanglingLayers
+	r.Husks += o.Husks
+	r.HuskRepos = append(r.HuskRepos, o.HuskRepos...)
 }
 
 // refs collects pointer targets for the end-exact join: tag link
@@ -213,6 +222,11 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 		return rep, fmt.Errorf("analyze %s: %w", dir, err)
 	}
 	visits := 0
+	// Every repo holding _manifests starts suspected; the first
+	// tag link clears it. Whatever stays suspected is a husk —
+	// swept bare, collected, or never tagged. Sentinel-prefix
+	// repos never enter: machinery, not inventory.
+	suspects := map[string]bool{}
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
@@ -255,6 +269,9 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 				// depth nesting puts it.
 				if mi, merr := os.Stat(filepath.Join(path, "_manifests")); merr == nil && mi.IsDir() {
 					rep.Repos++
+					if repo := strings.Join(parts[1:], "/"); !slices.Contains(parts[1:], "_manifests") && !strings.HasPrefix(repo, backfill.SentinelPrefix) {
+						suspects[repo] = true
+					}
 				} else if merr != nil && !os.IsNotExist(merr) {
 					return merr
 				}
@@ -277,6 +294,7 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 				if isSentinelTag(parts) {
 					rep.Sentinels++
 				}
+				delete(suspects, strings.Join(parts[1:slices.Index(parts, "_manifests")], "/"))
 				target, terr := linkTarget(path)
 				if terr != nil {
 					return terr
@@ -310,5 +328,10 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 	if err != nil {
 		return rep, fmt.Errorf("analyze %s: %w", v2, err)
 	}
+	for repo := range suspects {
+		rep.HuskRepos = append(rep.HuskRepos, repo)
+	}
+	slices.Sort(rep.HuskRepos)
+	rep.Husks = len(rep.HuskRepos)
 	return rep, nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
@@ -344,13 +345,31 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		}
 	}
 	// The collector deletes blobs and links but leaves their
-	// parents: an armed run prunes the empty skeleton it (and
-	// earlier runs) left behind. Previews delete nothing, so
-	// they prune nothing either. A prune failure warns, never
-	// fails: the collection already succeeded, and occupancy
-	// races resolve safe — anything else (permissions, I/O)
-	// names itself in the warning.
+	// parents: an armed run removes tagless repo husks first,
+	// then prunes the empty skeleton both left behind (husk
+	// removal empties namespace parents prune cleans). Previews
+	// delete nothing, so they remove nothing either. A husk or
+	// prune failure warns, never fails: the collection already
+	// succeeded, and occupancy races resolve safe — anything
+	// else (permissions, I/O) names itself in the warning.
 	if !opts.DryRun {
+		husked, herr := RemoveHusks(root)
+		hev := Timed(StageHusk, gcStarted)
+		if herr != nil {
+			hev.Error = herr.Error()
+			Emit(opts.Report, hev)
+			if _, werr := fmt.Fprintf(w, "Warning: husk cleanup incomplete (%v)\n", herr); werr != nil {
+				return werr
+			}
+		} else {
+			hev.Message = fmt.Sprintf("%d repos", len(husked))
+			Emit(opts.Report, hev)
+			if len(husked) > 0 {
+				if _, werr := fmt.Fprintf(w, "removed %d husk repos (%s)\n", len(husked), strings.Join(husked, ", ")); werr != nil {
+					return werr
+				}
+			}
+		}
 		pruned, perr := PruneEmptyDirs(root)
 		pev := Timed(StagePrune, gcStarted)
 		if perr != nil {

@@ -3,6 +3,7 @@ package registryfs
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -101,8 +102,46 @@ func TestAnalyzeReportsDanglingLinks(t *testing.T) {
 	}
 	want := Report{Repos: 1, Tags: 2, Revisions: 1, LayerLinks: 2,
 		Blobs: 1, BlobBytes: 6, DanglingTags: 1, DanglingLayers: 1}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Analyze = %+v, want %+v", got, want)
+	}
+}
+
+// A repo holding _manifests but no tag links is a husk: swept
+// bare, collected, or never tagged. The walk counts it and names it
+// (sorted); a sentinel-prefix repo is machinery, never inventory,
+// even tagless. If this fails, husk repos hide inside the repo
+// magnitude and no remover can find them.
+func TestAnalyzeReportsHusks(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	files := map[string]string{
+		"repositories/app/_manifests/tags/v1/current/link":                     "sha256:aaa",
+		"repositories/app/_manifests/revisions/sha256/aaa/link":                "sha256:aaa",
+		"repositories/bare/_manifests/revisions/sha256/bbb/link":               "sha256:bbb",
+		"repositories/bare/_layers/sha256/111/link":                            "sha256:111",
+		"repositories/nest/husk/_manifests/revisions/sha256/ccc/link":          "sha256:ccc",
+		"repositories/noroutine/kpr-shadow/_manifests/revisions/sha256/d/link": "sha256:ddd",
+	}
+	for rel, body := range files {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	got, err := Analyze(proveRoot(t, root), nil)
+	if err != nil {
+		t.Fatalf("Analyze = %v, want counts", err)
+	}
+	if got.Husks != 2 {
+		t.Errorf("Husks = %d, want 2 (bare, nest/husk)", got.Husks)
+	}
+	want := []string{"bare", "nest/husk"}
+	if strings.Join(got.HuskRepos, ",") != strings.Join(want, ",") {
+		t.Errorf("HuskRepos = %v, want %v", got.HuskRepos, want)
 	}
 }
 
@@ -114,7 +153,7 @@ func TestAnalyzeCountsLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Analyze = %v, want counts", err)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Analyze = %+v, want %+v", got, want)
 	}
 }
@@ -135,10 +174,10 @@ func TestAnalyzeProgressReports(t *testing.T) {
 	if n == 0 {
 		t.Fatal("no progress reported")
 	}
-	if last != want {
+	if !reflect.DeepEqual(last, want) {
 		t.Errorf("last progress = %+v, want %+v", last, want)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Analyze = %+v, want %+v", got, want)
 	}
 }
@@ -150,7 +189,7 @@ func TestAnalyzeEmptyRootZeroes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Analyze empty = %v, want zeros", err)
 	}
-	if got != (Report{}) {
+	if !reflect.DeepEqual(got, Report{}) {
 		t.Errorf("Analyze empty = %+v, want zeros", got)
 	}
 }

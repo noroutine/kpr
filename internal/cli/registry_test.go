@@ -218,6 +218,7 @@ func TestRegistryAnalyzeJSON(t *testing.T) {
 		"store_sentinels": float64(0), "store_ok": true, "store_note": "unpaired",
 		"api_repos": float64(1), "api_tags": float64(2), "api_sentinels": float64(0),
 		"dangling_tags": float64(0), "dangling_layers": float64(0),
+		"husks": float64(0), "husk_repos": nil,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("analyze --json has %d keys, want %d: %v", len(got), len(want), got)
@@ -296,6 +297,22 @@ func TestAnalyzeLinesNamesDangling(t *testing.T) {
 	clean := analyzeLines(backfill.CatalogReport{}, registryfs.Report{}, storeView{}, true)
 	if strings.Contains(clean[3], "dangling") || strings.Contains(clean[4], "dangling") {
 		t.Errorf("clean lines = %q, %q, want no dangling tails", clean[3], clean[4])
+	}
+}
+
+// Husk repos tail the fs line only when present: a clean walk reads
+// exactly as before, a husked one names its count. Names ride
+// --json only — 150 rows never fit a block. If this fails, husks
+// hide or clean blocks grow noise.
+func TestAnalyzeLinesNamesHusks(t *testing.T) {
+	fsRep := registryfs.Report{Repos: 3, Tags: 1, HuskRepos: []string{"bare", "nest/husk"}, Husks: 2}
+	lines := analyzeLines(backfill.CatalogReport{}, fsRep, storeView{}, true)
+	if got := lines[3]; got != "fs     : 3 repos, 1 tag, 0 sentinels, 2 husks" {
+		t.Errorf("fs line = %q, want husk tail", got)
+	}
+	clean := analyzeLines(backfill.CatalogReport{}, registryfs.Report{}, storeView{}, true)
+	if strings.Contains(clean[3], "husk") {
+		t.Errorf("clean fs line = %q, want no husk tail", clean[3])
 	}
 }
 

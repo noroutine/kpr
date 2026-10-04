@@ -53,24 +53,26 @@ root). Point-in-time on a live registry.`,
 // analyzeJSON is the piped shape of a magnitude report: the fs
 // walk plus the two numbers the API walk sees.
 type analyzeJSON struct {
-	Repos          int    `json:"repos"`
-	Tags           int    `json:"tags"`
-	Revisions      int    `json:"revisions"`
-	Blobs          int    `json:"blobs"`
-	BlobBytes      int64  `json:"blob_bytes"`
-	Uploads        int    `json:"uploads"`
-	LayerLinks     int    `json:"layer_links"`
-	Sentinels      int    `json:"sentinels"`
-	StoreRepos     int    `json:"store_repos"`
-	StoreTags      int    `json:"store_tags"`
-	StoreSentinels int    `json:"store_sentinels"`
-	StoreOK        bool   `json:"store_ok"`
-	StoreNote      string `json:"store_note,omitempty"`
-	DanglingTags   int    `json:"dangling_tags"`
-	DanglingLayers int    `json:"dangling_layers"`
-	APIRepos       int    `json:"api_repos"`
-	APITags        int    `json:"api_tags"`
-	APISentinels   int    `json:"api_sentinels"`
+	Repos          int      `json:"repos"`
+	Tags           int      `json:"tags"`
+	Revisions      int      `json:"revisions"`
+	Blobs          int      `json:"blobs"`
+	BlobBytes      int64    `json:"blob_bytes"`
+	Uploads        int      `json:"uploads"`
+	LayerLinks     int      `json:"layer_links"`
+	Sentinels      int      `json:"sentinels"`
+	StoreRepos     int      `json:"store_repos"`
+	StoreTags      int      `json:"store_tags"`
+	StoreSentinels int      `json:"store_sentinels"`
+	StoreOK        bool     `json:"store_ok"`
+	StoreNote      string   `json:"store_note,omitempty"`
+	DanglingTags   int      `json:"dangling_tags"`
+	DanglingLayers int      `json:"dangling_layers"`
+	Husks          int      `json:"husks"`
+	HuskRepos      []string `json:"husk_repos"`
+	APIRepos       int      `json:"api_repos"`
+	APITags        int      `json:"api_tags"`
+	APISentinels   int      `json:"api_sentinels"`
 }
 
 // humanBytes renders bytes in the largest binary unit that keeps
@@ -249,6 +251,9 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeV
 			plural(fs.Repos, "repo", "repos"),
 			plural(fs.Tags, "tag", "tags"),
 			plural(fs.Sentinels, "sentinel", "sentinels"))
+		if fs.Husks > 0 {
+			fsBody += ", " + plural(fs.Husks, "husk", "husks")
+		}
 		fsDelta = fmt.Sprintf("%s, %s, %s",
 			signedPlural(fs.Repos-api.Repos, "repo", "repos"),
 			signedPlural(fs.Tags-api.Tags, "tag", "tags"),
@@ -339,6 +344,7 @@ func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg
 			StoreRepos: store.repos, StoreTags: store.tags,
 			StoreSentinels: store.sentinels, StoreOK: store.ok, StoreNote: store.note,
 			DanglingTags: rep.DanglingTags, DanglingLayers: rep.DanglingLayers,
+			Husks: rep.Husks, HuskRepos: rep.HuskRepos,
 			APIRepos: api.Repos, APITags: api.Tags, APISentinels: api.Sentinels,
 		})
 	}

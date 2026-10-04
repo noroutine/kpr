@@ -23,6 +23,7 @@ const (
 	StageCollectExit  = "collect_exit"
 	StagePostProbe    = "post_probe"
 	StagePrune        = "prune"
+	StageHusk         = "husk"
 	StageModeFlip     = "mode_flip"
 	StageStopped      = "stopped"
 	StageFailure      = "failure"

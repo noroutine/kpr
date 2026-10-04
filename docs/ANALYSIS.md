@@ -61,7 +61,10 @@ invariant.
 - `fs` — what the walk finds, sentinels apart, plus the
   running fs-minus-API deltas, negative while the walk counts
   up, converging on the skew. The sentinel delta is the
-  machinery-footprint mismatch: normally +0.
+  machinery-footprint mismatch: normally +0. Tagless repos tail
+  the line as `N husks` when present (names ride `--json` as
+  `husk_repos`); `gc` removes them armed, orphans go with the
+  next collect.
 - `revs` — manifests on disk (every push writes one, tagged
   or not) and `untagged` = revisions minus fs tags, clamped
   at zero. Tags are pointers; revisions are residents. Dead
@@ -72,6 +75,11 @@ invariant.
 - `blobs` — blob files, per-repo layer links (links-per-blob
   reads sharing off this line), upload sessions, plus dangling
   layer links (blob data absent) on the same terms.
+
+No dangling tails on a block is itself the signal: the walk
+checked every link and found nothing dead. `--json` always
+carries `dangling_tags` / `dangling_layers` (zeros included),
+so scripts need never parse silence.
 - `size` — blob bytes only, at their own unit. Exact bytes
   stay in `--json`.
 

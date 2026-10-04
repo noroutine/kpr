@@ -135,6 +135,7 @@ gc online preflight (registry serving — armed collect runs under the fence):
 shared store proven via noroutine/kpr-sentinel:latest generation 0193...
 Warning: registry is writable; collecting under the cleared online preflight
 ... collector output, streamed line by line ...
+removed 2 husk repos (a, nest/b)
 pruned 48 empty directories
 ```
 
@@ -150,6 +151,10 @@ Two things the output is telling you:
   collector's. The stock binary removes blobs and links but leaves
   their parent directories, so every run would otherwise grow an
   empty tree.
+- **`removed N husk repos (…)`** is the same idea one level up:
+  tagless repo dirs (swept bare, collected, never tagged) go
+  whole, sentinel-prefix repos never. Orphaned blobs go with the
+  next collect.
 
 ## What a collect covers
 
@@ -185,6 +190,7 @@ shape, so a console could subscribe without anything new.
 | `collect_exit` | the subprocess exits |
 | `stopped` | the run was cancelled and the subprocess killed |
 | `prune` | empty-dir cleanup finishes, with the count or the error |
+| `husk` | tagless-repo removal finishes, with the count or the error |
 | `post_probe` | the mode is re-read after collecting |
 | `mode_flip` | the re-read disagrees with the pre-run mode |
 | `failure` | the run failed, carrying the collector's last line |
