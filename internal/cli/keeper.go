@@ -172,8 +172,10 @@ func sweepLines(sum sweep.Summary) []string {
 // terminals: counters repaint in place and converge to the
 // settled summary. Failure lines stream to stdout always (an
 // outage narrates, never counts quietly); --output tees a copy
-// into a file. Evaluation and marking live in sweep.RunPass;
-// this stays wiring and printing.
+// into a file. Row records ride OTLP-only (stdout stays quiet
+// — the terminal belongs to the live line); the ring already
+// holds every verdict. Evaluation and marking live in
+// sweep.RunPass; this stays wiring and printing.
 func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, armed bool, output string) error {
 	live := newLiveLines(w)
 	sw := &sweep.Sweeper{Store: s, Registry: peer, Sentinel: peer, DryRun: !armed}
@@ -416,8 +418,9 @@ No opinions, no marks: only rows already marked due are processed.
 The sweeper lives here, not in serve (serve serves endpoints; it
 never sweeps). --no-dry-run (or KPR_CLI_NO_DRY_RUN=true) arms
 it: deletes for real. Disarmed plans only. Counters repaint one
-live line on a terminal and converge to the summary; failure
-lines stream on stdout, with --output teeing a copy into a file.`,
+live line on a terminal and converge to the summary; row
+records ride OTLP-only (stdout stays quiet), failure lines
+stream on stdout with a copy teed into --output along.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()
 		if err != nil {

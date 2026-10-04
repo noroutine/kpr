@@ -175,8 +175,7 @@ func TestRequestTelemetryWithoutSpan(t *testing.T) {
 }
 
 // The fanout handler must deliver every record to every contained
-// handler: stdout keeps its line, OTLP gets its record. If this
-// fails, one sink silently starves.
+// handler. If this fails, one sink silently starves.
 func TestFanoutDeliversToAll(t *testing.T) {
 	var a, b bytes.Buffer
 	h := fanoutHandler{
@@ -195,6 +194,31 @@ func TestFanoutDeliversToAll(t *testing.T) {
 func TestLoggerNeverNil(t *testing.T) {
 	if Logger() == nil {
 		t.Error("Logger() is nil")
+	}
+}
+
+// Before Init records go nowhere: stdout stays quiet for the
+// live UI. If this fails, every record scrolls the terminal.
+func TestDefaultLoggerDiscards(t *testing.T) {
+	if Logger().Handler() != slog.DiscardHandler {
+		t.Errorf("default handler = %T, want quiet", Logger().Handler())
+	}
+}
+
+// Serve opts back into the text leg: long-running services keep
+// docker-logs-visible records while CLI one-shots stay hushed.
+// If this fails, serve goes dark (or CLI scrolls again).
+func TestAttachStdoutAddsTextLeg(t *testing.T) {
+	prevLog := accessLogger
+	t.Cleanup(func() { accessLogger = prevLog })
+
+	AttachStdout()
+	h, ok := Logger().Handler().(fanoutHandler)
+	if !ok || len(h) != 2 {
+		t.Fatalf("handler = %T, want 2-leg fanout", Logger().Handler())
+	}
+	if _, ok := h[1].(*slog.TextHandler); !ok {
+		t.Errorf("second leg = %T, want text", h[1])
 	}
 }
 
@@ -254,8 +278,7 @@ func (s *stubHandler) WithAttrs([]slog.Attr) slog.Handler { return s }
 func (s *stubHandler) WithGroup(string) slog.Handler      { return s }
 
 // A failing sink must surface its error (first one wins) while the
-// healthy sinks still get their record: silent fanout loss means
-// Quickwit starves with stdout looking fine. If this fails, sink
+// healthy sinks still get their record. If this fails, sink
 // errors vanish.
 func TestFanoutPropagatesFirstError(t *testing.T) {
 	var okBuf bytes.Buffer

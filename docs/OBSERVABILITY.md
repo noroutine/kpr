@@ -90,6 +90,15 @@ is not instant (observed: <90s, tutorial says ~30s).
 
 ## Follow-ups
 
+- Per-channel log routing: stdout is hushed by default (the
+  terminal belongs to the live UI — a fourteen-thousand-row sweep
+  must not scroll it) while OTLP keeps every record; `serve`
+  opts back into the text leg via `otel.AttachStdout` because a
+  service template expects docker-logs-visible records and CLI
+  one-shots don't. What we still want: levels that gate stdout
+  and OTLP independently, plus opt-in stdout (a `--verbose`
+  that re-adds the text leg) — never a per-command workaround
+  around the fanout.
 - OTel collector between app and backends for cluster mode (app keeps
   one endpoint; compose stays direct). This is the "compose friendly,
   big clusters capable" hinge.

@@ -57,6 +57,9 @@ func TestInitEnabledShutsDownClean(t *testing.T) {
 		WithShutdownTimeout(1000000000).
 		Build()))
 
+	prevLog := accessLogger
+	t.Cleanup(func() { accessLogger = prevLog })
+
 	shutdown, err := Init(LoadConfig())
 	if err != nil {
 		t.Fatalf("Init: %v", err)

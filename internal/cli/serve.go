@@ -57,6 +57,10 @@ var serveCmd = &cobra.Command{
 		if err != nil {
 			log.Fatalf("Failed to initialize OpenTelemetry: %v", err)
 		}
+		// Services keep the text leg: docker logs stay readable.
+		// CLI one-shots never call this — their stdout belongs
+		// to the live UI.
+		otel.AttachStdout()
 		defer func() {
 			if err := shutdown(context.Background()); err != nil {
 				log.Printf("Error shutting down OpenTelemetry: %v", err)

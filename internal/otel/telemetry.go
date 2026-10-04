@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -177,10 +176,10 @@ func (f fanoutHandler) WithGroup(name string) slog.Handler {
 	return out
 }
 
-// newAccessLogger fans records out to stdout (text, for the terminal)
-// and to OTLP (structured, for Quickwit) via the slog bridge.
+// newAccessLogger sends records to OTLP (structured, for
+// Quickwit) via the slog bridge. Stdout stays out of the fanout:
+// the terminal belongs to the live UI, not the audit trail.
 func newAccessLogger(lp *sdklog.LoggerProvider) *slog.Logger {
-	stdout := slog.NewTextHandler(os.Stdout, nil)
 	bridge := otelslog.NewHandler("kpr", otelslog.WithLoggerProvider(lp))
-	return slog.New(fanoutHandler{stdout, bridge})
+	return slog.New(fanoutHandler{bridge})
 }

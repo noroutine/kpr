@@ -45,14 +45,31 @@ func LoadConfig() Config {
 	}
 }
 
-// accessLogger is the process-wide request logger. Before Init it
-// writes human-readable text to stdout only; Init (when enabled)
-// fans the same records out to OTLP as well.
-var accessLogger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+// accessLogger is the process-wide request logger. Stdout stays
+// quiet: before Init records go nowhere, Init (when enabled)
+// sends them to OTLP only. The terminal belongs to the live UI
+// (a fourteen-thousand-row sweep must not scroll it); audit
+// lives in the store ring. Per-channel routing (levels, opt-in
+// stdout) is future work, tracked in docs/OBSERVABILITY.md.
+var accessLogger = slog.New(slog.DiscardHandler)
 
 // Logger returns the process-wide access logger used by
 // RequestTelemetry. Never nil.
 func Logger() *slog.Logger { return accessLogger }
+
+// AttachStdout adds the human-readable text leg to the access
+// logger: long-running services (serve) keep docker-logs-visible
+// records while CLI one-shots stay hushed. Composes with
+// whatever Init attached — call once, at service startup,
+// after Init.
+func AttachStdout() {
+	text := slog.NewTextHandler(os.Stdout, nil)
+	if h, ok := accessLogger.Handler().(fanoutHandler); ok {
+		accessLogger = slog.New(append(h, text))
+		return
+	}
+	accessLogger = slog.New(fanoutHandler{accessLogger.Handler(), text})
+}
 
 // Init initializes OpenTelemetry if enabled
 func Init(cfg Config) (func(context.Context) error, error) {

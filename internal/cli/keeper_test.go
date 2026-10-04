@@ -1003,9 +1003,11 @@ func TestSweepSurfacesFailureLineWriteError(t *testing.T) {
 }
 
 // --output tees failure lines into a file while stdout keeps
-// them: an outage narrates in both places. A bad path refuses
-// before the pass. If this fails, the stream lands in one
-// place only, or nowhere.
+// them: an outage narrates in both places. Row records ride
+// OTLP-only and never touch stdout (the terminal belongs to
+// the live line), so their absence here is the contract. A bad
+// path refuses before the pass. If this fails, the stream lands
+// in one place only, or nowhere.
 func TestSweepOutputTeesFailuresToFile(t *testing.T) {
 	s, stub := pairedSweepStore(t)
 	stub.delErr = errors.New("registry: 500")
@@ -1023,6 +1025,9 @@ func TestSweepOutputTeesFailuresToFile(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "failed:") {
 		t.Errorf("stdout lost its failure lines:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "sweep row") {
+		t.Errorf("row chatter on stdout:\n%s", out.String())
 	}
 	fs, fstub := pairedSweepStore(t)
 	fstub.delErr = errors.New("registry: 500")
