@@ -3,15 +3,19 @@ package cli
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"fmt"
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -89,6 +93,9 @@ func TestStoreBackfillOutputBadPathRefuses(t *testing.T) {
 	t.Setenv(config.EnvRegistryConfig, cfgPath)
 	RootCmd.SetArgs([]string{"store", "backfill", "--output", filepath.Join(t.TempDir(), "gone", "stream.log")})
 	defer RootCmd.SetArgs(nil)
+	// Cobra keeps parsed flag values on the shared command: restore
+	// the default so later backfill runs don't inherit the bad path.
+	defer func() { _ = storeBackfillCmd.Flags().Set("output", "") }()
 	if err := RootCmd.Execute(); err == nil {
 		t.Error("store backfill --output into missing dir succeeded, want refusal")
 	}
@@ -186,6 +193,92 @@ func TestStoreBackfillRendersBlock(t *testing.T) {
 				t.Errorf("line misaligned: %q", lines[i])
 			}
 		}
+	}
+}
+
+// The preview announces itself up front through the command: a dry
+// run over an empty catalog prints the banner and records nothing.
+// The banner line executes here and nowhere else, so silence means
+// the preview path moved. If this fails, previews run quiet (or
+// record).
+func TestStoreBackfillDryRunAnnouncesPreview(t *testing.T) {
+	clearStoreEnv(t)
+	data := t.TempDir()
+	gen, gerr := sentinel.NewGen()
+	if gerr != nil {
+		t.Fatalf("mint gen: %v", gerr)
+	}
+	id, ierr := sentinel.NewGen()
+	if ierr != nil {
+		t.Fatalf("mint id: %v", ierr)
+	}
+	if _, err := sentinel.Write(data, sentinel.Repo, sentinel.Tag,
+		sentinel.Payload{V: 1, Gen: gen, ID: id, TS: time.Now().UTC().Format(time.RFC3339), Writer: "kpr-gc"}); err != nil {
+		t.Fatalf("stage served generation: %v", err)
+	}
+	disk := mountAPI{root: data}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/_catalog" {
+			_, _ = w.Write([]byte(`{"repositories":[]}`))
+			return
+		}
+		p := strings.TrimPrefix(r.URL.Path, "/v2/"+sentinel.Repo)
+		var raw []byte
+		var err error
+		switch {
+		case strings.HasPrefix(p, "/manifests/"):
+			raw, err = disk.GetManifest(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/manifests/"))
+		case strings.HasPrefix(p, "/blobs/"):
+			raw, err = disk.GetBlob(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/blobs/"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write(raw)
+	}))
+	defer srv.Close()
+	cfgPath := filepath.Join(t.TempDir(), "registry.yml")
+	if err := os.WriteFile(cfgPath, []byte("storage:\n  filesystem:\n    rootdirectory: "+data+"\n"), 0o644); err != nil {
+		t.Fatalf("stage registry config: %v", err)
+	}
+	dir := t.TempDir()
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, dir)
+	t.Setenv(config.EnvRegistryURL, srv.URL)
+	t.Setenv(config.EnvRegistryConfig, cfgPath)
+	s, err := OpenStore(config.NewBuilder().FromEnv().Build())
+	if err != nil {
+		t.Fatalf("open file store: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	c := context.Background()
+	if err := s.SetUnlocked(c, true); err != nil {
+		t.Fatalf("stage unlock: %v", err)
+	}
+	if err := s.SetIdentity(c, store.Identity{ID: id, BaselineGen: gen}); err != nil {
+		t.Fatalf("pair store: %v", err)
+	}
+	// Cobra keeps parsed flag values on the shared command: start
+	// from defaults so no earlier invocation leaks in.
+	for _, f := range [][2]string{{"output", ""}, {"no-dry-run", "false"}, {"accept-rollback", "false"}} {
+		if err := storeBackfillCmd.Flags().Set(f[0], f[1]); err != nil {
+			t.Fatalf("reset --%s: %v", f[0], err)
+		}
+	}
+	var out bytes.Buffer
+	RootCmd.SetOut(&out)
+	defer RootCmd.SetOut(nil)
+	RootCmd.SetArgs([]string{"store", "backfill"})
+	defer RootCmd.SetArgs(nil)
+	if err := RootCmd.Execute(); err != nil {
+		t.Fatalf("store backfill dry run: %v", err)
+	}
+	if !strings.Contains(out.String(), "dry run — preview only, nothing recorded") {
+		t.Errorf("preview lacks its banner:\n%s", out.String())
 	}
 }
 

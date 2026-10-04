@@ -266,7 +266,9 @@ func TestManifestDigestReadsHeaders(t *testing.T) {
 // explicit manifest Accept list, never */* alone. If this fails,
 // every multi-arch docker tag skips backfill with a 400.
 func TestManifestDigestAvoidsBareStarAccept(t *testing.T) {
+	var gotAccept string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Get("Accept")
 		if r.Header.Get("Accept") == "*/*" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -279,6 +281,16 @@ func TestManifestDigestAvoidsBareStarAccept(t *testing.T) {
 
 	if _, _, err := NewClient(srv.URL).ManifestDigest(testCtx(), "app", "v1"); err != nil {
 		t.Errorf("ManifestDigest(list) = %v, want digest", err)
+	}
+	// The list names every type the backfill reads: dropping one
+	// regresses a whole media family to 400s. If this fails, the
+	// wire list drifted from the registries it serves.
+	want := "application/vnd.docker.distribution.manifest.list.v2+json, " +
+		"application/vnd.docker.distribution.manifest.v2+json, " +
+		"application/vnd.oci.image.index.v1+json, " +
+		"application/vnd.oci.image.manifest.v1+json"
+	if gotAccept != want {
+		t.Errorf("Accept = %q, want the full manifest list", gotAccept)
 	}
 }
 
@@ -327,6 +339,22 @@ func TestDeleteManifestSuccess(t *testing.T) {
 	}
 	if gotMethod != http.MethodDelete || gotPath != "/v2/app/manifests/sha256:abc" {
 		t.Errorf("request = %s %s, want DELETE /v2/app/manifests/sha256:abc", gotMethod, gotPath)
+	}
+}
+
+// A truncated body refuses instead of classifying: a half-read
+// error document is not a verdict. If this fails, connection
+// resets during deletes resolve as outcomes.
+func TestDeleteManifestShortBodyErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("short"))
+	}))
+	defer srv.Close()
+
+	if _, err := NewClient(srv.URL).DeleteManifest(testCtx(), "app", "sha256:abc"); err == nil {
+		t.Error("short-bodied 202 succeeded, want the read refusal")
 	}
 }
 

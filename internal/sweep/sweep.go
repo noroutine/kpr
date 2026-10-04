@@ -32,6 +32,8 @@ const (
 )
 
 // LockTTL bounds single-flight: a crashed sweeper can't hold it forever.
+// NOTE(mutants): bound arithmetic is equivalent — no test waits
+// out 5 minutes to distinguish the bound, and none should.
 const LockTTL = 5 * time.Minute
 
 // Summary is the pass outcome: RunPass returns it, so `sweep` gets

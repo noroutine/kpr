@@ -231,7 +231,7 @@ func TestRunHuskVerdictNamesRemovals(t *testing.T) {
 		}
 		return out.String()
 	}
-	if clean := runArmed(t, nil); strings.Contains(clean, "removed") {
+	if clean := runArmed(t, nil); strings.Contains(clean, "removed") || strings.Contains(clean, "pruned 0 husks") {
 		t.Errorf("clean root announces removals:\n%s", clean)
 	}
 	dirty := runArmed(t, func(v2 string) {

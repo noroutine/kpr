@@ -200,6 +200,34 @@ func TestListGhostsSortsBuckets(t *testing.T) {
 	}
 }
 
+// Repo-major beats tag-minor even when they disagree: apple:z9 sorts
+// before zebra:a1, so a tag-major comparator fails from any input
+// order. If this fails, the ghost listing reads tag-first and a plan
+// diff stops meaning a state diff.
+func TestListGhostsRepoMajorOverTagMinor(t *testing.T) {
+	s := store.NewMemStore()
+	c := keeperCtx()
+	old := keeperNow.Add(-200 * 24 * time.Hour)
+	for _, r := range []policy.Row{
+		{Repo: "zebra", Tag: "a1", Digest: "sha256:a", PushedAt: old},
+		{Repo: "apple", Tag: "z9", Digest: "sha256:b", PushedAt: old},
+	} {
+		_ = s.Record(c, r)
+	}
+	reg := ghostCatalog{gone: map[string]bool{"zebra": true, "apple": true}}
+	ghosts, _, _, err := ListGhosts(c, s, reg, map[string]bool{"other": true}, ghostProof(t, s))
+	if err != nil {
+		t.Fatalf("ListGhosts: %v", err)
+	}
+	var names []string
+	for _, g := range ghosts {
+		names = append(names, g.Row.Repo+":"+g.Row.Tag)
+	}
+	if want := []string{"apple:z9", "zebra:a1"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("ghosts = %v, want %v (repo-major, tag-minor)", names, want)
+	}
+}
+
 // An empty store with an empty fs view lists nothing, successfully:
 // there are no absences to trust, so the live-view refusal (which
 // guards tracked rows against an empty set) does not apply. If

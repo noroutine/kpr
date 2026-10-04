@@ -112,6 +112,10 @@ func Verify(ctx context.Context, api API, repo, tag string, wantGen string) erro
 // meaning "recently proven": tag lifecycle keeps working, but blob
 // reclamation hasn't been demonstrated within the window. A loud
 // line, never a refusal — staleness degrades, it doesn't gate.
+// NOTE(mutants): tuning arithmetic is equivalent at unit steps —
+// the 3-day/8-day literals pin days-against-hours, and no staged
+// proof falls inside the day; a day more or less changes nothing
+// a test should observe.
 const ProofStaleAfter = 7 * 24 * time.Hour
 
 // LastProof reads the live generation at the fixed sentinel address:

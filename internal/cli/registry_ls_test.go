@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
 
@@ -98,6 +99,42 @@ func TestRegistryLsSentinels(t *testing.T) {
 	}
 	if !strings.Contains(errW.String(), "broken") {
 		t.Errorf("stderr = %q, want the dangling tag warned past", errW.String())
+	}
+}
+
+// The help names the store-side twin: operators diffing views must
+// find `store ls sentinels` from `registry ls --help`. If this
+// fails, the help points at one view while the other moved.
+func TestRegistryLsHelpNamesStoreTwin(t *testing.T) {
+	if !strings.Contains(registryLsCmd.Long, "`store ls sentinels`") {
+		t.Errorf("help = %q, want the store-side twin named", registryLsCmd.Long)
+	}
+}
+
+// The long view names every column and row: the header prints,
+// every row prints, and the buffer flushes — an early return would
+// hand back empty output. If this fails, --long lists nothing
+// while reporting success.
+func TestRegistryLsSentinelsLong(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 10, 3, 22, 0, 0, 0, time.UTC)
+	ts := now.Add(-90 * time.Minute).UTC().Format(time.RFC3339)
+	stageSentinelTag(t, root, "gen-1", sentinel.Payload{V: 1, Gen: "gen-1", ID: "id-1", TS: ts, Writer: "kpr-unlock"})
+	var out, errW bytes.Buffer
+	if err := runRegistryLs(context.Background(), &out, &errW, mountAPI{root}, "sentinels", now, false, true); err != nil {
+		t.Fatalf("ls sentinels --long = %v, want listing", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("ls --long has %d lines, want header + 1:\n%s", len(lines), out.String())
+	}
+	fields := func(l string) []string { return strings.Fields(l) }
+	join := func(f []string) string { return strings.Join(f, " ") }
+	if join(fields(lines[0])) != "REPO:TAG GEN ID DIGEST PUSHED WRITER" {
+		t.Errorf("header = %q, want the long columns", lines[0])
+	}
+	if got := join(fields(lines[1])); !strings.HasPrefix(got, "noroutine/kpr-sentinel:gen-1 gen-1 id-1") || !strings.Contains(got, "kpr-unlock") {
+		t.Errorf("row = %q, want gen/id/writer named", got)
 	}
 }
 
@@ -284,6 +321,33 @@ func TestRegistryLsHusksWriteFailureRefuses(t *testing.T) {
 	}
 	if err := runRegistryLsHusks(&failAfterWriter{}, cfg, true, false); err == nil {
 		t.Error("ls husks --json with failing stdout succeeded, want refusal")
+	}
+}
+
+// The husks target dispatches through the command: `registry ls
+// husks` lists tagless repos off the mount, not the sentinel view.
+// If this fails, the target dispatch drifted from the listing.
+func TestRegistryLsHusksCommandDispatches(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "docker", "registry", "v2",
+		"repositories", "bare", "_manifests", "revisions", "sha256", "bbb", "link")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("stage dir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("sha256:bbb"), 0o644); err != nil {
+		t.Fatalf("stage link: %v", err)
+	}
+	cfg := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o600); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	t.Setenv(config.EnvRegistryConfig, cfg)
+	out, err := runCmdWithArgs(t, t.TempDir(), "http://registry:5000", registryLsCmd, []string{"husks"})
+	if err != nil {
+		t.Fatalf("ls husks: %v", err)
+	}
+	if out != "bare\n" {
+		t.Errorf("ls husks = %q, want the tagless repo", out)
 	}
 }
 

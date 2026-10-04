@@ -787,6 +787,85 @@ func TestBackfillRollbackNeedsAcceptArmed(t *testing.T) {
 	}
 }
 
+// An unreadable mtime warns past the tag, never ends the repo:
+// the walk continues to the next tag. (Bad sorts first, so a
+// warn-then-return mutant starves the good tag either way.) If
+// this fails, one dangling link vetoes the whole import.
+func TestBackfillUnreadableMtimeWarnsPast(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	stageTagDir(t, root, "app", "zzz-good")
+	reg := &stubRegistry{
+		repos: []string{"app"},
+		tags:  map[string][]string{"app": {"aaa-bad", "zzz-good"}},
+		digests: map[string]string{
+			"app\x00aaa-bad":  "sha256:bad",
+			"app\x00zzz-good": "sha256:good",
+		},
+	}
+	var out strings.Builder
+	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if sum.Recorded != 1 || sum.Failed != 1 {
+		t.Errorf("sum = %+v, want 1 recorded past 1 failed", sum)
+	}
+	if !strings.Contains(out.String(), "Warning: app:aaa-bad mtime unreadable") {
+		t.Errorf("warnings = %q, want the dangling tag named", out.String())
+	}
+	rows, _ := s.All(ctx)
+	found := false
+	for _, r := range rows {
+		if r.Repo == "app" && r.Tag == "zzz-good" && r.Digest == "sha256:good" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("rows = %+v, want the good tag recorded past the bad one", rows)
+	}
+}
+
+// A blinded floater warns uncapped and runs: without the floater's
+// mtime no fossil caps, so the run says so and imports anyway.
+// Root reads through permissions, so it sits this one out. If this
+// fails, a blind floater vetoes the import (or caps silently).
+func TestBackfillBlindFloaterWarnsUncapped(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	repo := "noroutine/kpr-shadow"
+	stageTagDir(t, root, repo, "fossil")
+	stageTagDir(t, root, repo, sentinel.Tag)
+	blind := filepath.Join(root, "docker", "registry", "v2",
+		"repositories", repo, "_manifests", "tags", sentinel.Tag, "current")
+	if err := os.Chmod(blind, 0o000); err != nil {
+		t.Fatalf("blind floater: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blind, 0o755) })
+	reg := &stubRegistry{
+		repos: []string{repo},
+		tags:  map[string][]string{repo: {"fossil", sentinel.Tag}},
+		digests: map[string]string{
+			repo + "\x00fossil":          "sha256:fossil",
+			repo + "\x00" + sentinel.Tag: "sha256:floater",
+		},
+	}
+	var out strings.Builder
+	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if sum.Recorded != 1 {
+		t.Errorf("sum = %+v, want the fossil recorded uncapped", sum)
+	}
+	if !strings.Contains(out.String(), "sentinel rows uncapped") {
+		t.Errorf("warnings = %q, want the blind floater named", out.String())
+	}
+}
+
 // An unreachable catalog refuses the whole run before any row:
 // backfill against a dead registry must not report a clean zero.
 // If this fails, outages read as empty registries.

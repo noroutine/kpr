@@ -77,8 +77,8 @@ func TestSelectStaleUploadsNeedsMissingDigestAndAge(t *testing.T) {
 	if len(got) != 1 || got[0].Tag != "wip" {
 		t.Fatalf("selected %v, want [wip]", got)
 	}
-	if !got[0].Due || got[0].Reason == "" {
-		t.Errorf("stale upload not marked due with reason: %+v", got[0])
+	if !got[0].Due || got[0].Reason != "partial:older than 24h0m0s" {
+		t.Errorf("stale upload reason = %q, want the 24h tuning named: %+v", got[0].Reason, got[0])
 	}
 }
 
@@ -140,6 +140,9 @@ func TestSelectUntaggedNeedsCatalogAbsenceAndGrace(t *testing.T) {
 	got := SelectUntagged(rows, catalog, sliceNow)
 	if len(got) != 1 || got[0].Tag != "gone" {
 		t.Fatalf("selected %v, want [gone]", got)
+	}
+	if !got[0].Due || got[0].Reason != "untagged:past grace 168h0m0s" {
+		t.Errorf("untagged reason = %q, want the 168h tuning named: %+v", got[0].Reason, got[0])
 	}
 }
 

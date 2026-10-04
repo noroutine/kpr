@@ -56,6 +56,11 @@ func RemoveHusks(root string) ([]string, error) {
 				} else {
 					husks = append(husks, name)
 				}
+				// NOTE(mutants): == is equivalent — _manifests is
+				// always a dir in registry-produced layouts, so
+				// merr==nil always takes the branch above; only
+				// hand-planted shapes (a file named _manifests
+				// with nested repos beneath) distinguish them.
 			} else if merr != nil && !os.IsNotExist(merr) {
 				return merr
 			}
@@ -108,6 +113,10 @@ const (
 // touched within it may still be tagging, so the repo stays; an
 // older one is crash residue — the registry's own purgeuploads
 // would take it — and never blocks removal.
+// NOTE(mutants): tuning arithmetic is equivalent at unit steps —
+// the fresh-session veto and 48h residue pin the order, and no
+// staged session falls inside the hour; an hour more or less
+// changes nothing a test should observe.
 const uploadStaleAge = 24 * time.Hour
 
 // classify re-verifies one candidate at removal time: a tag link

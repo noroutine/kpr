@@ -5,6 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +18,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
@@ -162,6 +167,40 @@ func TestStoreLsSortsSameRepoByTag(t *testing.T) {
 	}
 }
 
+// Repo-major beats tag-minor even when they disagree: app:z9 sorts
+// before zzz:a1, so a tag-major comparator fails from any store
+// order (map order is random — agreement here is luck, not proof).
+// If this fails, ls lists tag-first and the plan view scrambles
+// across repos.
+func TestStoreLsSortsRepoBeforeTag(t *testing.T) {
+	s := store.NewMemStore()
+	c := cliCtx()
+	_ = s.Record(c, policy.Row{Repo: "zzz", Tag: "a1", Digest: "sha256:ddd",
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		PushedAt:  cliNow.Add(-time.Hour), Actor: "receiver"})
+	_ = s.Record(c, policy.Row{Repo: "app", Tag: "z9", Digest: "sha256:aaa",
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		PushedAt:  cliNow.Add(-2 * time.Hour), Actor: "receiver"})
+	var out bytes.Buffer
+	if err := runStoreLs(cliCtx(), &out, s, storeLsOpts{now: cliNow}); err != nil {
+		t.Fatalf("runStoreLs: %v", err)
+	}
+	body := out.String()
+	a, z := strings.Index(body, "app:z9"), strings.Index(body, "zzz:a1")
+	if a < 0 || z < 0 || a > z {
+		t.Errorf("rows out of repo-major order:\n%s", body)
+	}
+}
+
+// The help names the ghosts twin: operators converging the delta
+// must find `ls ghosts` from `store ls --help`. If this fails,
+// the help points at one view while the other moved.
+func TestStoreLsHelpNamesGhostsTwin(t *testing.T) {
+	if !strings.Contains(storeLsCmd.Long, "`ls ghosts`") {
+		t.Errorf("help = %q, want the ghosts twin named", storeLsCmd.Long)
+	}
+}
+
 // ghosts is the read-only convergence view: rows both witnesses
 // agree are gone, each with its evidence. Live rows stay out,
 // conflicts surface apart (catalog lists, fs absent — never
@@ -193,6 +232,32 @@ func seedGhostStore(t *testing.T) (*store.MemStore, ghostReg, map[string]bool, p
 		gone: map[string]bool{"gone": true, "noroutine/kpr-sentinel": true},
 	}
 	return s, reg, map[string]bool{"live": true}, untagProof(t, s)
+}
+
+// An empty ghost list still names its footers: a split witness
+// degrades visibly even when no row is agreed gone. If this fails,
+// a conflict reads as a clean bill.
+func TestStoreLsGhostsEmptyNamesFooters(t *testing.T) {
+	s := store.NewMemStore()
+	for _, r := range []policy.Row{
+		{Repo: "split", Tag: "v1", Digest: "sha256:b", PushedAt: cliNow.Add(-200 * 24 * time.Hour)},
+		{Repo: "flaky", Tag: "v1", Digest: "sha256:c", PushedAt: cliNow.Add(-200 * 24 * time.Hour)},
+	} {
+		_ = s.Record(cliCtx(), r)
+	}
+	reg := ghostReg{tags: map[string][]string{"split": {"other"}}}
+	var out bytes.Buffer
+	if err := runStoreGhosts(cliCtx(), &out, s, reg,
+		map[string]bool{"other": true}, untagProof(t, s), storeLsOpts{now: cliNow, long: true}); err != nil {
+		t.Fatalf("runStoreGhosts: %v", err)
+	}
+	// Two footers: a write-error mutant returns after the first,
+	// so one footer alone cannot catch it.
+	for _, want := range []string{"no ghost rows", "skipped 1 repo", "conflict 1 repo", "split", "flaky"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("ghosts footer missing %q:\n%s", want, out.String())
+		}
+	}
 }
 
 // Every write in the ghost listing surfaces: short, long, and
@@ -962,6 +1027,83 @@ func TestStoreCommandTailsRunAgainstFileBackend(t *testing.T) {
 // The ls flag plumbing splits at the command, not just the unit:
 // `ls sentinels` through RunE shows machinery, bare ls shows
 // inventory. If this fails, the flag misroutes the view.
+// The ghosts command wires all three witnesses through real deps:
+// the store pairs to the served generation, the fs view reads the
+// registry's own data dir, the catalog 404s the gone repo — and the
+// ghost lists. Procurement failures refuse instead of listing
+// blind, so an early return with empty output fails here. If this
+// fails, `store ls ghosts` never ran past unit fakes.
+func TestStoreLsGhostsCommandListsAgreedGone(t *testing.T) {
+	data := t.TempDir()
+	gen, gerr := sentinel.NewGen()
+	if gerr != nil {
+		t.Fatalf("mint gen: %v", gerr)
+	}
+	id, ierr := sentinel.NewGen()
+	if ierr != nil {
+		t.Fatalf("mint id: %v", ierr)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := sentinel.Write(data, sentinel.Repo, sentinel.Tag,
+		sentinel.Payload{V: 1, Gen: gen, ID: id, TS: now, Writer: "kpr-gc"}); err != nil {
+		t.Fatalf("stage served generation: %v", err)
+	}
+	disk := mountAPI{root: data}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(r.URL.Path, "/v2/"+sentinel.Repo)
+		switch {
+		case strings.HasPrefix(p, "/manifests/"):
+			raw, err := disk.GetManifest(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/manifests/"))
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_, _ = w.Write(raw)
+		case strings.HasPrefix(p, "/blobs/"):
+			raw, err := disk.GetBlob(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/blobs/"))
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_, _ = w.Write(raw)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	cfgPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfgPath, []byte("storage:\n  filesystem:\n    rootdirectory: "+data+"\n"), 0o644); err != nil {
+		t.Fatalf("stage registry config: %v", err)
+	}
+	t.Setenv(config.EnvRegistryConfig, cfgPath)
+	dir := t.TempDir()
+	func() {
+		t.Setenv(config.EnvStore, "file")
+		t.Setenv(config.EnvStoreDir, dir)
+		s, err := OpenStore(config.NewBuilder().FromEnv().Build())
+		if err != nil {
+			t.Fatalf("open file store: %v", err)
+		}
+		defer func() { _ = s.Close() }()
+		c := context.Background()
+		if err := s.SetUnlocked(c, true); err != nil {
+			t.Fatalf("stage unlock: %v", err)
+		}
+		if err := s.SetIdentity(c, store.Identity{ID: id, BaselineGen: gen}); err != nil {
+			t.Fatalf("pair store: %v", err)
+		}
+		_ = s.Record(c, policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
+			PushedAt: cliNow.Add(-200 * 24 * time.Hour)})
+	}()
+	out, err := runCmdWithArgs(t, dir, srv.URL, storeLsCmd, []string{"ghosts"})
+	if err != nil {
+		t.Fatalf("ls ghosts: %v", err)
+	}
+	if !strings.Contains(out, "gone:v1") {
+		t.Errorf("ghosts lack the agreed-gone row:\n%s", out)
+	}
+}
+
 func TestStoreLsCommandSplitsSentinels(t *testing.T) {
 	dir := t.TempDir()
 	srv := serveRegistry(t, t.TempDir(), false)

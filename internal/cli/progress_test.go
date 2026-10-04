@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +65,33 @@ func TestLiveLinesPipeStaysDark(t *testing.T) {
 	got, _ := io.ReadAll(pr)
 	if len(got) != 0 {
 		t.Errorf("pipe got %q, want silence until done", got)
+	}
+}
+
+// A char device earns repaints: the null device detects as
+// terminal-capable while a regular file stays dark. Detection reads
+// the file, never the other way round — struct-literal tty:true
+// tests paint, but only this proves the probe works. If this
+// fails, live counters never light up on real terminals.
+func TestLiveLinesDetectsCharDevice(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("null device semantics differ on windows")
+	}
+	dev, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open null device: %v", err)
+	}
+	defer func() { _ = dev.Close() }()
+	if live := newLiveLines(dev); !live.tty {
+		t.Error("null device not detected as terminal-capable, want repaints enabled")
+	}
+	plain, err := os.Create(filepath.Join(t.TempDir(), "out.log"))
+	if err != nil {
+		t.Fatalf("stage regular file: %v", err)
+	}
+	defer func() { _ = plain.Close() }()
+	if live := newLiveLines(plain); live.tty {
+		t.Error("regular file detected as terminal-capable, want piped silence")
 	}
 }
 

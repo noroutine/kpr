@@ -359,6 +359,35 @@ func TestDryRunPlansWithoutDeleting(t *testing.T) {
 	}
 }
 
+// Skipped rows settle too: one row untracked mid-pass, one whose mark
+// cleared, both advance Done so watchers can tell a finished pass
+// from a stalled one. If this fails, the run-state undercounts
+// whenever the pass skips instead of deleting.
+func TestSkippedRowsCountDone(t *testing.T) {
+	s := store.NewMemStore()
+	c := testCtx()
+	_ = s.Record(c, duerow("app", "v1", time.Hour))
+	_ = s.Record(c, duerow("app", "v2", time.Hour))
+	stale, err := s.Due(c)
+	if err != nil {
+		t.Fatalf("stage due: %v", err)
+	}
+	if err := s.Delete(c, "app", "v1"); err != nil {
+		t.Fatalf("stage untrack: %v", err)
+	}
+	if _, err := s.UnmarkDue(c, "app", "v2"); err != nil {
+		t.Fatalf("stage unmark: %v", err)
+	}
+	sw := &Sweeper{Store: staleDueStore{s, stale}, Registry: &stubRegistry{outcome: registry.OutcomeDeleted},
+		Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
+	if sum := sw.RunPass(c, "test"); sum.Performed != 0 || sum.Planned != 0 {
+		t.Errorf("summary = %+v, want nothing planned or performed", sum)
+	}
+	if cur, _ := s.GetCurrent(c); cur.Done != 2 || cur.Due != 2 {
+		t.Errorf("current = %+v, want Due 2 Done 2", cur)
+	}
+}
+
 // Deletes go by digest, never by tag: registries in the distribution:3
 // line reject tag deletes outright (405 UNSUPPORTED), while a digest
 // delete is confirmed and universal. A digest-less row falls back to
@@ -871,6 +900,26 @@ func TestLogRowWriteFailureKeepsPass(t *testing.T) {
 type errSink struct{}
 
 func (errSink) Write([]byte) (int, error) { return 0, errSinkFull }
+
+// A broken row stream logs loudly: the operator learns the --output
+// file stopped receiving instead of silently missing verdicts. If
+// this fails, a full disk goes quiet and nobody notices.
+func TestLogRowWriteFailureIsLoud(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
+	sw := &Sweeper{Store: s, Registry: &stubRegistry{outcome: registry.OutcomeDeleted},
+		Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }, RowLog: errSink{}}
+	if sum := sw.RunPass(testCtx(), "test"); sum.Performed != 1 {
+		t.Fatalf("summary = %+v, want the row counted despite the broken stream", sum)
+	}
+	if !strings.Contains(buf.String(), "row log write failed") {
+		t.Errorf("log = %q, want the write failure named", buf.String())
+	}
+}
 
 type errSinkT string
 

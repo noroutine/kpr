@@ -10,6 +10,8 @@ import (
 
 // liveInterval is the repaint floor: faster runs still paint at
 // most this often, so a 17k-tag walk doesn't redraw per tag.
+// NOTE(mutants): timing arithmetic is equivalent — the throttle
+// test pins paint-then-silence, and no test measures 300ms.
 const liveInterval = 300 * time.Millisecond
 
 // liveLines repaints one \r line for long runs: counters, not a
@@ -70,6 +72,8 @@ func (l *liveLines) tickBlock(lines []string) {
 		return
 	}
 	now := time.Now()
+	// NOTE(mutants): <= is equivalent — exact-interval expiry is
+	// untestable clock granularity; the throttle only paces paint.
 	if now.Sub(l.last) < liveInterval {
 		return
 	}

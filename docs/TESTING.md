@@ -171,6 +171,25 @@ whatever the label says). TIMED OUT is a kill by another name:
 the mutant hangs (ranging a nil channel, an undrained pipe),
 which no passing run can do.
 
+Three more attribution artifacts, all proven by hand-flips that
+the suite catches loudly:
+
+- **`const` declarations never cover.** Coverprofiles emit no
+  blocks for `const` lines, so every mutant on one reads NOT
+  COVERED even when tests pin the value. Check for literal pins
+  instead: reason strings rendering the tuning (`partial:older
+  than 24h0m0s`, `untagged:past grace 168h0m0s`), staged
+  literals around the window (3-day/8-day proofs, 2h rows),
+  wire text asserting the constant (the manifest Accept list).
+  When the value renders nowhere observable, ±1 steps are
+  accepted tuning (NOTE'd at the site); digit-scale typos stay
+  caught by the order pins.
+- **Walk-closure `}); err` lines.** `filepath.WalkDir` callbacks
+  attribute to the closing line; the guard bodies inside execute
+  (a flip collapses classification and the layout tests go red).
+- **Import lines.** A mutant attributed to an import block is
+  noise — there is no expression there to mutate.
+
 Two tunables, both learned the hard way:
 
 - `--timeout-coefficient=100`: gremlins derives each mutant's timeout
@@ -239,6 +258,18 @@ one earned, none by neglect):
   the exact values; the unit run never executes them.
 - `otel/telemetry.go:95` (`initMetrics` error): needs a broken global
   OTel SDK — same untestable family as the Once-guarded Warn survivor.
+- Tuning ±1 steps (each NOTE'd at the site): `ProofStaleAfter`
+  (3-day/8-day pins the order), clock `Tolerance` (lineage 1h
+  refusal pins seconds-against-minutes), `uploadStaleAge`
+  (fresh veto and 48h residue pin the order). Digit-scale typos
+  die on the order pins; unit wobbles change nothing observable.
+- Bounds, not budgets: sweep `LockTTL` (no test waits out 5
+  minutes — same family as gc's `lockTTL`/`holdLease`).
+- Repaint throttle (`cli/progress.go` `liveInterval`): the
+  throttle test pins paint-then-silence; no test measures 300ms.
+- Layout-only shapes (`gc/husk.go` walk guards): `_manifests`
+  is always a dir in registry-produced layouts, so only
+  hand-planted trees distinguish the mutants.
 
 ## End-to-end scenarios (`test/e2e`, `e2e` build tag)
 

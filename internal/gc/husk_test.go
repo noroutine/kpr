@@ -152,6 +152,13 @@ func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
 			t.Fatalf("stage file: %v", err)
 		}
 	}
+	// A tags dir that walks clean but holds no tag still classifies
+	// as tagless: a successful walk is not evidence of tags. If this
+	// fails, present-but-empty tags dirs read as kept and never
+	// collect.
+	if err := os.MkdirAll(filepath.Join(v2, "cleartags", "_manifests", "tags"), 0o755); err != nil {
+		t.Fatalf("stage empty tags: %v", err)
+	}
 	// Crash residue from long ago never vetoes: only a session
 	// touched within the stale age may still be tagging.
 	old := time.Now().Add(-48 * time.Hour)
@@ -166,15 +173,15 @@ func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RemoveHusks: %v", err)
 	}
-	if strings.Join(got, ",") != "husk,nest/husk,stale" {
-		t.Fatalf("removed %v, want [husk nest/husk stale]", got)
+	if strings.Join(got, ",") != "cleartags,husk,nest/husk,stale" {
+		t.Fatalf("removed %v, want [cleartags husk nest/husk stale]", got)
 	}
 	for _, kept := range []string{"live", "noroutine/kpr-shadow", "busy"} {
 		if _, err := os.Lstat(filepath.Join(v2, filepath.FromSlash(kept))); err != nil {
 			t.Errorf("%s unreadable, want kept: %v", kept, err)
 		}
 	}
-	for _, gone := range []string{"husk", "nest/husk", "stale"} {
+	for _, gone := range []string{"cleartags", "husk", "nest/husk", "stale"} {
 		if _, err := os.Lstat(filepath.Join(v2, filepath.FromSlash(gone))); !os.IsNotExist(err) {
 			t.Errorf("%s survives, want removed", gone)
 		}
