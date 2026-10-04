@@ -24,9 +24,9 @@ type CatalogReport struct {
 	Husks      int
 	FailedTags int
 	// Prime annotates the sentinel prime: the floater is a
-	// pointer, never inventory, so a seen prime leaves the
-	// sentinel count (Tags stays truthful). Present is
-	// structure; missing and corrupt call for investigation.
+	// pointer, never inventory, so a seen prime leaves both
+	// counts. Present is structure; missing and corrupt call
+	// for investigation.
 	Prime sentinel.Prime
 }
 
@@ -70,10 +70,11 @@ func ScanCatalog(ctx context.Context, w io.Writer, reg Registry, progress func(C
 			rep.Sentinels += len(tags)
 		}
 		if repo == sentinel.Repo && slices.Contains(tags, sentinel.Tag) {
-			// Seen prime leaves the count (pointer, not a
-			// generation); one manifest read says whether it
-			// resolves.
+			// Seen prime leaves both counts: one generation,
+			// two tags, and the pointer is the duplicate.
+			// One manifest read says whether it resolves.
 			rep.Sentinels--
+			rep.Tags--
 			if _, _, derr := reg.ManifestDigest(ctx, repo, sentinel.Tag); derr != nil {
 				rep.Prime = sentinel.PrimeCorrupt
 			} else {

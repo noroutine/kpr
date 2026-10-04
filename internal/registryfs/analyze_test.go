@@ -634,10 +634,10 @@ func TestAnalyzeCountsSentinelTags(t *testing.T) {
 }
 
 // The prime is a pointer, not inventory: a resolving latest
-// annotates present and stays out of the sentinel count; a
-// missing link annotates missing; a dangling one, corrupt.
-// Tags stay truthful either way. If this fails, the pointer
-// inflates inventory again.
+// annotates present and stays out of both counts; a missing
+// link annotates missing; a dangling one, corrupt (still a
+// dangling link). If this fails, the pointer inflates
+// inventory again.
 func TestAnalyzeAnnotatesPrime(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -647,9 +647,9 @@ func TestAnalyzeAnnotatesPrime(t *testing.T) {
 		prime     sentinel.Prime
 		dangling  int
 	}{
-		{"present", strptr("sha256:bbb"), 2, 1, sentinel.PrimePresent, 0},
+		{"present", strptr("sha256:bbb"), 1, 1, sentinel.PrimePresent, 0},
 		{"missing", nil, 1, 1, sentinel.PrimeMissing, 0},
-		{"corrupt", strptr("sha256:zzz"), 2, 1, sentinel.PrimeCorrupt, 1},
+		{"corrupt", strptr("sha256:zzz"), 1, 1, sentinel.PrimeCorrupt, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()

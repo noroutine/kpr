@@ -44,22 +44,22 @@ func TestScanCatalogCounts(t *testing.T) {
 }
 
 // The prime is a pointer, not inventory: a resolving latest
-// annotates present and leaves the sentinel count; a missing
-// link annotates missing; an unresolvable one, corrupt. Tags
-// stay truthful either way. If this fails, the pointer
-// inflates inventory again.
+// annotates present and leaves both counts; a missing link
+// annotates missing; an unresolvable one, corrupt. If this
+// fails, the pointer inflates inventory again.
 func TestScanCatalogAnnotatesPrime(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		tags      []string
 		digest    string
 		digErr    error
+		wantTags  int
 		sentinels int
 		prime     sentinel.Prime
 	}{
-		{"present", []string{"gen", "latest"}, "sha256:bbb", nil, 1, sentinel.PrimePresent},
-		{"missing", []string{"gen"}, "", nil, 1, sentinel.PrimeMissing},
-		{"corrupt", []string{"gen", "latest"}, "", errors.New("rot"), 1, sentinel.PrimeCorrupt},
+		{"present", []string{"gen", "latest"}, "sha256:bbb", nil, 1, 1, sentinel.PrimePresent},
+		{"missing", []string{"gen"}, "", nil, 1, 1, sentinel.PrimeMissing},
+		{"corrupt", []string{"gen", "latest"}, "", errors.New("rot"), 1, 1, sentinel.PrimeCorrupt},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reg := &stubRegistry{
@@ -76,9 +76,9 @@ func TestScanCatalogAnnotatesPrime(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ScanCatalog = %v, want counts", err)
 			}
-			if got.Tags != len(tc.tags) || got.Sentinels != tc.sentinels || got.Prime != tc.prime {
+			if got.Tags != tc.wantTags || got.Sentinels != tc.sentinels || got.Prime != tc.prime {
 				t.Errorf("ScanCatalog = %+v, want %d tags, %d sentinels, prime %q",
-					got, len(tc.tags), tc.sentinels, tc.prime)
+					got, tc.wantTags, tc.sentinels, tc.prime)
 			}
 		})
 	}

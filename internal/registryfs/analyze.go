@@ -349,11 +349,16 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 			n := len(parts)
 			switch {
 			case n >= 7 && parts[n-2] == "current" && parts[n-4] == "tags" && parts[n-5] == "_manifests":
-				rep.Tags++
 				// The prime is a pointer, never inventory: it
-				// annotates instead of counting.
+				// annotates instead of counting, in tags as
+				// in sentinels. Its target still joins the
+				// dangling join below — integrity counts
+				// links, inventory doesn't.
 				prime := isSentinelTag(parts) && parts[n-3] == sentinel.Tag &&
 					strings.Join(parts[1:slices.Index(parts, "_manifests")], "/") == sentinel.Repo
+				if !prime {
+					rep.Tags++
+				}
 				if isSentinelTag(parts) && !prime {
 					rep.Sentinels++
 				}

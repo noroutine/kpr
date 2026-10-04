@@ -47,7 +47,10 @@ invariant.
   layer links, so those stay fs-side. The prime rides as its
   own field (`prime status:`, like `store status:`): a seen
   prime leaves the sentinel count — `present` is structure,
-  `missing` and `corrupt` call for investigation.
+  `missing` and `corrupt` call for investigation. Accepted
+  lie: a seen prime also leaves the tag count on both sides
+  (one generation, two tags — the pointer is the duplicate),
+  named by the status, never hidden.
 - `store` — the tracked state, a static snapshot of
   `store ls` read before the slow walks: distinct repos over
   everything, tags over everything (like the catalog counts
@@ -76,7 +79,12 @@ invariant.
   pointers tail the line only when present: dangling tag links
   (target revision link absent), read off link contents and
   joined end-exact — point-in-time on a live registry, raw
-  numbers, never verdicts.
+  numbers, never verdicts. The prime moves neither leg:
+  its manifest is covered by its gen tag (mint writes the gen
+  tag before the floater switch), so excluding the pointer
+  from tags leaves untagged balanced. A prime pointing at a
+  gen-tagless manifest reads untagged — the pointer is not a
+  tag — by design.
 - `blobs` — blob files, per-repo layer links (links-per-blob
   reads sharing off this line), upload sessions, plus dangling
   layer links (blob data absent) on the same terms.
