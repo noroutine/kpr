@@ -21,3 +21,15 @@ func TestVersionStringNamesBinary(t *testing.T) {
 		t.Errorf("PrintVersion = %q, want %q", buf.String(), s+"\n")
 	}
 }
+
+// The banner is the binary's warranty/refusal grant: version, help,
+// and serve startup all print this one string. If this fails, a surface
+// lost either the refusal or the grant.
+func TestLicenseBannerRefusesWarrantyGrantsRedistribution(t *testing.T) {
+	b := LicenseBanner()
+	for _, want := range []string{"Copyright (C)", "ABSOLUTELY NO WARRANTY", "redistribute", "LICENSE"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("banner = %q, want it to contain %q", b, want)
+		}
+	}
+}
