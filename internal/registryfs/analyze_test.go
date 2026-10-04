@@ -216,6 +216,9 @@ func TestWalksRefuseBlindPaths(t *testing.T) {
 // stops at the first error, so a shared fixture would pin only
 // one site. If this fails, corrupt layouts analyze as healthy.
 func TestAnalyzeUnreadableLinkFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
 	stage := func(t *testing.T, link string) proof.FilesystemStore {
 		t.Helper()
 		root := t.TempDir()
@@ -340,6 +343,9 @@ func TestAnalyzeNestedEarlyRepoClearsParent(t *testing.T) {
 // half-state must abort analysis, never silently uncount. If this
 // fails, permission trouble mid-layout reads as clean.
 func TestAnalyzeUnreadableUploadsFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through directory permissions")
+	}
 	root := t.TempDir()
 	up := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", "_uploads", "uuid-1")
 	if err := os.MkdirAll(up, 0o755); err != nil {
