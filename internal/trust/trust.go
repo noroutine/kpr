@@ -25,8 +25,9 @@ var errNoProofReader = errors.New("no proof reader")
 // Word runs the dry lineage verdict over live reads and names it:
 // paired when it holds, unpaired (fresh/wiped), unserved (paired
 // store, silent registry), unproven (evidence unusable), foreign,
-// rollback?, unadopted (store behind the serving registry). The
-// dry verdict never mints or heals here.
+// rollback?, behind (served generation untracked — the next armed
+// gc adopt-records it, backfill would too). The dry verdict never
+// mints or heals here.
 func Word(ctx context.Context, api sentinel.API, ident store.Identity, rows []policy.Row) string {
 	served := lineage.Served{Err: errNoProofReader}
 	if api != nil {
@@ -66,5 +67,5 @@ func name(s lineage.Served, ident store.Identity, rows []policy.Row, v lineage.V
 			return "paired"
 		}
 	}
-	return "unadopted"
+	return "behind"
 }

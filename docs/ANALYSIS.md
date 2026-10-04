@@ -51,7 +51,7 @@ invariant.
   trust word — `paired` when the dry verdict holds, or why not:
   `unpaired` (fresh/wiped), `unserved` (paired store, silent
   registry), `unproven` (evidence unusable), `foreign`,
-  `rollback?`, `unadopted` (store behind the serving registry).
+  `rollback?`, `behind` (served generation untracked yet).
   Stats print regardless: the word colors them, never refuses
   them. `store status` headlines the same word.
   registry). Best-effort: a dead backend degrades this line to

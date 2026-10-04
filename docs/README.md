@@ -13,7 +13,8 @@ and quickstart commands are in the [top-level README](../README.md).
 | Doc | Answers |
 |---|---|
 | [QUICKSTART](QUICKSTART.md) | fresh setup: two containers, one volume, first expiring tag |
-| [ADOPT](ADOPT.md) | bolting kpr onto your own registry + Traefik |
+| [ADOPT](ADOPT.md) | pairing a store to a lineage (`store adopt`) |
+| [ADOPT_KPR](ADOPT_KPR.md) | bolting kpr onto your own registry + Traefik |
 | [CONFIG](CONFIG.md) | every environment variable, and how they resolve |
 | [STORES](STORES.md) | file and redis backends, layouts, invariants |
 | [GC](GC.md) | reclaiming blob bytes: the proof chain, the two paths |

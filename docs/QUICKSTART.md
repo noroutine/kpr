@@ -3,7 +3,7 @@
 From zero to expiring tags in ten minutes. No existing stack and no
 repo checkout — two containers, one shared volume, no database.
 
-Already run `distribution`? See [ADOPT.md](ADOPT.md) instead.
+Already run `distribution`? See [ADOPT_KPR.md](ADOPT_KPR.md) instead.
 
 ## Contents
 
@@ -180,4 +180,4 @@ cache descriptors need a restart or a flush first — see
   [TIMESTAMPS.md](TIMESTAMPS.md).
 
 Growing past this setup — your own redis, Traefik in front, a
-second host? See [ADOPT.md](ADOPT.md) and [STORES.md](STORES.md).
+second host? See [ADOPT_KPR.md](ADOPT_KPR.md) and [STORES.md](STORES.md).

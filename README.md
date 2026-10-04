@@ -31,7 +31,8 @@ Shortcuts to the three most-asked-for pages:
 | Doc | Answers |
 |---|---|
 | [QUICKSTART](docs/QUICKSTART.md) | fresh setup: two containers, one volume, first expiring tag |
-| [ADOPT](docs/ADOPT.md) | bolting kpr onto a registry you already run |
+| [ADOPT](docs/ADOPT.md) | pairing a store to a lineage (`store adopt`) |
+| [ADOPT_KPR](docs/ADOPT_KPR.md) | bolting kpr onto a registry you already run |
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | components, policies, gc, data keys, surfaces |
 
 ## How it works
@@ -74,7 +75,7 @@ after manifest deletes — offline, registry stops) is `make gc`.
 ## Adopting kpr into your own stack
 
 Already run `distribution`, behind Traefik or not? Start here:
-[ADOPT](docs/ADOPT.md) — two wires (notifications, deletes) plus
+[ADOPT_KPR](docs/ADOPT_KPR.md) — two wires (notifications, deletes) plus
 the shared volume, a registry-config patch, a copy-paste kpr
 service, and a disarmed first run. Pin
 `nrtn.dev/catalyst/kpr:<release-tag>`; images publish on tags.

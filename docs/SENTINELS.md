@@ -262,7 +262,7 @@ refuse there; its refusal is a skipped pass with the cause in
 is the only pairing writer: follow the served id, pin an
 expected one (mismatch refuses), accept a rollback baseline
 (`--gen` must name the served generation). (This ceremony is
-not [Adopting kpr](ADOPT.md) — that guide bolts kpr onto an
+not [Adopting kpr](ADOPT_KPR.md) — that guide bolts kpr onto an
 existing registry; this one pairs a store to a lineage.)
 
 Unbuilt designs live in [SENTINELS_FUTURE.md](SENTINELS_FUTURE.md).

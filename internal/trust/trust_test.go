@@ -55,7 +55,7 @@ func TestName(t *testing.T) {
 		{name: "foreign lineage", s: served("id-b", "gen-new"), ident: paired, rows: rows, v: lineage.Verdict{}, want: "foreign"},
 		{name: "identity-less payload", s: served("", "gen-new"), ident: paired, rows: rows, v: lineage.Verdict{}, want: "foreign"},
 		{name: "served older than tracked", s: served("id-a", "gen-old"), ident: paired, rows: rows, v: judge(served("id-a", "gen-old")), want: "rollback?"},
-		{name: "store behind registry", s: served("id-a", "gen-fresh"), ident: paired, rows: rows, v: judge(served("id-a", "gen-fresh")), want: "unadopted"},
+		{name: "store behind registry", s: served("id-a", "gen-fresh"), ident: paired, rows: rows, v: judge(served("id-a", "gen-fresh")), want: "behind"},
 		{name: "clean pairing shows paired", s: served("id-a", "gen-new"), ident: paired, rows: rows, v: judge(served("id-a", "gen-new")), want: "paired"},
 	} {
 		if got := name(c.s, c.ident, c.rows, c.v); got != c.want {
