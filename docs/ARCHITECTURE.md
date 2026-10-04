@@ -341,8 +341,10 @@ none is silent — and each names what would actually retire it.
   a dev copy, and the join reads two registries at once:
   conflicts flood, 404-ghosts may hide — never frame a live
   tag while conflicts stay a bucket. Full account in
-  `docs/STORES.md` ("Ghosts"). Retired by binding the fs
-  proof to the served endpoint.
+  `docs/STORES.md` ("Ghosts"). Retired by reading the sentinel
+  generation off the local root (filepath, not API) and
+  requiring it to equal the served one — a wrong root serves
+  a foreign generation and fails closed.
 - **Torn rows diverge by backend.** File refuses unparseable
   rows loudly; redis skips them silently. Same store, two
   answers about corrupt state. Retired by one rule in the
