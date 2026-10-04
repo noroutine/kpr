@@ -800,6 +800,45 @@ func TestSweeperFailedDeleteKeepsRowDue(t *testing.T) {
 	}
 }
 
+// The row stream names every verdict with would/did wording —
+// what a --output log greps, while stdout keeps the counters.
+// If this fails, the log carries counts but no rows.
+func TestPassLogsRowVerdicts(t *testing.T) {
+	s := store.NewMemStore()
+	_ = s.Record(testCtx(), duerow("app", "v1", time.Hour))
+	floor := duerow("scratch", "10m", 9*time.Minute)
+	floor.Reason = "ttl:10m elapsed"
+	_ = s.Record(testCtx(), floor)
+	var buf bytes.Buffer
+	sw := &Sweeper{Store: s, Registry: &stubRegistry{outcome: registry.OutcomeDeleted},
+		Sentinel: pairGround(s), DryRun: true,
+		Now: func() time.Time { return sweepNow }, RowLog: &buf}
+	if sum := sw.RunPass(testCtx(), "test"); sum.Planned != 1 {
+		t.Fatalf("summary = %+v, want 1 planned", sum)
+	}
+	for _, want := range []string{
+		"would sweep app:v1 sha256:abc",
+		"would skip scratch:10m sha256:abc (ttl not elapsed)",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("row log lacks %q:\n%s", want, buf.String())
+		}
+	}
+
+	as := store.NewMemStore()
+	_ = as.Record(testCtx(), duerow("app", "v1", time.Hour))
+	var abuf bytes.Buffer
+	asw := &Sweeper{Store: as, Registry: &stubRegistry{outcome: registry.OutcomeDeleted},
+		Sentinel: pairGround(as),
+		Now:      func() time.Time { return sweepNow }, RowLog: &abuf}
+	if sum := asw.RunPass(testCtx(), "test"); sum.Performed != 1 {
+		t.Fatalf("summary = %+v, want 1 performed", sum)
+	}
+	if !strings.Contains(abuf.String(), "swept app:v1 sha256:abc") {
+		t.Errorf("row log lacks the swept line:\n%s", abuf.String())
+	}
+}
+
 // A held manifest (owned by an index) untracks instead of retrying:
 // the row leaves the store and the pass counts it untracked. If this
 // fails, held rows either pile up due forever or count as performed.

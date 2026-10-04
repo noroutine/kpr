@@ -171,19 +171,15 @@ func sweepLines(sum sweep.Summary) []string {
 // runSweep runs one sweep pass in-process with a live line on
 // terminals: counters repaint in place and converge to the
 // settled summary. Failure lines stream to stdout always (an
-// outage narrates, never counts quietly); --output carries the
-// pipe view — the settled summary plus the failure lines — so a
-// clean pass still leaves its one-line receipt, never an empty
-// file. Row records ride OTLP-only (stdout stays quiet — the
-// terminal belongs to the live line); the ring already holds
-// every verdict. Evaluation and marking live in sweep.RunPass;
-// this stays wiring and printing.
+// outage narrates, never counts quietly); --output implies
+// per-row — the file carries every verdict (would sweep/swept
+// with the digest, skips with the reason, failures) plus the
+// settled summary, while stdout keeps the counters. Row records
+// ride OTLP-only (the terminal belongs to the live line); the
+// ring already holds every verdict. Evaluation and marking live
+// in sweep.RunPass; this stays wiring and printing.
 func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, armed bool, output string) error {
 	live := newLiveLines(w)
-	sw := &sweep.Sweeper{Store: s, Registry: peer, Sentinel: peer, DryRun: !armed}
-	sw.Progress = func(sum sweep.Summary) {
-		live.tickBlock(sweepLines(sum))
-	}
 	failures := io.Writer(breakWriter{w: w, live: live})
 	var logFile *os.File
 	if output != "" && output != "-" {
@@ -194,6 +190,16 @@ func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, a
 		defer func() { _ = f.Close() }()
 		logFile = f
 		failures = io.MultiWriter(failures, f)
+	}
+	sw := &sweep.Sweeper{Store: s, Registry: peer, Sentinel: peer, DryRun: !armed}
+	if logFile != nil {
+		// --output implies per-row: the file carries every
+		// verdict (would sweep/swept, skips, failures), stdout
+		// keeps the counters.
+		sw.RowLog = logFile
+	}
+	sw.Progress = func(sum sweep.Summary) {
+		live.tickBlock(sweepLines(sum))
 	}
 	sum := sw.RunPass(ctx, "sweep")
 	lines := sweepLines(sum)
@@ -431,7 +437,8 @@ never sweeps). --no-dry-run (or KPR_CLI_NO_DRY_RUN=true) arms
 it: deletes for real. Disarmed plans only. Counters repaint one
 live line on a terminal and converge to the summary; row
 records ride OTLP-only (stdout stays quiet), failure lines
-stream on stdout with a copy teed into --output along.`,
+stream on stdout. --output writes the per-row log (would
+sweep/swept, skips, failures) plus the summary into a file.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := openDeps()
 		if err != nil {
@@ -450,7 +457,7 @@ func init() {
 	reapCmd.Flags().BoolVar(&reapNoDryRun, "no-dry-run", false, "Mark rows due for real (default prints the plan only)")
 	reapCmd.Flags().StringSliceVar(&reapExclude, "exclude", nil, "Spare keep-N for rows whose repo:tag matches (repeatable regex, registry stripped)")
 	sweepCmd.Flags().BoolVar(&sweepNoDryRun, "no-dry-run", false, "Delete due rows for real (default plans only)")
-	sweepCmd.Flags().StringVar(&sweepOutput, "output", "", "Tee failure lines into a file (failures already stream on stdout)")
+	sweepCmd.Flags().StringVar(&sweepOutput, "output", "", "Write the per-row log plus summary into a file (stdout keeps counters and failures)")
 	RootCmd.AddCommand(statusCmd, planCmd, reapCmd, sweepCmd)
 }
 

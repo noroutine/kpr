@@ -8,7 +8,9 @@ package sweep
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"strings"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/otel"
@@ -73,6 +75,14 @@ type Sweeper struct {
 	// Progress reports the running summary after every settled
 	// row: the CLI repaints one live line off it. Nil skips it.
 	Progress func(Summary)
+	// RowLog takes the per-row stream (one line per verdict:
+	// would sweep/swept with the digest, would skip/skipped with
+	// the reason, untracked; failures already stream as `failed:`
+	// lines through the caller, so they are not repeated here);
+	// nil discards it. Set for --output logs, never for stdout —
+	// the terminal keeps the live line, the ring keeps every
+	// verdict.
+	RowLog io.Writer
 }
 
 func (s *Sweeper) now() time.Time {
@@ -188,6 +198,12 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	progress()
 
 	done := 0
+	// skipVerb narrates holds in the pass's own tense: armed
+	// skips what is, dry-run previews what would be.
+	skipVerb := "skipped"
+	if s.DryRun {
+		skipVerb = "would skip"
+	}
 	for _, r := range due {
 		setStage(StageRow, len(due), done)
 		// Expiry floor: a TTL row whose promise hasn't elapsed is
@@ -195,6 +211,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 		// wipe a fresh push).
 		if _, isTTL := policy.EffectiveTTL(r.Tag); isTTL && !policy.Eligible(r.Tag, r.PushedAt, now) {
 			resolve(r, "skipped", nil)
+			s.logRow(sweepLine(skipVerb, r, "ttl not elapsed"))
 			done++
 			progress()
 			continue
@@ -218,8 +235,22 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			progress()
 			continue
 		}
-		if !ok || !cur.Due || cur.Digest != r.Digest {
+		switch {
+		case !ok:
 			resolve(r, "skipped", nil)
+			s.logRow(sweepLine(skipVerb, r, "untracked mid-pass"))
+			done++
+			progress()
+			continue
+		case !cur.Due:
+			resolve(r, "skipped", nil)
+			s.logRow(sweepLine(skipVerb, r, "mark cleared"))
+			done++
+			progress()
+			continue
+		case cur.Digest != r.Digest:
+			resolve(r, "skipped", nil)
+			s.logRow(sweepLine(skipVerb, r, "digest moved"))
 			done++
 			progress()
 			continue
@@ -233,6 +264,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			// already count as failed; registry-delete failures
 			// are undetectable without deleting (armed-only).
 			sum.Performed++
+			s.logRow(sweepLine("would sweep", r, ""))
 			done++
 			progress()
 			continue
@@ -246,12 +278,14 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 		case outcome == registry.OutcomeHeld:
 			resolve(r, "untracked", nil)
 			sum.Untracked++
+			s.logRow(sweepLine("untracked", r, "registry held"))
 			if rerr := s.Store.Delete(ctx, r.Repo, r.Tag); rerr != nil {
 				log.Printf("sweeper: row delete failed: %v", rerr)
 			}
 		default: // deleted or already gone: confirmed, resolve.
 			resolve(r, "deleted", nil)
 			sum.Performed++
+			s.logRow(sweepLine("swept", r, ""))
 			if rerr := s.Store.Delete(ctx, r.Repo, r.Tag); rerr != nil {
 				log.Printf("sweeper: row delete failed: %v", rerr)
 			}
@@ -261,6 +295,35 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	}
 	setStage(StageDone, len(due), done)
 	return sum
+}
+
+// sweepLine formats one per-row verdict for the RowLog stream:
+// "would sweep repo:tag digest", "swept repo:tag digest",
+// "would skip repo:tag (reason)". The digest trails only when
+// the row carries one (digest-less rows delete by tag).
+func sweepLine(verb string, r policy.Row, reason string) string {
+	var b strings.Builder
+	b.WriteString(verb)
+	b.WriteString(" " + r.Repo + ":" + r.Tag)
+	if r.Digest != "" {
+		b.WriteString(" " + r.Digest)
+	}
+	if reason != "" {
+		b.WriteString(" (" + reason + ")")
+	}
+	return b.String()
+}
+
+// logRow appends one verdict line to the RowLog stream, if set.
+// A failing stream must not fail the pass (the ring already holds
+// every verdict); it logs, like the rest of the event path.
+func (s *Sweeper) logRow(line string) {
+	if s.RowLog == nil {
+		return
+	}
+	if _, err := fmt.Fprintln(s.RowLog, line); err != nil {
+		log.Printf("sweeper: row log write failed: %v", err)
+	}
 }
 
 // emit sends one activity record to the injected Log sink, or to the

@@ -1055,6 +1055,12 @@ func TestSweepOutputCapturesSummary(t *testing.T) {
 	if !strings.Contains(string(raw), "1 performed") {
 		t.Errorf("stream file lacks the summary line:\n%s", raw)
 	}
+	if !strings.Contains(string(raw), "swept scratch:10m sha256:a") {
+		t.Errorf("stream file lacks the per-row verdict:\n%s", raw)
+	}
+	if strings.Contains(out.String(), "swept scratch:10m") {
+		t.Errorf("stdout carries per-row chatter:\n%s", out.String())
+	}
 }
 
 // The sweep command arms from its own flag or the one-shot env var —
