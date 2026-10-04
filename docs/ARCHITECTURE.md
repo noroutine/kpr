@@ -136,7 +136,10 @@ All five policies are live behind `reap [policy]` (bare `reap` means
 `reap all`); one evaluation path (`EvaluatePolicy`/`EvaluatePolicies`)
 serves the CLI and the e2e suite alike. Marks accumulate across calls
 until `sweep` or `plan discard`. `latest` is spared by every policy
-and never counts into keep-N.
+and never counts into keep-N. Known gap: `sweep` deletes by digest
+and never revalidates the mark — a row marked due, then recreated
+upstream before the sweep runs, still deletes the live manifest.
+Grace paces the mark, it does not close this window.
 
 | Policy | Reason (marks a row eligible) | Tuning (in code) |
 | --- | --- | --- |

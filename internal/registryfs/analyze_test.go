@@ -77,6 +77,83 @@ func stageLayout(t *testing.T) (proof.FilesystemStore, Report) {
 // whose blob data is absent. End-exact: progress middles may show
 // zeros, the returned report never does. If this fails, dead
 // pointers hide inside healthy magnitudes.
+// ListRepos is the ghosts listing's fs witness: every repo holding
+// a _manifests dir, tagged or not — only _manifests presence proves
+// the repo exists on fs, a bare dir does not. Nil proof refuses; an
+// absent layout yields nil (unproven: a fresh volume and an
+// unmounted one look identical, and absence of view is never
+// evidence). If this fails, the ghosts view reads the wrong fs and
+// either hides deletions or names live repos.
+func TestListReposNamesManifestDirs(t *testing.T) {
+	fstore, _ := stageLayout(t)
+	bare := filepath.Join(fstore.Root(), "docker", "registry", "v2", "repositories", "bare")
+	if err := os.MkdirAll(bare, 0o755); err != nil {
+		t.Fatalf("stage bare dir: %v", err)
+	}
+	got, err := ListRepos(fstore)
+	if err != nil {
+		t.Fatalf("ListRepos: %v", err)
+	}
+	want := map[string]bool{"app": true, "nest/deep": true, "tags": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ListRepos = %v, want %v (bare dir excluded)", got, want)
+	}
+	if _, err := ListRepos(nil); err == nil {
+		t.Error("ListRepos(nil) succeeded, want refusal")
+	}
+	empty, err := ListRepos(proveRoot(t, t.TempDir()))
+	if err != nil {
+		t.Fatalf("ListRepos empty layout: %v", err)
+	}
+	if empty != nil {
+		t.Errorf("ListRepos empty layout = %v, want nil (unproven, not proven-empty)", empty)
+	}
+}
+
+// revisions is a legal repo path component (only _-prefixed names
+// are reserved for layout machinery): team/revisions must classify
+// on every walk — the full analyze, the husk listing, and ListRepos
+// alike. If this fails, the light walks silently drop real repos
+// the full walk counts.
+func TestRevisionsComponentClassifies(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	files := map[string]string{
+		"repositories/team/revisions/_manifests/tags/v1/current/link":       "sha256:aaa",
+		"repositories/team/revisions/_manifests/revisions/sha256/aaa/link":  "sha256:aaa",
+		"repositories/stale/revisions/_manifests/revisions/sha256/bbb/link": "sha256:bbb",
+	}
+	for rel, body := range files {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	fstore := proveRoot(t, root)
+	if got, err := ListRepos(fstore); err != nil {
+		t.Fatalf("ListRepos: %v", err)
+	} else if !got["team/revisions"] || !got["stale/revisions"] {
+		t.Errorf("ListRepos = %v, want team/revisions and stale/revisions", got)
+	}
+	husks, err := ListHusks(fstore)
+	if err != nil {
+		t.Fatalf("ListHusks: %v", err)
+	}
+	if len(husks) != 1 || husks[0] != "stale/revisions" {
+		t.Errorf("ListHusks = %v, want [stale/revisions]", husks)
+	}
+	rep, err := Analyze(fstore, nil)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if rep.Repos != 2 {
+		t.Errorf("Analyze Repos = %d, want 2", rep.Repos)
+	}
+}
+
 func TestAnalyzeReportsDanglingLinks(t *testing.T) {
 	root := t.TempDir()
 	v2 := filepath.Join(root, "docker", "registry", "v2")
