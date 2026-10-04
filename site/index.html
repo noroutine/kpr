@@ -178,6 +178,7 @@ $ docker push my-registry:5000/my-app:10m
 $ crane copy busybox:latest localhost:5000/test/hello:10s
 # ...wait ~10s for the TTL to elapse, then arm both explicitly:
 $ docker exec kpr kpr reap --no-dry-run
+$ docker exec kpr kpr plan      # see what's due
 $ docker exec kpr kpr sweep --no-dry-run</pre>
                 <p>To test the waters first, the console alone:</p>
                 <pre class="commands"># console only — this is NOT a registry, pair it with one above
