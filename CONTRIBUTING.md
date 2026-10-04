@@ -13,5 +13,5 @@ Patches welcome. House rules:
 By contributing you certify the
 [Developer Certificate of Origin 1.1](https://developercertificate.org/):
 the contribution is yours to give and you license it under this repo's
-`LICENSE` (Apache-2.0). No sign-off trailer required — opening the PR
+`LICENSE` (GPLv3). No sign-off trailer required — opening the PR
 is the attestation.
