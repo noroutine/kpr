@@ -346,12 +346,19 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// The collector deletes blobs and links but leaves their
 	// parents: an armed run removes tagless repo husks first,
 	// then prunes the empty skeleton both left behind (husk
-	// removal empties namespace parents prune cleans). Previews
-	// delete nothing, so they remove nothing either. A husk or
-	// prune failure warns, never fails: the collection already
-	// succeeded, and occupancy races resolve safe — anything
-	// else (permissions, I/O) names itself in the warning.
+	// removal empties namespace parents prune cleans). Both
+	// walks run silent for a while on big roots, so each
+	// narrates its start in the present tense and its count
+	// after the fact — the past-tense verdict never drops from
+	// nowhere. Previews delete nothing, so they remove nothing
+	// either. A husk or prune failure warns, never fails: the
+	// collection already succeeded, and occupancy races resolve
+	// safe — anything else (permissions, I/O) names itself in
+	// the warning.
 	if !opts.DryRun {
+		if _, werr := fmt.Fprintf(w, "pruning husks...\n"); werr != nil {
+			return werr
+		}
 		husked, herr := RemoveHusks(root)
 		hev := Timed(StageHusk, gcStarted)
 		if herr != nil {
@@ -368,6 +375,9 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 					return werr
 				}
 			}
+		}
+		if _, werr := fmt.Fprintf(w, "pruning empty directories...\n"); werr != nil {
+			return werr
 		}
 		pruned, perr := PruneEmptyDirs(root)
 		pev := Timed(StagePrune, gcStarted)

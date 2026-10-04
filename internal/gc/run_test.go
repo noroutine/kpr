@@ -203,8 +203,9 @@ func TestRunBehindStubPorts(t *testing.T) {
 }
 
 // The husk verdict prints only when husks were removed: a clean
-// root stays quiet, a husked root names its count. If this fails,
-// empty runs invent removals (or real ones go unannounced).
+// root narrates the walks but invents no removals, a husked root
+// names its count. If this fails, empty runs invent removals (or
+// real ones go unannounced).
 func TestRunHuskVerdictNamesRemovals(t *testing.T) {
 	runArmed := func(t *testing.T, stage func(v2 string)) string {
 		t.Helper()
@@ -250,6 +251,18 @@ func TestRunHuskVerdictNamesRemovals(t *testing.T) {
 	}
 	if strings.Contains(dirty, "(husk)") {
 		t.Errorf("husk verdict names its repos:\n%s", dirty)
+	}
+	// The silent walks narrate their start: the past-tense count
+	// must read as after-the-fact, never dropped from nowhere
+	// after minutes of quiet. If this fails, a start line moved
+	// after its work (or vanished).
+	if strings.Index(dirty, "pruning husks...\n") > strings.Index(dirty, "pruned 1 husks\n") ||
+		!strings.Contains(dirty, "pruning husks...\n") {
+		t.Errorf("husk start does not precede its verdict:\n%s", dirty)
+	}
+	if strings.Index(dirty, "pruning empty directories...\n") > strings.Index(dirty, " empty directories\n") ||
+		!strings.Contains(dirty, "pruning empty directories...\n") {
+		t.Errorf("dir-prune start does not precede its verdict:\n%s", dirty)
 	}
 }
 
