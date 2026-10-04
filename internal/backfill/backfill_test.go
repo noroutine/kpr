@@ -560,9 +560,11 @@ func TestBackfillUnknownGlobRefuses(t *testing.T) {
 	}
 }
 
-// Tags vanishing mid-run skip by count: a 404 on the digest or a
-// gone repo warns, never refuses. If this fails, a tag deleted
-// between catalog and digest aborts the whole import.
+// A 404 on the digest skips by count and warns, never refuses;
+// a 404 on the whole repo is a husk — tagless, nothing to adopt —
+// counted apart, never warned per repo. If this fails, a tag
+// deleted between catalog and digest aborts the whole import, or
+// husks spam a warning per repo.
 func TestBackfillMidRun404Skips(t *testing.T) {
 	ctx := context.Background()
 	root, s, _, _ := stagePaired(t)
@@ -585,8 +587,11 @@ func TestBackfillMidRun404Skips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if sum.Recorded != 1 || sum.Failed != 2 {
-		t.Errorf("sum = %+v, want {Recorded:1 Failed:2}", sum)
+	if sum.Recorded != 1 || sum.Failed != 1 || sum.Husks != 1 {
+		t.Errorf("sum = %+v, want {Recorded:1 Failed:1 Husks:1}", sum)
+	}
+	if strings.Contains(out.String(), "vanished mid-run") {
+		t.Errorf("output warns per husk:\n%s", out.String())
 	}
 }
 

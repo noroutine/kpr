@@ -108,8 +108,8 @@ func backfillLines(sum backfill.Summary) []string {
 			plural(sum.Repos, "repo", "repos"), plural(sum.Tags, "tag", "tags"))),
 		row("store", fmt.Sprintf("%d tracked, %d %s",
 			sum.Tracked+sum.Sentinels, sum.Sentinels, noun)),
-		row("backfill", fmt.Sprintf("%d recorded, %d skipped, %d failed",
-			sum.Recorded, sum.Skipped, sum.Failed)),
+		row("backfill", fmt.Sprintf("%d recorded, %d skipped, %d husks, %d failed",
+			sum.Recorded, sum.Skipped, sum.Husks, sum.Failed)),
 	}
 }
 

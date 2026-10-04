@@ -74,9 +74,9 @@ type Options struct {
 // Summary counts a run: the adoptable baseline (tracked rows
 // outside the sentinel prefix — what `store ls` shows), the
 // sentinel rows apart, the scan so far (repos listed, tags
-// named), then stamped, deliberately skipped, and error-skipped.
-// Failed never refuses the run — catalog failures do that,
-// loudly.
+// named, tagless husks apart), then stamped, deliberately
+// skipped, and error-skipped. Failed never refuses the run —
+// catalog failures do that, loudly.
 type Summary struct {
 	Tracked   int
 	Sentinels int
@@ -84,6 +84,7 @@ type Summary struct {
 	Tags      int
 	Recorded  int
 	Skipped   int
+	Husks     int
 	Failed    int
 }
 
@@ -94,8 +95,8 @@ type Summary struct {
 // digests every tag, and records the absent ones with their link
 // mtimes, sentinel fossils capped at the floater's push. The
 // floater itself never becomes a row. A locked store refuses with
-// the unlock named; a stranger store refuses; mid-run vanishes
-// skip by count.
+// the unlock named; a stranger store refuses; tagless repos count
+// as husks, never warn.
 func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows Rows, rec Recorder, ids lineage.IdentityStore, lock proof.Locker, root string, opts Options, rollback proof.AcceptedRisk) (Summary, error) {
 	var sum Summary
 	log := opts.Log
@@ -168,11 +169,10 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 		tags, err := reg.Catalog(ctx, repo)
 		if err != nil {
 			if isNotFound(err) {
-				sum.Failed++
+				// Tagless, nothing to adopt: a husk, counted
+				// apart and never warned per repo.
+				sum.Husks++
 				progress()
-				if _, werr := fmt.Fprintf(w, "Warning: %s vanished mid-run, skipping\n", repo); werr != nil {
-					return sum, werr
-				}
 				continue
 			}
 			return sum, fmt.Errorf("backfill tags for %s: %w", repo, err)

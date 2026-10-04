@@ -108,15 +108,15 @@ func TestStoreBackfillRendersBlock(t *testing.T) {
 			[]string{
 				"catalog : 599 repos, 17047 tags",
 				"store   : 1 tracked, 1 sentinel",
-				"backfill: 17047 recorded, 0 skipped, 0 failed",
+				"backfill: 17047 recorded, 0 skipped, 0 husks, 0 failed",
 			},
 		},
 		{
-			backfill.Summary{Tracked: 17144, Sentinels: 3, Repos: 600, Tags: 17050, Recorded: 16933, Skipped: 114},
+			backfill.Summary{Tracked: 17144, Sentinels: 3, Repos: 600, Tags: 17050, Recorded: 16933, Skipped: 114, Husks: 150},
 			[]string{
 				"catalog : 600 repos, 17050 tags",
 				"store   : 17147 tracked, 3 sentinels",
-				"backfill: 16933 recorded, 114 skipped, 0 failed",
+				"backfill: 16933 recorded, 114 skipped, 150 husks, 0 failed",
 			},
 		},
 	} {

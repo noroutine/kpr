@@ -28,7 +28,7 @@ func TestScanCatalogCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanCatalog = %v, want counts", err)
 	}
-	want := CatalogReport{Repos: 2, Tags: 3, Sentinels: 1, FailedRepos: 1}
+	want := CatalogReport{Repos: 2, Tags: 3, Sentinels: 1, Husks: 1}
 	if got != want {
 		t.Errorf("ScanCatalog = %+v, want %+v", got, want)
 	}

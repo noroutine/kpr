@@ -15,18 +15,19 @@ import (
 // comparison covers repos and tags only, and the rest stays
 // fs-side.
 type CatalogReport struct {
-	Repos       int
-	Tags        int
-	Sentinels   int
-	FailedRepos int
-	FailedTags  int
+	Repos      int
+	Tags       int
+	Sentinels  int
+	Husks      int
+	FailedTags int
 }
 
 // ScanCatalog walks the catalog the way backfill does — every repo,
 // every tag list — counting what the API names. Progress reports
 // the running counts after every repo (nil skips it). A failed
-// catalog refuses the run; a failed tag list skips that repo by
-// count. Warnings go to w; the stream stays silent.
+// catalog refuses the run; a 404 tag list is a husk, counted
+// apart and never warned. Warnings go to w; the stream stays
+// silent.
 func ScanCatalog(ctx context.Context, w io.Writer, reg Registry, progress func(CatalogReport)) (CatalogReport, error) {
 	var rep CatalogReport
 	report := func() {
@@ -47,11 +48,11 @@ func ScanCatalog(ctx context.Context, w io.Writer, reg Registry, progress func(C
 		tags, err := reg.Catalog(ctx, repo)
 		if err != nil {
 			if isNotFound(err) {
-				rep.FailedRepos++
+				// A 404 tags/list is a husk — tagless, nothing
+				// to count — not a vanish: counted apart,
+				// never warned per repo.
+				rep.Husks++
 				report()
-				if _, werr := fmt.Fprintf(w, "Warning: %s vanished mid-run, skipping\n", repo); werr != nil {
-					return rep, werr
-				}
 				continue
 			}
 			return rep, fmt.Errorf("catalog tags for %s: %w", repo, err)
