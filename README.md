@@ -1,5 +1,7 @@
 # kpr (keeper)
 
+[![Stand With Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg)](https://stand-with-ukraine.pp.ua)
+
 [![CI](https://github.com/noroutine/kpr/actions/workflows/ci.yml/badge.svg)](https://github.com/noroutine/kpr/actions)
 [![codecov](https://codecov.io/gh/noroutine/kpr/branch/master/graph/badge.svg)](https://codecov.io/gh/noroutine/kpr)
 [![release](https://img.shields.io/github/v/release/noroutine/kpr)](https://github.com/noroutine/kpr/releases)
