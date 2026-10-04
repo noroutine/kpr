@@ -3,10 +3,11 @@ package app
 import (
 	"context"
 	"fmt"
+	"html/template"
+	"io"
 	"log"
 	"net"
 	"net/http"
-	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/otel"
@@ -43,7 +44,9 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(staticFS)))
 
-	// Serve index.html at root
+	// Serve index.html at root, templated with the app base path so
+	// the stylesheet href survives a stripped subpath prefix. Routes
+	// stay put — /events never moves for a UI reason.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			file, err := staticFS.Open("index.html")
@@ -51,14 +54,23 @@ func (s *Server) Start(ctx context.Context) error {
 				http.Error(w, "Not found", http.StatusNotFound)
 				return
 			}
-			defer func() {
-				if err := file.Close(); err != nil {
-					log.Printf("Error closing index.html: %v", err)
-				}
-			}()
+			raw, err := io.ReadAll(file)
+			_ = file.Close()
+			if err != nil {
+				http.Error(w, "Not found", http.StatusNotFound)
+				return
+			}
+			tmpl, err := template.New("index").Parse(string(raw))
+			if err != nil {
+				log.Printf("Error parsing index.html: %v", err)
+				http.Error(w, "Template error", http.StatusInternalServerError)
+				return
+			}
 
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			http.ServeContent(w, r, "index.html", time.Time{}, file)
+			if err := tmpl.Execute(w, map[string]string{"BasePath": config.Current().AppBasePath}); err != nil {
+				log.Printf("Error executing index.html: %v", err)
+			}
 		} else {
 			http.NotFound(w, r)
 		}
