@@ -46,10 +46,14 @@ jobs:
     - name: Build and push multiplatform Docker images
       run: make docker-build-multiplatform DOCKER_REGISTRY=ghcr.io/noroutine VERSION=${{ github.ref_name }}
 
+    # Immutable releases forbid asset uploads after publishing, and
+    # draft prereleases publish on release.published instead of
+    # release.prereleased — so ship as a draft with assets, then
+    # publish the draft (which allows pre-attached assets).
     - name: Create Release
       uses: softprops/action-gh-release@v3
       with:
-        prerelease: true
+        draft: true
         files: |
           dist/kpr-linux-amd64
           dist/kpr-linux-arm64
