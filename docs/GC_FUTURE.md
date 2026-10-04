@@ -8,6 +8,7 @@ Designs for gc work that is **not built**. Shipped behavior lives in
 
 - [Per-repo collection](#per-repo-collection)
 - [Token-auth registries](#token-auth-registries)
+- [Loud proxy HOLD](#loud-proxy-hold)
 
 ## Per-repo collection
 
@@ -54,4 +55,19 @@ binary is unaffected — it takes its own auth from registry config.
 which needs a *push*-scoped token on the probe repo. Without one,
 classification must refuse rather than guess. Likewise a loud
 refusal when the issuer won't grant catalog scope.
+
+## Loud proxy HOLD
+
+An armed collect engages the proxy HOLD lease, but nothing says so
+unless a push arrives mid-hold: the edge re-reads the lease file
+only on push traffic, and the console renders the edge's cached
+posture (`Snapshot`), so a quiet store shows "no hold lease"
+through the whole collect.
+
+Make the hold loud without push traffic: the console should read
+the lease file itself (present + unexpired = held) instead of, or
+in addition to, the cached snapshot — or the edge should poll the
+lease on a tick and flip edge-triggered the same way pushes do.
+Either way the operator watching the console mid-collect sees the
+hold pinning writes, push or no push.
 
