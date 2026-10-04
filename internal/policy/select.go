@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -14,13 +13,6 @@ import (
 // anyway. SelectUntagged is the exception: it only sees tags the
 // catalog already dropped, where no image is left to protect.
 const latestTag = "latest"
-
-// sentinelRepoPrefix mirrors backfill.SentinelPrefix (canonical there;
-// imported here it would cycle: backfill reads policy rows). Ghost
-// reaping never touches machinery repos — backfill owns the sentinel
-// lifecycle, not the collecting policies. A policy_test guardrail
-// pins the two spellings together.
-const sentinelRepoPrefix = "noroutine/kpr-"
 
 // Tunings for the housekeeping behaviors (docs/ARCHITECTURE.md, Behaviors). They live
 // here, next to the code that reads them — not in the main config.
@@ -117,12 +109,8 @@ func SelectStaleUploads(rows []Row, now time.Time) []Row {
 // SelectUntagged marks rows whose tag left the catalog past the grace
 // period: tags deleted upstream leave manifests behind. A repo with no
 // catalog entry (fetch failed) is skipped — absent means unknown, only
-// a fetched-but-empty list means "everything gone" — unless the fs
-// second opinion confirms the repo itself is gone: catalog-unknown and
-// fs-absent together mean deleted, not a blip. fsRepos is the set of
-// repos holding manifest dirs; nil means unproven (remote registry),
-// which keeps the old skip. Sentinel machinery never reaps.
-func SelectUntagged(rows []Row, catalog map[string][]string, fsRepos map[string]bool, now time.Time) []Row {
+// a fetched-but-empty list means "everything gone".
+func SelectUntagged(rows []Row, catalog map[string][]string, now time.Time) []Row {
 	live := map[string]bool{}
 	for repo, tags := range catalog {
 		for _, t := range tags {
@@ -131,25 +119,16 @@ func SelectUntagged(rows []Row, catalog map[string][]string, fsRepos map[string]
 	}
 	var due []Row
 	for _, r := range rows {
-		reason := ""
 		if _, known := catalog[r.Repo]; !known {
-			if fsRepos == nil || fsRepos[r.Repo] {
-				continue
-			}
-			if strings.HasPrefix(r.Repo, sentinelRepoPrefix) {
-				continue
-			}
-			reason = fmt.Sprintf("untagged:repo gone past grace %s", UntaggedGrace)
-		} else {
-			if live[r.Repo+"\x00"+r.Tag] {
-				continue
-			}
-			reason = fmt.Sprintf("untagged:past grace %s", UntaggedGrace)
+			continue
+		}
+		if live[r.Repo+"\x00"+r.Tag] {
+			continue
 		}
 		if r.PushedAt.IsZero() || now.Sub(r.PushedAt) <= UntaggedGrace {
 			continue
 		}
-		due = append(due, mark(r, reason))
+		due = append(due, mark(r, fmt.Sprintf("untagged:past grace %s", UntaggedGrace)))
 	}
 	return due
 }

@@ -143,7 +143,7 @@ and never counts into keep-N.
 | `ttl` | `ttl:<d> elapsed` — explicit TTL (bare `10m`, suffixed `myapp-10m`) elapsed since push | `MaxTTL` |
 | `hash` | `ttl:<d> elapsed` — bare hash past the default (next-day triage) | `HashTTL` |
 | `partial` | `partial:older than <age>` — digest-less row older than the max age (a push that never completed) | `StaleUploadMaxAge` |
-| `untagged` | `untagged:past grace <grace>` — tracked tag gone from the live catalog past the grace period; `untagged:repo gone past grace <grace>` — whole repo absent from catalog AND fs (a catalog miss alone still skips) | `UntaggedGrace` |
+| `untagged` | `untagged:past grace <grace>` — tracked tag gone from the live catalog past the grace period | `UntaggedGrace` |
 | `keep-n` | `keep-n:exceeds <n>` — everything past the freshest N tags per repo | `KeepN` |
 
 Tunings are consts in code (`internal/policy`, `internal/policy/select.go`),

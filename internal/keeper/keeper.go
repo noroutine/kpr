@@ -158,9 +158,8 @@ func fetchCatalogs(ctx context.Context, reg CatalogSource, rows []policy.Row) ma
 }
 
 // evalOne runs a single named policy over rows. Unknown names refuse
-// before anything marks, so a typo never reaps the world. fsRepos is
-// the untagged selector's second opinion (nil keeps the old skip).
-func evalOne(name string, rows []policy.Row, catalogs map[string][]string, fsRepos map[string]bool, now time.Time, keepNExclude []string) ([]policy.Row, error) {
+// before anything marks, so a typo never reaps the world.
+func evalOne(name string, rows []policy.Row, catalogs map[string][]string, now time.Time, keepNExclude []string) ([]policy.Row, error) {
 	switch name {
 	case "ttl":
 		return policy.SelectTTL(rows, now), nil
@@ -169,7 +168,7 @@ func evalOne(name string, rows []policy.Row, catalogs map[string][]string, fsRep
 	case "partial":
 		return policy.SelectStaleUploads(rows, now), nil
 	case "untagged":
-		return policy.SelectUntagged(rows, catalogs, fsRepos, now), nil
+		return policy.SelectUntagged(rows, catalogs, now), nil
 	case "keep-n":
 		return policy.SelectKeepN(rows, policy.KeepN, nil, keepNExclude, now), nil
 	default:
@@ -192,14 +191,12 @@ func sortMarks(out []policy.Row) {
 }
 
 // EvaluatePolicy runs one named policy (or all) over tracked rows
-// plus live catalogs. fsRepos is the untagged selector's fs second
-// opinion — nil means unproven (remote registry) and keeps the old
-// catalog-only skip. keepNExclude spares keep-N for rows whose
+// plus live catalogs. keepNExclude spares keep-N for rows whose
 // repo:tag matches (registry stripped). Exported alongside
 // EvaluatePolicies so scripts drive one policy path, never a copy.
-func EvaluatePolicy(ctx context.Context, s store.Store, reg CatalogSource, fsRepos map[string]bool, now time.Time, keepNExclude []string, name string) ([]policy.Row, error) {
+func EvaluatePolicy(ctx context.Context, s store.Store, reg CatalogSource, now time.Time, keepNExclude []string, name string) ([]policy.Row, error) {
 	if name == "all" {
-		return EvaluatePolicies(ctx, s, reg, fsRepos, now, keepNExclude)
+		return EvaluatePolicies(ctx, s, reg, now, keepNExclude)
 	}
 	rows, err := s.All(ctx)
 	if err != nil {
@@ -209,7 +206,7 @@ func EvaluatePolicy(ctx context.Context, s store.Store, reg CatalogSource, fsRep
 	if name == "untagged" {
 		catalogs = fetchCatalogs(ctx, reg, rows)
 	}
-	marked, err := evalOne(name, rows, catalogs, fsRepos, now, keepNExclude)
+	marked, err := evalOne(name, rows, catalogs, now, keepNExclude)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +221,7 @@ func EvaluatePolicy(ctx context.Context, s store.Store, reg CatalogSource, fsRep
 // (registry stripped). Exported so the e2e scenarios (test/e2e) drive
 // the same evaluation the CLI marks from — one policy path, never a
 // copy.
-func EvaluatePolicies(ctx context.Context, s store.Store, reg CatalogSource, fsRepos map[string]bool, now time.Time, keepNExclude []string) ([]policy.Row, error) {
+func EvaluatePolicies(ctx context.Context, s store.Store, reg CatalogSource, now time.Time, keepNExclude []string) ([]policy.Row, error) {
 	rows, err := s.All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("redis unreachable: %w", err)
@@ -232,7 +229,7 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg CatalogSource, fsR
 	catalogs := fetchCatalogs(ctx, reg, rows)
 	marks := map[string][]string{}
 	for _, name := range []string{"ttl", "hash", "partial", "untagged", "keep-n"} {
-		marked, serr := evalOne(name, rows, catalogs, fsRepos, now, keepNExclude)
+		marked, serr := evalOne(name, rows, catalogs, now, keepNExclude)
 		if serr != nil {
 			return nil, serr
 		}
@@ -260,8 +257,8 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg CatalogSource, fsR
 // it only evaluates (the caller prints the plan): dry-run is implicit,
 // --no-dry-run explicit. excludes spares keep-N for matching repo:tag
 // names. It returns the evaluated rows either way, marked or not.
-func Reap(ctx context.Context, s store.Store, reg CatalogSource, fsRepos map[string]bool, now time.Time, keepNExclude []string, policyName string, armed bool) ([]policy.Row, error) {
-	marked, err := EvaluatePolicy(ctx, s, reg, fsRepos, now, keepNExclude, policyName)
+func Reap(ctx context.Context, s store.Store, reg CatalogSource, now time.Time, keepNExclude []string, policyName string, armed bool) ([]policy.Row, error) {
+	marked, err := EvaluatePolicy(ctx, s, reg, now, keepNExclude, policyName)
 	if err != nil {
 		return nil, err
 	}

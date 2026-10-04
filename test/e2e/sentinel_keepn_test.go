@@ -65,7 +65,7 @@ func TestSentinelGenerationsKeepNReaped(t *testing.T) {
 		t.Fatalf("floater serves %v, want newest gen", err)
 	}
 
-	marked, err := keeper.Reap(ctx, st, api, nil, now.Add(time.Hour), nil, "keep-n", true)
+	marked, err := keeper.Reap(ctx, st, api, now.Add(time.Hour), nil, "keep-n", true)
 	if err != nil {
 		t.Fatalf("Reap keep-n: %v", err)
 	}

@@ -77,31 +77,6 @@ func stageLayout(t *testing.T) (proof.FilesystemStore, Report) {
 // whose blob data is absent. End-exact: progress middles may show
 // zeros, the returned report never does. If this fails, dead
 // pointers hide inside healthy magnitudes.
-// ListRepos is the reap second opinion: every repo holding a
-// _manifests dir, tagged or not — only _manifests presence proves the
-// repo exists on fs, a bare dir does not. Nil proof refuses; an empty
-// layout yields an empty set, never nil-shaped confusion. If this fails,
-// reap's ghost branch reads the wrong fs view and either piles up
-// ghosts or mass-marks on a blip.
-func TestListReposNamesManifestDirs(t *testing.T) {
-	fstore, _ := stageLayout(t)
-	bare := filepath.Join(fstore.Root(), "docker", "registry", "v2", "repositories", "bare")
-	if err := os.MkdirAll(bare, 0o755); err != nil {
-		t.Fatalf("stage bare dir: %v", err)
-	}
-	got, err := ListRepos(fstore)
-	if err != nil {
-		t.Fatalf("ListRepos: %v", err)
-	}
-	want := map[string]bool{"app": true, "nest/deep": true, "tags": true}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ListRepos = %v, want %v (bare dir excluded)", got, want)
-	}
-	if _, err := ListRepos(nil); err == nil {
-		t.Error("ListRepos(nil) succeeded, want refusal")
-	}
-}
-
 func TestAnalyzeReportsDanglingLinks(t *testing.T) {
 	root := t.TempDir()
 	v2 := filepath.Join(root, "docker", "registry", "v2")

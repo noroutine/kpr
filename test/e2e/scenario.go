@@ -346,7 +346,7 @@ func (s *Scenario) ReapArmed() {
 	s.t.Helper()
 	ctx, cancel := s.ctx()
 	defer cancel()
-	if _, err := keeper.Reap(ctx, s.store, s.reg, nil, time.Now(), nil, "all", true); err != nil {
+	if _, err := keeper.Reap(ctx, s.store, s.reg, time.Now(), nil, "all", true); err != nil {
 		s.t.Fatalf("reap policies: %v", err)
 	}
 }
