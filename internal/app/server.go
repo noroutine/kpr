@@ -3,8 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"html/template"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -46,29 +44,14 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Serve index.html at root, templated with the app base path so
 	// the stylesheet href survives a stripped subpath prefix. Routes
-	// stay put — /events never moves for a UI reason.
+	// stay put — /events never moves for a UI reason. The template
+	// parses once at init (a broken embed fails the boot, not each
+	// request); the only per-request failure left is the execute,
+	// which a static page with one string key never produces.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			file, err := staticFS.Open("index.html")
-			if err != nil {
-				http.Error(w, "Not found", http.StatusNotFound)
-				return
-			}
-			raw, err := io.ReadAll(file)
-			_ = file.Close()
-			if err != nil {
-				http.Error(w, "Not found", http.StatusNotFound)
-				return
-			}
-			tmpl, err := template.New("index").Parse(string(raw))
-			if err != nil {
-				log.Printf("Error parsing index.html: %v", err)
-				http.Error(w, "Template error", http.StatusInternalServerError)
-				return
-			}
-
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			if err := tmpl.Execute(w, map[string]string{"BasePath": config.Current().AppBasePath}); err != nil {
+			if err := indexTmpl.Execute(w, map[string]string{"BasePath": config.Current().AppBasePath}); err != nil {
 				log.Printf("Error executing index.html: %v", err)
 			}
 		} else {
