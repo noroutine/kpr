@@ -16,6 +16,7 @@ use-case driven policies written as plain code. Both state backends:
 - [Data](#data)
 - [Surfaces](#surfaces)
 - [Failure modes](#failure-modes)
+- [Limitations](#limitations)
 - [Sweeper events](#sweeper-events)
 - [Feedback, not log streaming](#feedback-not-log-streaming)
 - [Deliberately out](#deliberately-out)
@@ -136,27 +137,8 @@ All five policies are live behind `reap [policy]` (bare `reap` means
 `reap all`); one evaluation path (`EvaluatePolicy`/`EvaluatePolicies`)
 serves the CLI and the e2e suite alike. Marks accumulate across calls
 until `sweep` or `plan discard`. `latest` is spared by every policy
-and never counts into keep-N. Known gap, narrowed: a push clears
-the mark on record (newer-wins), and the pass re-reads each row
-before deleting — but check-then-act against pushes nothing
-serializes is TOCTOU by definition. A push landing between the
-re-read and the registry delete still wins; grace paces the mark,
-the re-read narrows the window, neither closes it. Full closure
-needs mutual exclusion with the push path (a readonly fence held
-across deletes, or a push-epoch CAS) — or, equivalently shaped,
-sweep as a gc phase under such a fence. Until then, fencing
-anyone who wants to shoot their own foot is out of scope: no
-lock kpr holds binds the receiver, and the registry fences
-nothing by itself. The harm, when the residual bites, is bounded:
-a digest delete leaves the tag link pointing at a missing
-revision (the `DanglingTags` state analyze names), so pulls fail
-until the next push restores the manifest — transient and
-retryable for anything re-pushable, which is nearly everything
-the sweeper meets. Permanent loss needs the full chain (marked,
-re-pushed same digest, bytes unrecoverable, gc collecting the
-orphans before anyone retries). No silent corruption, no
-cascade: the failure presents as a dangling tag. Fencing stays
-deferred until someone actually gets bitten.
+and never counts into keep-N. The mark-to-delete race is a known
+residual — see [Limitations](#limitations).
 
 | Policy | Reason (marks a row eligible) | Tuning (in code) |
 | --- | --- | --- |
@@ -335,6 +317,32 @@ auth provider, only a client of the registry's.
   inconclusive sentinel, unproven shared store, foreign lineage,
   skewed clock, dead cache, held lock — every one refuses with the
   remedy, never collects blind.
+
+## Limitations
+
+What the design narrows but does not close. Each is bounded,
+none is silent — and each names what would actually retire it.
+
+- **Mark-to-delete race.** A push clears the mark on record
+  (newer-wins) and the pass re-reads each row before deleting,
+  but check-then-act against pushes nothing serializes is
+  TOCTOU: a push inside the check-delete instant still wins.
+  Harm is a dangling tag (pulls fail till the next push
+  restores the manifest — transient, retryable); permanent
+  loss needs marked + re-pushed-same-digest + unrecoverable
+  bytes + gc first. Retired by push exclusion (readonly fence
+  across deletes, or push-epoch CAS) — equivalently, sweep as
+  a gc phase under such a fence. Deferred until bitten.
+- **Fs witness is unbound.** `FilesystemStore` proves the root
+  exists, `SameStore` proves our store mount is paired —
+  neither proves the root is the *right* volume. A bad root
+  can hide ghosts, never frame a live tag (conflicts stay a
+  bucket). Full account in `docs/STORES.md` ("Ghosts").
+  Retired by binding the fs proof to the served endpoint.
+- **Torn rows diverge by backend.** File refuses unparseable
+  rows loudly; redis skips them silently. Same store, two
+  answers about corrupt state. Retired by one rule in the
+  `store.Store` contract with a case that pins it.
 
 ## Sweeper events
 
