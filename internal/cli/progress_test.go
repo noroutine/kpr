@@ -27,3 +27,35 @@ func TestLiveLinesBreakLine(t *testing.T) {
 		t.Errorf("off-terminal breakLine wrote %q, want passthrough silence", buf.String())
 	}
 }
+
+// Repaints pad each row only to its own previous width: padding
+// to the global max inflates short rows past narrow terminals,
+// and the wrap glues the block. If this fails, trailing spaces
+// alone break the refresh.
+func TestLiveLinesPadsPerRow(t *testing.T) {
+	var buf bytes.Buffer
+	live := &liveLines{w: &buf, tty: true}
+	live.paintBlock([]string{"abcdefgh", "xy"})
+	live.paintBlock([]string{"ab", "xyz"})
+	want := "abcdefgh\nxy" + "\r\x1b[1A\rab      \nxyz"
+	if buf.String() != want {
+		t.Errorf("repaint = %q, want %q", buf.String(), want)
+	}
+}
+
+// A block that grows or shrinks steps back by what was painted,
+// scrubbing stale rows with blanks. If this fails, mid-run view
+// changes glue onto old rows.
+func TestLiveLinesRepaintsResizedBlock(t *testing.T) {
+	var buf bytes.Buffer
+	live := &liveLines{w: &buf, tty: true}
+	live.paintBlock([]string{"aa", "bb"})
+	live.paintBlock([]string{"cc", "dd", "ee", "ff"})
+	live.paintBlock([]string{"gg"})
+	want := "aa\nbb" +
+		"\r\x1b[1A\rcc\ndd\nee\nff" +
+		"\r\x1b[3A\rgg\n  \n  \n  "
+	if buf.String() != want {
+		t.Errorf("repaint = %q, want %q", buf.String(), want)
+	}
+}
