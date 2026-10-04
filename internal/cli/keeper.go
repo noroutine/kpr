@@ -171,11 +171,13 @@ func sweepLines(sum sweep.Summary) []string {
 // runSweep runs one sweep pass in-process with a live line on
 // terminals: counters repaint in place and converge to the
 // settled summary. Failure lines stream to stdout always (an
-// outage narrates, never counts quietly); --output tees a copy
-// into a file. Row records ride OTLP-only (stdout stays quiet
-// — the terminal belongs to the live line); the ring already
-// holds every verdict. Evaluation and marking live in
-// sweep.RunPass; this stays wiring and printing.
+// outage narrates, never counts quietly); --output carries the
+// pipe view — the settled summary plus the failure lines — so a
+// clean pass still leaves its one-line receipt, never an empty
+// file. Row records ride OTLP-only (stdout stays quiet — the
+// terminal belongs to the live line); the ring already holds
+// every verdict. Evaluation and marking live in sweep.RunPass;
+// this stays wiring and printing.
 func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, armed bool, output string) error {
 	live := newLiveLines(w)
 	sw := &sweep.Sweeper{Store: s, Registry: peer, Sentinel: peer, DryRun: !armed}
@@ -183,12 +185,14 @@ func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, a
 		live.tickBlock(sweepLines(sum))
 	}
 	failures := io.Writer(breakWriter{w: w, live: live})
+	var logFile *os.File
 	if output != "" && output != "-" {
 		f, ferr := os.Create(output)
 		if ferr != nil {
 			return ferr
 		}
 		defer func() { _ = f.Close() }()
+		logFile = f
 		failures = io.MultiWriter(failures, f)
 	}
 	sum := sw.RunPass(ctx, "sweep")
@@ -202,6 +206,13 @@ func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, a
 		// A half-printed summary must not read as success:
 		// the repaint path is best-effort, the pipe is not.
 		return err
+	}
+	if logFile != nil {
+		for _, l := range lines {
+			if _, err := fmt.Fprintln(logFile, l); err != nil {
+				return err
+			}
+		}
 	}
 	for _, f := range sum.Failures {
 		if _, err := fmt.Fprintf(failures, "  failed: %s\n", f); err != nil {

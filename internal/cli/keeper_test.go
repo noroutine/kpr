@@ -1002,8 +1002,8 @@ func TestSweepSurfacesFailureLineWriteError(t *testing.T) {
 	}
 }
 
-// --output tees failure lines into a file while stdout keeps
-// them: an outage narrates in both places. Row records ride
+// --output tees the summary plus failure lines into a file while
+// stdout keeps them: an outage narrates in both places. Row records ride
 // OTLP-only and never touch stdout (the terminal belongs to
 // the live line), so their absence here is the contract. A bad
 // path refuses before the pass. If this fails, the stream lands
@@ -1034,6 +1034,26 @@ func TestSweepOutputTeesFailuresToFile(t *testing.T) {
 	if err := runSweep(cliCtx(), io.Discard, fs, fstub, true,
 		filepath.Join(t.TempDir(), "gone", "sweep.log")); err == nil {
 		t.Error("sweep --output into missing dir succeeded, want refusal")
+	}
+}
+
+// --output captures the settled summary even when nothing fails:
+// a clean pass must leave its one-line receipt in the log, not an
+// empty file. If this fails, --output only carries failures and a
+// green run logs nothing.
+func TestSweepOutputCapturesSummary(t *testing.T) {
+	s, stub := pairedSweepStore(t)
+	stream := filepath.Join(t.TempDir(), "sweep.log")
+	var out bytes.Buffer
+	if err := runSweep(cliCtx(), &out, s, stub, true, stream); err != nil {
+		t.Fatalf("armed sweep: %v", err)
+	}
+	raw, err := os.ReadFile(stream)
+	if err != nil {
+		t.Fatalf("read stream file: %v", err)
+	}
+	if !strings.Contains(string(raw), "1 performed") {
+		t.Errorf("stream file lacks the summary line:\n%s", raw)
 	}
 }
 
