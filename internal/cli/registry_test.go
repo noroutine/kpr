@@ -247,6 +247,30 @@ func TestRegistryAnalyzeJSONViaArgv(t *testing.T) {
 	}
 }
 
+// blindRegistry enumerates but serves no blobs: a client shaped
+// like the backfill port without the proof port. readStoreView
+// must still snapshot rows and name the proof unproven, never
+// refuse the walk. If this fails, a limited client vetoes
+// registry insight.
+type blindRegistry struct{}
+
+func (blindRegistry) CatalogAll(context.Context) ([]string, error) { return nil, nil }
+func (blindRegistry) Catalog(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+func (blindRegistry) ManifestDigest(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
+
+func TestReadStoreViewWithoutProofPort(t *testing.T) {
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
+	view := readStoreView(context.Background(), blindRegistry{})
+	if !view.ok || view.note != "unproven" {
+		t.Errorf("view = %+v, want ok with unproven note", view)
+	}
+}
+
 // summarizeRows groups tracked rows the store line's way:
 // distinct repos over everything, tags over everything (like the
 // catalog and fs views count them), sentinel rows split out as a
