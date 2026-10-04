@@ -77,6 +77,55 @@ func TestPruneEmptyDirsRefusesUnreadableSubdir(t *testing.T) {
 	}
 }
 
+// Structural skeleton dirs survive empty: the stock collector stats
+// _layers (and reads tags) per repo during mark, so a pruned _layers
+// aborts the whole next collect (observed live: Path not found on
+// infra-dev/rabbitmq-cluster-operator, zero deletions). Only the
+// containers are spared — emptied contents (a dead tag dir, a spent
+// revision digest, a blob shard) still prune. If this fails, every gc
+// after the first is dead on any volume prune ever touched.
+func TestPruneEmptyDirsSparesRegistrySkeleton(t *testing.T) {
+	root := t.TempDir()
+	skeleton := []string{
+		filepath.Join("repositories", "r1", "_layers"),
+		filepath.Join("repositories", "r1", "_manifests", "tags"),
+		filepath.Join("repositories", "r1", "_manifests", "revisions"),
+		filepath.Join("repositories", "r1", "_uploads"),
+		filepath.Join("blobs", "sha256"),
+	}
+	for _, dir := range skeleton {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatalf("stage skeleton %s: %v", dir, err)
+		}
+	}
+	// Emptied contents prune normally: a dead tag dir, a spent
+	// revision digest, an emptied blob shard, a stray empty dir.
+	contents := []string{
+		filepath.Join("repositories", "r1", "_manifests", "tags", "v9"),
+		filepath.Join("repositories", "r1", "_manifests", "revisions", "sha256", "abc"),
+		filepath.Join("blobs", "sha256", "ab"),
+		"stray",
+	}
+	for _, dir := range contents {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatalf("stage content %s: %v", dir, err)
+		}
+	}
+	if _, err := PruneEmptyDirs(root); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	for _, dir := range skeleton {
+		if _, err := os.Lstat(filepath.Join(root, dir)); err != nil {
+			t.Errorf("skeleton %s unreadable, want kept: %v", dir, err)
+		}
+	}
+	for _, dir := range contents {
+		if _, err := os.Lstat(filepath.Join(root, dir)); !os.IsNotExist(err) {
+			t.Errorf("emptied %s survives, want pruned", dir)
+		}
+	}
+}
+
 // An unremovable dir fails the run loud for the same reason: the
 // remove is the emptiness check, so anything but occupancy or
 // absence resisting it wants the operator. Root unlinks through
