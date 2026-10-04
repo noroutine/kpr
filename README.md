@@ -5,7 +5,7 @@
 [![release](https://img.shields.io/github/v/release/noroutine/kpr)](https://github.com/noroutine/kpr/releases)
 [![go](https://img.shields.io/github/go-mod/go-version/noroutine/kpr)](https://go.dev/)
 [![license](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
-[![bolted](https://img.shields.io/badge/bolted_together-noroutine_%26_muse-blue)](https://github.com/noroutine/kpr)
+[![muse](https://img.shields.io/badge/bolted_together_with-muse-blue)](https://dev.meta.ai/products/muse-code/)
 
 Push `app:10m` to your registry and the tag is gone ten minutes
 later.
