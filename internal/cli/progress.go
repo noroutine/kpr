@@ -114,6 +114,8 @@ func (l *liveLines) paintBlock(lines []string) {
 			b.WriteString("\n")
 		}
 		b.WriteString(s)
+		// NOTE(mutants): <= is equivalent — padding an
+		// equal-length line repeats zero spaces, which is empty.
 		if i < len(l.prev) && cur[i] < l.prev[i] {
 			b.WriteString(strings.Repeat(" ", l.prev[i]-cur[i]))
 		}

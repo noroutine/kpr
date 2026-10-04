@@ -261,6 +261,8 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 			return werr
 		}
 		closeThrough(path)
+		// NOTE(mutants): visits-- is equivalent — the counter only
+		// paces progress callbacks (every 1024), never the result.
 		visits++
 		if progress != nil && visits%1024 == 0 {
 			progress(rep)

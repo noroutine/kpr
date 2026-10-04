@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"fmt"
+
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -89,6 +91,58 @@ func TestStoreBackfillOutputBadPathRefuses(t *testing.T) {
 	defer RootCmd.SetArgs(nil)
 	if err := RootCmd.Execute(); err == nil {
 		t.Error("store backfill --output into missing dir succeeded, want refusal")
+	}
+}
+
+// --output routes the per-tag stream: stdout carries it for -,
+// a file carries it for a path, silence by default, and a bad
+// path refuses. If this fails, the stream lands in the wrong
+// sink (or none).
+func TestResolveBackfillSinkRoutesStream(t *testing.T) {
+	var out bytes.Buffer
+	live := newLiveLines(&out)
+	dash, closeDash, err := resolveBackfillSink("-", &out, live)
+	if err != nil {
+		t.Fatalf("resolve -: %v", err)
+	}
+	defer closeDash()
+	if dash.Progress != nil {
+		t.Error("resolve - sets Progress, want the stream instead of repaint")
+	}
+	if _, err := fmt.Fprint(dash.Log, "app:v1"); err != nil {
+		t.Fatalf("write - stream: %v", err)
+	}
+	if out.String() != "app:v1" {
+		t.Errorf("stdout = %q, want the stream", out.String())
+	}
+	quiet, _, err := resolveBackfillSink("", &out, live)
+	if err != nil {
+		t.Fatalf("resolve default: %v", err)
+	}
+	if quiet.Log != nil {
+		t.Error("resolve default sets Log, want it discarded")
+	}
+	if quiet.Progress == nil {
+		t.Error("resolve default drops Progress, want live repaint")
+	}
+	stream := filepath.Join(t.TempDir(), "stream.log")
+	filed, closeFile, err := resolveBackfillSink(stream, &out, live)
+	if err != nil {
+		t.Fatalf("resolve file: %v", err)
+	}
+	if _, err := fmt.Fprint(filed.Log, "app:v1"); err != nil {
+		t.Fatalf("write file stream: %v", err)
+	}
+	closeFile()
+	raw, err := os.ReadFile(stream)
+	if err != nil {
+		t.Fatalf("read stream file: %v", err)
+	}
+	if string(raw) != "app:v1" {
+		t.Errorf("stream file = %q, want the stream", raw)
+	}
+	if _, _, err := resolveBackfillSink(filepath.Join(t.TempDir(), "gone", "stream.log"), &out, live); err == nil {
+		t.Error("resolve bad path succeeded, want refusal before any walk")
 	}
 }
 

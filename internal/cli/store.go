@@ -73,6 +73,8 @@ func isSentinelRow(r policy.Row) bool {
 // must not be.
 func shortAge(now, pushed time.Time) string {
 	d := now.Sub(pushed)
+	// NOTE(mutants): <= is equivalent — clamping an exactly-zero
+	// age to zero is identity.
 	if d < 0 {
 		d = 0
 	}
@@ -103,6 +105,8 @@ func runStoreLs(ctx context.Context, w io.Writer, s store.Store, opts storeLsOpt
 	// store cannot hold.
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Repo != rows[j].Repo {
+			// NOTE(mutants): <= is equivalent — unequal repos
+			// never see equals, the guard above keeps them out.
 			return rows[i].Repo < rows[j].Repo
 		}
 		// NOTE(mutants): <= is equivalent — rows key on repo:tag,

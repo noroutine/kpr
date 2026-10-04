@@ -202,6 +202,51 @@ func TestRunBehindStubPorts(t *testing.T) {
 	}
 }
 
+// The husk verdict prints only when husks were removed: a clean
+// root stays quiet, a husked root names its count. If this fails,
+// empty runs invent removals (or real ones go unannounced).
+func TestRunHuskVerdictNamesRemovals(t *testing.T) {
+	runArmed := func(t *testing.T, stage func(v2 string)) string {
+		t.Helper()
+		cfg, root, s := stageProvenRun(t)
+		v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
+		if err := os.MkdirAll(v2, 0o755); err != nil {
+			t.Fatalf("stage v2: %v", err)
+		}
+		if stage != nil {
+			stage(v2)
+		}
+		stagePairedGen(t, s, root)
+		probe := Probe(func(context.Context, string) (Mode, string, error) {
+			return ModeReadonly, "", nil
+		})
+		var collected [][]string
+		var out strings.Builder
+		err := Run(context.Background(), &out, probe, s, okCollector(&collected), fileAPI{root},
+			"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+			Options{DryRun: false, Report: func(Event) {}}, Accepts{})
+		if err != nil {
+			t.Fatalf("stub-port armed run: %v", err)
+		}
+		return out.String()
+	}
+	if clean := runArmed(t, nil); strings.Contains(clean, "removed") {
+		t.Errorf("clean root announces removals:\n%s", clean)
+	}
+	dirty := runArmed(t, func(v2 string) {
+		p := filepath.Join(v2, "husk", "_manifests", "revisions", "sha256", "bbb", "link")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage husk dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte("sha256:bbb"), 0o644); err != nil {
+			t.Fatalf("stage husk link: %v", err)
+		}
+	})
+	if !strings.Contains(dirty, "removed 1 husk repos (husk)") {
+		t.Errorf("husked root hides its removal:\n%s", dirty)
+	}
+}
+
 // A failing armed collect fails the run: the readonly-armed branch
 // surfaces the collector error like the preview does. If this fails,
 // real-run collection errors vanish into a nil return.

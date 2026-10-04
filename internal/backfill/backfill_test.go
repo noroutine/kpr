@@ -184,6 +184,35 @@ func TestBackfillAdoptsSentinelFossils(t *testing.T) {
 	}
 }
 
+// A floater ahead of a fossil never ends the repo: the floater
+// skip is per tag, the walk continues. If this fails, imports
+// stop at the first untracked sentinel tag.
+func TestBackfillFloaterFirstStillAdoptsFossil(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	repo := "noroutine/kpr-shadow"
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	stageTagDir(t, root, repo, "fossil")
+	retime(t, root, repo, "fossil", old)
+	stageTagDir(t, root, repo, sentinel.Tag)
+	reg := &stubRegistry{
+		repos: []string{repo},
+		tags:  map[string][]string{repo: {sentinel.Tag, "fossil"}},
+		digests: map[string]string{
+			repo + "\x00fossil":          "sha256:fossil",
+			repo + "\x00" + sentinel.Tag: "sha256:floater",
+		},
+	}
+	var out strings.Builder
+	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if sum.Recorded != 1 || sum.Skipped != 1 {
+		t.Fatalf("sum = %+v, want 1 recorded (fossil), 1 skipped (floater)", sum)
+	}
+}
+
 // A fossil rewritten past the live generation clamps at the
 // floater's push: nothing backfilled may outrank latest in
 // keep-N ordering. If this fails, a touched fossil sorts as
@@ -560,6 +589,37 @@ func TestBackfillUnknownGlobRefuses(t *testing.T) {
 	}
 }
 
+// A glob matching a repo adopts through it: the filter narrows,
+// never blinds. If this fails, scoped backfills record nothing.
+func TestBackfillMatchingGlobAdopts(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	stageTagDir(t, root, "app", "v1")
+	stageTagDir(t, root, "other", "v1")
+	reg := &stubRegistry{
+		repos: []string{"app", "other"},
+		tags:  map[string][]string{"app": {"v1"}, "other": {"v1"}},
+		digests: map[string]string{
+			"app\x00v1":   "sha256:abc",
+			"other\x00v1": "sha256:def",
+		},
+	}
+	var out strings.Builder
+	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{RepoGlob: "app*"}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if sum.Recorded != 1 {
+		t.Errorf("sum = %+v, want 1 recorded (app only)", sum)
+	}
+	rows, _ := s.All(ctx)
+	for _, r := range rows {
+		if r.Repo == "other" {
+			t.Errorf("out-of-scope row recorded: %+v", r)
+		}
+	}
+}
+
 // A 404 on the digest skips by count and warns, never refuses;
 // a 404 on the whole repo is a husk — tagless, nothing to adopt —
 // counted apart, never warned per repo. If this fails, a tag
@@ -601,6 +661,30 @@ func TestBackfillMidRun404Skips(t *testing.T) {
 		if !strings.Contains(logged.String(), want) {
 			t.Errorf("log names no %q:\n%s", want, logged.String())
 		}
+	}
+}
+
+// Two unreadable digests both count: the warning is a courtesy,
+// never the verdict — a second failure must not hide behind the
+// first warning. If this fails, mid-run rot undercounts.
+func TestBackfillTwoDigestFailuresBothCount(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	reg := &stubRegistry{
+		repos: []string{"app"},
+		tags:  map[string][]string{"app": {"v1", "v2"}},
+		digErr: map[string]error{
+			"app\x00v1": errors.New("rot"),
+			"app\x00v2": errors.New("rot"),
+		},
+	}
+	var out strings.Builder
+	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if sum.Failed != 2 {
+		t.Errorf("sum = %+v, want {Failed:2}", sum)
 	}
 }
 

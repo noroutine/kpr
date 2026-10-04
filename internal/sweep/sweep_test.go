@@ -210,6 +210,11 @@ func TestRunPassFailsRowOnUnreadableState(t *testing.T) {
 	if sum.Failed != 1 || len(sum.Failures) != 1 || !strings.Contains(sum.Failures[0], "app:v1") {
 		t.Errorf("summary = %+v, want 1 failed naming app:v1", sum)
 	}
+	// A failed row still counts as attempted: Done must include
+	// it, or watchers read a pass that never finishes its plan.
+	if cur, _ := s.GetCurrent(c); cur.Done != 1 || cur.Due != 1 {
+		t.Errorf("current = %+v, want Due 1 Done 1 (failure counts)", cur)
+	}
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
 	if len(stub.refs) != 0 {
@@ -255,6 +260,11 @@ func TestRunPassSkipsMovedDigest(t *testing.T) {
 		Sentinel: pairGround(s), Now: func() time.Time { return sweepNow }}
 	if sum := sw.RunPass(c, "test"); sum.Performed != 0 {
 		t.Errorf("summary = %+v, want 0 performed (digest moved under the mark)", sum)
+	}
+	// A skipped row still counts as attempted: Done must include
+	// it, or watchers read a pass that never finishes its plan.
+	if cur, _ := s.GetCurrent(c); cur.Done != 1 || cur.Due != 1 {
+		t.Errorf("current = %+v, want Due 1 Done 1 (skip counts)", cur)
 	}
 	stub.mu.Lock()
 	defer stub.mu.Unlock()

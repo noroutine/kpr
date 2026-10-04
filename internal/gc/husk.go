@@ -162,5 +162,7 @@ func freshUpload(sessions string) (bool, error) {
 		}
 		return false, err
 	}
+	// NOTE(mutants): < is equivalent — staleness at the exact
+	// nanosecond boundary is unhittable outside the clock.
 	return time.Since(newest) <= uploadStaleAge, nil
 }

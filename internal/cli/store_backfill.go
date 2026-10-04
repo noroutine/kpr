@@ -53,23 +53,13 @@ stdout, a path for a file) and is otherwise discarded.`,
 			RepoGlob: glob,
 			DryRun:   gcDryRun(armed),
 		}
-		if output == "-" {
-			// The stream is the feedback: the block stays
-			// dark and the settled lines follow it.
-			opts.Log = out
-		} else {
-			opts.Progress = func(sum backfill.Summary) {
-				live.tickBlock(backfillLines(sum))
-			}
+		sink, closeSink, err := resolveBackfillSink(output, out, live)
+		if err != nil {
+			return err
 		}
-		if output != "" && output != "-" {
-			f, ferr := os.Create(output)
-			if ferr != nil {
-				return ferr
-			}
-			defer func() { _ = f.Close() }()
-			opts.Log = f
-		}
+		defer closeSink()
+		opts.Log = sink.Log
+		opts.Progress = sink.Progress
 		// Preview announces itself up front — small view, said
 		// before the run spends API calls, never as a trailing
 		// suffix on the settled lines.
@@ -87,6 +77,32 @@ stdout, a path for a file) and is otherwise discarded.`,
 		live.doneBlock(backfillLines(sum), 0)
 		return err
 	},
+}
+
+// resolveBackfillSink maps --output to the per-tag stream: "-"
+// streams on stdout (the stream is the feedback, the block stays
+// dark), a path streams into the created file, empty discards
+// (Log stays nil, the live repaint drives the terminal). The file
+// must exist before the run spends API calls, so a bad path
+// refuses here. Returns its closer, if any.
+func resolveBackfillSink(output string, out io.Writer, live *liveLines) (backfill.Options, func(), error) {
+	var sink backfill.Options
+	if output == "-" {
+		sink.Log = out
+	} else {
+		sink.Progress = func(sum backfill.Summary) {
+			live.tickBlock(backfillLines(sum))
+		}
+	}
+	if output != "" && output != "-" {
+		f, ferr := os.Create(output)
+		if ferr != nil {
+			return sink, nil, ferr
+		}
+		sink.Log = f
+		return sink, func() { _ = f.Close() }, nil
+	}
+	return sink, func() {}, nil
 }
 
 // backfillLines renders the three-line block: what the catalog

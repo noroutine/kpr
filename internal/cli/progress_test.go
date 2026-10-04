@@ -2,7 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"io"
+	"os"
 	"testing"
+	"time"
 )
 
 // breakLine ends an in-progress repaint so an inline note starts
@@ -40,6 +43,25 @@ func TestLiveLinesPadsPerRow(t *testing.T) {
 	want := "abcdefgh\nxy" + "\r\x1b[1A\rab      \nxyz"
 	if buf.String() != want {
 		t.Errorf("repaint = %q, want %q", buf.String(), want)
+	}
+}
+
+// Pipes never repaint: only a char device earns control codes,
+// so piped logs stay clean until done. If this fails, piped runs
+// emit escapes.
+func TestLiveLinesPipeStaysDark(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer func() { _ = pr.Close(); _ = pw.Close() }()
+	live := newLiveLines(pw)
+	live.last = time.Now().Add(-time.Hour)
+	live.tickBlock([]string{"a"})
+	_ = pw.Close()
+	got, _ := io.ReadAll(pr)
+	if len(got) != 0 {
+		t.Errorf("pipe got %q, want silence until done", got)
 	}
 }
 

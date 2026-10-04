@@ -12,7 +12,8 @@ import (
 // there, so removal only orphans blobs the next collect owns. A
 // tagged repo stays, a sentinel-prefix repo stays (machinery, never
 // inventory), and a husk with a live upload session stays (a push in
-// flight may still be tagging). Names come back sorted for the
+// flight may still be tagging). A manifest-less dir (bare) is
+// skipped without aborting the walk. Names come back sorted for the
 // report. If this fails, gc either deletes live inventory or leaves
 // husks no later pass can find.
 func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
@@ -27,6 +28,7 @@ func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
 		"noroutine/kpr-shadow/_manifests/revisions/sha256/d/link": "sha256:ddd",
 		"busy/_manifests/revisions/sha256/e/link":                 "sha256:eee",
 		"busy/_uploads/uuid-1/data":                               "partial",
+		"bare/_layers/sha256/111/link":                            "sha256:111",
 		"stale/_manifests/revisions/sha256/f/link":                "sha256:fff",
 		"stale/_uploads/uuid-9/data":                              "partial",
 	}

@@ -99,6 +99,8 @@ func humanBytes(b int64) string {
 // values start in one column down the whole block.
 func analyzeRow(name, body string) string {
 	pad := 7 - len([]rune(name))
+	// NOTE(mutants): <= is equivalent — clamping an exactly-zero
+	// pad to zero is identity.
 	if pad < 0 {
 		pad = 0
 	}
@@ -262,6 +264,8 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeV
 			signedPlural(fs.Tags-api.Tags, "tag", "tags"),
 			signedPlural(fs.Sentinels-api.Sentinels, "sentinel", "sentinels"))
 		untagged := fs.Revisions - fs.Tags
+		// NOTE(mutants): <= is equivalent — clamping an
+		// exactly-zero count to zero is identity.
 		if untagged < 0 {
 			untagged = 0
 		}

@@ -249,6 +249,26 @@ func TestStoreLsGhostsNamesEvidence(t *testing.T) {
 	if !strings.Contains(empty.String(), "no ghost rows") {
 		t.Errorf("ghosts empty = %q, want no-ghost verdict", empty.String())
 	}
+	// Empty buckets print nothing: a zero-count footer would
+	// invent skips and conflicts the run never saw. If this
+	// fails, clean runs read as dirty.
+	for _, leak := range []string{"skipped", "conflict"} {
+		if strings.Contains(empty.String(), leak) {
+			t.Errorf("ghosts empty leaks %q:\n%s", leak, empty.String())
+		}
+	}
+}
+
+// A breaking pipe on the empty verdict still fails: the verdict
+// is the output, not a courtesy. If this fails, dead pipes read
+// as clean empties.
+func TestStoreGhostsEmptyWriteFailureSurfaces(t *testing.T) {
+	s := store.NewMemStore()
+	same := untagProof(t, s)
+	if err := runStoreGhosts(cliCtx(), &failAfterWriter{}, s, ghostReg{},
+		map[string]bool{}, same, storeLsOpts{now: cliNow}); err == nil {
+		t.Error("ghosts empty into breaking pipe succeeded, want an error")
+	}
 }
 
 // ghostReg 404s gone repos and fails everything else it does not
