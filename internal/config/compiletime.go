@@ -38,3 +38,13 @@ func VersionString() string {
 func PrintVersion(w io.Writer) {
 	_, _ = fmt.Fprintln(w, VersionString())
 }
+
+// LicenseBanner is the GPL short notice: warranty refusal plus
+// redistribution grant. One source for the version screen, the root
+// help, and the serve startup log, so the three can't drift apart.
+func LicenseBanner() string {
+	return `Copyright (C) 2026 noroutine
+This program comes with ABSOLUTELY NO WARRANTY; for details see LICENSE.
+This is free software, and you are welcome to redistribute it
+under certain conditions; see LICENSE for details.`
+}
