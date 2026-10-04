@@ -296,6 +296,26 @@ func TestIndexPageIsKeeperFront(t *testing.T) {
 	}
 }
 
+// A client that goes away mid-write must not 500 the render: the
+// execute error is logged and the handler returns. If this fails,
+// renderIndex answers write failures with a second write.
+func TestRenderIndexLogsWriteFailure(t *testing.T) {
+	logs := captureLog(t)
+	renderIndex(failWriter{}, "/app")
+	if !strings.Contains(logs.String(), "Error executing index.html") {
+		t.Errorf("log = %q, want the execute refusal logged", logs.String())
+	}
+}
+
+// failWriter refuses every write: the gone-mid-write client.
+type failWriter struct{}
+
+func (failWriter) Header() http.Header { return http.Header{} }
+func (failWriter) Write([]byte) (int, error) {
+	return 0, errors.New("client gone")
+}
+func (failWriter) WriteHeader(int) {}
+
 // Behind a subpath reverse proxy (stripped prefix) the front page's
 // stylesheet must carry the prefix or it 404s against the outer
 // host. /events stays put regardless — only the UI href moves. If

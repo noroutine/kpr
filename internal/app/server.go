@@ -50,10 +50,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// which a static page with one string key never produces.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			if err := indexTmpl.Execute(w, map[string]string{"BasePath": config.Current().AppBasePath}); err != nil {
-				log.Printf("Error executing index.html: %v", err)
-			}
+			renderIndex(w, config.Current().AppBasePath)
 		} else {
 			http.NotFound(w, r)
 		}
