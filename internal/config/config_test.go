@@ -284,6 +284,24 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 	}
 }
 
+// The console base path joins hrefs by concatenation, so it must
+// always be empty or start with exactly one slash and never end
+// with one: "/kpr/" and "kpr" both mean "/kpr". If this fails,
+// dashboards render double-slashed or root-relative links.
+func TestConsoleBasePathNormalized(t *testing.T) {
+	for in, want := range map[string]string{
+		"":      "",
+		"/kpr":  "/kpr",
+		"/kpr/": "/kpr",
+		"kpr":   "/kpr",
+		"/":     "",
+	} {
+		if got := NewBuilder().WithConsoleBasePath(in).Build().ConsoleBasePath; got != want {
+			t.Errorf("base %q normalized to %q, want %q", in, got, want)
+		}
+	}
+}
+
 // A test scoping a Config override must not leak it into the next test:
 // SetCurrent's restore func has to put the previous value back. If this
 // fails, test order decides production behavior under test.
@@ -306,6 +324,7 @@ func TestSetCurrentRestoresPrevious(t *testing.T) {
 func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
+		EnvConsoleBasePath,
 		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
 		EnvRegistryURL, EnvRegistryUser, EnvRegistryPassword,
 		EnvRegistryConfig,

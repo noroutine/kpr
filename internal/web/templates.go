@@ -101,7 +101,7 @@ const indexTemplate = `<!DOCTYPE html>
         {{ if .Keeper.Activity }}
         <div class="card">
             <div class="label">Activity</div>
-            <div class="value">last {{ len .Keeper.Activity }} of {{ .Keeper.ActivityTotal }} · <a href="/api/activity">full JSON</a></div>
+            <div class="value">last {{ len .Keeper.Activity }} of {{ .Keeper.ActivityTotal }} · <a href="{{ .BasePath }}/api/activity">full JSON</a></div>
             <pre>{{ range .Keeper.Activity }}{{ .Line }}
 {{ end }}</pre>
         </div>
@@ -209,9 +209,9 @@ const indexTemplate = `<!DOCTYPE html>
     <hr>
     <h2>🔌 API Endpoints</h2>
     <ul>
-        <li><a href="/metrics">/metrics</a> - JSON metrics endpoint</li>
-        <li><a href="/health">/health</a> - Health check</li>
-        <li><a href="/api/activity">/api/activity</a> - Full activity ring as JSON</li>
+        <li><a href="{{ .BasePath }}/metrics">/metrics</a> - JSON metrics endpoint</li>
+        <li><a href="{{ .BasePath }}/health">/health</a> - Health check</li>
+        <li><a href="{{ .BasePath }}/api/activity">/api/activity</a> - Full activity ring as JSON</li>
         <li><a href="{{ .AppStatusURL }}">/api/status</a> - App-server expected state (ok/degraded + store)</li>
     </ul>
 
