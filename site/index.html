@@ -113,9 +113,12 @@
             text-decoration: underline;
         }
 
-        .loud {
-            color: #ce9178;
-            font-weight: bold;
+        .try pre + p {
+            margin-top: 14px;
+        }
+
+        .try code {
+            color: #9cdcfe;
         }
 
         footer a {
@@ -157,17 +160,15 @@ $ docker push my-registry:5000/my-app:10m
 
             <section class="try">
                 <h2>Try it.</h2>
-                <p><span class="loud">Not a drop-in replacement:</span>
-                kpr is not a registry — it keeps one clean and tidy.
-                You run a stock registry:3 beside it on a shared
+                <p>Note this is not a drop-in replacement — kpr is not
+                a registry, it keeps one clean and tidy. You run a
+                stock <code>registry:3</code> beside it on a shared
                 volume; kpr marks, sweeps, and collects around it.</p>
                 <p>Ten minutes, two containers, no database:
                 <a href="https://github.com/noroutine/kpr/blob/master/docs/QUICKSTART.md">quickstart</a>.
                 Already run distribution?
                 <a href="https://github.com/noroutine/kpr/blob/master/docs/ADOPT_KPR.md">bolt it on</a>
                 instead.</p>
-                <pre class="commands">$ docker run --rm -p 8080:8080 -p 9300:9300 ghcr.io/noroutine/kpr:latest
-# ^ console only — this is NOT a registry, pair it with one below</pre>
                 <p>Or the real thing:
                 <a href="https://github.com/noroutine/kpr/blob/master/docs/QUICKSTART.md#the-two-files">compose.yml</a>
                 +
@@ -178,6 +179,9 @@ $ crane copy busybox:latest localhost:5000/test/hello:10s
 # ...wait ~10s for the TTL to elapse, then arm both explicitly:
 $ docker exec kpr kpr reap --no-dry-run
 $ docker exec kpr kpr sweep --no-dry-run</pre>
+                <p>To test the waters first, the console alone:</p>
+                <pre class="commands"># console only — this is NOT a registry, pair it with one above
+$ docker run --rm -p 8080:8080 -p 9300:9300 ghcr.io/noroutine/kpr:latest</pre>
             </section>
 
             <section class="links">
