@@ -153,8 +153,10 @@ Two things the output is telling you:
   empty tree.
 - **`removed N husk repos (…)`** is the same idea one level up:
   tagless repo dirs (swept bare, collected, never tagged) go
-  whole, sentinel-prefix repos never. Orphaned blobs go with the
-  next collect.
+  whole, sentinel-prefix repos never. A fresh upload session
+  vetoes (a push may still be tagging); crash residue older
+  than a day never does. Orphaned blobs go with the next
+  collect.
 
 ## What a collect covers
 

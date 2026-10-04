@@ -570,8 +570,11 @@ func TestBackfillMidRun404Skips(t *testing.T) {
 	root, s, _, _ := stagePaired(t)
 	stageTagDir(t, root, "app", "v1")
 	reg := &stubRegistry{
-		repos: []string{"app", "gone"},
-		tags:  map[string][]string{"app": {"v1", "rip"}},
+		repos: []string{"app", "gone", "bare"},
+		tags: map[string][]string{
+			"app":  {"v1", "rip"},
+			"bare": {},
+		},
 		digests: map[string]string{
 			"app\x00v1": "sha256:abc",
 		},
@@ -588,14 +591,16 @@ func TestBackfillMidRun404Skips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if sum.Recorded != 1 || sum.Failed != 1 || sum.Husks != 1 {
-		t.Errorf("sum = %+v, want {Recorded:1 Failed:1 Husks:1}", sum)
+	if sum.Recorded != 1 || sum.Failed != 1 || sum.Husks != 2 {
+		t.Errorf("sum = %+v, want {Recorded:1 Failed:1 Husks:2}", sum)
 	}
 	if strings.Contains(out.String(), "vanished mid-run") {
 		t.Errorf("output warns per husk:\n%s", out.String())
 	}
-	if !strings.Contains(logged.String(), "skipped gone (husk: no tags)") {
-		t.Errorf("log names no husk, want the skipped repo greppable:\n%s", logged.String())
+	for _, want := range []string{"skipped gone (husk: no tags)", "skipped bare (husk: no tags)"} {
+		if !strings.Contains(logged.String(), want) {
+			t.Errorf("log names no %q:\n%s", want, logged.String())
+		}
 	}
 }
 

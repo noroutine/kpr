@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 )
@@ -103,15 +104,21 @@ const (
 	keptRepo
 )
 
+// uploadStaleAge bounds an upload session's veto: a session
+// touched within it may still be tagging, so the repo stays; an
+// older one is crash residue — the registry's own purgeuploads
+// would take it — and never blocks removal.
+const uploadStaleAge = 24 * time.Hour
+
 // classify re-verifies one candidate at removal time: a tag link
-// since the walk, a live upload session, or a sentinel prefix each
-// keep. A walk that cannot read refuses instead of assuming empty —
-// unreadable is unknown, never tagless.
+// since the walk, a fresh upload session, or a sentinel prefix
+// each keep. A walk that cannot read refuses instead of assuming
+// empty — unreadable is unknown, never tagless.
 func classify(dir, repo string) (repoKind, error) {
 	if strings.HasPrefix(repo, backfill.SentinelPrefix) {
 		return keptRepo, nil
 	}
-	var tagged, busy bool
+	var tagged bool
 	if err := filepath.WalkDir(filepath.Join(dir, "_manifests", "tags"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -123,19 +130,37 @@ func classify(dir, repo string) (repoKind, error) {
 	}); err != nil && !os.IsNotExist(err) {
 		return keptRepo, err
 	}
-	if err := filepath.WalkDir(filepath.Join(dir, "_uploads"), func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() && path != filepath.Join(dir, "_uploads") {
-			busy = true
-		}
-		return nil
-	}); err != nil && !os.IsNotExist(err) {
+	busy, err := freshUpload(filepath.Join(dir, "_uploads"))
+	if err != nil {
 		return keptRepo, err
 	}
 	if tagged || busy {
 		return keptRepo, nil
 	}
 	return huskRepo, nil
+}
+
+// freshUpload reports a live push in flight: any file under the
+// upload sessions touched within the stale age. Missing sessions
+// read idle; an unreadable tree refuses instead of assuming idle.
+func freshUpload(sessions string) (bool, error) {
+	var newest time.Time
+	if err := filepath.WalkDir(sessions, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == sessions {
+			return nil
+		}
+		if info, ierr := d.Info(); ierr == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+		return nil
+	}); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return time.Since(newest) <= uploadStaleAge, nil
 }

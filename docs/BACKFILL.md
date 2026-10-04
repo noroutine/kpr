@@ -104,10 +104,11 @@ Cases that don't backfill but need no operator action:
   It is gone, there is nothing to track, and a later push re-enters
   via the receiver. Churn on a live registry is expected — counted,
   never silent.
-- **Repo with no tags (husk).** A 404 on the tag list is tagless,
-  not vanished: counted apart as husks, never warned per repo.
-  `gc` removes husk dirs armed; their blobs go with the next
-  collect.
+- **Repo with no tags (husk).** A 404 or an empty tag list is
+  tagless, not vanished: counted apart as husks, named in the
+  stream (`skipped <repo> (husk: no tags)`), never warned per
+  repo. `gc` removes husk dirs armed; their blobs go with the
+  next collect.
 - **Catalog unreachable or gated.** Backfill requires a reachable
   `_catalog` and a kpr user that can read everything, both
   validated up front. Any gap refuses loudly by name rather than

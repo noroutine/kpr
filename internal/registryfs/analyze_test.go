@@ -187,6 +187,47 @@ func TestAnalyzeReportsHusksLive(t *testing.T) {
 	t.Errorf("no mid-walk progress showed the husk (%d progress calls)", len(mids))
 }
 
+// The husk listing agrees with the full walk on the same layout:
+// one entry per tagless repo, sorted, sentinel machinery excluded
+// — the fast path `registry ls husks` takes must never disagree
+// with analyze. If this fails, the listing and the report name
+// different husks.
+func TestListHusksMatchesAnalyze(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	files := map[string]string{
+		"repositories/app/_manifests/tags/v1/current/link":                     "sha256:aaa",
+		"repositories/app/_manifests/revisions/sha256/aaa/link":                "sha256:aaa",
+		"repositories/bare/_manifests/revisions/sha256/bbb/link":               "sha256:bbb",
+		"repositories/nest/husk/_manifests/revisions/sha256/c/link":            "sha256:ccc",
+		"repositories/noroutine/kpr-shadow/_manifests/revisions/sha256/d/link": "sha256:ddd",
+	}
+	for rel, body := range files {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	store := proveRoot(t, root)
+	got, err := ListHusks(store)
+	if err != nil {
+		t.Fatalf("ListHusks: %v", err)
+	}
+	rep, err := Analyze(store, nil)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if strings.Join(got, ",") != "bare,nest/husk" {
+		t.Errorf("ListHusks = %v, want [bare nest/husk]", got)
+	}
+	if strings.Join(got, ",") != strings.Join(rep.HuskRepos, ",") {
+		t.Errorf("ListHusks = %v, Analyze names %v", got, rep.HuskRepos)
+	}
+}
+
 // The walker counts every file kind exactly once on nesting and
 // hostile names. If this fails, analyze reports fiction.
 func TestAnalyzeCountsLayout(t *testing.T) {

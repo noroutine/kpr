@@ -13,10 +13,11 @@ import (
 // the comparison lies.
 func TestScanCatalogCounts(t *testing.T) {
 	reg := &stubRegistry{
-		repos: []string{"app", "noroutine/kpr-sentinel", "gone"},
+		repos: []string{"app", "noroutine/kpr-sentinel", "gone", "bare"},
 		tags: map[string][]string{
 			"app":                    {"v1", "v2"},
 			"noroutine/kpr-sentinel": {"gen"},
+			"bare":                   {},
 		},
 		tagsErr: map[string]error{"gone": &stubStatus{code: 404}},
 	}
@@ -28,7 +29,7 @@ func TestScanCatalogCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanCatalog = %v, want counts", err)
 	}
-	want := CatalogReport{Repos: 2, Tags: 3, Sentinels: 1, Husks: 1}
+	want := CatalogReport{Repos: 2, Tags: 3, Sentinels: 1, Husks: 2}
 	if got != want {
 		t.Errorf("ScanCatalog = %+v, want %+v", got, want)
 	}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // RemoveHusks deletes tagless repo dirs: nothing pullable lives
@@ -26,6 +27,8 @@ func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
 		"noroutine/kpr-shadow/_manifests/revisions/sha256/d/link": "sha256:ddd",
 		"busy/_manifests/revisions/sha256/e/link":                 "sha256:eee",
 		"busy/_uploads/uuid-1/data":                               "partial",
+		"stale/_manifests/revisions/sha256/f/link":                "sha256:fff",
+		"stale/_uploads/uuid-9/data":                              "partial",
 	}
 	for rel, body := range files {
 		p := filepath.Join(v2, filepath.FromSlash(rel))
@@ -36,19 +39,29 @@ func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
 			t.Fatalf("stage file: %v", err)
 		}
 	}
+	// Crash residue from long ago never vetoes: only a session
+	// touched within the stale age may still be tagging.
+	old := time.Now().Add(-48 * time.Hour)
+	staleSession := filepath.Join(v2, "stale", "_uploads", "uuid-9")
+	if err := os.Chtimes(filepath.Join(staleSession, "data"), old, old); err != nil {
+		t.Fatalf("age residue: %v", err)
+	}
+	if err := os.Chtimes(staleSession, old, old); err != nil {
+		t.Fatalf("age residue: %v", err)
+	}
 	got, err := RemoveHusks(root)
 	if err != nil {
 		t.Fatalf("RemoveHusks: %v", err)
 	}
-	if strings.Join(got, ",") != "husk,nest/husk" {
-		t.Fatalf("removed %v, want [husk nest/husk]", got)
+	if strings.Join(got, ",") != "husk,nest/husk,stale" {
+		t.Fatalf("removed %v, want [husk nest/husk stale]", got)
 	}
 	for _, kept := range []string{"live", "noroutine/kpr-shadow", "busy"} {
 		if _, err := os.Lstat(filepath.Join(v2, filepath.FromSlash(kept))); err != nil {
 			t.Errorf("%s unreadable, want kept: %v", kept, err)
 		}
 	}
-	for _, gone := range []string{"husk", "nest/husk"} {
+	for _, gone := range []string{"husk", "nest/husk", "stale"} {
 		if _, err := os.Lstat(filepath.Join(v2, filepath.FromSlash(gone))); !os.IsNotExist(err) {
 			t.Errorf("%s survives, want removed", gone)
 		}

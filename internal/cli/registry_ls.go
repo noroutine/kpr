@@ -11,31 +11,71 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/registryfs"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
 
 var registryLsJSON, registryLsLong bool
 
 var registryLsCmd = &cobra.Command{
-	Use:   "ls sentinels",
-	Short: "List machinery tags as the registry sees them",
-	Long: `The registry view of machinery: every tag under the
-sentinel repo with the identity its manifest carries —
-generation, age, writer. The store view (` + "`store ls sentinels`" + `)
-shows what kpr tracks; diffing the two names unadopted tags and
-stale rows. Tag payloads only mean something for machinery, so
-sentinels is the one target. A tag whose manifest won't parse
-warns past on stderr and skips — one dangling tag never vetoes
-the listing. Pure API read: no store, no proof.`,
+	Use:   "ls [sentinels|husks]",
+	Short: "List machinery tags or tagless repos as the registry sees them",
+	Long: `Two registry-side listings. sentinels is the API view of
+machinery: every tag under the sentinel repo with the identity
+its manifest carries — generation, age, writer. The store view
+(` + "`store ls sentinels`" + `) shows what kpr tracks; diffing the
+two names unadopted tags and stale rows. Tag payloads only mean
+something for machinery, so sentinels is the one API target. A
+tag whose manifest won't parse warns past on stderr and skips —
+one dangling tag never vetoes the listing. Pure API read: no
+store, no proof.
+
+husks is the filesystem view of tagless repos: one name per
+line, sorted, sentinel machinery excluded — the fast answer when
+analyze only counts them. A filestore proof gates it, like
+analyze; --json emits the array, --long refuses (names only).`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
+		if args[0] == "husks" {
+			return runRegistryLsHusks(cmd.OutOrStdout(), cfg.RegistryConfig, registryLsJSON, registryLsLong)
+		}
 		reg := registry.NewClient(cfg.RegistryURL)
 		reg.SetBasicAuth(cfg.RegistryUser, cfg.RegistryPassword)
 		return runRegistryLs(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(),
 			reg, args[0], time.Now().UTC(), registryLsJSON, registryLsLong)
 	},
+}
+
+// runRegistryLsHusks names tagless repos off the proven mount, one
+// per line, sorted. --json emits the array for scripts; --long
+// refuses loud — a husk has no tags to detail.
+func runRegistryLsHusks(out io.Writer, configPath string, asJSON, long bool) error {
+	if long {
+		return fmt.Errorf("registry ls husks has no --long view: names only, --json for scripts")
+	}
+	fsStore, err := proof.ProveFilesystemStore(configPath)
+	if err != nil {
+		return err
+	}
+	names, err := registryfs.ListHusks(fsStore)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		if names == nil {
+			names = []string{}
+		}
+		return json.NewEncoder(out).Encode(names)
+	}
+	for _, name := range names {
+		if _, err := fmt.Fprintln(out, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // lsRegistry is the API surface listing needs: enumerate one
@@ -61,7 +101,7 @@ type lsRow struct {
 // stable reads; warnings own errW so --json stays pure data.
 func runRegistryLs(ctx context.Context, out, errW io.Writer, reg lsRegistry, target string, now time.Time, asJSON, long bool) error {
 	if target != "sentinels" {
-		return fmt.Errorf("registry ls supports sentinels: tag payloads only mean something for machinery")
+		return fmt.Errorf("registry ls supports sentinels, husks: tag payloads only mean something for machinery")
 	}
 	tags, err := reg.Catalog(ctx, sentinel.Repo)
 	if err != nil {

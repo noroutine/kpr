@@ -46,16 +46,15 @@ func ScanCatalog(ctx context.Context, w io.Writer, reg Registry, progress func(C
 		// too, capped at the floater's push; counting is still
 		// not adopting.)
 		tags, err := reg.Catalog(ctx, repo)
-		if err != nil {
-			if isNotFound(err) {
-				// A 404 tags/list is a husk — tagless, nothing
-				// to count — not a vanish: counted apart,
-				// never warned per repo.
-				rep.Husks++
-				report()
-				continue
-			}
+		if err != nil && !isNotFound(err) {
 			return rep, fmt.Errorf("catalog tags for %s: %w", repo, err)
+		}
+		if len(tags) == 0 {
+			// A 404 tags/list reads tagless, and so does an
+			// empty list: nothing to count either way.
+			rep.Husks++
+			report()
+			continue
 		}
 		rep.Repos++
 		rep.Tags += len(tags)

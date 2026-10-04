@@ -167,23 +167,24 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 	}
 	for _, repo := range matched {
 		tags, err := reg.Catalog(ctx, repo)
-		if err != nil {
-			if isNotFound(err) {
-				// Tagless, nothing to adopt: a husk, counted
-				// apart and never warned per repo — but named
-				// in the stream, or no grep ever finds it.
-				sum.Husks++
-				progress()
-				verb := "skipped"
-				if opts.DryRun {
-					verb = "would skip"
-				}
-				if _, werr := fmt.Fprintf(log, "%s %s (husk: no tags)\n", verb, repo); werr != nil {
-					return sum, werr
-				}
-				continue
-			}
+		if err != nil && !isNotFound(err) {
 			return sum, fmt.Errorf("backfill tags for %s: %w", repo, err)
+		}
+		if len(tags) == 0 {
+			// A 404 tags/list reads tagless, and so does an
+			// empty list: nothing to adopt either way. Counted
+			// apart and never warned per repo — but named in
+			// the stream, or no grep ever finds it.
+			sum.Husks++
+			progress()
+			verb := "skipped"
+			if opts.DryRun {
+				verb = "would skip"
+			}
+			if _, werr := fmt.Fprintf(log, "%s %s (husk: no tags)\n", verb, repo); werr != nil {
+				return sum, werr
+			}
+			continue
 		}
 		sum.Repos++
 		sum.Tags += len(tags)

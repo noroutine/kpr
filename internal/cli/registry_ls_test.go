@@ -139,3 +139,52 @@ func TestRegistryLsRefusesOtherTargets(t *testing.T) {
 		t.Errorf("ls app = %v, want the supported target named", err)
 	}
 }
+
+// Husk listing names tagless repos straight off the mount: one per
+// line, sorted, sentinel machinery excluded — the fast answer when
+// analyze only counts them. --json emits the array for scripts;
+// --long has no meaning here and refuses loud. If this fails, the
+// listing disagrees with the walk or invents detail.
+func TestRegistryLsHusks(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	for rel, body := range map[string]string{
+		"repositories/live/_manifests/tags/v1/current/link":                    "sha256:aaa",
+		"repositories/bare/_manifests/revisions/sha256/bbb/link":               "sha256:bbb",
+		"repositories/nest/husk/_manifests/revisions/sha256/c/link":            "sha256:ccc",
+		"repositories/noroutine/kpr-shadow/_manifests/revisions/sha256/d/link": "sha256:ddd",
+	} {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	cfg := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o600); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	var out bytes.Buffer
+	if err := runRegistryLsHusks(&out, cfg, false, false); err != nil {
+		t.Fatalf("ls husks = %v, want listing", err)
+	}
+	if got := out.String(); got != "bare\nnest/husk\n" {
+		t.Errorf("ls husks = %q, want sorted tagless repos", got)
+	}
+	var jout bytes.Buffer
+	if err := runRegistryLsHusks(&jout, cfg, true, false); err != nil {
+		t.Fatalf("ls husks --json = %v, want listing", err)
+	}
+	var got []string
+	if err := json.Unmarshal(jout.Bytes(), &got); err != nil {
+		t.Fatalf("ls husks --json is not JSON: %v:\n%s", err, jout.String())
+	}
+	if len(got) != 2 || got[0] != "bare" || got[1] != "nest/husk" {
+		t.Errorf("ls husks --json = %v, want [bare nest/husk]", got)
+	}
+	if err := runRegistryLsHusks(&bytes.Buffer{}, cfg, false, true); err == nil {
+		t.Error("ls husks --long succeeded, want refusal (names only)")
+	}
+}
