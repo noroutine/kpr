@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
 
 // proveRoot wraps root in a filestore proof: every Analyze test
@@ -68,7 +69,7 @@ func stageLayout(t *testing.T) (proof.FilesystemStore, Report) {
 	}
 	return proveRoot(t, root), Report{
 		Repos: 3, Tags: 6, Revisions: 3, LayerLinks: 2, Uploads: 1,
-		Blobs: 2, BlobBytes: 18, DanglingTags: 4,
+		Blobs: 2, BlobBytes: 18, DanglingTags: 4, Prime: sentinel.PrimeMissing,
 	}
 }
 
@@ -385,7 +386,7 @@ func TestAnalyzeReportsDanglingLinks(t *testing.T) {
 		t.Fatalf("Analyze = %v, want counts", err)
 	}
 	want := Report{Repos: 1, Tags: 2, Revisions: 1, LayerLinks: 2,
-		Blobs: 1, BlobBytes: 6, DanglingTags: 1, DanglingLayers: 1}
+		Blobs: 1, BlobBytes: 6, DanglingTags: 1, DanglingLayers: 1, Prime: sentinel.PrimeMissing}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Analyze = %+v, want %+v", got, want)
 	}
@@ -555,8 +556,8 @@ func TestAnalyzeEmptyRootZeroes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Analyze empty = %v, want zeros", err)
 	}
-	if !reflect.DeepEqual(got, Report{}) {
-		t.Errorf("Analyze empty = %+v, want zeros", got)
+	if !reflect.DeepEqual(got, Report{Prime: sentinel.PrimeMissing}) {
+		t.Errorf("Analyze empty = %+v, want zeros with missing prime", got)
 	}
 }
 
@@ -631,6 +632,57 @@ func TestAnalyzeCountsSentinelTags(t *testing.T) {
 		t.Errorf("Analyze = %+v, want 2 tags with 1 sentinel", got)
 	}
 }
+
+// The prime is a pointer, not inventory: a resolving latest
+// annotates present and stays out of the sentinel count; a
+// missing link annotates missing; a dangling one, corrupt.
+// Tags stay truthful either way. If this fails, the pointer
+// inflates inventory again.
+func TestAnalyzeAnnotatesPrime(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		latest    *string
+		tags      int
+		sentinels int
+		prime     sentinel.Prime
+		dangling  int
+	}{
+		{"present", strptr("sha256:bbb"), 2, 1, sentinel.PrimePresent, 0},
+		{"missing", nil, 1, 1, sentinel.PrimeMissing, 0},
+		{"corrupt", strptr("sha256:zzz"), 2, 1, sentinel.PrimeCorrupt, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			v2 := filepath.Join(root, "docker", "registry", "v2")
+			files := map[string]string{
+				"repositories/noroutine/kpr-sentinel/_manifests/tags/gen/current/link":     "sha256:bbb",
+				"repositories/noroutine/kpr-sentinel/_manifests/revisions/sha256/bbb/link": "sha256:ccc",
+			}
+			if tc.latest != nil {
+				files["repositories/noroutine/kpr-sentinel/_manifests/tags/latest/current/link"] = *tc.latest
+			}
+			for rel, body := range files {
+				p := filepath.Join(v2, filepath.FromSlash(rel))
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					t.Fatalf("stage dir: %v", err)
+				}
+				if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+					t.Fatalf("stage file: %v", err)
+				}
+			}
+			got, err := Analyze(proveRoot(t, root), nil)
+			if err != nil {
+				t.Fatalf("Analyze = %v, want counts", err)
+			}
+			if got.Tags != tc.tags || got.Sentinels != tc.sentinels || got.Prime != tc.prime || got.DanglingTags != tc.dangling {
+				t.Errorf("Analyze = %+v, want %d tags, %d sentinels, prime %q, %d dangling",
+					got, tc.tags, tc.sentinels, tc.prime, tc.dangling)
+			}
+		})
+	}
+}
+
+func strptr(s string) *string { return &s }
 
 // A nil token refuses before touching the disk: no proof, no
 // walk. If this fails, unproven paths analyze.

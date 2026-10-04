@@ -73,6 +73,7 @@ type analyzeJSON struct {
 	APIRepos       int      `json:"api_repos"`
 	APITags        int      `json:"api_tags"`
 	APISentinels   int      `json:"api_sentinels"`
+	APIPrime       string   `json:"api_prime"`
 }
 
 // humanBytes renders bytes in the largest binary unit that keeps
@@ -119,12 +120,15 @@ func plural(n int, one, many string) string {
 
 // catalogLine renders what the API names, sentinels apart: the
 // machinery footprint reads on both views, and the comparison
-// only holds when both sides split it the same way.
+// only holds when both sides split it the same way. The prime
+// rides as its own field, like the store status below —
+// present is structure, anything else calls for investigation.
 func catalogLine(api backfill.CatalogReport) string {
-	return analyzeRow("catalog", fmt.Sprintf("%s, %s, %s",
+	return analyzeRow("catalog", fmt.Sprintf("%s, %s, %s, prime status: %s",
 		plural(api.Repos, "repo", "repos"),
 		plural(api.Tags, "tag", "tags"),
-		plural(api.Sentinels, "sentinel", "sentinels")))
+		plural(api.Sentinels, "sentinel", "sentinels"),
+		api.Prime))
 }
 
 // analyzeLines renders the five-line block, grouped by sense:
@@ -353,6 +357,7 @@ func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg
 			DanglingTags: rep.DanglingTags, DanglingLayers: rep.DanglingLayers,
 			Husks: rep.Husks, HuskRepos: rep.HuskRepos,
 			APIRepos: api.Repos, APITags: api.Tags, APISentinels: api.Sentinels,
+			APIPrime: string(api.Prime),
 		})
 	}
 	return nil

@@ -67,6 +67,18 @@ const (
 	Tag  = "latest"
 )
 
+// Prime is the sentinel prime annotation: the floater is a
+// pointer, not inventory, so it never counts among sentinel
+// tags — its state reads here instead. Present is structure;
+// missing and corrupt both call for investigation.
+type Prime string
+
+const (
+	PrimePresent Prime = "present"
+	PrimeMissing Prime = "missing"
+	PrimeCorrupt Prime = "corrupt"
+)
+
 type descriptor struct {
 	MediaType string `json:"mediaType"`
 	Digest    string `json:"digest"`

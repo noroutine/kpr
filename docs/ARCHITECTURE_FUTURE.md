@@ -13,5 +13,6 @@ describes what ships today.
 | One torn-row rule across backends (file refuses, redis skips today) | open — needs a `store.Store` contract case pinning it |
 | Real partial-upload detection (bounded manifest reads) | open |
 | Sweep live-stages transport (polling vs websocket) | deferred — the vocabulary and keys are the contract |
+| Cut presenter adapters out of command bodies (pure render fns like `backfillLines`; port tests assert data, thin goldens assert strings) | open — `resolveBackfillSink` is the first cut |
 | Registry metrics as a GC-readiness signal (storage pressure before collecting) | noted, not scheduled |
 | Tag-release flow (image push + Forgejo release) | unverified |

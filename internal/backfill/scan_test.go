@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"testing"
+
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
 
 // Scan counts what the catalog names: repos, tags, and what failed.
@@ -29,7 +31,7 @@ func TestScanCatalogCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanCatalog = %v, want counts", err)
 	}
-	want := CatalogReport{Repos: 2, Tags: 3, Sentinels: 1, Husks: 2}
+	want := CatalogReport{Repos: 2, Tags: 3, Sentinels: 1, Husks: 2, Prime: sentinel.PrimeMissing}
 	if got != want {
 		t.Errorf("ScanCatalog = %+v, want %+v", got, want)
 	}
@@ -38,6 +40,47 @@ func TestScanCatalogCounts(t *testing.T) {
 	}
 	if last != want {
 		t.Errorf("last progress = %+v, want %+v", last, want)
+	}
+}
+
+// The prime is a pointer, not inventory: a resolving latest
+// annotates present and leaves the sentinel count; a missing
+// link annotates missing; an unresolvable one, corrupt. Tags
+// stay truthful either way. If this fails, the pointer
+// inflates inventory again.
+func TestScanCatalogAnnotatesPrime(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		tags      []string
+		digest    string
+		digErr    error
+		sentinels int
+		prime     sentinel.Prime
+	}{
+		{"present", []string{"gen", "latest"}, "sha256:bbb", nil, 1, sentinel.PrimePresent},
+		{"missing", []string{"gen"}, "", nil, 1, sentinel.PrimeMissing},
+		{"corrupt", []string{"gen", "latest"}, "", errors.New("rot"), 1, sentinel.PrimeCorrupt},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := &stubRegistry{
+				repos: []string{"noroutine/kpr-sentinel"},
+				tags:  map[string][]string{"noroutine/kpr-sentinel": tc.tags},
+			}
+			if tc.digest != "" {
+				reg.digests = map[string]string{"noroutine/kpr-sentinel\x00latest": tc.digest}
+			}
+			if tc.digErr != nil {
+				reg.digErr = map[string]error{"noroutine/kpr-sentinel\x00latest": tc.digErr}
+			}
+			got, err := ScanCatalog(context.Background(), io.Discard, reg, nil)
+			if err != nil {
+				t.Fatalf("ScanCatalog = %v, want counts", err)
+			}
+			if got.Tags != len(tc.tags) || got.Sentinels != tc.sentinels || got.Prime != tc.prime {
+				t.Errorf("ScanCatalog = %+v, want %d tags, %d sentinels, prime %q",
+					got, len(tc.tags), tc.sentinels, tc.prime)
+			}
+		})
 	}
 }
 

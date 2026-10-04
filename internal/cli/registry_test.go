@@ -18,6 +18,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/registryfs"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -97,6 +98,25 @@ func runAnalyzeCmd(t *testing.T, cfgPath string, reg backfill.Registry, args ...
 	return buf.String(), err
 }
 
+// The prime rides the catalog line as its own field, like the
+// store status: present is structure, anything else calls for
+// investigation. If this fails, the pointer is back inside the
+// count with no annotation.
+func TestCatalogLineShowsPrimeStatus(t *testing.T) {
+	for _, tc := range []struct {
+		prime sentinel.Prime
+		want  string
+	}{
+		{sentinel.PrimePresent, "catalog: 0 repos, 0 tags, 0 sentinels, prime status: present"},
+		{sentinel.PrimeMissing, "catalog: 0 repos, 0 tags, 0 sentinels, prime status: missing"},
+		{sentinel.PrimeCorrupt, "catalog: 0 repos, 0 tags, 0 sentinels, prime status: corrupt"},
+	} {
+		if got := catalogLine(backfill.CatalogReport{Prime: tc.prime}); got != tc.want {
+			t.Errorf("catalogLine(%q) = %q, want %q", tc.prime, got, tc.want)
+		}
+	}
+}
+
 // Analyze reports the staged magnitude as five copypastable
 // lines, grouped by sense: catalog shape, fs-vs-catalog shape,
 // manifests, blobs, bytes. The API sees the same repo but two
@@ -114,7 +134,7 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 		t.Fatalf("analyze = %v, want report", err)
 	}
 	want := []string{
-		"catalog: 1 repo, 2 tags, 0 sentinels",
+		"catalog: 1 repo, 2 tags, 0 sentinels, prime status: missing",
 		"store  : 0 repos, 0 tags, 0 sentinels, store status: unpaired",
 		"store Δ: -1 repo, -2 tags, +0 sentinels",
 		"fs     : 1 repo, 1 tag, 0 sentinels, 0 husks",
@@ -140,7 +160,7 @@ func TestRegistryAnalyzeReportsCounters(t *testing.T) {
 func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 	fsRep := registryfs.Report{Repos: 600, Tags: 17050, Revisions: 24993, Blobs: 55077,
 		BlobBytes: 679001899008, Uploads: 1, LayerLinks: 101173}
-	api := backfill.CatalogReport{Repos: 600, Tags: 17050}
+	api := backfill.CatalogReport{Repos: 600, Tags: 17050, Prime: sentinel.PrimePresent}
 	view := storeView{ok: true, repos: 599, tags: 17048, sentinels: 1}
 	lines := analyzeLines(api, fsRep, view, true)
 	if len(lines) != 8 {
@@ -217,6 +237,7 @@ func TestRegistryAnalyzeJSON(t *testing.T) {
 		"store_repos": float64(0), "store_tags": float64(0),
 		"store_sentinels": float64(0), "store_ok": true, "store_note": "unpaired",
 		"api_repos": float64(1), "api_tags": float64(2), "api_sentinels": float64(0),
+		"api_prime":     "missing",
 		"dangling_tags": float64(0), "dangling_layers": float64(0),
 		"husks": float64(0), "husk_repos": nil,
 	}

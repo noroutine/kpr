@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
+
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
 
 // CatalogReport is what the registry API sees: repos the catalog
@@ -20,6 +23,11 @@ type CatalogReport struct {
 	Sentinels  int
 	Husks      int
 	FailedTags int
+	// Prime annotates the sentinel prime: the floater is a
+	// pointer, never inventory, so a seen prime leaves the
+	// sentinel count (Tags stays truthful). Present is
+	// structure; missing and corrupt call for investigation.
+	Prime sentinel.Prime
 }
 
 // ScanCatalog walks the catalog the way backfill does — every repo,
@@ -29,7 +37,7 @@ type CatalogReport struct {
 // apart and never warned. Warnings go to w; the stream stays
 // silent.
 func ScanCatalog(ctx context.Context, w io.Writer, reg Registry, progress func(CatalogReport)) (CatalogReport, error) {
-	var rep CatalogReport
+	rep := CatalogReport{Prime: sentinel.PrimeMissing}
 	report := func() {
 		if progress != nil {
 			progress(rep)
@@ -60,6 +68,17 @@ func ScanCatalog(ctx context.Context, w io.Writer, reg Registry, progress func(C
 		rep.Tags += len(tags)
 		if strings.HasPrefix(repo, SentinelPrefix) {
 			rep.Sentinels += len(tags)
+		}
+		if repo == sentinel.Repo && slices.Contains(tags, sentinel.Tag) {
+			// Seen prime leaves the count (pointer, not a
+			// generation); one manifest read says whether it
+			// resolves.
+			rep.Sentinels--
+			if _, _, derr := reg.ManifestDigest(ctx, repo, sentinel.Tag); derr != nil {
+				rep.Prime = sentinel.PrimeCorrupt
+			} else {
+				rep.Prime = sentinel.PrimePresent
+			}
 		}
 		report()
 	}

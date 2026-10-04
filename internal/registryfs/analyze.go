@@ -19,6 +19,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
 
 // Report is one walk's magnitude: counts per file kind plus blob
@@ -30,7 +31,9 @@ type Report struct {
 	Tags  int
 	// Sentinels counts tags under the machinery prefix — the same
 	// split the catalog side makes, so the comparison holds.
+	// The prime is excluded (pointer, annotated in Prime).
 	Sentinels  int
+	Prime      sentinel.Prime
 	Revisions  int
 	LayerLinks int
 	Uploads    int
@@ -84,6 +87,7 @@ func Analyze(store proof.FilesystemStore, progress func(Report)) (Report, error)
 	v2Info, err := os.Stat(v2)
 	if err != nil {
 		if os.IsNotExist(err) {
+			rep.Prime = sentinel.PrimeMissing
 			return rep, nil
 		}
 		return rep, fmt.Errorf("analyze %s: %w", v2, err)
@@ -124,6 +128,16 @@ func Analyze(store proof.FilesystemStore, progress func(Report)) (Report, error)
 	total := shards[0].rep
 	total.add(shards[1].rep)
 	total.DanglingTags, total.DanglingLayers = joinRefs(pointers)
+	// The prime resolves like any tag link: seen with a live
+	// target is present, seen dangling is corrupt, never seen
+	// is missing.
+	total.Prime = sentinel.PrimeMissing
+	if pointers.primeSeen {
+		total.Prime = sentinel.PrimePresent
+		if !pointers.revs[pointers.prime] {
+			total.Prime = sentinel.PrimeCorrupt
+		}
+	}
 	if progress != nil {
 		progress(total)
 	}
@@ -164,6 +178,11 @@ type refs struct {
 	tags   []string
 	layers []string
 	blobs  map[string]bool
+	// primeSeen marks the floater link; prime is its target.
+	// Only the repositories shard writes them (the only shard
+	// that sees tag links).
+	primeSeen bool
+	prime     string
 }
 
 // joinRefs resolves what the counting walk cannot: pointers whose
@@ -331,7 +350,11 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 			switch {
 			case n >= 7 && parts[n-2] == "current" && parts[n-4] == "tags" && parts[n-5] == "_manifests":
 				rep.Tags++
-				if isSentinelTag(parts) {
+				// The prime is a pointer, never inventory: it
+				// annotates instead of counting.
+				prime := isSentinelTag(parts) && parts[n-3] == sentinel.Tag &&
+					strings.Join(parts[1:slices.Index(parts, "_manifests")], "/") == sentinel.Repo
+				if isSentinelTag(parts) && !prime {
 					rep.Sentinels++
 				}
 				repo := strings.Join(parts[1:slices.Index(parts, "_manifests")], "/")
@@ -349,6 +372,10 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 				target, terr := linkTarget(path)
 				if terr != nil {
 					return terr
+				}
+				if prime {
+					pointers.primeSeen = true
+					pointers.prime = target
 				}
 				pointers.tags = append(pointers.tags, target)
 			case n >= 7 && parts[n-4] == "revisions" && parts[n-5] == "_manifests":

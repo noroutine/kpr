@@ -94,7 +94,12 @@ identity stays fs-write + API-read.
 
 ## The sentinel today
 
-Repo `noroutine/kpr-sentinel`, floater tag `latest`.
+Repo `noroutine/kpr-sentinel`, floater tag `latest` — the
+**sentinel prime**: the one live pointer every proof reads back
+(gen tags are history; prime is "current"). Present-by-design in
+catalog counts, never a store row — a `−1 tag` store delta against
+it is structure, not drift. Missing prime fails everything closed
+(armed gc re-mints it); that delta calls for investigation.
 
 **What a mint writes.** Two tags at the same digest: the
 generation uuid itself, which keeps history until keep-N reaps

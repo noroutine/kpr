@@ -28,7 +28,7 @@ yet built live in [ANALYSIS_FUTURE.md](ANALYSIS_FUTURE.md).
 ## The eight lines
 
 ```
-catalog: 600 repos, 17050 tags, 5 sentinels
+catalog: 600 repos, 17050 tags, 5 sentinels, prime status: present
 store  : 599 repos, 17048 tags, 1 sentinel, store status: paired
 store Δ: -1 repo, -2 tags, -4 sentinels
 fs     : 600 repos, 17050 tags, 5 sentinels, 0 husks
@@ -44,7 +44,10 @@ invariant.
 
 - `catalog` — what the API names, sentinel tags apart. The
   API has no endpoints for revisions, blobs, uploads, or
-  layer links, so those stay fs-side.
+  layer links, so those stay fs-side. The prime rides as its
+  own field (`prime status:`, like `store status:`): a seen
+  prime leaves the sentinel count — `present` is structure,
+  `missing` and `corrupt` call for investigation.
 - `store` — the tracked state, a static snapshot of
   `store ls` read before the slow walks: distinct repos over
   everything, tags over everything (like the catalog counts
