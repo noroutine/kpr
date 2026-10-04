@@ -140,7 +140,7 @@
     <div class="container">
         <header>
             <h1>kpr</h1>
-            <p class="subtitle">keeper for your homelab registry</p>
+            <p class="subtitle">reap marks, sweep deletes</p>
         </header>
 
         <main>
@@ -167,7 +167,17 @@ $ docker push my-registry:5000/my-app:10m
                 <a href="https://github.com/noroutine/kpr/blob/master/docs/ADOPT_KPR.md">bolt it on</a>
                 instead.</p>
                 <pre class="commands">$ docker run --rm -p 8080:8080 -p 9300:9300 ghcr.io/noroutine/kpr:latest
-# ^ console only — this is NOT a registry, pair it with one per the quickstart</pre>
+# ^ console only — this is NOT a registry, pair it with one below</pre>
+                <p>Or the real thing:
+                <a href="https://github.com/noroutine/kpr/blob/master/docs/QUICKSTART.md#the-two-files">compose.yml</a>
+                +
+                <a href="https://github.com/noroutine/kpr/blob/master/docs/QUICKSTART.md#the-two-files">registry-config.yml</a>
+                per the quickstart, then:</p>
+                <pre class="commands">$ docker compose up -d
+$ crane copy busybox:latest localhost:5000/test/hello:10s
+# ...wait ~10s for the TTL to elapse, then arm both explicitly:
+$ docker exec kpr kpr reap --no-dry-run
+$ docker exec kpr kpr sweep --no-dry-run</pre>
             </section>
 
             <section class="links">
@@ -178,7 +188,7 @@ $ docker push my-registry:5000/my-app:10m
         </main>
 
         <footer>
-            <p><a href="https://github.com/noroutine/kpr">github</a> · <a href="https://github.com/noroutine/kpr/blob/master/LICENSE">GPLv3</a> · reap marks, sweep deletes</p>
+            <p><a href="https://github.com/noroutine/kpr">github</a> · <a href="https://github.com/noroutine/kpr/blob/master/LICENSE">GPLv3</a></p>
             <p>bolted together by <a href="https://github.com/noroutine">noroutine</a> &amp; <a href="https://dev.meta.ai/products/muse-code/">muse</a></p>
         </footer>
     </div>
