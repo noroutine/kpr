@@ -242,8 +242,14 @@ func TestRunHuskVerdictNamesRemovals(t *testing.T) {
 			t.Fatalf("stage husk link: %v", err)
 		}
 	})
-	if !strings.Contains(dirty, "removed 1 husk repos (husk)") {
+	// The verdict counts, never names: a 169-husk run must not
+	// flood the log with inventory. If this fails, the names
+	// are back on the line.
+	if !strings.Contains(dirty, "pruned 1 husks\n") {
 		t.Errorf("husked root hides its removal:\n%s", dirty)
+	}
+	if strings.Contains(dirty, "(husk)") {
+		t.Errorf("husk verdict names its repos:\n%s", dirty)
 	}
 }
 

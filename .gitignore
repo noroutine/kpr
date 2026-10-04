@@ -56,3 +56,6 @@ Thumbs.db
 .claude
 .forgejo_token
 .github_token
+
+# local scratch pad, never tracked
+docs/scratch/

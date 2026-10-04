@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
@@ -365,7 +364,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			hev.Message = fmt.Sprintf("%d repos", len(husked))
 			Emit(opts.Report, hev)
 			if len(husked) > 0 {
-				if _, werr := fmt.Fprintf(w, "removed %d husk repos (%s)\n", len(husked), strings.Join(husked, ", ")); werr != nil {
+				if _, werr := fmt.Fprintf(w, "pruned %d husks\n", len(husked)); werr != nil {
 					return werr
 				}
 			}
