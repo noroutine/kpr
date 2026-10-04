@@ -30,7 +30,8 @@ func proveRoot(t *testing.T, root string) proof.FilesystemStore {
 // files under an upload session, and a sha512 revision. Expected:
 // Repos 3, Tags 4 (index link excluded), Revisions 3 (both
 // algorithms), LayerLinks 2, Uploads 1 (junk uncounted), Blobs 2
-// (6 + 12 bytes).
+// (6 + 12 bytes). Four tag links dangle by construction (v2 and
+// the hostile names point at no revision); both layer links hold.
 func stageLayout(t *testing.T) (proof.FilesystemStore, Report) {
 	t.Helper()
 	root := t.TempDir()
@@ -65,7 +66,43 @@ func stageLayout(t *testing.T) (proof.FilesystemStore, Report) {
 	}
 	return proveRoot(t, root), Report{
 		Repos: 3, Tags: 6, Revisions: 3, LayerLinks: 2, Uploads: 1,
-		Blobs: 2, BlobBytes: 18,
+		Blobs: 2, BlobBytes: 18, DanglingTags: 4,
+	}
+}
+
+// The walk resolves pointer classes the counting pass cannot:
+// tag links whose target revision link is absent, layer links
+// whose blob data is absent. End-exact: progress middles may show
+// zeros, the returned report never does. If this fails, dead
+// pointers hide inside healthy magnitudes.
+func TestAnalyzeReportsDanglingLinks(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	files := map[string]string{
+		"repositories/app/_manifests/tags/ok/current/link":      "sha256:aaa",
+		"repositories/app/_manifests/tags/dead/current/link":    "sha256:bbb",
+		"repositories/app/_manifests/revisions/sha256/aaa/link": "sha256:aaa",
+		"repositories/app/_layers/sha256/111/link":              "sha256:111",
+		"repositories/app/_layers/sha256/222/link":              "sha256:222",
+		"blobs/sha256/11/111/data":                              "123456",
+	}
+	for rel, body := range files {
+		p := filepath.Join(v2, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("stage dir: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatalf("stage file: %v", err)
+		}
+	}
+	got, err := Analyze(proveRoot(t, root), nil)
+	if err != nil {
+		t.Fatalf("Analyze = %v, want counts", err)
+	}
+	want := Report{Repos: 1, Tags: 2, Revisions: 1, LayerLinks: 2,
+		Blobs: 1, BlobBytes: 6, DanglingTags: 1, DanglingLayers: 1}
+	if got != want {
+		t.Errorf("Analyze = %+v, want %+v", got, want)
 	}
 }
 

@@ -210,6 +210,7 @@ func TestRegistryAnalyzeJSON(t *testing.T) {
 		"store_repos": float64(0), "store_tags": float64(0),
 		"store_sentinels": float64(0), "store_ok": true, "store_note": "unpaired",
 		"api_repos": float64(1), "api_tags": float64(2), "api_sentinels": float64(0),
+		"dangling_tags": float64(0), "dangling_layers": float64(0),
 	}
 	if len(got) != len(want) {
 		t.Fatalf("analyze --json has %d keys, want %d: %v", len(got), len(want), got)
@@ -268,6 +269,26 @@ func TestReadStoreViewWithoutProofPort(t *testing.T) {
 	view := readStoreView(context.Background(), blindRegistry{})
 	if !view.ok || view.note != "unproven" {
 		t.Errorf("view = %+v, want ok with unproven note", view)
+	}
+}
+
+// Dead pointers tail the revs and blobs lines only when present:
+// a clean walk reads exactly as before, a dirty one names its
+// count (singular included). If this fails, dead links hide or
+// clean blocks grow noise.
+func TestAnalyzeLinesNamesDangling(t *testing.T) {
+	fsRep := registryfs.Report{Repos: 2, Tags: 3, Revisions: 2, Blobs: 2,
+		LayerLinks: 2, DanglingTags: 2, DanglingLayers: 1}
+	lines := analyzeLines(backfill.CatalogReport{}, fsRep, storeView{}, true)
+	if got := lines[3]; got != "revs   : 2 revisions, 0 untagged, 2 dangling tag links" {
+		t.Errorf("revs line = %q, want dangling tail", got)
+	}
+	if got := lines[4]; !strings.HasSuffix(got, "1 dangling layer link") {
+		t.Errorf("blobs line = %q, want dangling tail", got)
+	}
+	clean := analyzeLines(backfill.CatalogReport{}, registryfs.Report{}, storeView{}, true)
+	if strings.Contains(clean[3], "dangling") || strings.Contains(clean[4], "dangling") {
+		t.Errorf("clean lines = %q, %q, want no dangling tails", clean[3], clean[4])
 	}
 }
 

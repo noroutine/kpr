@@ -62,9 +62,14 @@ invariant.
   machinery-footprint mismatch: normally +0.
 - `revs` — manifests on disk (every push writes one, tagged
   or not) and `untagged` = revisions minus fs tags, clamped
-  at zero. Tags are pointers; revisions are residents.
+  at zero. Tags are pointers; revisions are residents. Dead
+  pointers tail the line only when present: dangling tag links
+  (target revision link absent), read off link contents and
+  joined end-exact — point-in-time on a live registry, raw
+  numbers, never verdicts.
 - `blobs` — blob files, per-repo layer links (links-per-blob
-  reads sharing off this line), upload sessions.
+  reads sharing off this line), upload sessions, plus dangling
+  layer links (blob data absent) on the same terms.
 - `size` — blob bytes only, at their own unit. Exact bytes
   stay in `--json`.
 

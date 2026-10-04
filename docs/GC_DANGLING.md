@@ -24,11 +24,11 @@ rows below.
 
 | Dangling pointer | Pull symptom | Detection | Cure (removal — no class is repairable) | Cost |
 |---|---|---|---|---|
-| tag link → revision | tag listed, GET 404 `MANIFEST_UNKNOWN` | API: tags/list + manifest HEAD per tag (fs walk only when stopped) | API: `DELETE` the tag → 202, dead link gone from disk (sweeper); fs: remove the link (gc pass, stopped) | R lists + T HEADs to find; 1 DELETE per cure |
+| tag link → revision | tag listed, GET 404 `MANIFEST_UNKNOWN` | API: tags/list + manifest HEAD per tag (fs walk only when stopped); cheap signal: `registry analyze` counts dead tag links off the fs walk, point-in-time | API: `DELETE` the tag → 202, dead link gone from disk (sweeper); fs: remove the link (gc pass, stopped) | R lists + T HEADs to find; 1 DELETE per cure; analyze signal free |
 | manifest → blob | pull fails `BLOB_UNKNOWN` (verbatim) | API: GET each manifest, HEAD each blob | API: `DELETE` the parent by digest → 202 (sweeper); orphan bytes go gc-eligible. Operator re-push heals instead | T manifest GETs + B blob HEADs — the heavy one |
 | index → child | pull fails `MANIFEST_UNKNOWN` at child fetch, repo-local | API: GET each index, GET each child | API: `DELETE` the parent by digest → 202 (sweeper); orphan bytes go gc-eligible. Operator re-push heals instead | I index GETs + C child GETs, index repos only — bounded |
 | referrer → subject | subject pull fails; referrer itself reads fine | API: check the subject per referrer tag | nothing to remove — additive metadata (optionally `DELETE` the referrer tag) | 1 HEAD per referrer tag — tiny |
-| layer link → blob data | pull fails `BLOB_UNKNOWN`, link present | **fs walk only**: `_layers/*/link` vs `blobs/…/data` (nothing enumerates `_layers`) | API: `DELETE` the parent by digest → 202 (sweeper); the orphaned link is gc-eligible (observed: `layer link eligible for deletion`) | one fs walk, zero HTTP; 1 DELETE per cure |
+| layer link → blob data | pull fails `BLOB_UNKNOWN`, link present | **fs walk only**: `_layers/*/link` vs `blobs/…/data` (nothing enumerates `_layers`); cheap signal: `registry analyze` counts them on the blobs line, point-in-time | API: `DELETE` the parent by digest → 202 (sweeper); the orphaned link is gc-eligible (observed: `layer link eligible for deletion`) | one fs walk, zero HTTP; 1 DELETE per cure; analyze signal free |
 
 Nothing here is repairable — missing bytes come back only via
 re-push, which is the operator's move, not kpr's. Every kpr-side

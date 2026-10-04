@@ -66,6 +66,8 @@ type analyzeJSON struct {
 	StoreSentinels int    `json:"store_sentinels"`
 	StoreOK        bool   `json:"store_ok"`
 	StoreNote      string `json:"store_note,omitempty"`
+	DanglingTags   int    `json:"dangling_tags"`
+	DanglingLayers int    `json:"dangling_layers"`
 	APIRepos       int    `json:"api_repos"`
 	APITags        int    `json:"api_tags"`
 	APISentinels   int    `json:"api_sentinels"`
@@ -219,16 +221,26 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeV
 	if untagged < 0 {
 		untagged = 0
 	}
+	// Dead pointers print only when present: a clean walk reads
+	// exactly as before, a dirty one names its count.
+	revsBody := fmt.Sprintf("%s, %d untagged",
+		plural(fs.Revisions, "revision", "revisions"), untagged)
+	if fs.DanglingTags > 0 {
+		revsBody += ", " + plural(fs.DanglingTags, "dangling tag link", "dangling tag links")
+	}
+	blobsBody := fmt.Sprintf("%s, %s, %s",
+		plural(fs.Blobs, "blob", "blobs"),
+		plural(fs.LayerLinks, "layer link", "layer links"),
+		plural(fs.Uploads, "upload", "uploads"))
+	if fs.DanglingLayers > 0 {
+		blobsBody += ", " + plural(fs.DanglingLayers, "dangling layer link", "dangling layer links")
+	}
 	return []string{
 		catalogLine(api),
 		storeLine(store, api),
 		analyzeRow("fs", fsBody),
-		analyzeRow("revs", fmt.Sprintf("%s, %d untagged",
-			plural(fs.Revisions, "revision", "revisions"), untagged)),
-		analyzeRow("blobs", fmt.Sprintf("%s, %s, %s",
-			plural(fs.Blobs, "blob", "blobs"),
-			plural(fs.LayerLinks, "layer link", "layer links"),
-			plural(fs.Uploads, "upload", "uploads"))),
+		analyzeRow("revs", revsBody),
+		analyzeRow("blobs", blobsBody),
 		analyzeRow("size", fmt.Sprintf("%s blobs", humanBytes(fs.BlobBytes))),
 	}
 }
@@ -298,6 +310,7 @@ func runRegistryAnalyze(ctx context.Context, w io.Writer, configPath string, reg
 			Sentinels:  rep.Sentinels,
 			StoreRepos: store.repos, StoreTags: store.tags,
 			StoreSentinels: store.sentinels, StoreOK: store.ok, StoreNote: store.note,
+			DanglingTags: rep.DanglingTags, DanglingLayers: rep.DanglingLayers,
 			APIRepos: api.Repos, APITags: api.Tags, APISentinels: api.Sentinels,
 		})
 	}

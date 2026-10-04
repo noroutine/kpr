@@ -36,6 +36,13 @@ type Report struct {
 	Uploads    int
 	Blobs      int
 	BlobBytes  int64
+	// DanglingTags counts tag links whose target revision link is
+	// absent; DanglingLayers counts layer links whose blob data
+	// is absent. End-exact: progress middles show zeros, the
+	// returned report never does. Raw numbers for later
+	// detectors, never verdicts.
+	DanglingTags   int
+	DanglingLayers int
 }
 
 // Analyze walks the proven store root, classifying by path shape
@@ -77,13 +84,14 @@ func Analyze(store proof.FilesystemStore, progress func(Report)) (Report, error)
 		return rep, fmt.Errorf("analyze %s: not a directory", v2)
 	}
 	shards := []shard{{name: "repositories"}, {name: "blobs"}}
+	pointers := &refs{revs: map[string]bool{}, blobs: map[string]bool{}}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for i := range shards {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rep, err := walkShard(v2, shards[i].name, func(running Report) {
+			rep, err := walkShard(v2, shards[i].name, pointers, func(running Report) {
 				mu.Lock()
 				shards[i].rep = running
 				total := shards[0].rep
@@ -107,6 +115,7 @@ func Analyze(store proof.FilesystemStore, progress func(Report)) (Report, error)
 	}
 	total := shards[0].rep
 	total.add(shards[1].rep)
+	total.DanglingTags, total.DanglingLayers = joinRefs(pointers)
 	if progress != nil {
 		progress(total)
 	}
@@ -131,6 +140,38 @@ func (r *Report) add(o Report) {
 	r.Uploads += o.Uploads
 	r.Blobs += o.Blobs
 	r.BlobBytes += o.BlobBytes
+	r.DanglingTags += o.DanglingTags
+	r.DanglingLayers += o.DanglingLayers
+}
+
+// refs collects pointer targets for the end-exact join: tag link
+// targets against revision links, layer link targets against blob
+// data. Each shard touches disjoint fields (repositories: revs,
+// tags, layers; blobs: blobs), so no lock guards them; the join
+// runs once, after both shards land.
+type refs struct {
+	revs   map[string]bool
+	tags   []string
+	layers []string
+	blobs  map[string]bool
+}
+
+// joinRefs resolves what the counting walk cannot: pointers whose
+// targets never materialized. Keys are trimmed link contents
+// (algo:hex); malformed contents match nothing and read as
+// dangling, which is what a corrupt link is.
+func joinRefs(r *refs) (danglingTags, danglingLayers int) {
+	for _, t := range r.tags {
+		if !r.revs[t] {
+			danglingTags++
+		}
+	}
+	for _, l := range r.layers {
+		if !r.blobs[l] {
+			danglingLayers++
+		}
+	}
+	return danglingTags, danglingLayers
 }
 
 // isSentinelTag reports tags under the machinery prefix: the
@@ -151,7 +192,18 @@ func isSentinelTag(parts []string) bool {
 // starts, path shapes still anchor on v2. A missing shard reads
 // as zeros (blobs can land before any repo exists, and vice
 // versa); anything else failing names its path.
-func walkShard(v2, name string, progress func(Report)) (Report, error) {
+// linkTarget reads a link's pointer: the digest the pull path
+// would resolve. A link that exists but won't read refuses the
+// walk — magnitude is exact or refused, never guessed.
+func linkTarget(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("analyze %s: %w", path, err)
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
+func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, error) {
 	var rep Report
 	dir := filepath.Join(v2, name)
 	if _, err := os.Stat(dir); err != nil {
@@ -225,10 +277,21 @@ func walkShard(v2, name string, progress func(Report)) (Report, error) {
 				if isSentinelTag(parts) {
 					rep.Sentinels++
 				}
+				target, terr := linkTarget(path)
+				if terr != nil {
+					return terr
+				}
+				pointers.tags = append(pointers.tags, target)
 			case n >= 7 && parts[n-4] == "revisions" && parts[n-5] == "_manifests":
 				rep.Revisions++
+				pointers.revs[parts[n-3]+":"+parts[n-2]] = true
 			case parts[n-4] == "_layers":
 				rep.LayerLinks++
+				target, terr := linkTarget(path)
+				if terr != nil {
+					return terr
+				}
+				pointers.layers = append(pointers.layers, target)
 			}
 		}
 		if !d.IsDir() && len(parts) >= 2 && parts[0] == "blobs" && filepath.Base(path) == "data" {
@@ -238,6 +301,9 @@ func walkShard(v2, name string, progress func(Report)) (Report, error) {
 				return serr
 			}
 			rep.BlobBytes += fi.Size()
+			if len(parts) >= 4 {
+				pointers.blobs[parts[1]+":"+parts[3]] = true
+			}
 		}
 		return nil
 	})
