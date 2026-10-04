@@ -26,7 +26,9 @@ routes; the registry itself stays stock, never forked.
 
 Configuration comes from KPR_* environment variables (see
 docs/CONFIG.md); every flag below overrides its matching variable.
-Run "kpr env" to list every variable with its effective value.`,
+Run "kpr env" to list every variable with its effective value.
+
+` + config.LicenseBanner(),
 	Version: config.Version,
 	// Errors print once, from Execute below — cobra stays silent,
 	// so a refusal never echoes as "Error: ..." plus the message.
@@ -40,6 +42,9 @@ Run "kpr env" to list every variable with its effective value.`,
 }
 
 func init() {
+	// --version carries the license banner under the identity line.
+	RootCmd.SetVersionTemplate(config.VersionString() + "\n" + config.LicenseBanner() + "\n")
+
 	// Flag defaults seed from the environment once, via config — the
 	// default value is written down in internal/config, not here.
 	defaults := config.NewBuilder().FromEnv().Build()
