@@ -232,6 +232,12 @@ Workflows in `.forgejo/workflows/` (all `make`-based):
 - Rebuilds all platforms and pushes multiplatform Docker images
   (needs the org `DOCKER_CFG` secret)
 
+**GitHub mirror** (`.github/workflows/`, coexists with Forgejo):
+- `ci.yml` runs the same gates on every push/PR
+- `release.yml` runs on tags and pushes multiplatform images to
+  `ghcr.io/noroutine/kpr` plus a GitHub release with the dist
+  binaries (uses `GITHUB_TOKEN`, no extra secrets)
+
 To create a release:
 ```bash
 git tag -a v0.1.0 -m "Release v0.1.0"

@@ -1,0 +1,104 @@
+name: Release
+
+# Tag releases for GitHub: multiplatform images to GHCR plus a
+# GitHub release with the dist binaries. Runs beside CI on the
+# same tag push (CI gates the code, this ships it) and beside the
+# Forgejo release job, which publishes the same tag to nrtn.dev.
+on:
+  push:
+    tags:
+      - 'v*'
+      - '*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Release to GHCR
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.27'
+
+    # Rebuilt here, like the Forgejo release: no artifact handoff
+    # between jobs, so the multiplatform target rebuilds dist/
+    # itself (binaries, checksums, licenses) before pushing.
+    - name: Log in to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push multiplatform Docker images
+      run: make docker-build-multiplatform DOCKER_REGISTRY=ghcr.io/noroutine VERSION=${{ github.ref_name }}
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        prerelease: true
+        files: |
+          dist/kpr-linux-amd64
+          dist/kpr-linux-arm64
+          dist/kpr-linux-arm
+          dist/kpr-darwin-amd64
+          dist/kpr-darwin-arm64
+          dist/checksums.txt
+        body: |
+          ## kpr ${{ github.ref_name }}
+
+          kpr (keeper) — lightweight gateway and keeper for an OCI
+          distribution registry: ephemeral images and lightweight
+          retention cleanups. See `docs/GOALS.md`.
+
+          ### Docker (Recommended)
+
+          Multiplatform Docker images are available:
+
+          ```bash
+          # Run with Docker
+          docker run --rm -p 8080:8080 -p 9300:9300 ghcr.io/noroutine/kpr:${{ github.ref_name }}
+
+          # Or use docker-compose
+          docker-compose up
+          ```
+
+          **Supported platforms:** linux/amd64, linux/arm64, linux/arm/v7
+
+          ### Binary Installation
+
+          Download the binary for your platform:
+
+          ```bash
+          # Linux amd64
+          curl -LO https://github.com/noroutine/kpr/releases/download/${{ github.ref_name }}/kpr-linux-amd64
+          chmod +x kpr-linux-amd64
+          sudo mv kpr-linux-amd64 /usr/local/bin/kpr
+
+          # macOS Apple Silicon
+          curl -LO https://github.com/noroutine/kpr/releases/download/${{ github.ref_name }}/kpr-darwin-arm64
+          chmod +x kpr-darwin-arm64
+          sudo mv kpr-darwin-arm64 /usr/local/bin/kpr
+          ```
+
+          ### Usage
+
+          ```bash
+          kpr serve
+          ```
+
+          - Management console: http://localhost:9300
+          - Application: http://localhost:8080
