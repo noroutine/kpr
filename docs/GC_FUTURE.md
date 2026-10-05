@@ -58,21 +58,17 @@ refusal when the issuer won't grant catalog scope.
 
 ## Loud proxy HOLD
 
-An armed collect engages the proxy HOLD lease, but nothing says so
-unless a push arrives mid-hold: the edge re-reads the lease file
-only on push traffic, and the console renders the edge's cached
-posture (`Snapshot`), so a quiet store shows "no hold lease"
-through the whole collect.
-
-Half of this is now delivered on the deny side: `store lock` /
-`unlock` voice `deny_engage` / `deny_release` at the transition
-through the fence port, so the ring carries the flip with zero
-traffic (see [`docs/EDGE.md`](EDGE.md)). The hold half stays
-open — make it loud without push traffic: the console should
-read the lease file itself (present + unexpired = held)
-instead of, or in addition to, the cached snapshot — or the
-edge should poll the lease on a tick and flip edge-triggered
-the same way pushes do. Either way the operator watching the
-console mid-collect sees the hold pinning writes, push or no
-push.
+The deny half is delivered: `store lock` / `unlock` voice
+`deny_engage` / `deny_release` at the transition through the
+fence port, so the ring carries the flip with zero traffic
+(see [`docs/EDGE.md`](EDGE.md)). What stays open is voicing
+HOLD engagement the same way: the edge re-reads the lease
+file only on push traffic and the console renders the cached
+snapshot, so a quiet store shows "no hold lease" through the
+whole collect. Either the console reads the lease file itself
+(present + unexpired = held), or the edge polls the lease on a
+tick and flips edge-triggered the same way pushes do — so the
+operator watching the console mid-collect sees the hold
+pinning writes, push or no push. Shipped hold mechanics live
+in [`docs/GC.md`](GC.md).
 

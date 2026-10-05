@@ -101,7 +101,12 @@ Gate 7 inverts with the mode, which is the part worth internalising:
 - **Writable** (serving) — there must be *no* descriptor cache at
   all, plus a proven gateway fence. A serving registry collects
   under a HOLD lease that pins pushes for the duration; a cache
-  would keep vouching for blobs the collect just removed.
+  would keep vouching for blobs the collect just removed. The
+  lease is bounded and self-expiring (5m crash bound),
+  fail-open: pushes wait, sleepers re-read so early release
+  wakes promptly, and a lease the collect outruns flows
+  unfenced with one `hold_expired` — never silent. Full
+  fencing story in [EDGE.md](EDGE.md).
 
 The mode decides the path. There is no `--online` flag to forget.
 
