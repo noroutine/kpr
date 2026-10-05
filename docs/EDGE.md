@@ -25,9 +25,12 @@ design in [`docs/BLOBCACHE.md`](BLOBCACHE.md).
 
 ## Shape
 
-```
-push/pull clients ──► kpr:5000 (edge) ──► registry:5000 (private)
-kpr internal client ────────────────────► registry:5000 (direct, fence bypass)
+```mermaid
+flowchart LR
+
+  clients["push/pull clients"] --> edge["kpr:5000 (edge)<br/>byte-identical + fence"]
+  edge --> reg["registry:5000 (private)"]
+  kpr["kpr internal client"] -.->|"direct, fence bypass"| reg
 ```
 
 Compose-wise a port move: kpr takes the edge, the registry
@@ -47,30 +50,23 @@ Rejected.
 ## Fencing
 
 Two modes, both identity-blind (route+method, never
-credentials; auth headers pass through opaque).
+credentials; auth headers pass through opaque):
 
-### HOLD — gc finalize
-
-Manifest PUTs wait on a bounded self-expiring lease (5m crash
-bound — a crashed gc stalls pushes that long, no longer),
-fail-open. Sleepers re-read the lease file, so early release
-wakes promptly; a lease gc outruns flows unfenced but says
-`hold_expired` once, never silent. Blob uploads are never
-held — they reference nothing. A renewing heartbeat is the
-real answer past the bound; future work.
-
-### DENY — store locked
-
-Manifest PUT/DELETE refuse fast while the lock marker is set
-(423 naming `store unlock`). Blob uploads and reads pass:
-uploads alone create no references (orphans are gc-reaped);
-the lock guards semantic mutation, not bytes. The proxy reads
-the marker per mutating request — local file read, no cache,
-no staleness, deliberately not redis (microseconds against
-the milliseconds the forwarded op costs, and no new
-load-bearing dependency on the push path). If the store ever
-goes s3-backed, the marker stays local or the proxy TTL-caches
-it with a stated leak window — decided then, not now.
+- **HOLD** — gc finalize: manifest PUTs wait on a bounded
+  self-expiring lease (5m crash bound), fail-open. Sleepers
+  re-read the lease file, so early release wakes promptly; a
+  lease gc outruns flows unfenced but says `hold_expired`
+  once, never silent. Blob uploads are never held — they
+  reference nothing. A renewing heartbeat is the real answer
+  past the bound; future work.
+- **DENY** — store locked: manifest PUT/DELETE refuse fast
+  while the marker is set (423 naming `store unlock`). Blob
+  uploads and reads pass — uploads alone create no references
+  (orphans are gc-reaped). The marker read is local per
+  mutating request: no cache, no staleness, deliberately not
+  redis. If the store ever goes s3-backed, the marker stays
+  local or the proxy TTL-caches it with a stated leak window
+  — decided then, not now.
 
 ### Port and drivers
 
@@ -99,11 +95,11 @@ overrides). Model behind both in [`docs/PROOFS.md`](PROOFS.md).
 
 The console carries the edge's live posture (open/closed,
 deny/held) in its own section — a level reading of the
-edge-triggered fence, plus the ring flips. Caveat: posture is
-the edge's cached snapshot, refreshed on push traffic — a
-quiet store shows the last flip, not a live read. Voicing
-HOLD engagement without traffic is open future work
-([`docs/GC_FUTURE.md`](GC_FUTURE.md)).
+edge-triggered fence, plus the ring flips. Both transitions
+are voiced at the moment they happen: `hold_engage` /
+`hold_release` around the armed collect, `deny_engage` /
+`deny_release` on lock/unlock — a quiet store still shows
+what the fence did, push or no push.
 
 ### Location guard — fence-critical
 
@@ -151,6 +147,9 @@ history stays in git:
 - Online gc under the fence: preflight clears cache +
   gateway up front, `--accept-*` per risk, re-probe after
   the collect.
+- Loud transitions: hold and deny flips voiced at the moment
+  they happen (report stage + ring outcome), never only on
+  push traffic.
 
 ## Elsewhere, not here
 
