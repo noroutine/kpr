@@ -22,9 +22,9 @@ func TestRunRefusesLockedStore(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out,
 		Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
-		store.NewMemStore(), okCollector(&collected), fileAPI{root},
-		"http://registry:5000", cfg, "/bin/sh", store.NewMemStore(), store.NewMemStore(), store.NewMemStore(), stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
+		okCollector(&collected), Deps{Lock: store.NewMemStore(), Rec: store.NewMemStore(), Ids: store.NewMemStore(), Rows: store.NewMemStore(), API: fileAPI{root},
+			RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}},
+		"/bin/sh", Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("locked run = %v, want the locked refusal", err)
 	}

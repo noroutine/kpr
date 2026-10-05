@@ -134,7 +134,7 @@ func TestRunGCReleaseFailureWarns(t *testing.T) {
 	defer func() { gccmd.RegistryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, gccmd.RegistryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err != nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), RegistryURL: srv.URL, ConfigPath: cfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, gc.Accepts{}); err != nil {
 		t.Fatalf("gc with failing release = %v, want nil (warn only)", err)
 	}
 	if !strings.Contains(out.String(), "lock release failed") {
@@ -168,7 +168,7 @@ func TestRunGCOnlineWarnWriteError(t *testing.T) {
 	defer func() { gccmd.RegistryBinPath = oldBin }()
 
 	s := unlockedStore(t)
-	if err := gc.Run(context.Background(), errWriter{}, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, gccmd.RegistryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{Fence: onlineAccept()}); err == nil {
+	if err := gc.Run(context.Background(), errWriter{}, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), RegistryURL: srv.URL, ConfigPath: cfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, gc.Accepts{Fence: onlineAccept()}); err == nil {
 		t.Error("accepted gc with broken output succeeded, want the write error")
 	}
 }
@@ -203,7 +203,7 @@ func TestRunGCWritableNeedsOnlineClearance(t *testing.T) {
 	defer func() { gccmd.RegistryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, gccmd.RegistryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err == nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), RegistryURL: srv.URL, ConfigPath: cfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, gc.Accepts{}); err == nil {
 		t.Fatal("gc on writable registry succeeded uncleared, want refusal")
 	} else if !strings.Contains(err.Error(), "gateway") || !strings.Contains(err.Error(), "--accept-unfenced") {
 		t.Errorf("refusal names no miss and override: %v", err)
@@ -211,7 +211,7 @@ func TestRunGCWritableNeedsOnlineClearance(t *testing.T) {
 
 	gccmd.RegistryBinPath = stageBin(t, "exit 0")
 	out.Reset()
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, gccmd.RegistryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{Fence: onlineAccept()}); err != nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), RegistryURL: srv.URL, ConfigPath: cfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, gc.Accepts{Fence: onlineAccept()}); err != nil {
 		t.Fatalf("accepted gc = %v, want nil", err)
 	}
 	if !strings.Contains(out.String(), "Warning") {
@@ -237,7 +237,7 @@ func TestRunGCDifferentStoreRefuses(t *testing.T) {
 	var out strings.Builder
 	a := onlineAccept()
 	full := gc.Accepts{Cache: a, Fence: a, ClockSkew: a, Rollback: a, ModeFlip: a}
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, gccmd.RegistryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, full); err == nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), RegistryURL: srv.URL, ConfigPath: cfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, full); err == nil {
 		t.Fatal("gc on a stranger's store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -264,7 +264,7 @@ func TestRunGCLockContention(t *testing.T) {
 		t.Fatalf("pre-acquire = (%v, %v), want (true, nil)", ok, err)
 	}
 	var out strings.Builder
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, gccmd.RegistryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err == nil {
+	if err := gc.Run(ctx, &out, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), RegistryURL: srv.URL, ConfigPath: cfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, gc.Accepts{}); err == nil {
 		t.Fatal("gc under held lock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "another gc") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -273,7 +273,7 @@ func TestRunGCLockContention(t *testing.T) {
 		t.Fatalf("release: %v", err)
 	}
 	out.Reset()
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, gccmd.RegistryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err != nil {
+	if err := gc.Run(ctx, &out, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), RegistryURL: srv.URL, ConfigPath: cfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, gc.Accepts{}); err != nil {
 		t.Fatalf("gc after release = %v, want nil", err)
 	}
 	if ok, _ := s.AcquireLock(ctx, store.GCLockKey, time.Minute); !ok {
@@ -298,7 +298,7 @@ func TestRunGCPostProbeFlip(t *testing.T) {
 	flipCfg := stageGCStore(t, flipRoot)
 	var out strings.Builder
 	flipStore := unlockedStore(t)
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, flipStore, gc.RunCollector, registry.NewClient(flap.URL), flap.URL, flipCfg, gccmd.RegistryBinPath, flipStore, flipStore, flipStore, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err == nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: flipStore, Rec: flipStore, Ids: flipStore, Rows: flipStore, API: registry.NewClient(flap.URL), RegistryURL: flap.URL, ConfigPath: flipCfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, gc.Accepts{}); err == nil {
 		t.Fatal("gc across a readonly→writable flip succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "changed during collection") {
 		t.Errorf("failure names no cause: %v", err)
@@ -310,7 +310,7 @@ func TestRunGCPostProbeFlip(t *testing.T) {
 	deadCfg := stageGCStore(t, deadRoot)
 	out.Reset()
 	downStore := unlockedStore(t)
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, downStore, gc.RunCollector, registry.NewClient(down.URL), down.URL, deadCfg, gccmd.RegistryBinPath, downStore, downStore, downStore, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err != nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: downStore, Rec: downStore, Ids: downStore, Rows: downStore, API: registry.NewClient(down.URL), RegistryURL: down.URL, ConfigPath: deadCfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, gc.Accepts{}); err != nil {
 		t.Fatalf("gc with dead post-probe = %v, want nil (warn only)", err)
 	}
 	if !strings.Contains(out.String(), "post-run probe") {
@@ -359,7 +359,7 @@ func TestRunGCReadonlyRunsBinary(t *testing.T) {
 	defer func() { gccmd.RegistryBinPath = oldBin }()
 
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, gccmd.RegistryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{DeleteUntagged: true}, gc.Accepts{}); err != nil {
+	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), RegistryURL: srv.URL, ConfigPath: cfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{DeleteUntagged: true}, gc.Accepts{}); err != nil {
 		t.Fatalf("readonly gc = %v, want nil", err)
 	}
 	for _, want := range []string{"garbage-collect", "--delete-untagged", "config.yml", "shared store proven via noroutine/kpr-sentinel:latest generation "} {
@@ -370,7 +370,7 @@ func TestRunGCReadonlyRunsBinary(t *testing.T) {
 
 	gccmd.RegistryBinPath = stageBin(t, "exit 3")
 	var fail strings.Builder
-	if err := gc.Run(context.Background(), &fail, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, gccmd.RegistryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err == nil {
+	if err := gc.Run(context.Background(), &fail, gc.ProbeRegistry, gc.RunCollector, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), RegistryURL: srv.URL, ConfigPath: cfg, TimeServer: "time.example.com", Clock: okClock{}}, gccmd.RegistryBinPath, gc.Options{}, gc.Accepts{}); err == nil {
 		t.Error("failing collector returned nil, want the exit surfaced")
 	}
 }

@@ -92,6 +92,26 @@ type Accepts struct {
 	ModeFlip  proof.AcceptedRisk
 }
 
+// Deps carries a run's world beyond its seams: the store in its
+// four roles — lock (intent gate plus single-flight), recorder,
+// identity, rows — each scriptable apart in tests, one object
+// wearing all four hats in production — plus the registry API
+// with the strings naming it, and the clock the mint checks. The
+// adapter assembles it from its own wiring; named fields, never
+// trailing positionals (see Accepts). Lifecycle stays outside:
+// opening and closing the store is the caller's job.
+type Deps struct {
+	Lock        Locker
+	Rec         Recorder
+	Ids         lineage.IdentityStore
+	Rows        lineage.Rows
+	API         sentinel.API
+	RegistryURL string
+	ConfigPath  string
+	TimeServer  string
+	Clock       clock.Source
+}
+
 // Run probes the registry writable/readonly, proves the local mount
 // is the registry's own store with a fresh sentinel generation it
 // reads back through the API, then runs the stock collector against
@@ -115,23 +135,23 @@ type Accepts struct {
 // passes warned. A dead post-probe only warns. Flipping readonly
 // stays with the operator; this command never rewrites registry
 // config.
-func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string, opts Options, accepts Accepts) error {
+func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Deps, binPath string, opts Options, accepts Accepts) error {
 	gcStarted := time.Now()
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
 	// place guaranteeing them moved. The run consumes the gate;
 	// nothing downstream takes the token (re-checking mid-run
 	// belongs to the lock-scope decision, Miss 3).
-	if _, err := proof.ProveUnlockedStore(ctx, lock); err != nil {
+	if _, err := proof.ProveUnlockedStore(ctx, d.Lock); err != nil {
 		if errors.Is(err, proof.ErrLocked) {
 			return err
 		}
 		return fmt.Errorf("store lock unreadable: %w", err)
 	}
-	if err := Ready(binPath, configPath); err != nil {
+	if err := Ready(binPath, d.ConfigPath); err != nil {
 		return err
 	}
-	fsStore, err := proof.ProveFilesystemStore(configPath)
+	fsStore, err := proof.ProveFilesystemStore(d.ConfigPath)
 	if err != nil {
 		return err
 	}
@@ -141,22 +161,22 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// proceeds on local time (air-gapped sites stay working). The
 	// run consumes the gate — refusals pass through untouched, so
 	// every message below reads exactly as before.
-	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, timeServer)); cerr != nil {
+	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, d.Clock, d.TimeServer)); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
 			if accepts.ClockSkew == nil {
 				return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock or re-run with --accept-clock-skew",
-					skew.Offset.Round(time.Second), skew.Tolerance, timeServer)
+					skew.Offset.Round(time.Second), skew.Tolerance, d.TimeServer)
 			}
 			if _, err := fmt.Fprintf(w, "Warning: clock skew %s exceeds %s; collecting anyway (--accept-clock-skew)\n",
 				skew.Offset.Round(time.Second), skew.Tolerance); err != nil {
 				return err
 			}
-		} else if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", timeServer, cerr); err != nil {
+		} else if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", d.TimeServer, cerr); err != nil {
 			return err
 		}
 	}
-	held, err := lock.AcquireLock(ctx, store.GCLockKey, lockTTL)
+	held, err := d.Lock.AcquireLock(ctx, store.GCLockKey, lockTTL)
 	if err != nil {
 		return fmt.Errorf("redis unreachable: %w", err)
 	}
@@ -164,11 +184,11 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		return errors.New("another gc run holds the lock (kpr gc or make gc); wait it out or DEL kpr:gc:lock on the kpr redis DB if stale")
 	}
 	defer func() {
-		if rerr := lock.ReleaseLock(ctx, store.GCLockKey); rerr != nil {
+		if rerr := d.Lock.ReleaseLock(ctx, store.GCLockKey); rerr != nil {
 			_, _ = fmt.Fprintf(w, "Warning: gc lock release failed (%v); expires in %v\n", rerr, lockTTL)
 		}
 	}()
-	mode, _, err := probe(ctx, registryURL)
+	mode, _, err := probe(ctx, d.RegistryURL)
 	if err != nil {
 		return err
 	}
@@ -188,7 +208,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		// point minting a generation the gate will reject. Armed
 		// refuses on unaccepted misses; dry-run prints the same
 		// checklist as information and previews on.
-		cache, fence, report, perr := onlinePreflight(ctx, configPath, opts.EdgeAddr, opts.Fence != nil, accepts.Cache, accepts.Fence)
+		cache, fence, report, perr := onlinePreflight(ctx, d.ConfigPath, opts.EdgeAddr, opts.Fence != nil, accepts.Cache, accepts.Fence)
 		if perr != nil {
 			if opts.DryRun {
 				if _, err := io.WriteString(w, report+"\n"); err != nil {
@@ -205,12 +225,12 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	now := time.Now().UTC()
 	switch mode {
 	case ModeWritable, ModeReadonly:
-		pay, digest, rerr := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
-		allRows, err := rows.All(ctx)
+		pay, digest, rerr := sentinel.Read(ctx, d.API, sentinel.Repo, sentinel.Tag)
+		allRows, err := d.Rows.All(ctx)
 		if err != nil {
 			return fmt.Errorf("tracked state unreadable: %w", err)
 		}
-		ident, err := ids.GetIdentity(ctx)
+		ident, err := d.Ids.GetIdentity(ctx)
 		if err != nil {
 			return fmt.Errorf("lineage unreadable: %w", err)
 		}
@@ -247,7 +267,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 					return err
 				}
 			}
-			if err := ids.SetIdentity(ctx, est); err != nil {
+			if err := d.Ids.SetIdentity(ctx, est); err != nil {
 				return fmt.Errorf("lineage unrecordable: %w", err)
 			}
 		}
@@ -256,15 +276,15 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			return err
 		}
 		payload := sentinel.Payload{V: 1, Gen: gen, ID: useID, TS: now.Format(time.RFC3339), Writer: "kpr-gc"}
-		md, err := writeVerifiedGeneration(ctx, api, root, payload)
+		md, err := writeVerifiedGeneration(ctx, d.API, root, payload)
 		if err != nil {
 			return err
 		}
-		if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
+		if err := d.Rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
 			return fmt.Errorf("proof held but the generation went untracked: %w", err)
 		}
 		if v.Heal != nil {
-			if err := rec.Record(ctx, *v.Heal); err != nil {
+			if err := d.Rec.Record(ctx, *v.Heal); err != nil {
 				return fmt.Errorf("adopted generation went untracked: %w", err)
 			}
 		}
@@ -272,7 +292,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			return err
 		}
 	default:
-		return fmt.Errorf("sentinel inconclusive for %s", registryURL)
+		return fmt.Errorf("sentinel inconclusive for %s", d.RegistryURL)
 	}
 	switch mode {
 	case ModeWritable:
@@ -320,18 +340,18 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 
 	switch {
 	case opts.DryRun:
-		if err := collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, true), opts.Report); err != nil {
+		if err := collect(ctx, w, binPath, Args(d.ConfigPath, opts.DeleteUntagged, true), opts.Report); err != nil {
 			return err
 		}
 	case mode == ModeWritable:
 		if err := fenced(func() error {
-			return collectWritableArmed(ctx, w, collect, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report, onlineCache, onlineFence)
+			return collectWritableArmed(ctx, w, collect, binPath, Args(d.ConfigPath, opts.DeleteUntagged, false), opts.Report, onlineCache, onlineFence)
 		}); err != nil {
 			return err
 		}
 	default:
 		if err := fenced(func() error {
-			return collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report)
+			return collect(ctx, w, binPath, Args(d.ConfigPath, opts.DeleteUntagged, false), opts.Report)
 		}); err != nil {
 			return err
 		}
@@ -388,7 +408,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			}
 		}
 	}
-	post, _, perr := probe(ctx, registryURL)
+	post, _, perr := probe(ctx, d.RegistryURL)
 	if perr != nil {
 		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, ModeName(mode))
 		return nil
