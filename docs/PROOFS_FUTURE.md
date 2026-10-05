@@ -30,6 +30,30 @@ precedent the rest would follow, not future work.
 Open: which knobs follow, and where refusing stops being
 affordable.
 
+**First migration is already shipped half-done:** `BlobCacheOff`
+judges a caller-parsed address string, so it sees the `redis:`
+connection half but never the `storage.cache.blobdescriptor`
+selection half — `registryRedis` decides, the proof rubber-stamps.
+The owned shape is `ProveBlobCacheOff(configPath, accept)`: the
+prover reads the config itself, mints when no stanza selects
+`redis`, refuses when one does, and the `redis:` block drops to
+connection detail for the message. Decided: mint iff both
+absent — a bare `redis:` block still refuses (conservative),
+whatever the stanza says.
+
+## Provers read their own sources
+
+Same drift, stated generally: a prover that takes a pre-parsed
+verdict (`cacheAddr string`, a bare root, a bool) can be told
+anything — the evidence-gathering lives in the caller, outside
+the seal. The rule going forward: minting functions take the
+source (config path, mount, clock) and parse it themselves, so
+the judgment the proof embodies is the judgment the proof
+performs. `FilesystemStore.Analyze` is the precedent (the stage
+reads `Root()` off the token); `ProveBlobCacheOff` is the
+exhibit for what happens without it. Apply when touching those
+signatures — not now.
+
 ## Proofs as binding call dependencies (not revised yet)
 
 The intent was never "call a prove function, then walk a string":

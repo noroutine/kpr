@@ -44,11 +44,11 @@ services:
 
       # Registry peer (sweeper deletes, reap reads catalog)
       - "KPR_REGISTRY_URL=http://registry:5000"
-      # The stock collector kpr gc shells out to reads the same file
-      # and honors the same override convention, so it needs the
-      # registry's redis password too: without it the blobdescriptor
-      # cache mis-marks and collection eats live layers. Must match
-      # REDIS_PASSWORD, like the registry service below.
+      # Only when the registry's cache redis is password-protected
+      # (it is here): the stock collector kpr gc shells out to
+      # honors the same override convention and inherits kpr's
+      # environment. Must match REDIS_PASSWORD, like the registry
+      # service below.
       - "REGISTRY_REDIS_PASSWORD=${REDIS_PASSWORD:-kpr-dev-only}"
       # Dry-run by default: one-shots (gc, reap, sweep, backfill)
       # plan without touching anything unless --no-dry-run

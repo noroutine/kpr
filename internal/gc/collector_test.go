@@ -319,7 +319,7 @@ func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 	// Acceptance mints the kind without the world: the boundary
 	// cannot tell proven from accepted, and must not need to.
 	accept := proof.Force(proof.Arm(true, false), true)
-	cache, err := proof.ProveBlobCacheOff("redis:6379", accept)
+	cache, err := proof.ProveBlobCacheOff(stageOnlineConfig(t, t.TempDir(), true), accept)
 	if err != nil {
 		t.Fatalf("stage cache clearance: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestCollectWritableArmedDelegatesWhenCleared(t *testing.T) {
 	var out strings.Builder
 	args := []string{"garbage-collect", "/etc/distribution/config.yml"}
 	accept := proof.Force(proof.Arm(true, false), true)
-	cache, cacheErr := proof.ProveBlobCacheOff("redis:6379", accept)
+	cache, cacheErr := proof.ProveBlobCacheOff(stageOnlineConfig(t, t.TempDir(), true), accept)
 	fence, fenceErr := proof.ProveGatewayFencing(context.Background(), "/nonexistent.yml", "127.0.0.1:1", false, accept)
 	if cacheErr != nil || fenceErr != nil {
 		t.Fatalf("stage clearance: %v %v", cacheErr, fenceErr)

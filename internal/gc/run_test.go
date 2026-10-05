@@ -1089,25 +1089,28 @@ func TestRunDeadPreProbeRefuses(t *testing.T) {
 	}
 }
 
-// A dead blobdescriptor cache refuses the readonly path: without
-// the cache the run would delete what it must keep. If this fails,
-// gc collects blind on a broken cache connection.
-func TestRunReadonlyCacheOutageRefuses(t *testing.T) {
-	_, root, s := stageProvenRun(t)
+// No dial on the readonly path: a dead blobdescriptor cache no
+// longer refuses the run — the collector reads the same config
+// and fails itself if the cache truly matters. If this fails,
+// the reachability gate is back and cached registries cannot
+// collect past a cache outage.
+func TestRunReadonlyDeadCacheCollects(t *testing.T) {
+	_, root, _, _, lock := stagePairedRun(t)
 	redisCfg := filepath.Join(t.TempDir(), "config.yml")
 	if err := os.WriteFile(redisCfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+
 		"\nredis:\n  addr: 127.0.0.1:1\n"), 0o644); err != nil {
 		t.Fatalf("stage config: %v", err)
 	}
-	lock := scriptLocker{MemStore: s, held: true}
+	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(nil), fileAPI{root},
-		"http://registry:5000", redisCfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
+	err := Run(context.Background(), &out, readonlyProbe(), lock, okCollector(&collected), fileAPI{root},
+		"http://registry:5000", redisCfg, "/bin/sh", lock, lock, lock, stubClock{}, "time.example.com",
 		Options{Report: func(Event) {}}, Accepts{})
-	if err == nil {
-		t.Fatal("run with dead cache succeeded, want refusal")
-	} else if !strings.Contains(err.Error(), "blobdescriptor cache unreachable") {
-		t.Errorf("refusal names no cause: %v", err)
+	if err != nil {
+		t.Fatalf("run with dead cache refused: %v", err)
+	}
+	if len(collected) != 1 {
+		t.Errorf("collected %d times, want one (no gate before the collector)", len(collected))
 	}
 }
 

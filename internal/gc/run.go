@@ -135,10 +135,6 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		return err
 	}
 	root := fsStore.Root()
-	// CacheReady stays a readonly gate: offline collection needs
-	// the configured cache reachable. The writable path inverts
-	// it (cache must be absent) in the online preflight below, so
-	// this moves past the probe that tells the paths apart.
 	// Mint timestamps come from a checked clock: skew beyond
 	// tolerance refuses unless accepted (--accept-clock-skew); an unreachable NTP warns and
 	// proceeds on local time (air-gapped sites stay working). The
@@ -183,11 +179,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// them, so a nil here never reaches a delete.
 	var onlineCache proof.BlobCacheOff
 	var onlineFence proof.GatewayFencing
-	if mode != ModeWritable {
-		if err := CacheReady(ctx, configPath); err != nil {
-			return err
-		}
-	} else {
+	if mode == ModeWritable {
 		// The online path: a serving registry collects under the
 		// fence, so writability is the mode, not a risk — the
 		// risks are a vouched cache and a missing fence, each
