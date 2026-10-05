@@ -114,11 +114,7 @@ revokes.`,
 		backend, dir, berr := deps.ResolveStoreBackend()
 		report := renderGCEvent(out, dryRun)
 		fence := gcrun.FenceForBackend(backend, dir, newFenceControl(d.Store, report), berr, dryRun, out)
-		return gcrun.Run(cmd.Context(), out, gcrun.ProbeRegistry, gcrun.RunCollector, gcrun.Deps{
-			Lock: d.Store, Rec: d.Store, Ids: d.Store, Rows: d.Store, API: d.Reg,
-			RegistryURL: cfg.RegistryURL, ConfigPath: cfg.RegistryConfig,
-			TimeServer: cfg.TimeServer, Clock: deps.ClockSource(d.Cfg),
-		}, RegistryBinPath, gcrun.Options{
+		return gcrun.Run(cmd.Context(), out, gcrun.ProbeRegistry, gcrun.RunCollector, wire(d), RegistryBinPath, gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,
 			Report:         renderGCEvent(out, dryRun),

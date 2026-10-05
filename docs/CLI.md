@@ -33,5 +33,6 @@ shares the run-mode semantics until it moves too.
 
 Wiring order inside `RunE`: open deps → arm the run (flag or
 env, never both, never neither — dry-run is the absence of
-`Armed`) → resolve backend → fence → `gc.Run`. Refusals name
+`Armed`) → resolve backend → fence → wire deps onto `gcrun.Deps`
+→ `gc.Run`. Refusals name
 their remedy; usage never prints on refusal.
