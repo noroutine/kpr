@@ -166,7 +166,6 @@ collect blind, when:
 - the sentinel verdict is inconclusive
 - the registry is serving without online clearance
 - the shared store is unproven
-- the blobdescriptor cache is unreachable (offline path)
 - another run holds `kpr:gc:lock` (`make gc` honors the same key)
 
 A preview prints the same checklist, warns, and proceeds — it
@@ -174,9 +173,10 @@ deletes nothing either way.
 
 Two things to know before arming:
 
-- **Set `REGISTRY_REDIS_PASSWORD`** (same convention the registry
-  uses). Without it the cache mis-marks and collection deletes
-  live layers.
+- **Pass `REGISTRY_REDIS_PASSWORD` through** (same convention the
+  registry uses). The stock collector kpr shells out to inherits
+  kpr's environment — without it, it cannot auth to a
+  password-protected cache.
 - **Don't run the stock collector alongside.** Manual runs take no
   lock, because the registry sets none.
 
