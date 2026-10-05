@@ -29,14 +29,17 @@ func (gatewayFencing) sealed() {}
 // distinguishes a 2s dial from a 3s one, and none should.
 const edgeDialTimeout = 2 * time.Second
 
-// ProveGatewayFencing proves a gateway the way serve opens one
-// (RelativeURLs over the registry config) plus liveness (the
-// edge addr answers), with the lease half first: no shared file
-// store means no HOLD lease dir, so there is nothing for the edge
-// to watch even if it listens. Beside it travels the acceptance
-// the flag minted. Any half failing with nothing accepted refuses
-// naming which half and the override; anything else mints.
-func ProveGatewayFencing(ctx context.Context, configPath, edgeAddr string, leaseReady bool, accept AcceptedRisk) (GatewayFencing, error) {
+// ProveGatewayFencingAvailable proves a gateway *could* fence
+// the way serve opens one (RelativeURLs over the registry
+// config) plus liveness (the edge addr answers), with the lease
+// half first: no shared file store means no HOLD lease dir, so
+// there is nothing for the edge to watch even if it listens.
+// This is capability, not posture — the lock marker and the
+// lease file are never read here. Beside it travels the
+// acceptance the flag minted. Any half failing with nothing
+// accepted refuses naming which half and the override;
+// anything else mints.
+func ProveGatewayFencingAvailable(ctx context.Context, configPath, edgeAddr string, leaseReady bool, accept AcceptedRisk) (GatewayFencing, error) {
 	if !leaseReady {
 		if accept != nil {
 			return gatewayFencing{}, nil

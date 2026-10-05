@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
@@ -471,50 +470,27 @@ func TestRenderGCEventVoicesStages(t *testing.T) {
 	renderGCEvent(&real, false)(gc.Event{Stage: gc.StageStarted})
 }
 
-// The file backend wires the lease into the shared dir, silently:
-// the edge reads what gc writes. If this fails, the lease
-// stopped reaching the edge.
-func TestFenceForBackendWiresFileStore(t *testing.T) {
-	var out strings.Builder
-	fence := fenceForBackend("file", "/state", nil, nil, nil, false, &out)
-	ctl, ok := fence.(edge.Control)
-	if !ok {
-		t.Fatalf("file backend fence = %T, want edge.Control", fence)
+// The fence constructor moved to gc with the decision (see
+// internal/gc/fence_test.go); the adapter factory here is
+// covered where it is built. If this fails, cli grew a second
+// fencing decision beside the use case's.
+func TestNewFenceControlBuildsAnnouncingAdapter(t *testing.T) {
+	var events []gc.Event
+	st := store.NewMemStore()
+	ctl := newFenceControl(st, func(e gc.Event) { events = append(events, e) })(t.TempDir())
+	release, err := ctl.Hold(context.Background(), time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("adapter Hold: %v", err)
 	}
-	if ctl.Dir != "/state" {
-		t.Errorf("lease dir = %q, want the shared store dir", ctl.Dir)
+	release()
+	if len(events) != 2 {
+		t.Fatalf("adapter voiced %d transitions, want hold_engage + hold_release", len(events))
 	}
-	if out.Len() != 0 {
-		t.Errorf("wired fence warned %q, want silence", out.String())
+	activity, err := st.Activity(context.Background())
+	if err != nil {
+		t.Fatalf("activity: %v", err)
 	}
-}
-
-// Anything else runs unfenced with the warning said out loud on
-// armed runs — and silent on previews, where nothing holds. If
-// this fails, unfenced collects went quiet or previews warned
-// for no reason.
-func TestFenceForBackendWarnsWhenUnshared(t *testing.T) {
-	var armed strings.Builder
-	if fence := fenceForBackend("redis", "", nil, nil, nil, false, &armed); fence != nil {
-		t.Errorf("redis backend fence = %v, want nil", fence)
-	}
-	if !strings.Contains(armed.String(), "unfenced") {
-		t.Errorf("armed unfenced warning = %q, want it said", armed.String())
-	}
-
-	var preview strings.Builder
-	if fence := fenceForBackend("redis", "", nil, nil, nil, true, &preview); fence != nil {
-		t.Errorf("preview fence = %v, want nil", fence)
-	}
-	if preview.Len() != 0 {
-		t.Errorf("preview warned %q, want silence", preview.String())
-	}
-
-	var broken strings.Builder
-	if fence := fenceForBackend("", "", nil, nil, errors.New("boom"), false, &broken); fence != nil {
-		t.Errorf("broken backend fence = %v, want nil", fence)
-	}
-	if !strings.Contains(broken.String(), "unfenced") {
-		t.Errorf("broken backend warning = %q, want it said", broken.String())
+	if len(activity) != 2 {
+		t.Fatalf("ring holds %d outcomes, want both hold transitions", len(activity))
 	}
 }

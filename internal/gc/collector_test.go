@@ -348,7 +348,7 @@ func TestCollectWritableArmedDelegatesWhenCleared(t *testing.T) {
 	args := []string{"garbage-collect", "/etc/distribution/config.yml"}
 	accept := proof.Force(proof.Arm(true, false), true)
 	cache, cacheErr := proof.ProveBlobCacheOff(stageOnlineConfig(t, t.TempDir(), true), accept)
-	fence, fenceErr := proof.ProveGatewayFencing(context.Background(), "/nonexistent.yml", "127.0.0.1:1", false, accept)
+	fence, fenceErr := proof.ProveGatewayFencingAvailable(context.Background(), "/nonexistent.yml", "127.0.0.1:1", false, accept)
 	if cacheErr != nil || fenceErr != nil {
 		t.Fatalf("stage clearance: %v %v", cacheErr, fenceErr)
 	}
