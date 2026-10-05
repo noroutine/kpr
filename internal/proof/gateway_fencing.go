@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// GatewayFencing clears collection re: the proxy fence: a proven
+// GatewayFencingAvailable clears collection re: the proxy fence: a proven
 // edge is listening, so the HOLD lease the collect engages
 // actually pins pushes. An unfenced collect against a serving
 // registry lets a push land mid-collect — the corruption online
@@ -17,7 +17,7 @@ import (
 // The second minting path is acceptance: --accept-unfenced on an
 // armed run presumes the operator accepts collecting without the
 // fence (quiesced writers, or similar). Said at the gate, loudly.
-type GatewayFencing interface {
+type GatewayFencingAvailable interface {
 	sealed()
 }
 
@@ -39,7 +39,7 @@ const edgeDialTimeout = 2 * time.Second
 // acceptance the flag minted. Any half failing with nothing
 // accepted refuses naming which half and the override;
 // anything else mints.
-func ProveGatewayFencingAvailable(ctx context.Context, configPath, edgeAddr string, leaseReady bool, accept AcceptedRisk) (GatewayFencing, error) {
+func ProveGatewayFencingAvailable(ctx context.Context, configPath, edgeAddr string, leaseReady bool, accept AcceptedRisk) (GatewayFencingAvailable, error) {
 	if !leaseReady {
 		if accept != nil {
 			return gatewayFencing{}, nil

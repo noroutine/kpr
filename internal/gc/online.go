@@ -23,7 +23,7 @@ import (
 // edge listens. The cache prover reads the same config the
 // collector reads and judges both halves itself — no
 // pre-parsed verdict crosses into the proof package.
-func onlinePreflight(ctx context.Context, configPath, edgeAddr string, leaseReady bool, cacheAccept, fenceAccept proof.AcceptedRisk) (proof.BlobCacheOff, proof.GatewayFencing, string, error) {
+func onlinePreflight(ctx context.Context, configPath, edgeAddr string, leaseReady bool, cacheAccept, fenceAccept proof.AcceptedRisk) (proof.BlobCacheOff, proof.GatewayFencingAvailable, string, error) {
 	// World first, acceptance second: the report must tell
 	// proven from accepted — an override that also proves reads
 	// [ok], an override that waives reads [accepted] naming what

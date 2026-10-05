@@ -179,7 +179,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// everywhere else: only the writable-armed dispatch consumes
 	// them, so a nil here never reaches a delete.
 	var onlineCache proof.BlobCacheOff
-	var onlineFence proof.GatewayFencing
+	var onlineFence proof.GatewayFencingAvailable
 	if mode == ModeWritable {
 		// The online path: a serving registry collects under the
 		// fence, so writability is the mode, not a risk — the
