@@ -13,8 +13,6 @@ import (
 func wire(d *deps.Deps) gcrun.Deps {
 	return gcrun.Deps{
 		Lock: d.Store, Rec: d.Store, Ids: d.Store, Rows: d.Store,
-		API:         d.Reg,
-		RegistryURL: d.Cfg.RegistryURL, ConfigPath: d.Cfg.RegistryConfig,
-		TimeServer: d.Cfg.TimeServer, Clock: deps.ClockSource(d.Cfg),
+		API: d.Reg, Cfg: d.Cfg, Clock: deps.ClockSource(d.Cfg),
 	}
 }

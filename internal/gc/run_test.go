@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -142,7 +143,7 @@ func TestRunRecordsMintedGeneration(t *testing.T) {
 	})
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: false, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
@@ -184,7 +185,7 @@ func TestRunBehindStubPorts(t *testing.T) {
 	})
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
@@ -221,7 +222,7 @@ func TestRunHuskVerdictNamesRemovals(t *testing.T) {
 		})
 		var collected [][]string
 		var out strings.Builder
-		err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+		err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 			Options{DryRun: false, Report: func(Event) {}}, Accepts{})
 		if err != nil {
 			t.Fatalf("stub-port armed run: %v", err)
@@ -276,7 +277,7 @@ func TestRunArmedCollectFailureSurfaces(t *testing.T) {
 		return errors.New("collector exploded")
 	}
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, failCollector, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, probe, failCollector, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: false, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "collector exploded") {
 		t.Fatalf("armed collect failure = %v, want the collector error surfaced", err)
@@ -312,7 +313,7 @@ func TestRunDryRunTailWriteFailureSurfaces(t *testing.T) {
 	})
 	var collected [][]string
 	out := &tailFailWriter{}
-	err := Run(context.Background(), out, probe, okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), out, probe, okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("dry-run with failing verdict write succeeded, want the write error")
@@ -331,7 +332,7 @@ func TestRunStrangerStoreRefuses(t *testing.T) {
 	for _, dry := range []bool{true, false} {
 		var collected [][]string
 		var out strings.Builder
-		err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{t.TempDir()}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+		err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{t.TempDir()}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 			Options{DryRun: dry, Report: func(Event) {}}, Accepts{})
 		want := "does not share"
 		if dry {
@@ -374,7 +375,7 @@ func TestRunRefusesUnattributableLineage(t *testing.T) {
 			}
 			var collected [][]string
 			var out strings.Builder
-			err := Run(ctx, &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+			err := Run(ctx, &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 				Options{Report: func(Event) {}}, Accepts{})
 			if err == nil {
 				t.Fatalf("gc over %s lineage succeeded, want refusal", tc.name)
@@ -419,7 +420,7 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 	frozen := frozenAPI{manifest: manRaw, blob: payRaw}
 	var collected [][]string
 	var out strings.Builder
-	err = Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: frozen, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err = Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: frozen, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: false, Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("gc on a stale snapshot succeeded, want refusal")
@@ -439,7 +440,7 @@ func TestRunWarnsOnReleaseFailure(t *testing.T) {
 	err := Run(context.Background(), &out,
 		Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
 		okCollector(&collected), Deps{Lock: releaseFailLocker{s}, Rec: s, Ids: s, Rows: s, API: fileAPI{root},
-			RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}},
+			Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}},
 		"/bin/sh", Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("release-failed run: %v", err)
@@ -476,7 +477,7 @@ func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 	}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, flipProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, flipProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "mode changed") {
 		t.Fatalf("flipped run = %v, want the mode-change refusal", err)
@@ -484,7 +485,7 @@ func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 		t.Errorf("refusal names no override: %v", err)
 	}
 	out.Reset()
-	if err := Run(context.Background(), &out, flipProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	if err := Run(context.Background(), &out, flipProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{ModeFlip: acceptRisk()}); err != nil {
 		t.Fatalf("mode-flip-accepted run: %v", err)
 	}
@@ -504,7 +505,7 @@ func TestRunDryRunRefusesWithoutSentinel(t *testing.T) {
 	})
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "no sentinel served") {
 		t.Fatalf("dry-run on silence = %v, want the no-shared-store refusal", err)
@@ -527,7 +528,7 @@ func TestRunDryRunSkipsProof(t *testing.T) {
 	})
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
@@ -573,7 +574,7 @@ func TestRunWritableRefusalMintsNothing(t *testing.T) {
 	})
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: false, Report: func(Event) {}}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "gateway") || !strings.Contains(err.Error(), "--accept-unfenced") {
 		t.Fatalf("writable run = %v, want the gateway refusal with override", err)
@@ -609,7 +610,7 @@ func TestRunDeadPostProbeWarns(t *testing.T) {
 	})
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("dead-post-probe run: %v", err)
@@ -684,7 +685,7 @@ func TestRunForeignLineageRefusesBeforeMint(t *testing.T) {
 	}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, acceptAll())
 	if err == nil {
 		t.Fatal("gc over a foreign lineage succeeded, want refusal")
@@ -718,7 +719,7 @@ func TestRunSilenceEstablishesPairing(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("first run on silence: %v", err)
@@ -750,7 +751,7 @@ func TestRunClockSkewRefusesUnlessAccepted(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
 	var out strings.Builder
 	var refused [][]string
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&refused), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{off: time.Hour}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&refused), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{off: time.Hour}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("skewed clock run succeeded, want refusal")
@@ -761,7 +762,7 @@ func TestRunClockSkewRefusesUnlessAccepted(t *testing.T) {
 	}
 	var accepted [][]string
 	out.Reset()
-	err = Run(context.Background(), &out, readonlyProbe(), okCollector(&accepted), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{off: time.Hour}}, "/bin/sh",
+	err = Run(context.Background(), &out, readonlyProbe(), okCollector(&accepted), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{off: time.Hour}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{ClockSkew: acceptRisk()})
 	if err != nil {
 		t.Fatalf("skew-accepted run: %v", err)
@@ -806,7 +807,7 @@ func TestRunStaleRollbackRefusesArmed(t *testing.T) {
 	}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(ctx, &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(ctx, &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("gc over a rollback succeeded, want refusal")
@@ -839,7 +840,7 @@ func TestRunRollbackAcceptWarns(t *testing.T) {
 	}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(ctx, &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(ctx, &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{Rollback: acceptRisk()})
 	if err != nil {
 		t.Fatalf("rollback-accepted run: %v", err)
@@ -866,7 +867,7 @@ func TestRunEstablishPairedWarns(t *testing.T) {
 	}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(ctx, &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(ctx, &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("re-establish: %v", err)
@@ -904,7 +905,7 @@ func TestRunNTPUnreachableWarnsProceeds(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{err: errClockUnreachable}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{err: errClockUnreachable}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("run with unreachable NTP: %v", err)
@@ -964,7 +965,7 @@ func TestRunLockUnreadableRefuses(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	lock := scriptLocker{MemStore: s, unlockErr: errTestStoreDown, held: true}
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable lock succeeded, want refusal")
@@ -980,7 +981,7 @@ func TestRunMissingBinaryRefuses(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	lock := scriptLocker{MemStore: s, held: true}
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/nonexistent-registry",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/nonexistent-registry",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with missing binary succeeded, want refusal")
@@ -1000,7 +1001,7 @@ func TestRunS3ConfigRefuses(t *testing.T) {
 	}
 	lock := scriptLocker{MemStore: s, held: true}
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{t.TempDir()}, RegistryURL: "http://registry:5000", ConfigPath: s3cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{t.TempDir()}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: s3cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with s3 config succeeded, want refusal")
@@ -1016,7 +1017,7 @@ func TestRunAcquireFailureRefuses(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	lock := scriptLocker{MemStore: s, held: true, acquireErr: errTestStoreDown}
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with dead lock backend succeeded, want refusal")
@@ -1032,7 +1033,7 @@ func TestRunContendedLockRefuses(t *testing.T) {
 	lock := scriptLocker{MemStore: s, held: false}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run under a held lock succeeded, want refusal")
@@ -1054,7 +1055,7 @@ func TestRunDeadPreProbeRefuses(t *testing.T) {
 		return ModeUnknown, "", errProbeDead
 	})
 	var out strings.Builder
-	err := Run(context.Background(), &out, dead, okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, dead, okCollector(nil), Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if !errors.Is(err, errProbeDead) {
 		t.Fatalf("dead-probe run = %v, want the probe error surfaced", err)
@@ -1075,7 +1076,7 @@ func TestRunReadonlyDeadCacheCollects(t *testing.T) {
 	}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: redisCfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: redisCfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("run with dead cache refused: %v", err)
@@ -1092,7 +1093,7 @@ func TestRunReadonlyDeadCacheCollects(t *testing.T) {
 func TestRunSkewWarnWriteFailureSurfaces(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
 	w := errWriter{errTestStoreDown}
-	err := Run(context.Background(), w, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{off: time.Hour}}, "/bin/sh",
+	err := Run(context.Background(), w, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{off: time.Hour}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{ClockSkew: acceptRisk()})
 	if err == nil {
 		t.Fatal("skewed accepted run with dead output succeeded, want failure")
@@ -1106,7 +1107,7 @@ func TestRunSkewWarnWriteFailureSurfaces(t *testing.T) {
 func TestRunUnreachableWarnWriteFailureSurfaces(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
 	w := errWriter{errTestStoreDown}
-	err := Run(context.Background(), w, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{err: errClockUnreachable}}, "/bin/sh",
+	err := Run(context.Background(), w, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{err: errClockUnreachable}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with dead output succeeded, want failure")
@@ -1125,7 +1126,7 @@ func TestRunTrackedStateFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil),
 		Deps{Lock: lock, Rec: lock, Ids: lock, Rows: rows, API: fileAPI{root},
-			RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}},
+			Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}},
 		"/bin/sh", Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable rows succeeded, want refusal")
@@ -1142,7 +1143,7 @@ func TestRunLineageFailureRefuses(t *testing.T) {
 	stagePairedGen(t, lock, root)
 	ids := errIdentityStore{errTestStoreDown}
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable lineage succeeded, want refusal")
@@ -1159,7 +1160,7 @@ func TestRunLineageWriteFailureRefuses(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
 	ids := &failIdentityStore{MemStore: store.NewMemStore(), armed: true}
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unrecordable lineage succeeded, want refusal")
@@ -1175,7 +1176,7 @@ func TestRunMintRecordFailureRefuses(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
 	rec := errRecorder{errTestStoreDown}
 	var out strings.Builder
-	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: rec, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(context.Background(), &out, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: rec, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("run with failing keep-N log succeeded, want failure")
@@ -1201,7 +1202,7 @@ func TestRunStaleWarnWriteFailureSurfaces(t *testing.T) {
 		t.Fatalf("track newer generation: %v", err)
 	}
 	w := errWriter{errTestStoreDown}
-	err := Run(ctx, w, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(ctx, w, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{Rollback: acceptRisk()})
 	if err == nil {
 		t.Fatal("stale accepted run with dead output succeeded, want failure")
@@ -1219,7 +1220,7 @@ func TestRunEstablishWarnWriteFailureSurfaces(t *testing.T) {
 		t.Fatalf("pair: %v", err)
 	}
 	w := errWriter{errTestStoreDown}
-	err := Run(ctx, w, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	err := Run(ctx, w, readonlyProbe(), okCollector(nil), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("re-establish with dead output succeeded, want failure")
@@ -1250,7 +1251,7 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 	var collected [][]string
 	var stages []string
 	var out strings.Builder
-	if err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	if err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: false, Report: func(e Event) { stages = append(stages, e.Stage) }}, Accepts{}); err != nil {
 		t.Fatalf("armed run: %v", err)
 	}
@@ -1270,7 +1271,7 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 	stagePairedGen(t, s, root)
 	ghost = stageGhost(t, root)
 	var preview strings.Builder
-	if err := Run(context.Background(), &preview, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	if err := Run(context.Background(), &preview, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{}); err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
@@ -1306,7 +1307,7 @@ func TestRunPruneFailureWarnsCollectStands(t *testing.T) {
 	var collected [][]string
 	var stages []string
 	var out strings.Builder
-	if err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, RegistryURL: "http://registry:5000", ConfigPath: cfg, TimeServer: "time.example.com", Clock: stubClock{}}, "/bin/sh",
+	if err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: false, Report: func(e Event) { stages = append(stages, e.Stage) }}, Accepts{}); err != nil {
 		t.Fatalf("prune-failed run: %v", err)
 	}

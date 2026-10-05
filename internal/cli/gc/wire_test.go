@@ -26,8 +26,8 @@ func TestWireCarriesWholeDeps(t *testing.T) {
 	if w.API != d.Reg {
 		t.Fatal("wire dropped the registry client")
 	}
-	if w.RegistryURL != d.Cfg.RegistryURL || w.ConfigPath != d.Cfg.RegistryConfig || w.TimeServer != d.Cfg.TimeServer {
-		t.Fatal("wire dropped a registry string")
+	if w.Cfg != d.Cfg {
+		t.Fatal("wire dropped the config")
 	}
 	if w.Clock == nil {
 		t.Fatal("wire dropped the clock")
