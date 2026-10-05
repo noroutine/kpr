@@ -6,10 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
-
-	"github.com/redis/go-redis/v9"
-	"go.yaml.in/yaml/v3"
 
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -61,65 +57,6 @@ func Ready(binPath, configPath string) error {
 	}
 	if _, err := os.Stat(configPath); err != nil {
 		return fmt.Errorf("gc unavailable: registry config not found at %s (mount the registry config here, see KPR_REGISTRY_CONFIG)", configPath)
-	}
-	return nil
-}
-
-// registryRedis parses the blobdescriptor cache endpoint out of the
-// registry config: first addr (cluster list or single), password with
-// the REGISTRY_REDIS_PASSWORD override the collector itself honors,
-// db. Empty addr means no redis cache (inmemory) — nothing to gate.
-func registryRedis(configPath string) (addr, password string, db int, err error) {
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		return "", "", 0, err
-	}
-	var cfg struct {
-		Redis struct {
-			Addrs    []string `yaml:"addrs"`
-			Addr     string   `yaml:"addr"`
-			Password string   `yaml:"password"`
-			DB       int      `yaml:"db"`
-		} `yaml:"redis"`
-	}
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return "", "", 0, fmt.Errorf("parse %s: %w", configPath, err)
-	}
-	addr = cfg.Redis.Addr
-	if len(cfg.Redis.Addrs) > 0 {
-		addr = cfg.Redis.Addrs[0]
-	}
-	if addr == "" {
-		return "", "", 0, nil
-	}
-	password = cfg.Redis.Password
-	if env, ok := os.LookupEnv("REGISTRY_REDIS_PASSWORD"); ok {
-		password = env
-	}
-	return addr, password, cfg.Redis.DB, nil
-}
-
-// CacheReady dials the registry's blobdescriptor cache with the
-// effective credentials: an unreachable cache mis-marks (live layers
-// look unreferenced) and the run would delete what it must keep. No
-// redis section means inmemory cache — nothing to gate.
-func CacheReady(ctx context.Context, configPath string) error {
-	addr, password, db, err := registryRedis(configPath)
-	if err != nil {
-		return err
-	}
-	if addr == "" {
-		return nil
-	}
-	// NOTE(mutants): timeout arithmetic is equivalent — no test
-	// distinguishes a 2s dial from a 3s one, and none should.
-	rdb := redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: db, DialTimeout: 2 * time.Second})
-	defer func() { _ = rdb.Close() }()
-	// NOTE(mutants): same — ping timeout arithmetic is equivalent.
-	ping, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	if err := rdb.Ping(ping).Err(); err != nil {
-		return fmt.Errorf("blobdescriptor cache unreachable at %s: %w", addr, err)
 	}
 	return nil
 }
