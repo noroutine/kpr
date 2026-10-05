@@ -93,7 +93,7 @@ them with zero traffic. It opens only on a RelativeURLs proof over the
 registry config: no proof, no edge. `KPR_EDGE=false` opts out,
 and either way the other servers keep serving. The console
 carries the edge's live posture (open/closed, deny/held) in its
-own section. Full story in [GATEWAY.md](GATEWAY.md).
+own section. Full story in [EDGE.md](EDGE.md).
 
 Deletes have one owner: the sweeper is the only deleter of
 registry manifests and tracked rows — `store rm` calls into it
@@ -456,5 +456,5 @@ kpr started as a pure out-of-band companion and has since grown
 into the push path: the edge proxy in `serve` forwards pushes
 byte-identical and fences mutating routes, which is what makes
 online gc and the lock ceremony enforceable rather than advisory.
-That shift is recorded in [GATEWAY.md](GATEWAY.md). The line it
+That shift is recorded in [EDGE.md](EDGE.md). The line it
 does not cross is storage: the registry still owns the bytes.

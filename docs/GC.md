@@ -94,10 +94,10 @@ them is [PROOFS.md](PROOFS.md).
 
 Gate 7 inverts with the mode, which is the part worth internalising:
 
-- **Readonly** (stopped or in maintenance) — the configured
-  blobdescriptor cache must *answer*. The mark phase consults it,
-  and a cache that cannot be reached makes the collector delete
-  live layers.
+- **Readonly** (stopped or in maintenance) — no cache gate.
+  The stock collector reads the same config and fails itself
+  if a configured cache is unreachable; kpr takes no
+  reachability probe of its own (the old dial is gone).
 - **Writable** (serving) — there must be *no* descriptor cache at
   all, plus a proven gateway fence. A serving registry collects
   under a HOLD lease that pins pushes for the duration; a cache

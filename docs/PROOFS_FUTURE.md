@@ -24,7 +24,7 @@ re-checked per use, never a fresh one.
 
 **One knob already works this way:** `http.relativeurls`, sealed
 as `RelativeURLs`. It is fence-critical, so it refuses rather than
-warns — no proof, no edge. See [GATEWAY.md](GATEWAY.md). It is the
+warns — no proof, no edge. See [EDGE.md](EDGE.md). It is the
 precedent the rest would follow, not future work.
 
 Open: which knobs follow, and where refusing stops being

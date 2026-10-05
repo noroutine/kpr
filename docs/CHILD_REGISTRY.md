@@ -1,7 +1,7 @@
 # Child registry (future effort)
 
 Status: not started. Everything about a kpr-launched registry
-lives here, out of [`docs/GATEWAY.md`](GATEWAY.md) — the gateway stays
+lives here, out of [`docs/EDGE.md`](EDGE.md) — the gateway stays
 external (`--registry=external`: kpr proxies a separately-run
 registry) until this effort lands.
 
