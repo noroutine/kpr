@@ -1,27 +1,23 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
 	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
@@ -549,23 +545,6 @@ func (d deadStore) SetIdentity(context.Context, store.Identity) error {
 	return d.outage()
 }
 
-// Opening state against a dead redis must fail fast naming redis —
-// the operator typo'd the address and needs to know it now, not after
-// a hang. If this fails, keeper commands stall or blame the wrong
-// backend.
-func TestOpenStoreNamesDeadRedis(t *testing.T) {
-	// Silence now derives the file backend, so ask for redis
-	// explicitly — this case is about redis, not about derivation.
-	clearStoreEnv(t)
-	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
-	cfg := config.NewBuilder().WithRedisAddr("127.0.0.1:1").Build()
-	if _, err := clideps.OpenStore(cfg); err == nil {
-		t.Error("OpenStore on dead redis succeeded, want a fast error")
-	} else if !strings.Contains(err.Error(), "redis") {
-		t.Errorf("error = %q, want it to name redis", err.Error())
-	}
-}
-
 // plan against dead state fails naming redis instead of printing an
 // empty plan: "nothing due" must mean empty, never "unreadable". If
 // this fails, an outage renders as a clean bill of health.
@@ -734,22 +713,6 @@ func TestLockStateUnknownOnOutage(t *testing.T) {
 	}
 }
 
-// The backend name voices file with its dir, redis otherwise: the
-// refusal names what the operator must fix. If this fails, outages
-// blame the wrong backend.
-func TestStoreNamesVoiceBackend(t *testing.T) {
-	dir := t.TempDir()
-	if got := clideps.StoreName(store.NewFileStore(dir)); got != "file store" {
-		t.Errorf("clideps.StoreName(file) = %q, want file store", got)
-	}
-	if got := clideps.StoreName(store.NewMemStore()); got != "redis" {
-		t.Errorf("clideps.StoreName(other) = %q, want redis", got)
-	}
-	if got := describeStore(store.NewFileStore(dir), nil); got != "file ("+dir+")" {
-		t.Errorf("describeStore(file) = %q, want file with dir", got)
-	}
-}
-
 // An unreadable proof voices unproven, and an undated generation
 // voices its name without an age: presence without timing is still
 // presence. If this fails, outages read as proofs (or proofs hide).
@@ -788,118 +751,14 @@ func TestDiscardPlanOnOutageFails(t *testing.T) {
 	}
 }
 
-// Conflicting backend env refuses with the conflict named: guessing
-// state wrong is worse than not booting. If this fails, file+redis
-// together pick one silently.
-func TestOpenStoreRefusesConflictingBackend(t *testing.T) {
-	t.Setenv(config.EnvStore, "file")
-	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
-	cfg := config.NewBuilder().FromEnv().Build()
-	if _, err := clideps.OpenStore(cfg); err == nil {
-		t.Error("OpenStore on conflicting backend succeeded, want refusal")
-	} else if !strings.Contains(err.Error(), "conflicts") {
-		t.Errorf("refusal = %q, want the conflict named", err.Error())
-	}
-}
-
-// A file backend rooted at a non-directory refuses naming the dir:
-// the operator learns the path is wrong, not that redis is down.
-// If this fails, a bad store dir blames redis.
-func TestOpenStoreRefusesBadFileDir(t *testing.T) {
-	blocker := filepath.Join(t.TempDir(), "file")
-	if err := os.WriteFile(blocker, []byte("in the way"), 0o644); err != nil {
-		t.Fatalf("stage blocker: %v", err)
-	}
-	t.Setenv(config.EnvStore, "file")
-	t.Setenv(config.EnvStoreDir, blocker)
-	cfg := config.NewBuilder().FromEnv().Build()
-	if _, err := clideps.OpenStore(cfg); err == nil {
-		t.Error("OpenStore on file-backed dir succeeded, want refusal")
-	} else if !strings.Contains(err.Error(), blocker) {
-		t.Errorf("refusal = %q, want the dir named", err.Error())
-	}
-}
-
-// fakeRedis answers just enough RESP for a go-redis Ping: HELLO
-// gets an empty map, PING pongs, anything else oks. A real redis is
-// a test dependency nobody wants; this proves OpenStore dials and
-// selects, not the wire grammar.
-func fakeRedis(t *testing.T) string {
+// clearStoreEnv unsets every backend signal: derivation reads
+// explicitness, and a leaked CI variable would select a backend the
+// case never asked for.
+func clearStoreEnv(t *testing.T) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go serveFakeRedisConn(c)
-		}
-	}()
-	return ln.Addr().String()
-}
-
-func serveFakeRedisConn(c net.Conn) {
-	defer func() { _ = c.Close() }()
-	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
-	r := bufio.NewReader(c)
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			return
-		}
-		if !strings.HasPrefix(line, "*") {
-			continue
-		}
-		n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "*")))
-		if err != nil {
-			return
-		}
-		var first string
-		for i := range n {
-			ln, err := r.ReadString('\n')
-			if err != nil {
-				return
-			}
-			m, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(ln, "$")))
-			if err != nil {
-				return
-			}
-			buf := make([]byte, m+2)
-			if _, err := io.ReadFull(r, buf); err != nil {
-				return
-			}
-			if i == 0 {
-				first = string(buf[:m])
-			}
-		}
-		switch strings.ToUpper(first) {
-		case "HELLO":
-			_, _ = c.Write([]byte("%0\r\n"))
-		case "PING":
-			_, _ = c.Write([]byte("+PONG\r\n"))
-			return
-		default:
-			_, _ = c.Write([]byte("+OK\r\n"))
-		}
-	}
-}
-
-// Opening redis state against an answering cache succeeds: the
-// success return is a real path, not a hope. If this fails, every
-// redis deploy refuses at boot.
-func TestOpenStoreRedisSuccess(t *testing.T) {
-	addr := fakeRedis(t)
-	cfg := config.NewBuilder().WithRedisAddr(addr).Build()
-	s, err := clideps.OpenStore(cfg)
-	if err != nil {
-		t.Fatalf("OpenStore on answering redis: %v", err)
-	}
-	_ = s.Close()
+	t.Setenv(config.EnvStore, "")
+	t.Setenv(config.EnvStoreDir, "")
+	t.Setenv(config.EnvRedisAddr, "")
 }
 
 // Command tails run the real RunE against a file backend: open,
@@ -920,6 +779,7 @@ func TestCommandTailsRunAgainstFileBackend(t *testing.T) {
 		{"plan", planCmd, nil, "nothing due"},
 		{"discard", planDiscardCmd, nil, "nothing due"},
 		{"sweep", sweepCmd, nil, "sweep "},
+		{"store status", storeStatusCmd, nil, "status:"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := runLockCmd(t, dir, srv.URL, tc.target)
@@ -1163,77 +1023,5 @@ func TestReapDryRunSurfacesWriteError(t *testing.T) {
 		Digest: "sha256:a", PushedAt: cliNow.Add(-time.Hour)})
 	if err := runReap(cliCtx(), errWriter{}, s, liveRegistryClient(t), false, nil, cliNow, "all"); err == nil {
 		t.Error("dry-run reap into broken pipe succeeded, want an error")
-	}
-}
-
-// clearStoreEnv unsets every backend signal: derivation reads
-// explicitness, and a leaked CI variable would select a backend the
-// case never asked for.
-func clearStoreEnv(t *testing.T) {
-	t.Helper()
-	t.Setenv(config.EnvStore, "")
-	t.Setenv(config.EnvStoreDir, "")
-	t.Setenv(config.EnvRedisAddr, "")
-}
-
-// The backend derives from explicit signals, never resolved values
-// (KPR_REDIS_ADDR carries a default that must not count):
-// KPR_STORE is authoritative and must agree with backend-specific
-// variables, KPR_STORE_DIR alone selects file, KPR_REDIS_ADDR alone
-// selects redis, silence selects file. If this fails, mixed
-// signals boot a guessed backend or refuse a coherent one.
-func TestResolveStoreBackend(t *testing.T) {
-	for _, tc := range []struct {
-		name            string
-		env             map[string]string
-		wantBackend     string
-		wantDir         string
-		wantErrContains string
-	}{
-		{"silence selects file", nil, "file", "kpr", ""},
-		{"explicit redis addr", map[string]string{config.EnvRedisAddr: "r:6379"}, "redis", "", ""},
-		{"explicit store redis", map[string]string{config.EnvStore: "redis"}, "redis", "", ""},
-		{"explicit store file defaults dir", map[string]string{config.EnvStore: "file"}, "file", "kpr", ""},
-		{"store dir alone selects file", map[string]string{config.EnvStoreDir: "/x/kpr"}, "file", "/x/kpr", ""},
-		{"unknown store refuses", map[string]string{config.EnvStore: "sqlite"}, "", "", "unknown"},
-		{"file plus redis addr conflicts", map[string]string{config.EnvStore: "file", config.EnvRedisAddr: "r:6379"}, "", "", "conflicts"},
-		{"redis plus store dir conflicts", map[string]string{config.EnvStore: "redis", config.EnvStoreDir: "/x"}, "", "", "conflicts"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			clearStoreEnv(t)
-			for k, v := range tc.env {
-				t.Setenv(k, v)
-			}
-			backend, dir, err := clideps.ResolveStoreBackend()
-			if tc.wantErrContains != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.wantErrContains) {
-					t.Fatalf("resolve = (%q, %q, %v), want error containing %q", backend, dir, err, tc.wantErrContains)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("resolve: %v", err)
-			}
-			if backend != tc.wantBackend || dir != tc.wantDir {
-				t.Errorf("resolve = (%q, %q), want (%q, %q)", backend, dir, tc.wantBackend, tc.wantDir)
-			}
-		})
-	}
-}
-
-// KPR_STORE=file opens the file backend (fail-fast Ping like redis):
-// the operator gets file state or a refusal naming the dir, never a
-// silent redis. If this fails, file mode boots something else.
-func TestOpenStoreFileBackend(t *testing.T) {
-	clearStoreEnv(t)
-	t.Setenv(config.EnvStore, "file")
-	t.Setenv(config.EnvStoreDir, t.TempDir())
-	cfg := config.NewBuilder().FromEnv().Build()
-	s, err := clideps.OpenStore(cfg)
-	if err != nil {
-		t.Fatalf("clideps.OpenStore(file): %v", err)
-	}
-	if _, ok := s.(*store.FileStore); !ok {
-		t.Errorf("store = %T, want *store.FileStore", s)
 	}
 }

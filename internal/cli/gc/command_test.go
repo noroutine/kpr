@@ -1,15 +1,34 @@
 package gc
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
+
+// Driving the command to a dead registry refuses from inside
+// the run: every RunE line ahead of the call executes (deps,
+// arming, backend, fence, the run call itself). If this fails,
+// the command's own wiring runs uncovered in this binary.
+func TestCmdReachesRunBeforeAnyGate(t *testing.T) {
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
+	t.Setenv(config.EnvRegistryURL, "http://127.0.0.1:1")
+	var buf bytes.Buffer
+	Cmd.SetOut(&buf)
+	defer Cmd.SetOut(nil)
+	Cmd.SetContext(context.Background())
+	if err := Cmd.RunE(Cmd, nil); err == nil {
+		t.Fatal("command against a dead registry succeeded, want refusal from inside the run")
+	}
+}
 
 // Each --accept-* flag mints exactly its own acceptance, nothing
 // else — there is no umbrella flag. If this fails, a shared mint
