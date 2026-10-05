@@ -173,10 +173,11 @@ deletes nothing either way.
 
 Two things to know before arming:
 
-- **Pass `REGISTRY_REDIS_PASSWORD` through** (same convention the
+- **If the registry's cache redis needs a password, pass
+  `REGISTRY_REDIS_PASSWORD` through** (same convention the
   registry uses). The stock collector kpr shells out to inherits
-  kpr's environment — without it, it cannot auth to a
-  password-protected cache.
+  kpr's environment — cacheless or open-cache setups need
+  nothing.
 - **Don't run the stock collector alongside.** Manual runs take no
   lock, because the registry sets none.
 
