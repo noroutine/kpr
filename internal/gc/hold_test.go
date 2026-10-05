@@ -49,8 +49,8 @@ func TestArmedCollectHoldsFenceAroundCollect(t *testing.T) {
 	var events []string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{DryRun: false, Report: func(Event) {}, Fence: stubFencer{events: &events}}, Accepts{})
+	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(Event) {}, Fence: stubFencer{events: &events}}, "/bin/sh",
+		Options{DryRun: false}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -77,8 +77,8 @@ func TestPreviewNeverHoldsFence(t *testing.T) {
 	var events []string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
+	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(Event) {}}, "/bin/sh",
+		Options{DryRun: true}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -98,8 +98,8 @@ func TestArmedCollectRefusesWhenFenceFails(t *testing.T) {
 	var events []string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{DryRun: false, Report: func(Event) {}, Fence: stubFencer{events: &events, holdErr: errFenceBoom}}, Accepts{})
+	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(Event) {}, Fence: stubFencer{events: &events, holdErr: errFenceBoom}}, "/bin/sh",
+		Options{DryRun: false}, Accepts{})
 	if err == nil {
 		t.Fatal("broken-fence run = nil, want refusal")
 	}

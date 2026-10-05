@@ -114,11 +114,9 @@ revokes.`,
 		backend, dir, berr := deps.ResolveStoreBackend()
 		report := renderGCEvent(out, dryRun)
 		fence := gcrun.FenceForBackend(backend, dir, newFenceControl(d.Store, report), berr, dryRun, out)
-		return gcrun.Run(cmd.Context(), out, gcrun.ProbeRegistry, gcrun.RunCollector, wire(d), RegistryBinPath, gcrun.Options{
+		return gcrun.Run(cmd.Context(), out, gcrun.ProbeRegistry, gcrun.RunCollector, wire(d, report, fence), RegistryBinPath, gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,
-			Report:         renderGCEvent(out, dryRun),
-			Fence:          fence,
 		}, accepts)
 	},
 }

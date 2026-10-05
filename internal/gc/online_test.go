@@ -259,8 +259,8 @@ func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
+	err := Run(context.Background(), &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(Event) {}}, "/bin/sh",
+		Options{DryRun: true}, Accepts{})
 	if err != nil {
 		t.Fatalf("writable preview: %v", err)
 	}
@@ -284,8 +284,8 @@ func TestRunExForceRisksOpenNothingOnline(t *testing.T) {
 	var out strings.Builder
 	accept := proof.Force(proof.Arm(true, false), true)
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{DryRun: false, Report: func(Event) {}},
+	err := Run(context.Background(), &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(Event) {}}, "/bin/sh",
+		Options{DryRun: false},
 		Accepts{ClockSkew: accept, Rollback: accept, ModeFlip: accept})
 	if err == nil {
 		t.Fatal("risk-accepted uncleared run succeeded, want the preflight refusal")
@@ -315,8 +315,8 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
-	err := Run(ctx, &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{Fence: fence, Report: func(Event) {}}, Accepts{})
+	err := Run(ctx, &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fence, Report: func(Event) {}}, "/bin/sh",
+		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("cleared online run: %v", err)
 	}
@@ -353,8 +353,8 @@ func TestRunOnlineRefusalReportWriteFailureSurfaces(t *testing.T) {
 	fence := stubFencer{events: &events}
 	w := errWriter{errTestStoreDown}
 	stageConfig(t, "http://registry:5000", stageOnlineConfig(t, root, false))
-	err := Run(context.Background(), w, writableProbe(), okCollector(nil), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{DryRun: true, Fence: fence, Report: func(Event) {}}, Accepts{})
+	err := Run(context.Background(), w, writableProbe(), okCollector(nil), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fence, Report: func(Event) {}}, "/bin/sh",
+		Options{DryRun: true}, Accepts{})
 	if err == nil {
 		t.Fatal("uncleared preview with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
@@ -379,8 +379,8 @@ func TestRunOnlineClearReportWriteFailureSurfaces(t *testing.T) {
 	fence := stubFencer{events: &events}
 	w := errWriter{errTestStoreDown}
 	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
-	err := Run(ctx, w, writableProbe(), okCollector(nil), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{Fence: fence, Report: func(Event) {}}, Accepts{})
+	err := Run(ctx, w, writableProbe(), okCollector(nil), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fence, Report: func(Event) {}}, "/bin/sh",
+		Options{}, Accepts{})
 	if err == nil {
 		t.Fatal("cleared online run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {

@@ -61,18 +61,13 @@ type Recorder interface {
 	Record(ctx context.Context, r policy.Row) error
 }
 
-// Options tunes a gc run: the operator's flags plus the event
-// reporter the CLI renders loud. DryRun previews (the default) —
-// only an explicit --no-dry-run collects for real.
+// Options tunes a gc run, and only that: the operator's flags.
+// DryRun previews (the default) — only an explicit --no-dry-run
+// collects for real. Everything the run is wired to (reporter,
+// fence) rides Deps, never here.
 type Options struct {
 	DeleteUntagged bool
 	DryRun         bool
-	Report         Reporter
-	// Fence, when non-nil, holds the edge around armed collects
-	// (previews never engage). A fence that fails to engage
-	// refuses the run: collecting unfenced when fencing was
-	// requested is unknown safety.
-	Fence fence.Controller
 }
 
 // Accepts groups the sealed risk acceptances beside Options, not
@@ -93,8 +88,9 @@ type Accepts struct {
 // Deps carries a run's world beyond its seams: the store in its
 // four roles — lock (intent gate plus single-flight), recorder,
 // identity, rows — each scriptable apart in tests, one object
-// wearing all four hats in production — plus the registry API
-// and the clock the mint checks. A nil clock derives from
+// wearing all four hats in production — plus the registry API,
+// the clock the mint checks, the event reporter, and the fence.
+// A nil clock derives from
 // config.Current() (production never sets it); tests inject
 // fakes for the skew and unreachable paths. Config otherwise
 // never rides along: Current() names the registry wherever the
@@ -109,6 +105,13 @@ type Deps struct {
 	Rows  lineage.Rows
 	API   sentinel.API
 	Clock clock.Source
+	// Report is the event sink the CLI renders loud.
+	Report Reporter
+	// Fence, when non-nil, holds the edge around armed collects
+	// (previews never engage). A fence that fails to engage
+	// refuses the run: collecting unfenced when fencing was
+	// requested is unknown safety.
+	Fence fence.Controller
 }
 
 // Run probes the registry writable/readonly, proves the local mount
@@ -197,7 +200,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 	}
 	pre := Timed(StagePreProbe, gcStarted)
 	pre.Message = ModeName(mode)
-	Emit(opts.Report, pre)
+	Emit(d.Report, pre)
 	// Cleared by the online preflight on the writable path, nil
 	// everywhere else: only the writable-armed dispatch consumes
 	// them, so a nil here never reaches a delete.
@@ -211,7 +214,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 		// point minting a generation the gate will reject. Armed
 		// refuses on unaccepted misses; dry-run prints the same
 		// checklist as information and previews on.
-		cache, fence, report, perr := onlinePreflight(ctx, config.Current().RegistryConfig, config.Current().EdgeAddr, opts.Fence != nil, accepts.Cache, accepts.Fence)
+		cache, fence, report, perr := onlinePreflight(ctx, config.Current().RegistryConfig, config.Current().EdgeAddr, d.Fence != nil, accepts.Cache, accepts.Fence)
 		if perr != nil {
 			if opts.DryRun {
 				if _, err := io.WriteString(w, report+"\n"); err != nil {
@@ -330,10 +333,10 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 	// outlives a crashed collect by design — expiry, not release,
 	// bounds it.
 	fenced := func(collect func() error) error {
-		if opts.Fence == nil {
+		if d.Fence == nil {
 			return collect()
 		}
-		release, err := opts.Fence.Hold(ctx, time.Now().Add(holdLease))
+		release, err := d.Fence.Hold(ctx, time.Now().Add(holdLease))
 		if err != nil {
 			return fmt.Errorf("gc: engage proxy fence: %w", err)
 		}
@@ -343,18 +346,18 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 
 	switch {
 	case opts.DryRun:
-		if err := collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), opts.Report); err != nil {
+		if err := collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
 			return err
 		}
 	case mode == ModeWritable:
 		if err := fenced(func() error {
-			return collectWritableArmed(ctx, w, collect, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), opts.Report, onlineCache, onlineFence)
+			return collectWritableArmed(ctx, w, collect, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
 		}); err != nil {
 			return err
 		}
 	default:
 		if err := fenced(func() error {
-			return collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), opts.Report)
+			return collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
 		}); err != nil {
 			return err
 		}
@@ -379,13 +382,13 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 		hev := Timed(StageHusk, gcStarted)
 		if herr != nil {
 			hev.Error = herr.Error()
-			Emit(opts.Report, hev)
+			Emit(d.Report, hev)
 			if _, werr := fmt.Fprintf(w, "Warning: husk cleanup incomplete (%v)\n", herr); werr != nil {
 				return werr
 			}
 		} else {
 			hev.Message = fmt.Sprintf("%d repos", len(husked))
-			Emit(opts.Report, hev)
+			Emit(d.Report, hev)
 			if len(husked) > 0 {
 				if _, werr := fmt.Fprintf(w, "pruned %d husks\n", len(husked)); werr != nil {
 					return werr
@@ -399,13 +402,13 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 		pev := Timed(StagePrune, gcStarted)
 		if perr != nil {
 			pev.Error = perr.Error()
-			Emit(opts.Report, pev)
+			Emit(d.Report, pev)
 			if _, werr := fmt.Fprintf(w, "Warning: empty-dir cleanup incomplete (%v)\n", perr); werr != nil {
 				return werr
 			}
 		} else {
 			pev.Message = fmt.Sprintf("%d dirs", pruned)
-			Emit(opts.Report, pev)
+			Emit(d.Report, pev)
 			if _, werr := fmt.Fprintf(w, "pruned %d empty directories\n", pruned); werr != nil {
 				return werr
 			}
@@ -418,11 +421,11 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 	}
 	pev := Timed(StagePostProbe, gcStarted)
 	pev.Message = ModeName(post)
-	Emit(opts.Report, pev)
+	Emit(d.Report, pev)
 	if post != mode {
 		flip := Timed(StageModeFlip, gcStarted)
 		flip.Message = ModeName(mode) + "→" + ModeName(post)
-		Emit(opts.Report, flip)
+		Emit(d.Report, flip)
 		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", ModeName(mode), ModeName(post)); werr != nil {
 			return werr
 		}
