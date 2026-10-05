@@ -223,6 +223,29 @@ func TestRunBehindStubPorts(t *testing.T) {
 	}
 }
 
+// A nil clock derives from Current: production never injects
+// one, the staged default method checks against local time and
+// the preview passes. If this fails, the derive path is dead
+// and production mints against no clock at all.
+func TestRunNilClockDerivesFromCurrent(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	stagePairedGen(t, lock, root)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	var collected [][]string
+	var out strings.Builder
+	stageConfig(t, "http://registry:5000", cfg)
+	err := Run(context.Background(), &out, probe, okCollector(&collected), Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}}, "/bin/sh",
+		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
+	if err != nil {
+		t.Fatalf("nil-clock run: %v", err)
+	}
+	if len(collected) != 1 || !hasArg(collected[0], "--dry-run") {
+		t.Errorf("collector got %v, want one --dry-run invocation", collected)
+	}
+}
+
 // The husk verdict prints only when husks were removed: a clean
 // root narrates the walks but invents no removals, a husked root
 // names its count. If this fails, empty runs invent removals (or

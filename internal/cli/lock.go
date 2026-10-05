@@ -53,7 +53,7 @@ to revoke.`,
 			return err
 		}
 		defer d.Close()
-		if err := gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.Reg, d.Cfg.RegistryConfig, d.Store, d.Store, d.Store, d.Store, deps.ClockSource(d.Cfg), d.Cfg.TimeServer); err != nil {
+		if err := gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.Reg, d.Cfg.RegistryConfig, d.Store, d.Store, d.Store, d.Store, d.Cfg.ClockSource(), d.Cfg.TimeServer); err != nil {
 			return err
 		}
 		// Proof opened writes; this says it out loud — the ring

@@ -8,9 +8,9 @@ import (
 )
 
 // wire carries every gcrun need across, nothing dropped: one
-// store in all four roles, the registry API with its strings,
-// the configured clock. If this fails, a new Deps field is
-// unwired at the only call site.
+// store in all four roles plus the registry API, and no clock —
+// production derives it from Current. If this fails, a new Deps
+// field is unwired at the only call site.
 func TestWireCarriesWholeDeps(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
@@ -26,7 +26,7 @@ func TestWireCarriesWholeDeps(t *testing.T) {
 	if w.API != d.Reg {
 		t.Fatal("wire dropped the registry client")
 	}
-	if w.Clock == nil {
-		t.Fatal("wire dropped the clock")
+	if w.Clock != nil {
+		t.Fatal("wire set the clock: production derives it from Current, only tests inject")
 	}
 }

@@ -469,3 +469,26 @@ func TestDBWarningNamesRawAndDefault(t *testing.T) {
 		}
 	}
 }
+
+// The method knob becomes exactly one transport: unknown values
+// can only arrive from hand-built configs (FromEnv falls soft),
+// and they must land on the harmless default, not crash. If this
+// fails, mints check time through a different transport than the
+// one the operator configured.
+func TestClockSourceMapsMethods(t *testing.T) {
+	for _, tc := range []struct {
+		method clock.Method
+		want   clock.Source
+	}{
+		{clock.MethodLocal, clock.Local{}},
+		{clock.MethodHTTPS, clock.HTTPS{}},
+		{clock.MethodNTP, clock.NTP{}},
+		{"sundial", clock.Local{}},
+	} {
+		cfg := NewBuilder().Build()
+		cfg.TimeMethod = tc.method
+		if got := cfg.ClockSource(); got != tc.want {
+			t.Errorf("method %q -> %T, want %T", tc.method, got, tc.want)
+		}
+	}
+}

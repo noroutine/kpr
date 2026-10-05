@@ -94,10 +94,12 @@ type Accepts struct {
 // four roles — lock (intent gate plus single-flight), recorder,
 // identity, rows — each scriptable apart in tests, one object
 // wearing all four hats in production — plus the registry API
-// and the clock the mint checks. Config never rides along:
-// config.Current() names the registry wherever the run needs
-// it. The adapter assembles the bundle from its own wiring;
-// named fields, never trailing positionals (see Accepts).
+// and the clock the mint checks. A nil clock derives from
+// config.Current() (production never sets it); tests inject
+// fakes for the skew and unreachable paths. Config otherwise
+// never rides along: Current() names the registry wherever the
+// run needs it. The adapter assembles the bundle from its own
+// wiring; named fields, never trailing positionals (see Accepts).
 // Lifecycle stays outside: opening and closing the store is the
 // caller's job.
 type Deps struct {
@@ -158,7 +160,11 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 	// proceeds on local time (air-gapped sites stay working). The
 	// run consumes the gate — refusals pass through untouched, so
 	// every message below reads exactly as before.
-	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, d.Clock, config.Current().TimeServer)); cerr != nil {
+	clk := d.Clock
+	if clk == nil {
+		clk = config.Current().ClockSource()
+	}
+	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, config.Current().TimeServer)); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
 			if accepts.ClockSkew == nil {

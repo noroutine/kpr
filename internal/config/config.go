@@ -679,3 +679,18 @@ func SetCurrent(cfg *Config) (restore func()) {
 	previous := current.Swap(cfg)
 	return func() { current.Store(previous) }
 }
+
+// ClockSource builds the configured time transport: the one place
+// the method knob becomes behavior, so every minter checks
+// against the same source. Unknown methods land on the harmless
+// local default, never a crash.
+func (c *Config) ClockSource() clock.Source {
+	switch c.TimeMethod {
+	case clock.MethodNTP:
+		return clock.NTP{}
+	case clock.MethodHTTPS:
+		return clock.HTTPS{}
+	default:
+		return clock.Local{}
+	}
+}
