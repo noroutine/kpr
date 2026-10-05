@@ -41,6 +41,15 @@ func TestProveBlobCacheOff(t *testing.T) {
 	} else if got := err.Error(); !strings.Contains(got, "redis:6379") || !strings.Contains(got, "blobdescriptor") {
 		t.Errorf("refusal = %q, want both halves named", got)
 	}
+	// Plural addrs follow the collector's grammar: the first wins.
+	// If this fails, the prover dials a different redis than the
+	// collector it clears.
+	plural := writeRegistryConfig(t, "redis:\n  addr: first:6379\n  addrs:\n  - winner:6379\n  - second:6379\n")
+	if _, err := ProveBlobCacheOff(plural, nil); err == nil {
+		t.Error("plural redis addrs cleared, want refusal")
+	} else if got := err.Error(); !strings.Contains(got, "winner:6379") || strings.Contains(got, "first:6379") {
+		t.Errorf("refusal = %q, want the winning addr", got)
+	}
 	if _, err := ProveBlobCacheOff(redisBlock, Force(Arm(true, false), true)); err != nil {
 		t.Errorf("accepted cache refused: %v", err)
 	}
@@ -69,6 +78,15 @@ func TestProveBlobCacheOffUnreadable(t *testing.T) {
 			var unreadable Unreadable
 			if !errors.As(err, &unreadable) {
 				t.Errorf("%s refusal = %T, want Unreadable for the err branch", tc.name, err)
+			}
+			// The type voices itself: the message names the path,
+			// and the cause unwraps for callers that log it. If
+			// this fails, the err branch reports a pathless cause.
+			if got := err.Error(); !strings.Contains(got, tc.path) {
+				t.Errorf("%s message = %q, want the path", tc.name, got)
+			}
+			if errors.Unwrap(err) == nil {
+				t.Errorf("%s unwraps to nothing, want the cause", tc.name)
 			}
 		}
 		if _, err := ProveBlobCacheOff(tc.path, accept); err == nil {

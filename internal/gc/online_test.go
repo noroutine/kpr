@@ -121,6 +121,35 @@ func TestOnlinePreflightRefusesStanzaWithoutRedisBlock(t *testing.T) {
 	}
 }
 
+// An unreadable registry config refuses outside the checklist:
+// broken input is not a missing proof, so no [miss] and no
+// override is offered — acceptance cannot fix unreadable. If
+// this fails, a typo'd config path advises --accept-blob-cache
+// for a risk that was never read.
+func TestOnlinePreflightUnreadableConfigRefuses(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	missing := filepath.Join(t.TempDir(), "absent.yml")
+	accept := proof.Force(proof.Arm(true, false), true)
+	for _, tc := range []struct {
+		name   string
+		accept proof.AcceptedRisk
+	}{
+		{"bare", nil},
+		{"accepted", accept},
+	} {
+		_, _, _, err := onlinePreflight(ctx, missing, "127.0.0.1:1", false, tc.accept, tc.accept)
+		if err == nil {
+			t.Fatalf("%s unreadable-config preflight cleared, want refusal", tc.name)
+		} else if !strings.Contains(err.Error(), "blob cache unreadable") || !strings.Contains(err.Error(), missing) {
+			t.Errorf("%s refusal = %v, want the unreadable cause with path", tc.name, err)
+		}
+		if strings.Contains(err.Error(), "[miss]") || strings.Contains(err.Error(), "[accepted]") {
+			t.Errorf("%s refusal checklists broken input:\n%v", tc.name, err)
+		}
+	}
+}
+
 // Accepted risks read [accepted], naming what was waived —
 // never [ok]. If this fails, the report claims a fence that was
 // only waived.
