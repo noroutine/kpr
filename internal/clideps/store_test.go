@@ -151,10 +151,19 @@ func serveFakeRedisConn(c net.Conn) {
 // redis deploy refuses at boot.
 func TestOpenStoreRedisSuccess(t *testing.T) {
 	addr := fakeRedis(t)
+	// The backend derives from env, not cfg: without the addr in
+	// the environment this opens a file store and passes without
+	// ever dialing. If this fails, the redis path regressed under
+	// a passing test.
+	clearStoreEnv(t)
+	t.Setenv(config.EnvRedisAddr, addr)
 	cfg := config.NewBuilder().WithRedisAddr(addr).Build()
 	s, err := OpenStore(cfg)
 	if err != nil {
 		t.Fatalf("OpenStore on answering redis: %v", err)
+	}
+	if _, ok := s.(*store.RedisStore); !ok {
+		t.Errorf("store = %T, want *store.RedisStore (file means redis was never tried)", s)
 	}
 	_ = s.Close()
 }
