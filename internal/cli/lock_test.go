@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
@@ -63,7 +63,7 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 	if !strings.Contains(out, "store unlocked: shared store proven via") {
 		t.Fatalf("unlock output names no proof:\n%s", out)
 	}
-	s, err := clideps.OpenStore(config.NewBuilder().FromEnv().Build())
+	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 	if !strings.Contains(out, "store locked") {
 		t.Fatalf("lock output confirms nothing:\n%s", out)
 	}
-	s, err = clideps.OpenStore(config.NewBuilder().FromEnv().Build())
+	s, err = deps.OpenStore(config.NewBuilder().FromEnv().Build())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestAdoptBootstrapsSilence(t *testing.T) {
 	if !strings.Contains(out, "paired to "+ident) {
 		t.Errorf("adopt output lacks the pairing:\n%s", out)
 	}
-	s, err := clideps.OpenStore(config.NewBuilder().FromEnv().Build())
+	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build())
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}

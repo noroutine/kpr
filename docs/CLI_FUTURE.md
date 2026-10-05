@@ -9,7 +9,7 @@ Shipped layout lives in [CLI.md](CLI.md).
 its flags, help, `RunE`, rendering, acceptances, and fence
 factory live behind the exported `Cmd`, registered from the
 parent root. Everything it needs from the shared wiring comes
-from [`internal/clideps`](../internal/clideps/deps.go) —
+from [`internal/cli/deps`](../internal/cli/deps/deps.go) —
 commands never import the parent (import cycle), and never
 each other.
 
@@ -27,6 +27,6 @@ temporary cross-imports between subpackages):
 Each move keeps its tests beside it (the `gcrun` import-alias
 pattern covers the use-case package sharing the command's
 name) and keeps the parent registering the exported `Cmd`.
-`clideps` gains nothing per move — if a move wants something
-from the parent that `clideps` lacks, that something was
+`deps` gains nothing per move — if a move wants something
+from the parent that `deps` lacks, that something was
 command code wearing shared clothes.

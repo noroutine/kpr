@@ -12,7 +12,7 @@ import (
 	"fmt"
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -226,7 +226,7 @@ func TestStoreBackfillDryRunAnnouncesPreview(t *testing.T) {
 	t.Setenv(config.EnvStoreDir, dir)
 	t.Setenv(config.EnvRegistryURL, srv.URL)
 	t.Setenv(config.EnvRegistryConfig, cfgPath)
-	s, err := clideps.OpenStore(config.NewBuilder().FromEnv().Build())
+	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build())
 	if err != nil {
 		t.Fatalf("open file store: %v", err)
 	}

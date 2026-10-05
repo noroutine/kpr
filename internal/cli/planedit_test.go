@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"nrtn.dev/catalyst/kpr/internal/clideps"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -117,7 +117,7 @@ func TestPlanEditTailsRunAgainstFileBackend(t *testing.T) {
 		t.Setenv(config.EnvStore, "file")
 		t.Setenv(config.EnvStoreDir, dir)
 		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := clideps.OpenStore(cfg)
+		s, err := deps.OpenStore(cfg)
 		if err != nil {
 			t.Fatalf("open file store: %v", err)
 		}

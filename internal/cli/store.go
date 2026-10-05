@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
@@ -21,6 +22,14 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 	"nrtn.dev/catalyst/kpr/internal/trust"
 )
+
+// OpenStore opens state the same way every command does. The logic lives in
+// cli/deps so subcommand packages wire without importing the command tree;
+// this forwarder keeps the e2e suite (outside internal/cli, which cannot see
+// deps) on that same path.
+func OpenStore(cfg *config.Config) (store.StoreCloser, error) {
+	return deps.OpenStore(cfg)
+}
 
 // splitRef cuts an exact repo:tag, sharing the split with
 // policy.ParseExactImage (one parser for the concept —
@@ -499,7 +508,7 @@ restores the full row (digest, pushed, actor).`,
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
@@ -542,7 +551,7 @@ lineage pairing the verdicts judge against, and the tail of the
 activity ring (the sweeper's per-row outcomes — what the counters
 count). --json renders it for piping.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
@@ -557,7 +566,7 @@ var storeInspectCmd = &cobra.Command{
 	Short: "Show one full tracked row",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
@@ -580,7 +589,7 @@ held or failed delete keeps its row loudly. Either way blob bytes
 still need 'kpr gc'. A direct store edit: no dry-run.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}

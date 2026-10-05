@@ -1,4 +1,4 @@
-package clideps
+package deps
 
 import (
 	"nrtn.dev/catalyst/kpr/internal/clock"

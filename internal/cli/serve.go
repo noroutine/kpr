@@ -14,7 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/app"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/console"
 	"nrtn.dev/catalyst/kpr/internal/edge"
@@ -78,11 +78,11 @@ var serveCmd = &cobra.Command{
 		// client. Backend derives like every command; a conflict
 		// refuses boot (guessing state wrong is worse than not
 		// booting).
-		backend, storeDir, err := clideps.ResolveStoreBackend()
+		backend, storeDir, err := deps.ResolveStoreBackend()
 		if err != nil {
 			log.Fatalf("state backend: %v", err)
 		}
-		keeperStore := clideps.BuildStore(backend, storeDir, cfg)
+		keeperStore := deps.BuildStore(backend, storeDir, cfg)
 		defer func() { _ = keeperStore.Close() }()
 		if perr := keeperStore.Ping(ctx); perr != nil {
 			log.Printf("Warning: state backend unreachable, keeper sections degrade: %v", perr)

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/fence"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
@@ -98,7 +98,7 @@ stores included): a locked run refuses before probing — 'kpr
 store unlock' proves the shared store and opens writes, 'kpr store lock'
 revokes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
@@ -111,10 +111,10 @@ revokes.`,
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
 		dryRun := GcDryRun(armedRun)
 		accepts := gcAccepts(armedRun)
-		backend, dir, berr := clideps.ResolveStoreBackend()
+		backend, dir, berr := deps.ResolveStoreBackend()
 		report := renderGCEvent(out, dryRun)
 		fence := gcrun.FenceForBackend(backend, dir, newFenceControl(d.Store, report), berr, dryRun, out)
-		return gcrun.Run(cmd.Context(), out, gcrun.ProbeRegistry, d.Store, gcrun.RunCollector, d.Reg, cfg.RegistryURL, cfg.RegistryConfig, RegistryBinPath, d.Store, d.Store, d.Store, clideps.ClockSource(d.Cfg), d.Cfg.TimeServer, gcrun.Options{
+		return gcrun.Run(cmd.Context(), out, gcrun.ProbeRegistry, d.Store, gcrun.RunCollector, d.Reg, cfg.RegistryURL, cfg.RegistryConfig, RegistryBinPath, d.Store, d.Store, d.Store, deps.ClockSource(d.Cfg), d.Cfg.TimeServer, gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,
 			Report:         renderGCEvent(out, dryRun),

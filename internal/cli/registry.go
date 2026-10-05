@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/backfill"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
@@ -218,7 +218,7 @@ func storeDeltaLine(view storeView, api backfill.CatalogReport) string {
 // backend degrades one line instead of refusing the walk — and a
 // note never refuses either, it only colors the stats.
 func readStoreView(ctx context.Context, reg backfill.Registry) storeView {
-	d, err := clideps.OpenDeps()
+	d, err := deps.OpenDeps()
 	if err != nil {
 		return storeView{}
 	}

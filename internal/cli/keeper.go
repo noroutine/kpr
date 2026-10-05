@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -38,7 +38,7 @@ type statusRegistry interface {
 func runStatus(ctx context.Context, w io.Writer, s store.Store, reg statusRegistry) error {
 	st := keeper.FetchStatus(ctx, s, reg)
 	if !st.StoreOK {
-		return fmt.Errorf("%s unreachable: no tracked state to report", clideps.StoreName(s))
+		return fmt.Errorf("%s unreachable: no tracked state to report", deps.StoreName(s))
 	}
 	registryState := "unreachable"
 	if st.RegistryOK {
@@ -234,7 +234,7 @@ var statusCmd = &cobra.Command{
 	Short: "Show keeper banner and counters as text",
 	Long:  `Banner plus counters from tracked state, for scripts and ssh. Needs state; fails fast without it. Store facts (backend, lock, proof, identity) live under 'store status'.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
@@ -250,7 +250,7 @@ var planCmd = &cobra.Command{
 	Short: "Show pending sweep candidates with reasons",
 	Long:  `Pending candidates (rows marked due) with reasons. --json renders them for piping.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
@@ -294,7 +294,7 @@ only prints the plan. Repeat --exclude to spare keep-N for rows
 whose repo:tag matches (registry stripped).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
@@ -316,7 +316,7 @@ var planDiscardCmd = &cobra.Command{
 	Long: `Clear every due mark. Rows survive; only marks go, so the next
 sweep finds nothing until a fresh reap marks again.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
@@ -342,7 +342,7 @@ records ride OTLP-only (stdout stays quiet), failure lines
 stream on stdout. --output writes the per-row log (would
 sweep/swept, skips, failures) plus the summary into a file.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}

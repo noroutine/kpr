@@ -8,8 +8,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -31,7 +31,7 @@ their own lines. The per-tag stream goes to --output (- for
 stdout, a path for a file) and is otherwise discarded.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}

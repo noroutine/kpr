@@ -2,7 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 
 	"nrtn.dev/catalyst/kpr/internal/gc"
 )
@@ -22,7 +22,7 @@ baseline. Identity-less payloads refuse even here: wipe the
 volume or remove the stale tags instead. At most one IDENT.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}

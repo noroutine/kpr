@@ -2,7 +2,7 @@
 
 `kpr` commands, one subpackage each (all moved or moving —
 see [`docs/CLI_FUTURE.md`](CLI_FUTURE.md)). Shared wiring
-lives in [`internal/clideps`](../internal/clideps/deps.go):
+lives in [`internal/cli/deps`](../internal/cli/deps/deps.go):
 `Deps`/`OpenDeps` (config, state, registry client),
 `OpenStore`/`BuildStore`/`StoreName`,
 `ResolveStoreBackend`, `ClockSource`. Commands never wire

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"nrtn.dev/catalyst/kpr/internal/clideps"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 )
@@ -18,7 +18,7 @@ and the receiver keep working — only writes under the registry's
 store go away. Doubles as the remote-mode simulator: locked behaves
 exactly like no shared store for write ops.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
@@ -48,12 +48,12 @@ Silence establishes the pairing. The marker never opens without
 proof. Fresh stores start locked: unlock once per deploy, lock
 to revoke.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := clideps.OpenDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
 		defer d.Close()
-		if err := gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.Reg, d.Cfg.RegistryConfig, d.Store, d.Store, d.Store, d.Store, clideps.ClockSource(d.Cfg), d.Cfg.TimeServer); err != nil {
+		if err := gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.Reg, d.Cfg.RegistryConfig, d.Store, d.Store, d.Store, d.Store, deps.ClockSource(d.Cfg), d.Cfg.TimeServer); err != nil {
 			return err
 		}
 		// Proof opened writes; this says it out loud — the ring
