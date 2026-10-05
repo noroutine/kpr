@@ -144,6 +144,12 @@ const (
 	// per var: file location stays here, never in EnvRegistryURL.
 	EnvRegistryConfig = "KPR_REGISTRY_CONFIG"
 
+	// EnvRegistryBinPath names the stock registry binary gc shells
+	// out to. Defaults to DefaultRegistryBinPath (the image COPYs
+	// it from the same registry:3 the stack runs, so collector
+	// and store versions match by construction).
+	EnvRegistryBinPath = "KPR_REGISTRY_BIN_PATH"
+
 	// EnvEdgeAddr is the edge proxy listen address (the edge runs
 	// inside `serve`). The edge replaces the registry's published
 	// port; defaults to DefaultEdgeAddr. One concern per var:
@@ -229,6 +235,7 @@ var EnvVars = []EnvVar{
 	{EnvRegistryUser, "Registry basic-auth username. Empty means anonymous."},
 	{EnvRegistryPassword, "Registry basic-auth password (empty means no auth). Shown as set/unset only, never rendered."},
 	{EnvRegistryConfig, "Distribution registry config file kpr reads shared-store paths from. Defaults to /etc/distribution/config.yml."},
+	{EnvRegistryBinPath, "Stock registry binary gc shells out to for collection. Defaults to /bin/registry."},
 	{EnvEdgeAddr, "Edge proxy listen address. Defaults to :5000 (the registry's published port, moved to the edge)."},
 	{EnvEdge, "Set to \"false\" (or \"0\", \"no\") to run serve without the edge proxy. Anything else keeps it enabled, subject to the RelativeURLs proof."},
 	{EnvTimeMethod, "Clock transport mint timestamps are checked with: local (default), https, or ntp."},
@@ -281,6 +288,10 @@ const (
 	// DefaultRegistryConfig is the registry config file used when
 	// KPR_REGISTRY_CONFIG is unset — the stock distribution path.
 	DefaultRegistryConfig = "/etc/distribution/config.yml"
+
+	// DefaultRegistryBinPath is the collector binary used when
+	// KPR_REGISTRY_BIN_PATH is unset — the stock registry path.
+	DefaultRegistryBinPath = "/bin/registry"
 
 	// Observability defaults.
 	DefaultOTELEndpoint    = "localhost:4317"
@@ -369,6 +380,10 @@ type Config struct {
 	// DefaultRegistryConfig if unset.
 	RegistryConfig string
 
+	// RegistryBinPath is EnvRegistryBinPath's value, or
+	// DefaultRegistryBinPath if unset.
+	RegistryBinPath string
+
 	// EdgeAddr is EnvEdgeAddr's value, or DefaultEdgeAddr if unset.
 	EdgeAddr string
 
@@ -440,17 +455,18 @@ type Config struct {
 // resolution or test override — equivalent to "every env var unset."
 func defaultConfig() Config {
 	return Config{
-		ManagementHost: DefaultManagementHost,
-		ManagementPort: DefaultManagementPort,
-		AppHost:        DefaultAppHost,
-		AppPort:        DefaultAppPort,
-		RedisAddr:      DefaultRedisAddr,
-		RegistryURL:    DefaultRegistryURL,
-		RegistryConfig: DefaultRegistryConfig,
-		EdgeAddr:       DefaultEdgeAddr,
-		EdgeEnabled:    true,
-		TimeMethod:     clock.DefaultMethod,
-		TimeServer:     clock.DFNServer,
+		ManagementHost:  DefaultManagementHost,
+		ManagementPort:  DefaultManagementPort,
+		AppHost:         DefaultAppHost,
+		AppPort:         DefaultAppPort,
+		RedisAddr:       DefaultRedisAddr,
+		RegistryURL:     DefaultRegistryURL,
+		RegistryConfig:  DefaultRegistryConfig,
+		RegistryBinPath: DefaultRegistryBinPath,
+		EdgeAddr:        DefaultEdgeAddr,
+		EdgeEnabled:     true,
+		TimeMethod:      clock.DefaultMethod,
+		TimeServer:      clock.DFNServer,
 
 		OTLPEndpoint:       DefaultOTELEndpoint,
 		OTELServiceName:    DefaultOTELServiceName,
@@ -540,6 +556,7 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.RedisDB, b.cfg.RedisDBWarning = parseDB(os.Getenv(EnvRedisDB))
 	b.cfg.RegistryURL = envOr(EnvRegistryURL, DefaultRegistryURL)
 	b.cfg.RegistryConfig = envOr(EnvRegistryConfig, DefaultRegistryConfig)
+	b.cfg.RegistryBinPath = envOr(EnvRegistryBinPath, DefaultRegistryBinPath)
 	b.cfg.RegistryUser = os.Getenv(EnvRegistryUser)
 	b.cfg.RegistryPassword = os.Getenv(EnvRegistryPassword)
 	b.cfg.EdgeAddr = envOr(EnvEdgeAddr, DefaultEdgeAddr)
@@ -634,6 +651,7 @@ func (b *Builder) WithRegistryURL(v string) *Builder            { b.cfg.Registry
 func (b *Builder) WithRegistryUser(v string) *Builder           { b.cfg.RegistryUser = v; return b }
 func (b *Builder) WithRegistryPassword(v string) *Builder       { b.cfg.RegistryPassword = v; return b }
 func (b *Builder) WithRegistryConfig(v string) *Builder         { b.cfg.RegistryConfig = v; return b }
+func (b *Builder) WithRegistryBinPath(v string) *Builder        { b.cfg.RegistryBinPath = v; return b }
 func (b *Builder) WithEdgeAddr(v string) *Builder               { b.cfg.EdgeAddr = v; return b }
 func (b *Builder) WithEdgeEnabled(v bool) *Builder              { b.cfg.EdgeEnabled = v; return b }
 func (b *Builder) WithCLINoDryRun(v bool) *Builder              { b.cfg.CLINoDryRun = v; return b }

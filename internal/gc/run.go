@@ -142,7 +142,7 @@ type Deps struct {
 // passes warned. A dead post-probe only warns. Flipping readonly
 // stays with the operator; this command never rewrites registry
 // config.
-func Run(ctx context.Context, w io.Writer, d Deps, binPath string, opts Options, accepts Accepts) error {
+func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts) error {
 	gcStarted := time.Now()
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
@@ -155,7 +155,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, binPath string, opts Options,
 		}
 		return fmt.Errorf("store lock unreadable: %w", err)
 	}
-	if err := Ready(binPath, config.Current().RegistryConfig); err != nil {
+	if err := Ready(config.Current().RegistryBinPath, config.Current().RegistryConfig); err != nil {
 		return err
 	}
 	fsStore, err := proof.ProveFilesystemStore(config.Current().RegistryConfig)
@@ -351,18 +351,18 @@ func Run(ctx context.Context, w io.Writer, d Deps, binPath string, opts Options,
 
 	switch {
 	case opts.DryRun:
-		if err := d.Collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
+		if err := d.Collect(ctx, w, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
 			return err
 		}
 	case mode == ModeWritable:
 		if err := fenced(func() error {
-			return collectWritableArmed(ctx, w, d.Collect, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
+			return collectWritableArmed(ctx, w, d.Collect, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
 		}); err != nil {
 			return err
 		}
 	default:
 		if err := fenced(func() error {
-			return d.Collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
+			return d.Collect(ctx, w, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
 		}); err != nil {
 			return err
 		}

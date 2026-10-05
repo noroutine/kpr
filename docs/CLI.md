@@ -27,8 +27,9 @@ kpr
 First command in its own subpackage
 (`internal/cli/gc`, imported as `gccmd`): flags, help, `RunE`,
 rendering (`renderGCEvent`), acceptances (`gcAccepts`), the
-fence adapter factory (`newFenceControl`), the stock binary
-path (`RegistryBinPath`). `GcDryRun` stays exported: backfill
+fence adapter factory (`newFenceControl`). The stock binary
+path lives in config (`KPR_REGISTRY_BIN_PATH`, default
+`/bin/registry`). `GcDryRun` stays exported: backfill
 shares the run-mode semantics until it moves too.
 
 Wiring order inside `RunE`: open deps → arm the run (flag or

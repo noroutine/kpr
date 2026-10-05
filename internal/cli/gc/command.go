@@ -13,12 +13,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
-// RegistryBinPath is the stock registry binary gc shells out to. The
-// image COPYs it from the same registry:3 the stack runs, so collector
-// and store versions match by construction. A var so tests stage stub
-// binaries; production never reassigns it.
-var RegistryBinPath = "/bin/registry"
-
 var gcDeleteUntagged bool
 
 var gcAcceptBlobCache bool
@@ -114,7 +108,7 @@ revokes.`,
 		backend, dir, berr := deps.ResolveStoreBackend()
 		report := renderGCEvent(out, dryRun)
 		fence := gcrun.FenceForBackend(backend, dir, newFenceControl(d.Store, report), berr, dryRun, out)
-		return gcrun.Run(cmd.Context(), out, wire(d, report, fence), RegistryBinPath, gcrun.Options{
+		return gcrun.Run(cmd.Context(), out, wire(d, report, fence), gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,
 		}, accepts)
