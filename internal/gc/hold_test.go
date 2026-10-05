@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
 type stubFencer struct {
@@ -50,7 +48,8 @@ func TestArmedCollectHoldsFenceAroundCollect(t *testing.T) {
 	})
 	var events []string
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
+	stageConfig(t, "http://registry:5000", cfg)
+	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: false, Report: func(Event) {}, Fence: stubFencer{events: &events}}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
@@ -77,7 +76,8 @@ func TestPreviewNeverHoldsFence(t *testing.T) {
 	})
 	var events []string
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
+	stageConfig(t, "http://registry:5000", cfg)
+	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
@@ -97,7 +97,8 @@ func TestArmedCollectRefusesWhenFenceFails(t *testing.T) {
 	})
 	var events []string
 	var out strings.Builder
-	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
+	stageConfig(t, "http://registry:5000", cfg)
+	err := Run(context.Background(), &out, probe, collectWithEvents(&events), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: false, Report: func(Event) {}, Fence: stubFencer{events: &events, holdErr: errFenceBoom}}, Accepts{})
 	if err == nil {
 		t.Fatal("broken-fence run = nil, want refusal")

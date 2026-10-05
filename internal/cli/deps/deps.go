@@ -35,6 +35,10 @@ type Deps struct {
 
 func OpenDeps() (*Deps, error) {
 	cfg := config.NewBuilder().FromEnv().Build()
+	// Installed, not just carried: use cases read config.Current()
+	// where they need it, so the process reasons about this one
+	// value — the same one every command wires from.
+	config.SetCurrent(cfg)
 	s, err := OpenStore(cfg)
 	if err != nil {
 		return nil, err

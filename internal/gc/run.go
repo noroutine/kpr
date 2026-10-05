@@ -96,20 +96,19 @@ type Accepts struct {
 // Deps carries a run's world beyond its seams: the store in its
 // four roles — lock (intent gate plus single-flight), recorder,
 // identity, rows — each scriptable apart in tests, one object
-// wearing all four hats in production — plus the registry API,
-// the config naming it, and the clock the mint checks. Config is
-// global by design: the use case reads its strings off it where
-// needed instead of carrying copies. The adapter assembles the
-// bundle from its own wiring; named fields, never trailing
-// positionals (see Accepts). Lifecycle stays outside: opening
-// and closing the store is the caller's job.
+// wearing all four hats in production — plus the registry API
+// and the clock the mint checks. Config never rides along:
+// config.Current() names the registry wherever the run needs
+// it. The adapter assembles the bundle from its own wiring;
+// named fields, never trailing positionals (see Accepts).
+// Lifecycle stays outside: opening and closing the store is the
+// caller's job.
 type Deps struct {
 	Lock  Locker
 	Rec   Recorder
 	Ids   lineage.IdentityStore
 	Rows  lineage.Rows
 	API   sentinel.API
-	Cfg   *config.Config
 	Clock clock.Source
 }
 
@@ -149,10 +148,10 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 		}
 		return fmt.Errorf("store lock unreadable: %w", err)
 	}
-	if err := Ready(binPath, d.Cfg.RegistryConfig); err != nil {
+	if err := Ready(binPath, config.Current().RegistryConfig); err != nil {
 		return err
 	}
-	fsStore, err := proof.ProveFilesystemStore(d.Cfg.RegistryConfig)
+	fsStore, err := proof.ProveFilesystemStore(config.Current().RegistryConfig)
 	if err != nil {
 		return err
 	}
@@ -162,18 +161,18 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 	// proceeds on local time (air-gapped sites stay working). The
 	// run consumes the gate — refusals pass through untouched, so
 	// every message below reads exactly as before.
-	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, d.Clock, d.Cfg.TimeServer)); cerr != nil {
+	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, d.Clock, config.Current().TimeServer)); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
 			if accepts.ClockSkew == nil {
 				return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock or re-run with --accept-clock-skew",
-					skew.Offset.Round(time.Second), skew.Tolerance, d.Cfg.TimeServer)
+					skew.Offset.Round(time.Second), skew.Tolerance, config.Current().TimeServer)
 			}
 			if _, err := fmt.Fprintf(w, "Warning: clock skew %s exceeds %s; collecting anyway (--accept-clock-skew)\n",
 				skew.Offset.Round(time.Second), skew.Tolerance); err != nil {
 				return err
 			}
-		} else if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", d.Cfg.TimeServer, cerr); err != nil {
+		} else if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", config.Current().TimeServer, cerr); err != nil {
 			return err
 		}
 	}
@@ -189,7 +188,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 			_, _ = fmt.Fprintf(w, "Warning: gc lock release failed (%v); expires in %v\n", rerr, lockTTL)
 		}
 	}()
-	mode, _, err := probe(ctx, d.Cfg.RegistryURL)
+	mode, _, err := probe(ctx, config.Current().RegistryURL)
 	if err != nil {
 		return err
 	}
@@ -209,7 +208,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 		// point minting a generation the gate will reject. Armed
 		// refuses on unaccepted misses; dry-run prints the same
 		// checklist as information and previews on.
-		cache, fence, report, perr := onlinePreflight(ctx, d.Cfg.RegistryConfig, opts.EdgeAddr, opts.Fence != nil, accepts.Cache, accepts.Fence)
+		cache, fence, report, perr := onlinePreflight(ctx, config.Current().RegistryConfig, opts.EdgeAddr, opts.Fence != nil, accepts.Cache, accepts.Fence)
 		if perr != nil {
 			if opts.DryRun {
 				if _, err := io.WriteString(w, report+"\n"); err != nil {
@@ -293,7 +292,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 			return err
 		}
 	default:
-		return fmt.Errorf("sentinel inconclusive for %s", d.Cfg.RegistryURL)
+		return fmt.Errorf("sentinel inconclusive for %s", config.Current().RegistryURL)
 	}
 	switch mode {
 	case ModeWritable:
@@ -341,18 +340,18 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 
 	switch {
 	case opts.DryRun:
-		if err := collect(ctx, w, binPath, Args(d.Cfg.RegistryConfig, opts.DeleteUntagged, true), opts.Report); err != nil {
+		if err := collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), opts.Report); err != nil {
 			return err
 		}
 	case mode == ModeWritable:
 		if err := fenced(func() error {
-			return collectWritableArmed(ctx, w, collect, binPath, Args(d.Cfg.RegistryConfig, opts.DeleteUntagged, false), opts.Report, onlineCache, onlineFence)
+			return collectWritableArmed(ctx, w, collect, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), opts.Report, onlineCache, onlineFence)
 		}); err != nil {
 			return err
 		}
 	default:
 		if err := fenced(func() error {
-			return collect(ctx, w, binPath, Args(d.Cfg.RegistryConfig, opts.DeleteUntagged, false), opts.Report)
+			return collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), opts.Report)
 		}); err != nil {
 			return err
 		}
@@ -409,7 +408,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 			}
 		}
 	}
-	post, _, perr := probe(ctx, d.Cfg.RegistryURL)
+	post, _, perr := probe(ctx, config.Current().RegistryURL)
 	if perr != nil {
 		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, ModeName(mode))
 		return nil

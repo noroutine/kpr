@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -259,7 +258,8 @@ func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
 	stagePairedGen(t, s, root)
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
+	stageConfig(t, "http://registry:5000", cfg)
+	err := Run(context.Background(), &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("writable preview: %v", err)
@@ -283,7 +283,8 @@ func TestRunExForceRisksOpenNothingOnline(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	accept := proof.Force(proof.Arm(true, false), true)
-	err := Run(context.Background(), &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: cfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
+	stageConfig(t, "http://registry:5000", cfg)
+	err := Run(context.Background(), &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: false, Report: func(Event) {}},
 		Accepts{ClockSkew: accept, Rollback: accept, ModeFlip: accept})
 	if err == nil {
@@ -313,7 +314,8 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 	fence := stubFencer{events: &events}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(ctx, &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: onlineCfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
+	stageConfig(t, "http://registry:5000", onlineCfg)
+	err := Run(ctx, &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
 		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("cleared online run: %v", err)
@@ -350,7 +352,8 @@ func TestRunOnlineRefusalReportWriteFailureSurfaces(t *testing.T) {
 	var events []string
 	fence := stubFencer{events: &events}
 	w := errWriter{errTestStoreDown}
-	err := Run(context.Background(), w, writableProbe(), okCollector(nil), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: stageOnlineConfig(t, root, false), TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
+	stageConfig(t, "http://registry:5000", stageOnlineConfig(t, root, false))
+	err := Run(context.Background(), w, writableProbe(), okCollector(nil), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
 		Options{DryRun: true, Fence: fence, Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("uncleared preview with dead output succeeded, want failure")
@@ -375,7 +378,8 @@ func TestRunOnlineClearReportWriteFailureSurfaces(t *testing.T) {
 	var events []string
 	fence := stubFencer{events: &events}
 	w := errWriter{errTestStoreDown}
-	err := Run(ctx, w, writableProbe(), okCollector(nil), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Cfg: &config.Config{RegistryURL: "http://registry:5000", RegistryConfig: onlineCfg, TimeServer: "time.example.com"}, Clock: stubClock{}}, "/bin/sh",
+	stageConfig(t, "http://registry:5000", onlineCfg)
+	err := Run(ctx, w, writableProbe(), okCollector(nil), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
 		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("cleared online run with dead output succeeded, want failure")

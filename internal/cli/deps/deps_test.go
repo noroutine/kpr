@@ -43,5 +43,8 @@ func TestOpenDepsWiresFileStore(t *testing.T) {
 	if d.Cfg == nil || d.Store == nil || d.Reg == nil {
 		t.Fatalf("deps = %+v, want config, store, and registry client", d)
 	}
+	if config.Current() != d.Cfg {
+		t.Fatal("OpenDeps did not install its config as Current: use cases would read defaults")
+	}
 	d.Close()
 }
