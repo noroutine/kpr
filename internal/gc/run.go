@@ -89,8 +89,8 @@ type Accepts struct {
 // four roles — lock (intent gate plus single-flight), recorder,
 // identity, rows — each scriptable apart in tests, one object
 // wearing all four hats in production — plus the registry API,
-// the clock the mint checks, the event reporter, and the fence.
-// A nil clock derives from
+// the clock the mint checks, the event reporter, the fence, and
+// the probe/collect seams. A nil clock derives from
 // config.Current() (production never sets it); tests inject
 // fakes for the skew and unreachable paths. Config otherwise
 // never rides along: Current() names the registry wherever the
@@ -112,6 +112,11 @@ type Deps struct {
 	// refuses the run: collecting unfenced when fencing was
 	// requested is unknown safety.
 	Fence fence.Controller
+	// Probe reads the registry mode; Collect runs the stock
+	// collector binary. Seams with production defaults, scripted
+	// apart in tests.
+	Probe   Probe
+	Collect Collector
 }
 
 // Run probes the registry writable/readonly, proves the local mount
@@ -137,7 +142,7 @@ type Deps struct {
 // passes warned. A dead post-probe only warns. Flipping readonly
 // stays with the operator; this command never rewrites registry
 // config.
-func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Deps, binPath string, opts Options, accepts Accepts) error {
+func Run(ctx context.Context, w io.Writer, d Deps, binPath string, opts Options, accepts Accepts) error {
 	gcStarted := time.Now()
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
@@ -194,7 +199,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 			_, _ = fmt.Fprintf(w, "Warning: gc lock release failed (%v); expires in %v\n", rerr, lockTTL)
 		}
 	}()
-	mode, _, err := probe(ctx, config.Current().RegistryURL)
+	mode, _, err := d.Probe(ctx, config.Current().RegistryURL)
 	if err != nil {
 		return err
 	}
@@ -346,18 +351,18 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 
 	switch {
 	case opts.DryRun:
-		if err := collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
+		if err := d.Collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
 			return err
 		}
 	case mode == ModeWritable:
 		if err := fenced(func() error {
-			return collectWritableArmed(ctx, w, collect, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
+			return collectWritableArmed(ctx, w, d.Collect, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
 		}); err != nil {
 			return err
 		}
 	default:
 		if err := fenced(func() error {
-			return collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
+			return d.Collect(ctx, w, binPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
 		}); err != nil {
 			return err
 		}
@@ -414,7 +419,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 			}
 		}
 	}
-	post, _, perr := probe(ctx, config.Current().RegistryURL)
+	post, _, perr := d.Probe(ctx, config.Current().RegistryURL)
 	if perr != nil {
 		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, ModeName(mode))
 		return nil

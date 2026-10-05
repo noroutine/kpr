@@ -35,6 +35,9 @@ func TestWireCarriesWholeDeps(t *testing.T) {
 	if w.Fence != nil {
 		t.Fatal("wire invented a fence: the command assembles it per backend")
 	}
+	if w.Probe == nil || w.Collect == nil {
+		t.Fatal("wire left the seams unset: production runs the stock probe and collector")
+	}
 	if w.Clock != nil {
 		t.Fatal("wire set the clock: production derives it from Current, only tests inject")
 	}
