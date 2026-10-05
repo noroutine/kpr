@@ -100,6 +100,27 @@ func TestOnlinePreflightRefusesAllMissesAtOnce(t *testing.T) {
 	}
 }
 
+// A blobdescriptor stanza with no redis: block still misses: the
+// prover judges the selection half, not just the connection
+// half. If this fails, a stanza-cached registry clears the
+// preflight while deletes stay vouched.
+func TestOnlinePreflightRefusesStanzaWithoutRedisBlock(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	cfg := "storage:\n  filesystem:\n    rootdirectory: " + root + "\n  cache:\n    blobdescriptor: inmemory\nhttp:\n  relativeurls: true\n"
+	path := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
+		t.Fatalf("stage stanza config: %v", err)
+	}
+	_, _, _, err := onlinePreflight(ctx, path, "127.0.0.1:1", false, nil, nil)
+	if err == nil {
+		t.Fatal("stanza-cached preflight cleared, want refusal")
+	} else if !strings.Contains(err.Error(), "[miss] blob cache") || !strings.Contains(err.Error(), "blobdescriptor") {
+		t.Errorf("refusal = %v, want the stanza miss named", err)
+	}
+}
+
 // Accepted risks read [accepted], naming what was waived —
 // never [ok]. If this fails, the report claims a fence that was
 // only waived.

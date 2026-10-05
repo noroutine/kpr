@@ -37,8 +37,9 @@ selection half — `registryRedis` decides, the proof rubber-stamps.
 The owned shape is `ProveBlobCacheOff(configPath, accept)`: the
 prover reads the config itself, mints when no stanza selects
 `redis`, refuses when one does, and the `redis:` block drops to
-connection detail for the message. Bonus: a `redis:` block with
-no cache stanza stops refusing.
+connection detail for the message. Decided: mint iff both
+absent — a bare `redis:` block still refuses (conservative),
+whatever the stanza says.
 
 ## Provers read their own sources
 

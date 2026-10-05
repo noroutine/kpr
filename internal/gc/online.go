@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -19,31 +20,34 @@ import (
 // Lease and edge come from the run's own wiring: leaseReady is
 // whether a HOLD fence was configured (file backend shares the
 // lease dir; redis keeps none), edgeAddr is where the edge
-// listens. The cache endpoint parses out of the same config the
-// collector reads.
+// listens. The cache prover reads the same config the collector
+// reads and judges both halves itself — no pre-parsed verdict
+// crosses into the proof package.
 func onlinePreflight(ctx context.Context, configPath, edgeAddr string, leaseReady bool, cacheAccept, fenceAccept proof.AcceptedRisk) (proof.BlobCacheOff, proof.GatewayFencing, string, error) {
-	// A parse failure is broken input, not a missing proof: no
-	// checklist, no override — acceptance cannot fix unreadable.
-	cacheAddr, _, _, cerr := registryRedis(configPath)
-	if cerr != nil {
-		return nil, nil, "", fmt.Errorf("blob cache unreadable: %v (gc reads top-level redis: out of %s)", cerr, configPath)
-	}
 	// World first, acceptance second: the report must tell
 	// proven from accepted — an override that also proves reads
 	// [ok], an override that waives reads [accepted] naming what
 	// was waived. The accepting calls re-run the provers (pure
 	// for cache; at most one more dial for the gateway, only on
 	// override runs).
-	_, worldCacheErr := proof.ProveBlobCacheOff(cacheAddr, nil)
+	_, worldCacheErr := proof.ProveBlobCacheOff(configPath, nil)
 	_, worldFenceErr := proof.ProveGatewayFencing(ctx, configPath, edgeAddr, leaseReady, nil)
-	cache, cacheErr := proof.ProveBlobCacheOff(cacheAddr, cacheAccept)
+	cache, cacheErr := proof.ProveBlobCacheOff(configPath, cacheAccept)
 	fence, fenceErr := proof.ProveGatewayFencing(ctx, configPath, edgeAddr, leaseReady, fenceAccept)
 
+	// An unreadable config is broken input, not a missing proof:
+	// no checklist, no override — acceptance cannot fix
+	// unreadable. The prover marks it Unreadable so this err
+	// branch routes outside the per-risk report.
+	var unreadable proof.Unreadable
+	if errors.As(cacheErr, &unreadable) {
+		return nil, nil, "", fmt.Errorf("blob cache unreadable: %v (gc reads redis: and storage.cache out of %s)", unreadable.Err, configPath)
+	}
 	var lines []string
 	if cacheErr != nil {
 		lines = append(lines, "[miss] blob cache: "+cacheErr.Error())
 	} else if worldCacheErr != nil {
-		lines = append(lines, "[accepted] blob cache: cache at "+cacheAddr+" stays vouched until restart (--accept-blob-cache)")
+		lines = append(lines, "[accepted] blob cache: "+worldCacheErr.Error())
 	} else {
 		lines = append(lines, "[ok] blob cache: none configured (deletes reclaim immediately)")
 	}
