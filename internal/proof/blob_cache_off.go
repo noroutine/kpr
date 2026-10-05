@@ -37,5 +37,5 @@ func ProveBlobCacheOff(cacheAddr string, accept AcceptedRisk) (BlobCacheOff, err
 	if accept != nil {
 		return blobCacheOff{}, nil
 	}
-	return nil, fmt.Errorf("blobdescriptor cache at %s: disable cache.redis in the registry config (online deletes stay vouched until restart), or re-run with --accept-blob-cache", cacheAddr)
+	return nil, fmt.Errorf("blobdescriptor cache at %s: remove the top-level redis: block from the registry config (online deletes stay vouched until restart), or re-run with --accept-blob-cache", cacheAddr)
 }

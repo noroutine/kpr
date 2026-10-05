@@ -26,7 +26,7 @@ func onlinePreflight(ctx context.Context, configPath, edgeAddr string, leaseRead
 	// checklist, no override — acceptance cannot fix unreadable.
 	cacheAddr, _, _, cerr := registryRedis(configPath)
 	if cerr != nil {
-		return nil, nil, "", fmt.Errorf("blob cache unreadable: %v (gc reads cache.redis out of %s)", cerr, configPath)
+		return nil, nil, "", fmt.Errorf("blob cache unreadable: %v (gc reads top-level redis: out of %s)", cerr, configPath)
 	}
 	// World first, acceptance second: the report must tell
 	// proven from accepted — an override that also proves reads
