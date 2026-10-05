@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
@@ -73,7 +74,7 @@ type Options struct {
 	// (previews never engage). A fence that fails to engage
 	// refuses the run: collecting unfenced when fencing was
 	// requested is unknown safety.
-	Fence Fencer
+	Fence fence.Controller
 }
 
 // Accepts groups the sealed risk acceptances beside Options, not

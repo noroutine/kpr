@@ -476,13 +476,13 @@ func TestRenderGCEventVoicesStages(t *testing.T) {
 // stopped reaching the edge.
 func TestFenceForBackendWiresFileStore(t *testing.T) {
 	var out strings.Builder
-	fence := fenceForBackend("file", "/state", nil, false, &out)
-	hf, ok := fence.(edge.HoldFile)
+	fence := fenceForBackend("file", "/state", nil, nil, nil, false, &out)
+	ctl, ok := fence.(edge.Control)
 	if !ok {
-		t.Fatalf("file backend fence = %T, want edge.HoldFile", fence)
+		t.Fatalf("file backend fence = %T, want edge.Control", fence)
 	}
-	if hf.Dir != "/state" {
-		t.Errorf("lease dir = %q, want the shared store dir", hf.Dir)
+	if ctl.Dir != "/state" {
+		t.Errorf("lease dir = %q, want the shared store dir", ctl.Dir)
 	}
 	if out.Len() != 0 {
 		t.Errorf("wired fence warned %q, want silence", out.String())
@@ -495,7 +495,7 @@ func TestFenceForBackendWiresFileStore(t *testing.T) {
 // for no reason.
 func TestFenceForBackendWarnsWhenUnshared(t *testing.T) {
 	var armed strings.Builder
-	if fence := fenceForBackend("redis", "", nil, false, &armed); fence != nil {
+	if fence := fenceForBackend("redis", "", nil, nil, nil, false, &armed); fence != nil {
 		t.Errorf("redis backend fence = %v, want nil", fence)
 	}
 	if !strings.Contains(armed.String(), "unfenced") {
@@ -503,7 +503,7 @@ func TestFenceForBackendWarnsWhenUnshared(t *testing.T) {
 	}
 
 	var preview strings.Builder
-	if fence := fenceForBackend("redis", "", nil, true, &preview); fence != nil {
+	if fence := fenceForBackend("redis", "", nil, nil, nil, true, &preview); fence != nil {
 		t.Errorf("preview fence = %v, want nil", fence)
 	}
 	if preview.Len() != 0 {
@@ -511,7 +511,7 @@ func TestFenceForBackendWarnsWhenUnshared(t *testing.T) {
 	}
 
 	var broken strings.Builder
-	if fence := fenceForBackend("", "", errors.New("boom"), false, &broken); fence != nil {
+	if fence := fenceForBackend("", "", nil, nil, errors.New("boom"), false, &broken); fence != nil {
 		t.Errorf("broken backend fence = %v, want nil", fence)
 	}
 	if !strings.Contains(broken.String(), "unfenced") {

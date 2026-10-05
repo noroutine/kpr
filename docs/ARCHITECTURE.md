@@ -87,7 +87,9 @@ The edge is part of `serve`, not a separate command. It forwards
 pushes to the registry byte-identical and fences mutating routes
 — HOLD leases around an armed collect, DENY on the lock marker —
 through the same evaluation the use cases mint from (a boolean
-here, not a mint). It opens only on a RelativeURLs proof over the
+here, not a mint). `store lock` / `unlock` voice the deny flips
+at the transition through the fence port, so the ring carries
+them with zero traffic. It opens only on a RelativeURLs proof over the
 registry config: no proof, no edge. `KPR_EDGE=false` opts out,
 and either way the other servers keep serving. The console
 carries the edge's live posture (open/closed, deny/held) in its

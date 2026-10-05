@@ -283,16 +283,7 @@ func (g *Gate) flipDeny(deny bool, msg string) {
 }
 
 func (g *Gate) emit(stage, msg, outcome string) {
-	gc.Emit(g.Report, gc.Event{Stage: stage, Message: msg})
-	if g.Store == nil {
-		return
-	}
-	_ = g.Store.PushActivity(context.Background(), store.Outcome{
-		Reason:  msg,
-		Outcome: outcome,
-		At:      g.now(),
-		Actor:   "kpr-edge",
-	})
+	announce(g.Store, g.Report, g.now(), stage, msg, outcome)
 }
 
 func describeLockErr(err error) string {

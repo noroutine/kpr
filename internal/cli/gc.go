@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/edge"
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
@@ -59,13 +60,14 @@ func drySuffix(dryRun bool) string {
 	return ""
 }
 
-// fenceForBackend wires the HOLD lease: the file backend shares
-// the lease dir with the edge, anything else runs unfenced with
-// the warning said out loud. Previews stay silent either way —
-// nothing is deleted, so nothing holds.
-func fenceForBackend(backend, dir string, backendErr error, dryRun bool, out io.Writer) gc.Fencer {
+// fenceForBackend wires the fence controller: the file backend
+// shares the lease dir with the edge, anything else runs
+// unfenced with the warning said out loud. Previews stay silent
+// either way — nothing is deleted, so nothing holds. The store
+// and report voice transitions; gc only ever drives Hold.
+func fenceForBackend(backend, dir string, st edge.GateStore, report gc.Reporter, backendErr error, dryRun bool, out io.Writer) fence.Controller {
 	if backendErr == nil && backend == "file" {
-		return edge.HoldFile{Dir: dir}
+		return edge.Control{HoldFile: edge.HoldFile{Dir: dir}, Store: st, Report: report}
 	}
 	if !dryRun {
 		_, _ = fmt.Fprintln(out, "Warning: proxy HOLD fence unavailable without a shared file store — armed collect runs unfenced")
@@ -113,7 +115,7 @@ revokes.`,
 		dryRun := gcDryRun(armedRun)
 		accepts := gcAccepts(armedRun)
 		backend, dir, berr := resolveStoreBackend()
-		fence := fenceForBackend(backend, dir, berr, dryRun, out)
+		fence := fenceForBackend(backend, dir, d.store, renderGCEvent(out, dryRun), berr, dryRun, out)
 		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, cfg.RegistryConfig, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,

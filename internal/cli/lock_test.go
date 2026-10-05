@@ -68,6 +68,16 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 	if ok, err := s.IsUnlocked(context.Background()); err != nil || !ok {
 		t.Fatalf("post-unlock IsUnlocked = (%v, %v), want (true, nil)", ok, err)
 	}
+	// Unlock voices deny_release at the transition: the ring
+	// carries the flip with zero traffic. If this fails, unlock
+	// opens writes silently.
+	activity, err := s.Activity(context.Background())
+	if err != nil {
+		t.Fatalf("activity: %v", err)
+	}
+	if len(activity) == 0 || activity[0].Outcome != "deny_release" {
+		t.Fatalf("post-unlock ring = %v, want deny_release on top", activity)
+	}
 	_ = s.Close()
 
 	out, err = runLockCmd(t, dir, srv.URL, lockCmd)
@@ -77,6 +87,18 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 	if !strings.Contains(out, "store locked") {
 		t.Fatalf("lock output confirms nothing:\n%s", out)
 	}
+	s, err = OpenStore(config.NewBuilder().FromEnv().Build())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	activity, err = s.Activity(context.Background())
+	if err != nil {
+		t.Fatalf("activity: %v", err)
+	}
+	if len(activity) == 0 || activity[0].Outcome != "deny_engage" {
+		t.Fatalf("post-lock ring = %v, want deny_engage on top", activity)
+	}
+	_ = s.Close()
 }
 
 // A locked gc refuses with the error alone: no usage screen (that
