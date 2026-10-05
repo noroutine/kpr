@@ -29,7 +29,7 @@ and quickstart commands are in the [top-level README](../README.md).
 | [GOALS](GOALS.md) | what kpr is, what it won't become, open questions |
 | [PROOFS](PROOFS.md) | the proofs kpr acts on, what each establishes, how they compose |
 | [SENTINELS](SENTINELS.md) | same-store proof, locality, lock, lineage verdicts, `kpr store adopt` |
-| [GATEWAY](GATEWAY.md) | the edge proxy, HOLD/DENY fence, RelativeURLs proof |
+| [EDGE](EDGE.md) | the edge proxy, HOLD/DENY fence, RelativeURLs proof |
 | [TIMESTAMPS](TIMESTAMPS.md) | checked clock: transports, wiring, skew semantics |
 | [REGISTRY_LAYOUT](REGISTRY_LAYOUT.md) | registry:3 filesystem layout, observed |
 

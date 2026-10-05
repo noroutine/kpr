@@ -64,10 +64,15 @@ only on push traffic, and the console renders the edge's cached
 posture (`Snapshot`), so a quiet store shows "no hold lease"
 through the whole collect.
 
-Make the hold loud without push traffic: the console should read
-the lease file itself (present + unexpired = held) instead of, or
-in addition to, the cached snapshot — or the edge should poll the
-lease on a tick and flip edge-triggered the same way pushes do.
-Either way the operator watching the console mid-collect sees the
-hold pinning writes, push or no push.
+Half of this is now delivered on the deny side: `store lock` /
+`unlock` voice `deny_engage` / `deny_release` at the transition
+through the fence port, so the ring carries the flip with zero
+traffic (see [`docs/EDGE.md`](EDGE.md)). The hold half stays
+open — make it loud without push traffic: the console should
+read the lease file itself (present + unexpired = held)
+instead of, or in addition to, the cached snapshot — or the
+edge should poll the lease on a tick and flip edge-triggered
+the same way pushes do. Either way the operator watching the
+console mid-collect sees the hold pinning writes, push or no
+push.
 
