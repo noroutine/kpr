@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
+	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
+	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -29,20 +31,20 @@ their own lines. The per-tag stream goes to --output (- for
 stdout, a path for a file) and is otherwise discarded.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
+		defer d.Close()
 		noDryRun, _ := cmd.Flags().GetBool("no-dry-run")
 		acceptRollback, _ := cmd.Flags().GetBool("accept-rollback")
 		output, _ := cmd.Flags().GetString("output")
-		fsStore, err := proof.ProveFilesystemStore(d.cfg.RegistryConfig)
+		fsStore, err := proof.ProveFilesystemStore(d.Cfg.RegistryConfig)
 		if err != nil {
 			return err
 		}
 		root := fsStore.Root()
-		armed := proof.Arm(noDryRun, d.cfg.CLINoDryRun)
+		armed := proof.Arm(noDryRun, d.Cfg.CLINoDryRun)
 		glob := ""
 		if len(args) == 1 {
 			glob = args[0]
@@ -51,7 +53,7 @@ stdout, a path for a file) and is otherwise discarded.`,
 		live := newLiveLines(out)
 		opts := backfill.Options{
 			RepoGlob: glob,
-			DryRun:   gcDryRun(armed),
+			DryRun:   gccmd.GcDryRun(armed),
 		}
 		sink, closeSink, err := resolveBackfillSink(output, out, live)
 		if err != nil {
@@ -70,8 +72,8 @@ stdout, a path for a file) and is otherwise discarded.`,
 		}
 		// Warnings share the terminal with the repaint: each
 		// breaks the block onto its own line first.
-		sum, err := backfill.Run(cmd.Context(), breakWriter{w: out, live: live}, d.reg, d.reg,
-			d.store, d.store, d.store, d.store, root,
+		sum, err := backfill.Run(cmd.Context(), breakWriter{w: out, live: live}, d.Reg, d.Reg,
+			d.Store, d.Store, d.Store, d.Store, root,
 			opts,
 			proof.Force(armed, acceptRollback))
 		live.doneBlock(backfillLines(sum), 0)

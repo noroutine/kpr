@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
@@ -498,22 +499,22 @@ restores the full row (digest, pushed, actor).`,
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
+		defer d.Close()
 		long, _ := cmd.Flags().GetBool("long")
 		asJSON, _ := cmd.Flags().GetBool("json")
 		if len(args) == 1 && args[0] == "ghosts" {
 			// Identity first: judging rows from a foreign store is
 			// the ambiguity proofs exist to refuse. The fs view
 			// follows — an unprovable root refuses just as loudly.
-			same, serr := proof.Prover{Sentinel: d.reg, Store: d.store}.Prove(cmd.Context())
+			same, serr := proof.Prover{Sentinel: d.Reg, Store: d.Store}.Prove(cmd.Context())
 			if serr != nil {
 				return serr
 			}
-			fsStore, ferr := proof.ProveFilesystemStore(d.cfg.RegistryConfig)
+			fsStore, ferr := proof.ProveFilesystemStore(d.Cfg.RegistryConfig)
 			if ferr != nil {
 				return fmt.Errorf("ghosts need the fs second opinion: %w", ferr)
 			}
@@ -521,10 +522,10 @@ restores the full row (digest, pushed, actor).`,
 			if ferr != nil {
 				return fmt.Errorf("ghosts need the fs second opinion: %w", ferr)
 			}
-			return runStoreGhosts(cmd.Context(), cmd.OutOrStdout(), d.store, d.reg, fsRepos, same,
+			return runStoreGhosts(cmd.Context(), cmd.OutOrStdout(), d.Store, d.Reg, fsRepos, same,
 				storeLsOpts{now: time.Now().UTC(), long: long, json: asJSON})
 		}
-		return runStoreLs(cmd.Context(), cmd.OutOrStdout(), d.store, storeLsOpts{
+		return runStoreLs(cmd.Context(), cmd.OutOrStdout(), d.Store, storeLsOpts{
 			now: time.Now().UTC(), long: long,
 			sentinels: len(args) == 1, json: asJSON,
 		})
@@ -541,13 +542,13 @@ lineage pairing the verdicts judge against, and the tail of the
 activity ring (the sweeper's per-row outcomes — what the counters
 count). --json renders it for piping.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
+		defer d.Close()
 		asJSON, _ := cmd.Flags().GetBool("json")
-		return runStoreStatus(cmd.Context(), cmd.OutOrStdout(), d.store, d.reg, describeStore(d.store, d.cfg), asJSON)
+		return runStoreStatus(cmd.Context(), cmd.OutOrStdout(), d.Store, d.Reg, describeStore(d.Store, d.Cfg), asJSON)
 	},
 }
 
@@ -556,13 +557,13 @@ var storeInspectCmd = &cobra.Command{
 	Short: "Show one full tracked row",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
+		defer d.Close()
 		asJSON, _ := cmd.Flags().GetBool("json")
-		return runStoreInspect(cmd.Context(), cmd.OutOrStdout(), d.store, args[0], asJSON)
+		return runStoreInspect(cmd.Context(), cmd.OutOrStdout(), d.Store, args[0], asJSON)
 	},
 }
 
@@ -579,17 +580,17 @@ held or failed delete keeps its row loudly. Either way blob bytes
 still need 'kpr gc'. A direct store edit: no dry-run.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
+		defer d.Close()
 		untag, _ := cmd.Flags().GetBool("untag")
-		sw := &sweep.Sweeper{Store: d.store, Registry: d.reg}
+		sw := &sweep.Sweeper{Store: d.Store, Registry: d.Reg}
 		// The caller proves intent first: both rm paths drop rows, so
 		// both need the marker — a locked store refuses here, naming
 		// the ceremony, before anything is forgotten or deleted.
-		unlocked, err := proof.ProveUnlockedStore(cmd.Context(), d.store)
+		unlocked, err := proof.ProveUnlockedStore(cmd.Context(), d.Store)
 		if err != nil {
 			return err
 		}
@@ -600,12 +601,12 @@ still need 'kpr gc'. A direct store edit: no dry-run.`,
 		var same proof.SameStore
 		if untag {
 			var err error
-			same, err = proof.Prover{Sentinel: d.reg, Store: d.store}.Prove(cmd.Context())
+			same, err = proof.Prover{Sentinel: d.Reg, Store: d.Store}.Prove(cmd.Context())
 			if err != nil {
 				return err
 			}
 		}
-		return runStoreRm(cmd.Context(), cmd.OutOrStdout(), d.store, args, untag, sw, same, unlocked)
+		return runStoreRm(cmd.Context(), cmd.OutOrStdout(), d.Store, args, untag, sw, same, unlocked)
 	},
 }
 

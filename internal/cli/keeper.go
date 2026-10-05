@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -37,7 +38,7 @@ type statusRegistry interface {
 func runStatus(ctx context.Context, w io.Writer, s store.Store, reg statusRegistry) error {
 	st := keeper.FetchStatus(ctx, s, reg)
 	if !st.StoreOK {
-		return fmt.Errorf("%s unreachable: no tracked state to report", storeName(s))
+		return fmt.Errorf("%s unreachable: no tracked state to report", clideps.StoreName(s))
 	}
 	registryState := "unreachable"
 	if st.RegistryOK {
@@ -228,116 +229,17 @@ func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, a
 	return nil
 }
 
-// resolveStoreBackend derives the state backend from explicit
-// signals, never resolved values (KPR_REDIS_ADDR carries a default
-// that must not count as a choice): KPR_STORE, when set, is
-// authoritative and must agree with backend-specific variables;
-// otherwise KPR_STORE_DIR alone selects file and KPR_REDIS_ADDR
-// alone selects redis; silence selects file, the zero-dependency
-// default. Empty counts as unset throughout. Mixed signals refuse
-// instead of guessing.
-func resolveStoreBackend() (backend, dir string, err error) {
-	storeVar, storeSet := os.LookupEnv(config.EnvStore)
-	dirVar, dirSet := os.LookupEnv(config.EnvStoreDir)
-	redisVar, redisSet := os.LookupEnv(config.EnvRedisAddr)
-	if storeVar == "" {
-		storeSet = false
-	}
-	if dirVar == "" {
-		dirSet = false
-	}
-	if redisVar == "" {
-		redisSet = false
-	}
-	if storeSet {
-		switch storeVar {
-		case "file":
-			if redisSet {
-				return "", "", fmt.Errorf("KPR_STORE=file conflicts with %s: unset one", config.EnvRedisAddr)
-			}
-			if !dirSet {
-				dirVar = config.DefaultStoreDir
-			}
-			return "file", dirVar, nil
-		case "redis":
-			if dirSet {
-				return "", "", fmt.Errorf("KPR_STORE=redis conflicts with %s: unset one", config.EnvStoreDir)
-			}
-			return "redis", "", nil
-		default:
-			return "", "", fmt.Errorf("unknown KPR_STORE=%q: want file or redis", storeVar)
-		}
-	}
-	if dirSet {
-		return "file", dirVar, nil
-	}
-	if redisSet {
-		return "redis", "", nil
-	}
-	return "file", config.DefaultStoreDir, nil
-}
-
-// storeName voices which backend failed: the refusal names what the
-// operator must fix, in either mode.
-func storeName(s store.Store) string {
-	if _, ok := s.(*store.FileStore); ok {
-		return "file store"
-	}
-	return "redis"
-}
-
-// OpenStore opens the derived backend, failing fast with a clear
-// error: every keeper command needs state, and inventing numbers
-// without it is worse than refusing. Exported so the e2e suite
-// (test/e2e) opens state the same way every command does — auth, DB
-// selection, and refusal included.
-func OpenStore(cfg *config.Config) (store.StoreCloser, error) {
-	backend, dir, err := resolveStoreBackend()
-	if err != nil {
-		return nil, err
-	}
-	// NOTE(mutants): the 5s bound is timing, not logic — no test
-	// distinguishes it from any other positive bound without a
-	// stopwatch, and file Ping ignores ctx entirely. A mutant here
-	// survives by being unobservable, not by being correct.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if backend == "file" {
-		s := buildStore(backend, dir, cfg)
-		if err := s.Ping(ctx); err != nil {
-			return nil, fmt.Errorf("file store at %s unreachable: %w", dir, err)
-		}
-		return s, nil
-	}
-	s := buildStore(backend, dir, cfg)
-	if err := s.Ping(ctx); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("redis unreachable at %s: %w", cfg.RedisAddr, err)
-	}
-	return s, nil
-}
-
-// buildStore constructs the derived backend without probing it: one
-// branch for OpenStore's fail-fast Ping and serve's lazy degrade, so
-// a flipped conditional fails both instead of hiding in one.
-func buildStore(backend, dir string, cfg *config.Config) store.StoreCloser {
-	if backend == "file" {
-		return store.NewFileStore(dir)
-	}
-	return store.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
-}
-
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show keeper banner and counters as text",
 	Long:  `Banner plus counters from tracked state, for scripts and ssh. Needs state; fails fast without it. Store facts (backend, lock, proof, identity) live under 'store status'.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		return runStatus(cmd.Context(), cmd.OutOrStdout(), d.store, d.reg)
+		defer d.Close()
+		return runStatus(cmd.Context(), cmd.OutOrStdout(), d.Store, d.Reg)
 	},
 }
 
@@ -348,12 +250,12 @@ var planCmd = &cobra.Command{
 	Short: "Show pending sweep candidates with reasons",
 	Long:  `Pending candidates (rows marked due) with reasons. --json renders them for piping.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		s := d.store
+		defer d.Close()
+		s := d.Store
 		return runPlan(cmd.Context(), cmd.OutOrStdout(), s, planJSON)
 	},
 }
@@ -392,19 +294,19 @@ only prints the plan. Repeat --exclude to spare keep-N for rows
 whose repo:tag matches (registry stripped).`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		cfg, s := d.cfg, d.store
+		defer d.Close()
+		cfg, s := d.Cfg, d.Store
 		armed := reapArmed(cfg)
 		name := "all"
 		if len(args) == 1 {
 			name = args[0]
 		}
 		return runReap(cmd.Context(), cmd.OutOrStdout(), s,
-			d.reg, armed, reapExclude, time.Now().UTC(), name)
+			d.Reg, armed, reapExclude, time.Now().UTC(), name)
 	},
 }
 
@@ -414,12 +316,12 @@ var planDiscardCmd = &cobra.Command{
 	Long: `Clear every due mark. Rows survive; only marks go, so the next
 sweep finds nothing until a fresh reap marks again.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		s := d.store
+		defer d.Close()
+		s := d.Store
 		return runDiscardPlan(cmd.Context(), cmd.OutOrStdout(), s)
 	},
 }
@@ -440,14 +342,14 @@ records ride OTLP-only (stdout stays quiet), failure lines
 stream on stdout. --output writes the per-row log (would
 sweep/swept, skips, failures) plus the summary into a file.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		cfg, s := d.cfg, d.store
+		defer d.Close()
+		cfg, s := d.Cfg, d.Store
 		output, _ := cmd.Flags().GetString("output")
-		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, d.reg, sweepArmed(cfg), output)
+		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, d.Reg, sweepArmed(cfg), output)
 	},
 }
 

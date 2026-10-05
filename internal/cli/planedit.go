@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -50,12 +51,12 @@ matches union. An exact repo:tag spelling is typo-proof: matching
 no tracked row refuses. A direct plan edit: no dry-run.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		s := d.store
+		defer d.Close()
+		s := d.Store
 		return runPlanAdd(cmd.Context(), cmd.OutOrStdout(), s, args)
 	},
 }
@@ -68,12 +69,12 @@ pattern: glob, regex:, or exact image, one matcher takes all three.
 Rows survive; only marks go. A direct plan edit: no dry-run.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		s := d.store
+		defer d.Close()
+		s := d.Store
 		return runPlanRemove(cmd.Context(), cmd.OutOrStdout(), s, args)
 	},
 }

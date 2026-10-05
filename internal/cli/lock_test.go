@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
+	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
@@ -61,7 +63,7 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 	if !strings.Contains(out, "store unlocked: shared store proven via") {
 		t.Fatalf("unlock output names no proof:\n%s", out)
 	}
-	s, err := OpenStore(config.NewBuilder().FromEnv().Build())
+	s, err := clideps.OpenStore(config.NewBuilder().FromEnv().Build())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -87,7 +89,7 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 	if !strings.Contains(out, "store locked") {
 		t.Fatalf("lock output confirms nothing:\n%s", out)
 	}
-	s, err = OpenStore(config.NewBuilder().FromEnv().Build())
+	s, err = clideps.OpenStore(config.NewBuilder().FromEnv().Build())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -147,7 +149,7 @@ func TestUnlockRefusesUnsharedStore(t *testing.T) {
 // command invents intent without a backend.
 func TestLockCommandsRefuseBadBackend(t *testing.T) {
 	t.Setenv(config.EnvStore, "bogus-backend")
-	for _, target := range []*cobra.Command{lockCmd, unlockCmd, adoptCmd, gcCmd} {
+	for _, target := range []*cobra.Command{lockCmd, unlockCmd, adoptCmd, gccmd.Cmd} {
 		var buf bytes.Buffer
 		target.SetOut(&buf)
 		defer target.SetOut(nil)
@@ -174,7 +176,7 @@ func TestAdoptBootstrapsSilence(t *testing.T) {
 	if !strings.Contains(out, "paired to "+ident) {
 		t.Errorf("adopt output lacks the pairing:\n%s", out)
 	}
-	s, err := OpenStore(config.NewBuilder().FromEnv().Build())
+	s, err := clideps.OpenStore(config.NewBuilder().FromEnv().Build())
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}

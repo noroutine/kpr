@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
+	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
@@ -557,7 +559,7 @@ func TestOpenStoreNamesDeadRedis(t *testing.T) {
 	clearStoreEnv(t)
 	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
 	cfg := config.NewBuilder().WithRedisAddr("127.0.0.1:1").Build()
-	if _, err := OpenStore(cfg); err == nil {
+	if _, err := clideps.OpenStore(cfg); err == nil {
 		t.Error("OpenStore on dead redis succeeded, want a fast error")
 	} else if !strings.Contains(err.Error(), "redis") {
 		t.Errorf("error = %q, want it to name redis", err.Error())
@@ -737,11 +739,11 @@ func TestLockStateUnknownOnOutage(t *testing.T) {
 // blame the wrong backend.
 func TestStoreNamesVoiceBackend(t *testing.T) {
 	dir := t.TempDir()
-	if got := storeName(store.NewFileStore(dir)); got != "file store" {
-		t.Errorf("storeName(file) = %q, want file store", got)
+	if got := clideps.StoreName(store.NewFileStore(dir)); got != "file store" {
+		t.Errorf("clideps.StoreName(file) = %q, want file store", got)
 	}
-	if got := storeName(store.NewMemStore()); got != "redis" {
-		t.Errorf("storeName(other) = %q, want redis", got)
+	if got := clideps.StoreName(store.NewMemStore()); got != "redis" {
+		t.Errorf("clideps.StoreName(other) = %q, want redis", got)
 	}
 	if got := describeStore(store.NewFileStore(dir), nil); got != "file ("+dir+")" {
 		t.Errorf("describeStore(file) = %q, want file with dir", got)
@@ -793,7 +795,7 @@ func TestOpenStoreRefusesConflictingBackend(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
 	cfg := config.NewBuilder().FromEnv().Build()
-	if _, err := OpenStore(cfg); err == nil {
+	if _, err := clideps.OpenStore(cfg); err == nil {
 		t.Error("OpenStore on conflicting backend succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "conflicts") {
 		t.Errorf("refusal = %q, want the conflict named", err.Error())
@@ -811,7 +813,7 @@ func TestOpenStoreRefusesBadFileDir(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, blocker)
 	cfg := config.NewBuilder().FromEnv().Build()
-	if _, err := OpenStore(cfg); err == nil {
+	if _, err := clideps.OpenStore(cfg); err == nil {
 		t.Error("OpenStore on file-backed dir succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), blocker) {
 		t.Errorf("refusal = %q, want the dir named", err.Error())
@@ -893,7 +895,7 @@ func serveFakeRedisConn(c net.Conn) {
 func TestOpenStoreRedisSuccess(t *testing.T) {
 	addr := fakeRedis(t)
 	cfg := config.NewBuilder().WithRedisAddr(addr).Build()
-	s, err := OpenStore(cfg)
+	s, err := clideps.OpenStore(cfg)
 	if err != nil {
 		t.Fatalf("OpenStore on answering redis: %v", err)
 	}
@@ -936,7 +938,7 @@ func TestCommandTailsRunAgainstFileBackend(t *testing.T) {
 // invents numbers without a backend.
 func TestKeeperCommandsRefuseBadBackend(t *testing.T) {
 	t.Setenv(config.EnvStore, "bogus-backend")
-	for _, target := range []*cobra.Command{statusCmd, planCmd, planDiscardCmd, sweepCmd, gcCmd, lockCmd} {
+	for _, target := range []*cobra.Command{statusCmd, planCmd, planDiscardCmd, sweepCmd, gccmd.Cmd, lockCmd} {
 		var buf bytes.Buffer
 		target.SetOut(&buf)
 		defer target.SetOut(nil)
@@ -1202,7 +1204,7 @@ func TestResolveStoreBackend(t *testing.T) {
 			for k, v := range tc.env {
 				t.Setenv(k, v)
 			}
-			backend, dir, err := resolveStoreBackend()
+			backend, dir, err := clideps.ResolveStoreBackend()
 			if tc.wantErrContains != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErrContains) {
 					t.Fatalf("resolve = (%q, %q, %v), want error containing %q", backend, dir, err, tc.wantErrContains)
@@ -1227,9 +1229,9 @@ func TestOpenStoreFileBackend(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
 	cfg := config.NewBuilder().FromEnv().Build()
-	s, err := OpenStore(cfg)
+	s, err := clideps.OpenStore(cfg)
 	if err != nil {
-		t.Fatalf("OpenStore(file): %v", err)
+		t.Fatalf("clideps.OpenStore(file): %v", err)
 	}
 	if _, ok := s.(*store.FileStore); !ok {
 		t.Errorf("store = %T, want *store.FileStore", s)

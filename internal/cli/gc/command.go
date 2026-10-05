@@ -1,4 +1,4 @@
-package cli
+package gc
 
 import (
 	"fmt"
@@ -6,16 +6,18 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/fence"
-	"nrtn.dev/catalyst/kpr/internal/gc"
+	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
-// registryBinPath is the stock registry binary gc shells out to. The
+// RegistryBinPath is the stock registry binary gc shells out to. The
 // image COPYs it from the same registry:3 the stack runs, so collector
-// and store versions match by construction.
-var registryBinPath = "/bin/registry"
+// and store versions match by construction. A var so tests stage stub
+// binaries; production never reassigns it.
+var RegistryBinPath = "/bin/registry"
 
 var gcDeleteUntagged bool
 
@@ -34,20 +36,20 @@ var gcNoDryRun bool
 // renderGCEvent voices the lifecycle loud: probe verdicts, collector
 // start (pid, so a long mark phase is visibly alive), post-probe, and
 // the flip banner. Collector lines stream raw alongside.
-func renderGCEvent(w io.Writer, dryRun bool) gc.Reporter {
-	return func(e gc.Event) {
+func renderGCEvent(w io.Writer, dryRun bool) gcrun.Reporter {
+	return func(e gcrun.Event) {
 		switch e.Stage {
-		case gc.StagePreProbe:
+		case gcrun.StagePreProbe:
 			_, _ = fmt.Fprintf(w, "sentinel: registry is %s\n", strings.ToUpper(e.Message))
-		case gc.StageStarted:
+		case gcrun.StageStarted:
 			if e.PID != 0 {
 				_, _ = fmt.Fprintf(w, "collector started (pid %d)%s\n", e.PID, drySuffix(dryRun))
 			}
-		case gc.StagePostProbe:
+		case gcrun.StagePostProbe:
 			_, _ = fmt.Fprintf(w, "sentinel: registry still %s\n", strings.ToUpper(e.Message))
-		case gc.StageModeFlip:
+		case gcrun.StageModeFlip:
 			_, _ = fmt.Fprintf(w, "WARNING: registry flipped %s mid-run\n", e.Message)
-		case gc.StageFailure:
+		case gcrun.StageFailure:
 			_, _ = fmt.Fprintf(w, "collector failed: %s\n", e.Error)
 		}
 	}
@@ -64,13 +66,13 @@ func drySuffix(dryRun bool) string {
 // plus transition announcements over the run's store and
 // report. It travels into gc as a factory — the use case owns
 // the fencing decision, the edge owns the adapter.
-func newFenceControl(st edge.GateStore, report gc.Reporter) func(string) fence.Controller {
+func newFenceControl(st edge.GateStore, report gcrun.Reporter) func(string) fence.Controller {
 	return func(dir string) fence.Controller {
 		return edge.Control{HoldFile: edge.HoldFile{Dir: dir}, Store: st, Report: report}
 	}
 }
 
-var gcCmd = &cobra.Command{
+var Cmd = &cobra.Command{
 	Use:   "gc",
 	Short: "Garbage-collect unreferenced registry blobs",
 	Long: `Run the stock registry garbage-collect against the shared store,
@@ -96,23 +98,23 @@ stores included): a locked run refuses before probing — 'kpr
 store unlock' proves the shared store and opens writes, 'kpr store lock'
 revokes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		cfg := d.cfg
+		defer d.Close()
+		cfg := d.Cfg
 		out := cmd.OutOrStdout()
 		// The run mode flows from the mint: dry-run is the absence
 		// of Armed. The adapter feeds raw readings (flag var,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
-		dryRun := gcDryRun(armedRun)
+		dryRun := GcDryRun(armedRun)
 		accepts := gcAccepts(armedRun)
-		backend, dir, berr := resolveStoreBackend()
+		backend, dir, berr := clideps.ResolveStoreBackend()
 		report := renderGCEvent(out, dryRun)
-		fence := gc.FenceForBackend(backend, dir, newFenceControl(d.store, report), berr, dryRun, out)
-		return gc.Run(cmd.Context(), out, gc.ProbeRegistry, d.store, gc.RunCollector, d.reg, cfg.RegistryURL, cfg.RegistryConfig, registryBinPath, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer, gc.Options{
+		fence := gcrun.FenceForBackend(backend, dir, newFenceControl(d.Store, report), berr, dryRun, out)
+		return gcrun.Run(cmd.Context(), out, gcrun.ProbeRegistry, d.Store, gcrun.RunCollector, d.Reg, cfg.RegistryURL, cfg.RegistryConfig, RegistryBinPath, d.Store, d.Store, d.Store, clideps.ClockSource(d.Cfg), d.Cfg.TimeServer, gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,
 			Report:         renderGCEvent(out, dryRun),
@@ -123,14 +125,13 @@ revokes.`,
 }
 
 func init() {
-	gcCmd.Flags().BoolVar(&gcDeleteUntagged, "delete-untagged", false, "Also drop orphaned manifests (same flag as registry garbage-collect)")
-	gcCmd.Flags().BoolVar(&gcAcceptBlobCache, "accept-blob-cache", false, "Collect with a blobdescriptor cache configured (deletes stay vouched until restart)")
-	gcCmd.Flags().BoolVar(&gcAcceptUnfenced, "accept-unfenced", false, "Collect without the gateway HOLD fence (a push mid-collect corrupts)")
-	gcCmd.Flags().BoolVar(&gcAcceptClockSkew, "accept-clock-skew", false, "Collect with clock skew past tolerance (mint timestamps may misorder)")
-	gcCmd.Flags().BoolVar(&gcAcceptRollback, "accept-rollback", false, "Collect against a restored older generation (a rollback may have resurrected blobs)")
-	gcCmd.Flags().BoolVar(&gcAcceptModeFlip, "accept-mode-flip", false, "Trust a collect the registry flipped writable mid-run (writes may have raced the mark phase)")
-	gcCmd.Flags().BoolVar(&gcNoDryRun, "no-dry-run", false, "Collect for real (default previews with the collector's --dry-run)")
-	RootCmd.AddCommand(gcCmd)
+	Cmd.Flags().BoolVar(&gcDeleteUntagged, "delete-untagged", false, "Also drop orphaned manifests (same flag as registry garbage-collect)")
+	Cmd.Flags().BoolVar(&gcAcceptBlobCache, "accept-blob-cache", false, "Collect with a blobdescriptor cache configured (deletes stay vouched until restart)")
+	Cmd.Flags().BoolVar(&gcAcceptUnfenced, "accept-unfenced", false, "Collect without the gateway HOLD fence (a push mid-collect corrupts)")
+	Cmd.Flags().BoolVar(&gcAcceptClockSkew, "accept-clock-skew", false, "Collect with clock skew past tolerance (mint timestamps may misorder)")
+	Cmd.Flags().BoolVar(&gcAcceptRollback, "accept-rollback", false, "Collect against a restored older generation (a rollback may have resurrected blobs)")
+	Cmd.Flags().BoolVar(&gcAcceptModeFlip, "accept-mode-flip", false, "Trust a collect the registry flipped writable mid-run (writes may have raced the mark phase)")
+	Cmd.Flags().BoolVar(&gcNoDryRun, "no-dry-run", false, "Collect for real (default previews with the collector's --dry-run)")
 }
 
 // gcAccepts mints one acceptance per named risk from the same
@@ -138,8 +139,8 @@ func init() {
 // nothing else. There is no umbrella — a test below pins that no
 // single flag mints the whole set. If this fails, an umbrella
 // re-entered through a shared mint.
-func gcAccepts(armed proof.ArmedRun) gc.Accepts {
-	return gc.Accepts{
+func gcAccepts(armed proof.ArmedRun) gcrun.Accepts {
+	return gcrun.Accepts{
 		Cache:     proof.Force(armed, gcAcceptBlobCache),
 		Fence:     proof.Force(armed, gcAcceptUnfenced),
 		ClockSkew: proof.Force(armed, gcAcceptClockSkew),
@@ -148,7 +149,9 @@ func gcAccepts(armed proof.ArmedRun) gc.Accepts {
 	}
 }
 
-// gcDryRun reads the mode off the mint: dry-run is the absence of
-// Armed, never a second flag. If this fails, gc's preview/collect
-// split answers to something other than the mint.
-func gcDryRun(a proof.ArmedRun) bool { return a == nil }
+// GcDryRun reads the mode off the mint: dry-run is the absence of
+// Armed, never a second flag. Exported for commands that share
+// the run-mode semantics (backfill) until they move to their own
+// subpackages. If this fails, preview/collect splits answer to
+// something other than the mint.
+func GcDryRun(a proof.ArmedRun) bool { return a == nil }

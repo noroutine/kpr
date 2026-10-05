@@ -42,6 +42,7 @@ and quickstart commands are in the [top-level README](../README.md).
 | [HEXAGONAL_STUDY](HEXAGONAL_STUDY.md) | the post-mortem those rules came from |
 | [TESTING](TESTING.md) | unit, e2e, coverage, mutation gates |
 | [BUILD](BUILD.md) | builds, releases, cross-compilation |
+| [CLI](CLI.md) | command inventory, subpackage layout, shared wiring |
 | [REVIEWER_CONTEXT](REVIEWER_CONTEXT.md) | review loop contract (Claude) |
 
 ## Unbuilt work
@@ -56,6 +57,7 @@ reference pages above. Each `X.md` states what ships today; its
 | [GC_FUTURE](GC_FUTURE.md) | token-auth registries |
 | [GC_DANGLING](GC_DANGLING.md) | dangling references: classes, dead-tag-link design |
 | [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | shadow reader, digest-less enrichment |
+| [CLI_FUTURE](CLI_FUTURE.md) | one subpackage per command |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |
 | [SENTINELS_FUTURE](SENTINELS_FUTURE.md) | backfill snapshot detection |
 

@@ -1,4 +1,4 @@
-package cli
+package clideps
 
 import (
 	"testing"
@@ -22,7 +22,7 @@ func TestClockSourceMapsMethods(t *testing.T) {
 	} {
 		cfg := config.NewBuilder().Build()
 		cfg.TimeMethod = tc.method
-		if got := clockSource(cfg); got != tc.want {
+		if got := ClockSource(cfg); got != tc.want {
 			t.Errorf("method %q -> %T, want %T", tc.method, got, tc.want)
 		}
 	}

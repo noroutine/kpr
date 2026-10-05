@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
@@ -1054,7 +1055,7 @@ func TestStoreLsGhostsCommandListsAgreedGone(t *testing.T) {
 	func() {
 		t.Setenv(config.EnvStore, "file")
 		t.Setenv(config.EnvStoreDir, dir)
-		s, err := OpenStore(config.NewBuilder().FromEnv().Build())
+		s, err := clideps.OpenStore(config.NewBuilder().FromEnv().Build())
 		if err != nil {
 			t.Fatalf("open file store: %v", err)
 		}
@@ -1095,7 +1096,7 @@ func TestStoreLsCommandSplitsSentinels(t *testing.T) {
 	func() {
 		t.Setenv(config.EnvStore, "file")
 		t.Setenv(config.EnvStoreDir, dir)
-		s, err := OpenStore(config.NewBuilder().FromEnv().Build())
+		s, err := clideps.OpenStore(config.NewBuilder().FromEnv().Build())
 		if err != nil {
 			t.Fatalf("open file store: %v", err)
 		}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/clideps"
 	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 )
@@ -17,18 +18,18 @@ and the receiver keep working — only writes under the registry's
 store go away. Doubles as the remote-mode simulator: locked behaves
 exactly like no shared store for write ops.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		if err := d.store.SetUnlocked(cmd.Context(), false); err != nil {
+		defer d.Close()
+		if err := d.Store.SetUnlocked(cmd.Context(), false); err != nil {
 			return err
 		}
 		// The marker denies; this says it out loud — the ring
 		// carries deny_engage at the transition, not at the
 		// first refused push.
-		edge.Control{Store: d.store}.Deny(cmd.Context(), "store locked: registry-store writes denied until 'kpr store unlock'")
+		edge.Control{Store: d.Store}.Deny(cmd.Context(), "store locked: registry-store writes denied until 'kpr store unlock'")
 		_, err = fmt.Fprintln(cmd.OutOrStdout(), "store locked: registry-store writes denied until 'kpr store unlock'")
 		return err
 	},
@@ -47,17 +48,17 @@ Silence establishes the pairing. The marker never opens without
 proof. Fresh stores start locked: unlock once per deploy, lock
 to revoke.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := clideps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		if err := gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, d.cfg.RegistryConfig, d.store, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer); err != nil {
+		defer d.Close()
+		if err := gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.Reg, d.Cfg.RegistryConfig, d.Store, d.Store, d.Store, d.Store, clideps.ClockSource(d.Cfg), d.Cfg.TimeServer); err != nil {
 			return err
 		}
 		// Proof opened writes; this says it out loud — the ring
 		// carries deny_release at the transition.
-		edge.Control{Store: d.store}.Allow(cmd.Context(), "store unlocked: shared store proven, registry-store writes allowed")
+		edge.Control{Store: d.Store}.Allow(cmd.Context(), "store unlocked: shared store proven, registry-store writes allowed")
 		return nil
 	},
 }

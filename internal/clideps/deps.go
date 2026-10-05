@@ -1,4 +1,4 @@
-package cli
+package clideps
 
 import (
 	"nrtn.dev/catalyst/kpr/internal/clock"
@@ -7,10 +7,10 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// clockSource builds the configured time transport: the one place
+// ClockSource builds the configured time transport: the one place
 // the method env var becomes behavior, so gc and unlock (and any
 // future minter) check against the same source.
-func clockSource(cfg *config.Config) clock.Source {
+func ClockSource(cfg *config.Config) clock.Source {
 	switch cfg.TimeMethod {
 	case clock.MethodNTP:
 		return clock.NTP{}
@@ -21,19 +21,19 @@ func clockSource(cfg *config.Config) clock.Source {
 	}
 }
 
-// deps bundles one command's shared wiring: config, the redis state,
+// Deps bundles one command's shared wiring: config, the redis state,
 // and the registry client for the commands that need it (status,
 // reap). Every RunE opens from this one place, so a wiring change
 // (auth, dial opts, a second backend) lands everywhere or nowhere.
 // Building the client eagerly is harmless: NewClient dials nothing,
 // it only holds the base URL.
-type deps struct {
-	cfg   *config.Config
-	store store.StoreCloser
-	reg   *registry.Client
+type Deps struct {
+	Cfg   *config.Config
+	Store store.StoreCloser
+	Reg   *registry.Client
 }
 
-func openDeps() (*deps, error) {
+func OpenDeps() (*Deps, error) {
 	cfg := config.NewBuilder().FromEnv().Build()
 	s, err := OpenStore(cfg)
 	if err != nil {
@@ -41,9 +41,9 @@ func openDeps() (*deps, error) {
 	}
 	reg := registry.NewClient(cfg.RegistryURL)
 	reg.SetBasicAuth(cfg.RegistryUser, cfg.RegistryPassword)
-	return &deps{cfg: cfg, store: s, reg: reg}, nil
+	return &Deps{Cfg: cfg, Store: s, Reg: reg}, nil
 }
 
-func (d *deps) close() {
-	_ = d.store.Close()
+func (d *Deps) Close() {
+	_ = d.Store.Close()
 }
