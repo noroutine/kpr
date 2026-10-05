@@ -156,9 +156,11 @@ opaque; per-identity fencing belongs to the tenancy world, out
 of scope.
 
 Implemented: `edge.Gate` (HOLD/DENY, shared lock evaluation,
-edge-triggered flip events + ring outcomes), `gc.Fencer` port +
-`Options.Fence` (armed collects hold, previews never, failed
-fence refuses), `edge.HoldFile` lease wired in `kpr gc` on file
+edge-triggered flip events + ring outcomes), `fence.Controller`
+port + `Options.Fence` (armed collects hold, previews never,
+failed fence refuses; `store lock`/`unlock` voice deny_engage /
+deny_release at the transition), `edge.Control` adapter (lease
+file + transition announcements) wired in `kpr gc` on file
 backends (loud warning otherwise). Proven live: locked PUT→423
 with remedy, uploads/reads pass, 3s hold→423 on a locked store,
 flips in the ring as `kpr-edge`, and the full cycle in-container
@@ -197,9 +199,11 @@ own flags everywhere, no umbrella: clock skew past tolerance
 collect the sentinel re-probes: a flip fails loudly, a dead
 post-probe only warns. Full spec in [`docs/GC.md`](GC.md).
 
-Implemented: `gc.Fencer` port + `Options.Fence` (armed
-collects hold, previews never, failed fence refuses),
-`edge.HoldFile` lease wired in `kpr gc` on file backends,
+Implemented: `fence.Controller` port + `Options.Fence`
+(armed collects hold, previews never, failed fence refuses;
+`store lock`/`unlock` voice the deny transitions),
+`edge.Control` adapter (lease file + announcements) wired in
+`kpr gc` on file backends,
 `gc.Accepts` grouping the five sealed risk acceptances beside
 `Options` (evidence is not flags; named fields, never trailing
 positionals). Proven live: serving-registry collect fenced

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 )
 
@@ -24,6 +25,10 @@ exactly like no shared store for write ops.`,
 		if err := d.store.SetUnlocked(cmd.Context(), false); err != nil {
 			return err
 		}
+		// The marker denies; this says it out loud — the ring
+		// carries deny_engage at the transition, not at the
+		// first refused push.
+		edge.Control{Store: d.store}.Deny(cmd.Context(), "store locked: registry-store writes denied until 'kpr store unlock'")
 		_, err = fmt.Fprintln(cmd.OutOrStdout(), "store locked: registry-store writes denied until 'kpr store unlock'")
 		return err
 	},
@@ -47,7 +52,13 @@ to revoke.`,
 			return err
 		}
 		defer d.close()
-		return gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, d.cfg.RegistryConfig, d.store, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer)
+		if err := gc.Unlock(cmd.Context(), cmd.OutOrStdout(), d.reg, d.cfg.RegistryConfig, d.store, d.store, d.store, d.store, clockSource(d.cfg), d.cfg.TimeServer); err != nil {
+			return err
+		}
+		// Proof opened writes; this says it out loud — the ring
+		// carries deny_release at the transition.
+		edge.Control{Store: d.store}.Allow(cmd.Context(), "store unlocked: shared store proven, registry-store writes allowed")
+		return nil
 	},
 }
 

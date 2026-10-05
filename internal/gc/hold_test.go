@@ -22,6 +22,13 @@ func (s stubFencer) Hold(context.Context, time.Time) (func(), error) {
 	return func() { *s.events = append(*s.events, "release") }, nil
 }
 
+// Deny/Allow never fire on the gc path (only Hold does); the
+// no-ops satisfy the port so the Hold engagement tests can run.
+// If this fails, the stub stopped implementing the fence port.
+func (s stubFencer) Deny(context.Context, string) {}
+
+func (s stubFencer) Allow(context.Context, string) {}
+
 func collectWithEvents(events *[]string) Collector {
 	return func(_ context.Context, _ io.Writer, _ string, _ []string, _ Reporter) error {
 		*events = append(*events, "collect")
