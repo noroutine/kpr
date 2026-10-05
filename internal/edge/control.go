@@ -26,6 +26,31 @@ type Control struct {
 
 var _ fence.Controller = Control{}
 
+// Hold engages the lease file and voices hold_engage at
+// engage time; the wrapped release voices hold_release. A
+// Hold that fails to engage voices nothing — no lease, no
+// announcement — and the caller refuses instead of collecting
+// unfenced.
+func (c Control) Hold(ctx context.Context, until time.Time) (func(), error) {
+	release, err := c.HoldFile.Hold(ctx, until)
+	if err != nil {
+		return nil, err
+	}
+	c.announce(StageHoldEngage, "HOLD lease engaged: manifest writes wait out the armed collect")
+	return func() {
+		release()
+		c.announce(StageHoldRelease, "HOLD lease released: manifest writes flow again")
+	}, nil
+}
+
+func (c Control) announce(stage, msg string) {
+	outcome := "hold_release"
+	if stage == StageHoldEngage {
+		outcome = "hold_engage"
+	}
+	announce(c.Store, c.Report, c.now(), stage, msg, outcome)
+}
+
 // Deny voices a deny_engage transition: lock flipped the marker,
 // this says it out loud.
 func (c Control) Deny(ctx context.Context, reason string) {

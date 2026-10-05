@@ -95,11 +95,11 @@ overrides). Model behind both in [`docs/PROOFS.md`](PROOFS.md).
 
 The console carries the edge's live posture (open/closed,
 deny/held) in its own section — a level reading of the
-edge-triggered fence, plus the ring flips. Caveat: posture is
-the edge's cached snapshot, refreshed on push traffic — a
-quiet store shows the last flip, not a live read. Voicing
-HOLD engagement without traffic is open future work
-([`docs/GC_FUTURE.md`](GC_FUTURE.md)).
+edge-triggered fence, plus the ring flips. Both transitions
+are voiced at the moment they happen: `hold_engage` /
+`hold_release` around the armed collect, `deny_engage` /
+`deny_release` on lock/unlock — a quiet store still shows
+what the fence did, push or no push.
 
 ### Location guard — fence-critical
 
@@ -147,6 +147,9 @@ history stays in git:
 - Online gc under the fence: preflight clears cache +
   gateway up front, `--accept-*` per risk, re-probe after
   the collect.
+- Loud transitions: hold and deny flips voiced at the moment
+  they happen (report stage + ring outcome), never only on
+  push traffic.
 
 ## Elsewhere, not here
 
