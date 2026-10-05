@@ -118,6 +118,16 @@ func stageConfig(t *testing.T, url, cfgPath string) {
 	}))
 }
 
+// stageConfigEdge is stageConfig plus the loopback edge the online
+// preflight dials: only cleared online runs need it.
+func stageConfigEdge(t *testing.T, url, cfgPath, edge string) {
+	t.Helper()
+	t.Cleanup(config.SetCurrent(&config.Config{
+		RegistryURL: url, RegistryConfig: cfgPath, TimeServer: "time.example.com",
+		EdgeAddr: edge,
+	}))
+}
+
 func stageProvenRun(t *testing.T) (string, string, *store.MemStore) {
 	t.Helper()
 	root := t.TempDir()

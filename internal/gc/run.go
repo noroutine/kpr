@@ -68,9 +68,6 @@ type Options struct {
 	DeleteUntagged bool
 	DryRun         bool
 	Report         Reporter
-	// EdgeAddr is where the edge listens: the gateway prover
-	// dials it for the online preflight.
-	EdgeAddr string
 	// Fence, when non-nil, holds the edge around armed collects
 	// (previews never engage). A fence that fails to engage
 	// refuses the run: collecting unfenced when fencing was
@@ -208,7 +205,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, collect Collector, d Dep
 		// point minting a generation the gate will reject. Armed
 		// refuses on unaccepted misses; dry-run prints the same
 		// checklist as information and previews on.
-		cache, fence, report, perr := onlinePreflight(ctx, config.Current().RegistryConfig, opts.EdgeAddr, opts.Fence != nil, accepts.Cache, accepts.Fence)
+		cache, fence, report, perr := onlinePreflight(ctx, config.Current().RegistryConfig, config.Current().EdgeAddr, opts.Fence != nil, accepts.Cache, accepts.Fence)
 		if perr != nil {
 			if opts.DryRun {
 				if _, err := io.WriteString(w, report+"\n"); err != nil {

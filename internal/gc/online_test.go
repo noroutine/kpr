@@ -314,9 +314,9 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 	fence := stubFencer{events: &events}
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", onlineCfg)
+	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
 	err := Run(ctx, &out, writableProbe(), okCollector(&collected), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, Accepts{})
+		Options{Fence: fence, Report: func(Event) {}}, Accepts{})
 	if err != nil {
 		t.Fatalf("cleared online run: %v", err)
 	}
@@ -378,9 +378,9 @@ func TestRunOnlineClearReportWriteFailureSurfaces(t *testing.T) {
 	var events []string
 	fence := stubFencer{events: &events}
 	w := errWriter{errTestStoreDown}
-	stageConfig(t, "http://registry:5000", onlineCfg)
+	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
 	err := Run(ctx, w, writableProbe(), okCollector(nil), Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}}, "/bin/sh",
-		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, Accepts{})
+		Options{Fence: fence, Report: func(Event) {}}, Accepts{})
 	if err == nil {
 		t.Fatal("cleared online run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {

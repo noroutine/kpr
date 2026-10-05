@@ -118,7 +118,6 @@ revokes.`,
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,
 			Report:         renderGCEvent(out, dryRun),
-			EdgeAddr:       cfg.EdgeAddr,
 			Fence:          fence,
 		}, accepts)
 	},
