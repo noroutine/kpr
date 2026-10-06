@@ -5,13 +5,11 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/event"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
-	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // Driving the command to a dead registry refuses from inside
@@ -129,26 +127,4 @@ func TestRenderGCEventVoicesStages(t *testing.T) {
 		t.Errorf("real-run start claims dry-run:\n%s", real.String())
 	}
 	renderGCEvent(&real, false)(event.Event{Stage: gcrun.StageStarted})
-}
-
-// The fence constructor moved to gc with the decision (see
-// internal/gc/fence_test.go); the adapter factory here is
-// covered where it is built, ring-only: ephemeral narration
-// belongs to the caller. If this fails, cli grew a second
-// fencing decision beside the use case's.
-func TestNewFenceControlRecordsToRing(t *testing.T) {
-	st := store.NewMemStore()
-	ctl := newFenceControl(st)(t.TempDir())
-	release, err := ctl.Hold(context.Background(), time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("adapter Hold: %v", err)
-	}
-	release()
-	activity, err := st.Activity(context.Background())
-	if err != nil {
-		t.Fatalf("activity: %v", err)
-	}
-	if len(activity) != 2 {
-		t.Fatalf("ring holds %d outcomes, want both hold transitions", len(activity))
-	}
 }

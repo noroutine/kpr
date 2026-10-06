@@ -8,10 +8,8 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/event"
-	"nrtn.dev/catalyst/kpr/internal/fence"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
-	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 var gcDeleteUntagged bool
@@ -62,16 +60,6 @@ func drySuffix(dryRun bool) string {
 	return ""
 }
 
-// newFenceControl builds the run's fence adapter: lease file
-// plus ring announcements over the run's store. It travels into
-// gc as a factory — the use case owns the fencing decision,
-// the edge owns the adapter.
-func newFenceControl(st fence.GateStore) func(string) fence.Controller {
-	return func(dir string) fence.Controller {
-		return fence.Control{HoldFile: store.HoldFile{Dir: dir}, Store: st}
-	}
-}
-
 var Cmd = &cobra.Command{
 	Use:   "gc",
 	Short: "Garbage-collect unreferenced registry blobs",
@@ -113,8 +101,8 @@ revokes.`,
 		accepts := gcAccepts(armedRun)
 		backend, dir, berr := deps.ResolveStoreBackend()
 		report := renderGCEvent(out, dryRun)
-		fence := gcrun.FenceForBackend(backend, dir, newFenceControl(d.Store), berr, dryRun, out)
-		return gcrun.Run(cmd.Context(), out, wirePorts(d, report, fence), gcrun.Options{
+		fencer := gcrun.FenceForBackend(backend, dir, d.Store, berr, dryRun, out)
+		return gcrun.Run(cmd.Context(), out, wirePorts(d, report, fencer), gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,
 		}, accepts)
