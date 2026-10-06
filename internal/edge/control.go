@@ -17,7 +17,7 @@ import (
 // output, the ring keeps shared history.
 type Control struct {
 	HoldFile
-	Store GateStore
+	Store fence.GateStore
 	// Now sources time; nil means time.Now (tests pin it).
 	Now func() time.Time
 }

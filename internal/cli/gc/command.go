@@ -65,7 +65,7 @@ func drySuffix(dryRun bool) string {
 // plus ring announcements over the run's store. It travels into
 // gc as a factory — the use case owns the fencing decision,
 // the edge owns the adapter.
-func newFenceControl(st edge.GateStore) func(string) fence.Controller {
+func newFenceControl(st fence.GateStore) func(string) fence.Controller {
 	return func(dir string) fence.Controller {
 		return edge.Control{HoldFile: edge.HoldFile{Dir: dir}, Store: st}
 	}

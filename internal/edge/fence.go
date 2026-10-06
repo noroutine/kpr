@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -41,18 +42,10 @@ const holdFileName = "edge-fence.json"
 // uploads and every read pass the fence untouched.
 var manifestRef = regexp.MustCompile(`^/v2/.+/manifests/.+$`)
 
-// GateStore names only what the fence reads: the marker for
-// DENY, the ring for flip outcomes. store.Store satisfies it
-// structurally, so the gate never names the backend.
-type GateStore interface {
-	IsUnlocked(ctx context.Context) (bool, error)
-	PushActivity(ctx context.Context, o store.Outcome) error
-}
-
 // announce delivers one fence transition: a stage event plus a
 // ring outcome, never per request. Nil report discards the
 // event, nil store skips the ring.
-func announce(st GateStore, report gc.Reporter, now time.Time, stage, msg, outcome string) {
+func announce(st fence.GateStore, report gc.Reporter, now time.Time, stage, msg, outcome string) {
 	gc.Emit(report, gc.Event{Stage: stage, Message: msg})
 	if st == nil {
 		return
@@ -71,7 +64,7 @@ func announce(st GateStore, report gc.Reporter, now time.Time, stage, msg, outco
 // a mint), so kpr's self-gating and the proxy's fencing cannot
 // drift apart.
 type Gate struct {
-	Store GateStore
+	Store fence.GateStore
 	// Dir holds the HOLD lease file; "" means no HOLD source
 	// (leases need the shared file store).
 	Dir string
