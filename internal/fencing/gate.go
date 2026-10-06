@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -41,8 +42,8 @@ var manifestRef = regexp.MustCompile(`^/v2/.+/manifests/.+$`)
 // announce delivers one fence transition: a stage event plus a
 // ring outcome, never per request. Nil report discards the
 // event, nil store skips the ring.
-func announce(st fence.GateStore, report fence.Reporter, now time.Time, stage, msg, outcome string) {
-	fence.Emit(report, fence.Event{Stage: stage, Message: msg})
+func announce(st fence.GateStore, report event.Reporter, now time.Time, stage, msg, outcome string) {
+	event.Emit(report, event.Event{Stage: stage, Message: msg})
 	if st == nil {
 		return
 	}
@@ -65,7 +66,7 @@ type Gate struct {
 	// (leases need the shared file store).
 	Dir string
 	// Report receives flip events; nil discards.
-	Report fence.Reporter
+	Report event.Reporter
 	// Now sources time; nil means time.Now (tests pin it).
 	Now func() time.Time
 

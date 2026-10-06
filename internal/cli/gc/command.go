@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/fencing"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
@@ -32,8 +33,8 @@ var gcNoDryRun bool
 // start (pid, so a long mark phase is visibly alive), post-probe,
 // the flip banner, and the fence lines the run voices around an
 // armed collect. Collector lines stream raw alongside.
-func renderGCEvent(w io.Writer, dryRun bool) fence.Reporter {
-	return func(e fence.Event) {
+func renderGCEvent(w io.Writer, dryRun bool) event.Reporter {
+	return func(e event.Event) {
 		switch e.Stage {
 		case gcrun.StagePreProbe:
 			_, _ = fmt.Fprintf(w, "sentinel: registry is %s\n", strings.ToUpper(e.Message))

@@ -9,6 +9,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/policy"
@@ -106,7 +107,7 @@ type Deps struct {
 	API   sentinel.API
 	Clock clock.Source
 	// Report is the event sink the CLI renders loud.
-	Report fence.Reporter
+	Report event.Reporter
 	// Fence, when non-nil, holds the edge around armed collects
 	// (previews never engage). A fence that fails to engage
 	// refuses the run: collecting unfenced when fencing was
@@ -203,9 +204,9 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	if err != nil {
 		return err
 	}
-	pre := fence.Timed(StagePreProbe, gcStarted)
+	pre := event.Timed(StagePreProbe, gcStarted)
 	pre.Message = ModeName(mode)
-	fence.Emit(d.Report, pre)
+	event.Emit(d.Report, pre)
 	// Cleared by the online preflight on the writable path, nil
 	// everywhere else: only the writable-armed dispatch consumes
 	// them, so a nil here never reaches a delete.
@@ -348,10 +349,10 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		// The run voices its own fence lines: the adapter
 		// records to the ring, narration into this stream
 		// belongs here, at the moments this function owns.
-		fence.Emit(d.Report, fence.Event{Stage: StageHoldEngage, Message: "HOLD lease engaged: manifest writes wait out the armed collect"})
+		event.Emit(d.Report, event.Event{Stage: StageHoldEngage, Message: "HOLD lease engaged: manifest writes wait out the armed collect"})
 		defer func() {
 			release()
-			fence.Emit(d.Report, fence.Event{Stage: StageHoldRelease, Message: "HOLD lease released: manifest writes flow again"})
+			event.Emit(d.Report, event.Event{Stage: StageHoldRelease, Message: "HOLD lease released: manifest writes flow again"})
 		}()
 		return collect()
 	}
@@ -391,16 +392,16 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 			return werr
 		}
 		husked, herr := RemoveHusks(root)
-		hev := fence.Timed(StageHusk, gcStarted)
+		hev := event.Timed(StageHusk, gcStarted)
 		if herr != nil {
 			hev.Error = herr.Error()
-			fence.Emit(d.Report, hev)
+			event.Emit(d.Report, hev)
 			if _, werr := fmt.Fprintf(w, "Warning: husk cleanup incomplete (%v)\n", herr); werr != nil {
 				return werr
 			}
 		} else {
 			hev.Message = fmt.Sprintf("%d repos", len(husked))
-			fence.Emit(d.Report, hev)
+			event.Emit(d.Report, hev)
 			if len(husked) > 0 {
 				if _, werr := fmt.Fprintf(w, "pruned %d husks\n", len(husked)); werr != nil {
 					return werr
@@ -411,16 +412,16 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 			return werr
 		}
 		pruned, perr := PruneEmptyDirs(root)
-		pev := fence.Timed(StagePrune, gcStarted)
+		pev := event.Timed(StagePrune, gcStarted)
 		if perr != nil {
 			pev.Error = perr.Error()
-			fence.Emit(d.Report, pev)
+			event.Emit(d.Report, pev)
 			if _, werr := fmt.Fprintf(w, "Warning: empty-dir cleanup incomplete (%v)\n", perr); werr != nil {
 				return werr
 			}
 		} else {
 			pev.Message = fmt.Sprintf("%d dirs", pruned)
-			fence.Emit(d.Report, pev)
+			event.Emit(d.Report, pev)
 			if _, werr := fmt.Fprintf(w, "pruned %d empty directories\n", pruned); werr != nil {
 				return werr
 			}
@@ -431,13 +432,13 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, ModeName(mode))
 		return nil
 	}
-	pev := fence.Timed(StagePostProbe, gcStarted)
+	pev := event.Timed(StagePostProbe, gcStarted)
 	pev.Message = ModeName(post)
-	fence.Emit(d.Report, pev)
+	event.Emit(d.Report, pev)
 	if post != mode {
-		flip := fence.Timed(StageModeFlip, gcStarted)
+		flip := event.Timed(StageModeFlip, gcStarted)
 		flip.Message = ModeName(mode) + "→" + ModeName(post)
-		fence.Emit(d.Report, flip)
+		event.Emit(d.Report, flip)
 		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", ModeName(mode), ModeName(post)); werr != nil {
 			return werr
 		}

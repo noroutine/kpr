@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/edge"
-	"nrtn.dev/catalyst/kpr/internal/fence"
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -360,7 +360,7 @@ func TestGateLoudOnceOnExpiredHold(t *testing.T) {
 	defer release()
 
 	var stages []string
-	g := &Gate{Store: st, Dir: dir, Report: func(e fence.Event) { stages = append(stages, e.Stage) }}
+	g := &Gate{Store: st, Dir: dir, Report: func(e event.Event) { stages = append(stages, e.Stage) }}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -408,7 +408,7 @@ func TestGateLoudOnMidWaitExpiry(t *testing.T) {
 	defer release()
 
 	var stages []string
-	g := &Gate{Store: st, Dir: dir, Report: func(e fence.Event) { stages = append(stages, e.Stage) }}
+	g := &Gate{Store: st, Dir: dir, Report: func(e event.Event) { stages = append(stages, e.Stage) }}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -472,7 +472,7 @@ func TestGateEmitsOnDenyFlips(t *testing.T) {
 
 	var stages []string
 	st := store.NewMemStore()
-	g := &Gate{Store: st, Dir: t.TempDir(), Report: func(e fence.Event) { stages = append(stages, e.Stage) }}
+	g := &Gate{Store: st, Dir: t.TempDir(), Report: func(e event.Event) { stages = append(stages, e.Stage) }}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -629,15 +629,15 @@ func TestGateNowDefaultsToWall(t *testing.T) {
 // the flip for the report path, skipping only the ring write. If
 // this fails, storeless gates panic on the ring.
 func TestEmitWithoutStoreSkipsRing(t *testing.T) {
-	var events []fence.Event
-	g := &Gate{Report: func(e fence.Event) { events = append(events, e) }}
+	var flips []event.Event
+	g := &Gate{Report: func(e event.Event) { flips = append(flips, e) }}
 	g.flipHeld(true, "held for test")
-	if len(events) != 1 || events[0].Stage != StageHoldEngage {
-		t.Errorf("events = %v, want the hold_engage flip", events)
+	if len(flips) != 1 || flips[0].Stage != StageHoldEngage {
+		t.Errorf("flips = %v, want the hold_engage flip", flips)
 	}
 }
 
-func lockedGate(dir string, report func(e fence.Event)) *Gate {
+func lockedGate(dir string, report func(e event.Event)) *Gate {
 	st := store.NewMemStore()
 	if err := st.SetUnlocked(context.Background(), false); err != nil {
 		panic(err)

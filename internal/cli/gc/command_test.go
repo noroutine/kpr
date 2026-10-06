@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
-	"nrtn.dev/catalyst/kpr/internal/fence"
+	"nrtn.dev/catalyst/kpr/internal/event"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -102,13 +102,13 @@ func TestGcDryRunFollowsTheMint(t *testing.T) {
 func TestRenderGCEventVoicesStages(t *testing.T) {
 	var out strings.Builder
 	report := renderGCEvent(&out, true)
-	report(fence.Event{Stage: gcrun.StagePreProbe, Message: "readonly"})
-	report(fence.Event{Stage: gcrun.StageStarted, PID: 4242})
-	report(fence.Event{Stage: gcrun.StagePostProbe, Message: "readonly"})
-	report(fence.Event{Stage: gcrun.StageModeFlip, Message: "readonly→writable"})
-	report(fence.Event{Stage: gcrun.StageFailure, Error: "exit status 3: boom"})
-	report(fence.Event{Stage: gcrun.StageHoldEngage})
-	report(fence.Event{Stage: gcrun.StageHoldRelease})
+	report(event.Event{Stage: gcrun.StagePreProbe, Message: "readonly"})
+	report(event.Event{Stage: gcrun.StageStarted, PID: 4242})
+	report(event.Event{Stage: gcrun.StagePostProbe, Message: "readonly"})
+	report(event.Event{Stage: gcrun.StageModeFlip, Message: "readonly→writable"})
+	report(event.Event{Stage: gcrun.StageFailure, Error: "exit status 3: boom"})
+	report(event.Event{Stage: gcrun.StageHoldEngage})
+	report(event.Event{Stage: gcrun.StageHoldRelease})
 	for _, want := range []string{
 		"sentinel: registry is READONLY",
 		"collector started (pid 4242)",
@@ -124,11 +124,11 @@ func TestRenderGCEventVoicesStages(t *testing.T) {
 		}
 	}
 	var real strings.Builder
-	renderGCEvent(&real, false)(fence.Event{Stage: gcrun.StageStarted, PID: 7})
+	renderGCEvent(&real, false)(event.Event{Stage: gcrun.StageStarted, PID: 7})
 	if strings.Contains(real.String(), "dry-run") {
 		t.Errorf("real-run start claims dry-run:\n%s", real.String())
 	}
-	renderGCEvent(&real, false)(fence.Event{Stage: gcrun.StageStarted})
+	renderGCEvent(&real, false)(event.Event{Stage: gcrun.StageStarted})
 }
 
 // The fence constructor moved to gc with the decision (see

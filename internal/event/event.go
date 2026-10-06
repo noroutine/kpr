@@ -1,4 +1,11 @@
-package fence
+// Package event is the shared narration vocabulary: one Event
+// shape, one Reporter port, one Emit, importing nothing. Run
+// narration (gc to the operator's terminal) and flip narration
+// (gate to serve's log) are separate rivers that never share a
+// value — this package is the language they both speak. Stage
+// strings stay local per side (matching strings is cosmetic,
+// never logic).
+package event
 
 import (
 	"time"

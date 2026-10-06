@@ -80,7 +80,7 @@ evaluation the use cases mint from (a boolean here, not a
 mint), so an announcement can never disagree with the gate.
 `fencing.Controller` is the adapter (lease file + announcements);
 `fencing.Gate` enforces. The shared `Event`/`Reporter` vocabulary
-lives in `fence` beside the ports — narrators import no use case.
+lives in `event` — narrators import no use case.
 
 ### Proofs
 

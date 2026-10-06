@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/fence"
+	"nrtn.dev/catalyst/kpr/internal/event"
 )
 
 // GC lifecycle stages. Probes and proofs report through these alongside
@@ -42,16 +42,16 @@ const (
 // streaming its output and reporting the lifecycle. RunCollector is
 // the production implementation; tests substitute a stub. Consumed by
 // the run orchestration when it moves (gc-4).
-type Collector func(ctx context.Context, out io.Writer, binPath string, args []string, report fence.Reporter) error
+type Collector func(ctx context.Context, out io.Writer, binPath string, args []string, report event.Reporter) error
 
 // RunCollector satisfies Collector: the assertion pins the port to
 // the implementation it will carry.
 var _ Collector = RunCollector
 
-func fail(report fence.Reporter, started time.Time, err error) error {
-	event := fence.Timed(StageFailure, started)
-	event.Error = err.Error()
-	fence.Emit(report, event)
+func fail(report event.Reporter, started time.Time, err error) error {
+	failure := event.Timed(StageFailure, started)
+	failure.Error = err.Error()
+	event.Emit(report, failure)
 	return err
 }
 
@@ -116,9 +116,9 @@ func drainGCOutput(lines <-chan gcOutput) {
 // reports the lifecycle. A failing exit carries the last line, so a
 // number never arrives without the clue. Cancelling kills the child
 // and reports stopped.
-func RunCollector(ctx context.Context, out io.Writer, binPath string, args []string, report fence.Reporter) error {
+func RunCollector(ctx context.Context, out io.Writer, binPath string, args []string, report event.Reporter) error {
 	started := time.Now()
-	fence.Emit(report, fence.Event{Stage: StageStart})
+	event.Emit(report, event.Event{Stage: StageStart})
 	if err := ctx.Err(); err != nil {
 		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
@@ -136,24 +136,24 @@ func RunCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	cmd.Stdout = writer
 	cmd.Stderr = writer
 
-	fence.Emit(report, fence.Timed(StageSpawn, started))
+	event.Emit(report, event.Timed(StageSpawn, started))
 	if err := cmd.Start(); err != nil {
 		_ = writer.Close()
 		_ = reader.Close()
 		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
 	_ = writer.Close()
-	begun := fence.Timed(StageStarted, started)
+	begun := event.Timed(StageStarted, started)
 	if cmd.Process != nil {
 		begun.PID = cmd.Process.Pid
 	}
-	fence.Emit(report, begun)
+	event.Emit(report, begun)
 
 	waitErr := make(chan error, 1)
 	go func() { waitErr <- cmd.Wait() }()
 	lines := scanGCOutput(reader)
 	defer drainGCOutput(lines)
-	fence.Emit(report, fence.Timed(StageCollectBegin, started))
+	event.Emit(report, event.Timed(StageCollectBegin, started))
 	lastLine := ""
 	// feed streams one line to out, tracking the last for
 	// failure context. Write errors kill the child and fail:
@@ -202,7 +202,7 @@ func RunCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	if cancelled {
 		_ = reader.Close()
 		<-waitErr
-		fence.Emit(report, fence.Timed(StageStopped, started))
+		event.Emit(report, event.Timed(StageStopped, started))
 		return ctx.Err()
 	}
 	// The child is dead and every write end is closed, so the
@@ -218,11 +218,11 @@ func RunCollector(ctx context.Context, out io.Writer, binPath string, args []str
 		}
 	}
 	_ = reader.Close()
-	exit := fence.Timed(StageCollectExit, started)
+	exit := event.Timed(StageCollectExit, started)
 	if exitErr != nil {
 		exit.Error = exitErr.Error()
 	}
-	fence.Emit(report, exit)
+	event.Emit(report, exit)
 	if exitErr == nil {
 		return nil
 	}

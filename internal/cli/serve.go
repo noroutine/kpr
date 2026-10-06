@@ -17,7 +17,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/console"
-	"nrtn.dev/catalyst/kpr/internal/fence"
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/fencing"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/registry"
@@ -111,7 +111,7 @@ var serveCmd = &cobra.Command{
 		var edgeGate *fencing.Gate
 		var edgeHandler http.Handler
 		if cfg.EdgeEnabled {
-			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, cfg.RegistryConfig, func(e fence.Event) {
+			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, cfg.RegistryConfig, func(e event.Event) {
 				log.Printf("edge fence: %s %s", e.Stage, e.Message)
 			})
 			if gerr != nil {
