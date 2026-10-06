@@ -5,7 +5,7 @@ see [`docs/CLI_FUTURE.md`](CLI_FUTURE.md)). Shared wiring
 lives in [`internal/cli/deps`](../internal/cli/deps/deps.go):
 `Deps`/`OpenDeps` (config, state, registry client),
 `OpenStore`/`BuildStore`/`StoreName`,
-`ResolveStoreBackend`, `ClockSource`. Commands never wire
+`ResolveStoreBackend`. Commands never wire
 each other: the parent only registers their exported `Cmd`.
 
 ```
@@ -34,6 +34,6 @@ shares the run-mode semantics until it moves too.
 
 Wiring order inside `RunE`: open deps → arm the run (flag or
 env, never both, never neither — dry-run is the absence of
-`Armed`) → resolve backend → fence → wire deps onto `gcrun.Deps`
-→ `gc.Run`. Refusals name
+`Armed`) → resolve backend → fence → compose `gcrun.Deps`
+from the command wiring → `gc.Run`. Refusals name
 their remedy; usage never prints on refusal.
