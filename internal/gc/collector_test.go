@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -28,12 +29,12 @@ func stubCollector(script string) func(context.Context, string, []string) *exec.
 	}
 }
 
-func collectEvents() (*[]Event, Reporter) {
-	var events []Event
-	return &events, func(e Event) { events = append(events, e) }
+func collectEvents() (*[]fence.Event, fence.Reporter) {
+	var events []fence.Event
+	return &events, func(e fence.Event) { events = append(events, e) }
 }
 
-func stages(events []Event) []string {
+func stages(events []fence.Event) []string {
 	var out []string
 	for _, e := range events {
 		out = append(out, e.Stage)
@@ -246,7 +247,7 @@ func TestCollectorCancelStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events, inner := collectEvents()
-	report := func(e Event) {
+	report := func(e fence.Event) {
 		inner(e)
 		if e.Stage == StageStarted {
 			cancel()
@@ -301,13 +302,13 @@ func hasArg(args []string, want string) bool {
 // stopped deciding.
 func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 	called := false
-	collect := func(context.Context, io.Writer, string, []string, Reporter) error {
+	collect := func(context.Context, io.Writer, string, []string, fence.Reporter) error {
 		called = true
 		return nil
 	}
 	var out strings.Builder
 	err := collectWritableArmed(context.Background(), &out, collect,
-		"/bin/sh", []string{"garbage-collect"}, func(Event) {}, nil, nil)
+		"/bin/sh", []string{"garbage-collect"}, func(fence.Event) {}, nil, nil)
 	if err == nil {
 		t.Fatal("writable collect without clearance succeeded, want the blind refusal")
 	} else if !strings.Contains(err.Error(), "--accept-blob-cache") {
@@ -324,7 +325,7 @@ func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 		t.Fatalf("stage cache clearance: %v", err)
 	}
 	err = collectWritableArmed(context.Background(), &out, collect,
-		"/bin/sh", []string{"garbage-collect"}, func(Event) {}, cache, nil)
+		"/bin/sh", []string{"garbage-collect"}, func(fence.Event) {}, cache, nil)
 	if err == nil {
 		t.Fatal("writable collect with half clearance succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "--accept-unfenced") {
@@ -340,7 +341,7 @@ func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 // fails, the variant edits the run it only gates.
 func TestCollectWritableArmedDelegatesWhenCleared(t *testing.T) {
 	var got [][]string
-	collect := func(_ context.Context, _ io.Writer, _ string, args []string, _ Reporter) error {
+	collect := func(_ context.Context, _ io.Writer, _ string, args []string, _ fence.Reporter) error {
 		got = append(got, args)
 		return nil
 	}
@@ -348,12 +349,12 @@ func TestCollectWritableArmedDelegatesWhenCleared(t *testing.T) {
 	args := []string{"garbage-collect", "/etc/distribution/config.yml"}
 	accept := proof.Force(proof.Arm(true, false), true)
 	cache, cacheErr := proof.ProveBlobCacheOff(stageOnlineConfig(t, t.TempDir(), true), accept)
-	fence, fenceErr := proof.ProveGatewayFencingAvailable(context.Background(), "/nonexistent.yml", "127.0.0.1:1", false, accept)
+	gating, fenceErr := proof.ProveGatewayFencingAvailable(context.Background(), "/nonexistent.yml", "127.0.0.1:1", false, accept)
 	if cacheErr != nil || fenceErr != nil {
 		t.Fatalf("stage clearance: %v %v", cacheErr, fenceErr)
 	}
 	if err := collectWritableArmed(context.Background(), &out, collect,
-		"/bin/sh", args, func(Event) {}, cache, fence); err != nil {
+		"/bin/sh", args, func(fence.Event) {}, cache, gating); err != nil {
 		t.Fatalf("writable collect when cleared: %v", err)
 	}
 	if len(got) != 1 || strings.Join(got[0], " ") != strings.Join(args, " ") {

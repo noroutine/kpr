@@ -7,7 +7,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/fence"
-	"nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/fencing"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -18,12 +18,12 @@ import (
 // marker per mutating request and the HOLD lease off the shared
 // file store — no shared file store means marker-only fencing
 // (DENY works over any backend; HOLD needs the lease file).
-func buildEdge(st fence.GateStore, backendURL, configPath, holdDir string, report gc.Reporter) (*edge.Gate, http.Handler, error) {
+func buildEdge(st fence.GateStore, backendURL, configPath, holdDir string, report fence.Reporter) (*fencing.Gate, http.Handler, error) {
 	h, err := openEdge(backendURL, configPath, log.Printf)
 	if err != nil {
 		return nil, nil, err
 	}
-	gate := &edge.Gate{Store: st, Dir: holdDir, Report: report}
+	gate := &fencing.Gate{Store: st, Dir: holdDir, Report: report}
 	return gate, gate.Wrap(h), nil
 }
 
@@ -32,7 +32,7 @@ func buildEdge(st fence.GateStore, backendURL, configPath, holdDir string, repor
 // redis — HOLD needs the lease file), and proof refusal comes back
 // as nils for the loud skip. If this fails, HOLD leases land in the
 // wrong dir, or serve boots an unfenced edge thinking it proved one.
-func assembleEdge(cfg *config.Config, backend, storeDir string, st fence.GateStore, configPath string, report gc.Reporter) (*edge.Gate, http.Handler, error) {
+func assembleEdge(cfg *config.Config, backend, storeDir string, st fence.GateStore, configPath string, report fence.Reporter) (*fencing.Gate, http.Handler, error) {
 	holdDir := ""
 	if backend == "file" {
 		holdDir = storeDir

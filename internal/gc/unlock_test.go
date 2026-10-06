@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -23,7 +24,7 @@ func TestRunRefusesLockedStore(t *testing.T) {
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out,
 		Deps{Lock: store.NewMemStore(), Rec: store.NewMemStore(), Ids: store.NewMemStore(), Rows: store.NewMemStore(), API: fileAPI{root},
-			Clock: stubClock{}, Report: func(Event) {},
+			Clock: stubClock{}, Report: func(fence.Event) {},
 			Probe:   Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
 			Collect: okCollector(&collected)},
 		Options{DryRun: true}, Accepts{})

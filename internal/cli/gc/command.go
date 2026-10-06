@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
-	"nrtn.dev/catalyst/kpr/internal/edge"
 	"nrtn.dev/catalyst/kpr/internal/fence"
+	"nrtn.dev/catalyst/kpr/internal/fencing"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -32,8 +32,8 @@ var gcNoDryRun bool
 // start (pid, so a long mark phase is visibly alive), post-probe,
 // the flip banner, and the fence lines the run voices around an
 // armed collect. Collector lines stream raw alongside.
-func renderGCEvent(w io.Writer, dryRun bool) gcrun.Reporter {
-	return func(e gcrun.Event) {
+func renderGCEvent(w io.Writer, dryRun bool) fence.Reporter {
+	return func(e fence.Event) {
 		switch e.Stage {
 		case gcrun.StagePreProbe:
 			_, _ = fmt.Fprintf(w, "sentinel: registry is %s\n", strings.ToUpper(e.Message))
@@ -68,7 +68,7 @@ func drySuffix(dryRun bool) string {
 // the edge owns the adapter.
 func newFenceControl(st fence.GateStore) func(string) fence.Controller {
 	return func(dir string) fence.Controller {
-		return edge.Control{HoldFile: store.HoldFile{Dir: dir}, Store: st}
+		return fencing.Control{HoldFile: store.HoldFile{Dir: dir}, Store: st}
 	}
 }
 

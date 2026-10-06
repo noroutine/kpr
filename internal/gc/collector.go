@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/fence"
 )
 
 // GC lifecycle stages. Probes and proofs report through these alongside
@@ -36,47 +38,20 @@ const (
 	StageHoldRelease = "hold_release"
 )
 
-// Event is one lifecycle stage of a gc run. The JSON tags keep it
-// suitable for the same JSON-lines transport the sweeper reports on,
-// should the console ever subscribe.
-type Event struct {
-	Stage     string `json:"stage"`
-	ElapsedMs int64  `json:"elapsed_ms"`
-	PID       int    `json:"pid,omitempty"`
-	Message   string `json:"message,omitempty"`
-	Error     string `json:"error,omitempty"`
-}
-
-// Reporter receives gc lifecycle events. Nil reporters are fine:
-// RunCollector and the run orchestration both check before emitting.
-type Reporter func(Event)
-
 // Collector runs the stock collector binary against the proven store,
 // streaming its output and reporting the lifecycle. RunCollector is
 // the production implementation; tests substitute a stub. Consumed by
 // the run orchestration when it moves (gc-4).
-type Collector func(ctx context.Context, out io.Writer, binPath string, args []string, report Reporter) error
+type Collector func(ctx context.Context, out io.Writer, binPath string, args []string, report fence.Reporter) error
 
 // RunCollector satisfies Collector: the assertion pins the port to
 // the implementation it will carry.
 var _ Collector = RunCollector
 
-// Timed stamps one lifecycle event against the run start.
-func Timed(stage string, started time.Time) Event {
-	return Event{Stage: stage, ElapsedMs: time.Since(started).Milliseconds()}
-}
-
-// Emit delivers one lifecycle event. Nil reporters are fine.
-func Emit(report Reporter, event Event) {
-	if report != nil {
-		report(event)
-	}
-}
-
-func fail(report Reporter, started time.Time, err error) error {
-	event := Timed(StageFailure, started)
+func fail(report fence.Reporter, started time.Time, err error) error {
+	event := fence.Timed(StageFailure, started)
 	event.Error = err.Error()
-	Emit(report, event)
+	fence.Emit(report, event)
 	return err
 }
 
@@ -141,9 +116,9 @@ func drainGCOutput(lines <-chan gcOutput) {
 // reports the lifecycle. A failing exit carries the last line, so a
 // number never arrives without the clue. Cancelling kills the child
 // and reports stopped.
-func RunCollector(ctx context.Context, out io.Writer, binPath string, args []string, report Reporter) error {
+func RunCollector(ctx context.Context, out io.Writer, binPath string, args []string, report fence.Reporter) error {
 	started := time.Now()
-	Emit(report, Event{Stage: StageStart})
+	fence.Emit(report, fence.Event{Stage: StageStart})
 	if err := ctx.Err(); err != nil {
 		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
@@ -161,24 +136,24 @@ func RunCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	cmd.Stdout = writer
 	cmd.Stderr = writer
 
-	Emit(report, Timed(StageSpawn, started))
+	fence.Emit(report, fence.Timed(StageSpawn, started))
 	if err := cmd.Start(); err != nil {
 		_ = writer.Close()
 		_ = reader.Close()
 		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
 	_ = writer.Close()
-	begun := Timed(StageStarted, started)
+	begun := fence.Timed(StageStarted, started)
 	if cmd.Process != nil {
 		begun.PID = cmd.Process.Pid
 	}
-	Emit(report, begun)
+	fence.Emit(report, begun)
 
 	waitErr := make(chan error, 1)
 	go func() { waitErr <- cmd.Wait() }()
 	lines := scanGCOutput(reader)
 	defer drainGCOutput(lines)
-	Emit(report, Timed(StageCollectBegin, started))
+	fence.Emit(report, fence.Timed(StageCollectBegin, started))
 	lastLine := ""
 	// feed streams one line to out, tracking the last for
 	// failure context. Write errors kill the child and fail:
@@ -227,7 +202,7 @@ func RunCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	if cancelled {
 		_ = reader.Close()
 		<-waitErr
-		Emit(report, Timed(StageStopped, started))
+		fence.Emit(report, fence.Timed(StageStopped, started))
 		return ctx.Err()
 	}
 	// The child is dead and every write end is closed, so the
@@ -243,11 +218,11 @@ func RunCollector(ctx context.Context, out io.Writer, binPath string, args []str
 		}
 	}
 	_ = reader.Close()
-	exit := Timed(StageCollectExit, started)
+	exit := fence.Timed(StageCollectExit, started)
 	if exitErr != nil {
 		exit.Error = exitErr.Error()
 	}
-	Emit(report, exit)
+	fence.Emit(report, exit)
 	if exitErr == nil {
 		return nil
 	}

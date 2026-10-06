@@ -17,8 +17,8 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/console"
-	"nrtn.dev/catalyst/kpr/internal/edge"
-	"nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/fence"
+	"nrtn.dev/catalyst/kpr/internal/fencing"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -108,10 +108,10 @@ var serveCmd = &cobra.Command{
 		// switch selects intent, the RelativeURLs proof selects
 		// safety, and a closed edge is a loud line — never a boot
 		// refusal for the servers below.
-		var edgeGate *edge.Gate
+		var edgeGate *fencing.Gate
 		var edgeHandler http.Handler
 		if cfg.EdgeEnabled {
-			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, cfg.RegistryConfig, func(e gc.Event) {
+			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, cfg.RegistryConfig, func(e fence.Event) {
 				log.Printf("edge fence: %s %s", e.Stage, e.Message)
 			})
 			if gerr != nil {

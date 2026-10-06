@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -55,11 +56,11 @@ func TestOnlinePreflightClears(t *testing.T) {
 	edge, done := loopbackEdge(t)
 	defer done()
 
-	cache, fence, report, err := onlinePreflight(ctx, cfg, edge, true, nil, nil)
+	cache, gating, report, err := onlinePreflight(ctx, cfg, edge, true, nil, nil)
 	if err != nil {
 		t.Fatalf("cleared preflight refused: %v", err)
 	}
-	if cache == nil || fence == nil {
+	if cache == nil || gating == nil {
 		t.Fatal("cleared preflight minted nil, want both tokens")
 	}
 	for _, want := range []string{"[ok] blob cache", "[ok] gateway"} {
@@ -259,7 +260,7 @@ func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(fence.Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
 		Options{DryRun: true}, Accepts{})
 	if err != nil {
 		t.Fatalf("writable preview: %v", err)
@@ -284,7 +285,7 @@ func TestRunExForceRisksOpenNothingOnline(t *testing.T) {
 	var out strings.Builder
 	accept := proof.Force(proof.Arm(true, false), true)
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(fence.Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
 		Options{DryRun: false},
 		Accepts{ClockSkew: accept, Rollback: accept, ModeFlip: accept})
 	if err == nil {
@@ -311,11 +312,11 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 	defer done()
 
 	var events []string
-	fence := stubFencer{events: &events}
+	fencer := stubFencer{events: &events}
 	var collected [][]string
 	var out strings.Builder
 	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
-	err := Run(ctx, &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fence, Report: func(Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
+	err := Run(ctx, &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(fence.Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
 		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("cleared online run: %v", err)
@@ -350,10 +351,10 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 func TestRunOnlineRefusalReportWriteFailureSurfaces(t *testing.T) {
 	_, root, s := stageProvenRun(t)
 	var events []string
-	fence := stubFencer{events: &events}
+	fencer := stubFencer{events: &events}
 	w := errWriter{errTestStoreDown}
 	stageConfig(t, "http://registry:5000", stageOnlineConfig(t, root, false))
-	err := Run(context.Background(), w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fence, Report: func(Event) {}, Probe: writableProbe(), Collect: okCollector(nil)},
+	err := Run(context.Background(), w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(fence.Event) {}, Probe: writableProbe(), Collect: okCollector(nil)},
 		Options{DryRun: true}, Accepts{})
 	if err == nil {
 		t.Fatal("uncleared preview with dead output succeeded, want failure")
@@ -376,10 +377,10 @@ func TestRunOnlineClearReportWriteFailureSurfaces(t *testing.T) {
 	defer done()
 
 	var events []string
-	fence := stubFencer{events: &events}
+	fencer := stubFencer{events: &events}
 	w := errWriter{errTestStoreDown}
 	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
-	err := Run(ctx, w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fence, Report: func(Event) {}, Probe: writableProbe(), Collect: okCollector(nil)},
+	err := Run(ctx, w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(fence.Event) {}, Probe: writableProbe(), Collect: okCollector(nil)},
 		Options{}, Accepts{})
 	if err == nil {
 		t.Fatal("cleared online run with dead output succeeded, want failure")

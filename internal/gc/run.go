@@ -106,7 +106,7 @@ type Deps struct {
 	API   sentinel.API
 	Clock clock.Source
 	// Report is the event sink the CLI renders loud.
-	Report Reporter
+	Report fence.Reporter
 	// Fence, when non-nil, holds the edge around armed collects
 	// (previews never engage). A fence that fails to engage
 	// refuses the run: collecting unfenced when fencing was
@@ -203,9 +203,9 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	if err != nil {
 		return err
 	}
-	pre := Timed(StagePreProbe, gcStarted)
+	pre := fence.Timed(StagePreProbe, gcStarted)
 	pre.Message = ModeName(mode)
-	Emit(d.Report, pre)
+	fence.Emit(d.Report, pre)
 	// Cleared by the online preflight on the writable path, nil
 	// everywhere else: only the writable-armed dispatch consumes
 	// them, so a nil here never reaches a delete.
@@ -348,10 +348,10 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		// The run voices its own fence lines: the adapter
 		// records to the ring, narration into this stream
 		// belongs here, at the moments this function owns.
-		Emit(d.Report, Event{Stage: StageHoldEngage, Message: "HOLD lease engaged: manifest writes wait out the armed collect"})
+		fence.Emit(d.Report, fence.Event{Stage: StageHoldEngage, Message: "HOLD lease engaged: manifest writes wait out the armed collect"})
 		defer func() {
 			release()
-			Emit(d.Report, Event{Stage: StageHoldRelease, Message: "HOLD lease released: manifest writes flow again"})
+			fence.Emit(d.Report, fence.Event{Stage: StageHoldRelease, Message: "HOLD lease released: manifest writes flow again"})
 		}()
 		return collect()
 	}
@@ -391,16 +391,16 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 			return werr
 		}
 		husked, herr := RemoveHusks(root)
-		hev := Timed(StageHusk, gcStarted)
+		hev := fence.Timed(StageHusk, gcStarted)
 		if herr != nil {
 			hev.Error = herr.Error()
-			Emit(d.Report, hev)
+			fence.Emit(d.Report, hev)
 			if _, werr := fmt.Fprintf(w, "Warning: husk cleanup incomplete (%v)\n", herr); werr != nil {
 				return werr
 			}
 		} else {
 			hev.Message = fmt.Sprintf("%d repos", len(husked))
-			Emit(d.Report, hev)
+			fence.Emit(d.Report, hev)
 			if len(husked) > 0 {
 				if _, werr := fmt.Fprintf(w, "pruned %d husks\n", len(husked)); werr != nil {
 					return werr
@@ -411,16 +411,16 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 			return werr
 		}
 		pruned, perr := PruneEmptyDirs(root)
-		pev := Timed(StagePrune, gcStarted)
+		pev := fence.Timed(StagePrune, gcStarted)
 		if perr != nil {
 			pev.Error = perr.Error()
-			Emit(d.Report, pev)
+			fence.Emit(d.Report, pev)
 			if _, werr := fmt.Fprintf(w, "Warning: empty-dir cleanup incomplete (%v)\n", perr); werr != nil {
 				return werr
 			}
 		} else {
 			pev.Message = fmt.Sprintf("%d dirs", pruned)
-			Emit(d.Report, pev)
+			fence.Emit(d.Report, pev)
 			if _, werr := fmt.Fprintf(w, "pruned %d empty directories\n", pruned); werr != nil {
 				return werr
 			}
@@ -431,13 +431,13 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, ModeName(mode))
 		return nil
 	}
-	pev := Timed(StagePostProbe, gcStarted)
+	pev := fence.Timed(StagePostProbe, gcStarted)
 	pev.Message = ModeName(post)
-	Emit(d.Report, pev)
+	fence.Emit(d.Report, pev)
 	if post != mode {
-		flip := Timed(StageModeFlip, gcStarted)
+		flip := fence.Timed(StageModeFlip, gcStarted)
 		flip.Message = ModeName(mode) + "→" + ModeName(post)
-		Emit(d.Report, flip)
+		fence.Emit(d.Report, flip)
 		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", ModeName(mode), ModeName(post)); werr != nil {
 			return werr
 		}

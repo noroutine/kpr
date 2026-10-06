@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
@@ -37,11 +38,11 @@ func writeVerifiedGeneration(ctx context.Context, api sentinel.API, root string,
 // it has a variant. Either token nil means the preflight never
 // cleared (or was bypassed): refuse, naming the gate that owns
 // the override.
-func collectWritableArmed(ctx context.Context, out io.Writer, collect Collector, binPath string, args []string, report Reporter, cache proof.BlobCacheOff, fence proof.GatewayFencingAvailable) error {
+func collectWritableArmed(ctx context.Context, out io.Writer, collect Collector, binPath string, args []string, report fence.Reporter, cache proof.BlobCacheOff, gating proof.GatewayFencingAvailable) error {
 	if cache == nil {
 		return errors.New("online clearance missing for the blob cache: pass the online preflight (or re-run with --accept-blob-cache)")
 	}
-	if fence == nil {
+	if gating == nil {
 		return errors.New("online clearance missing for the gateway: pass the online preflight (or re-run with --accept-unfenced)")
 	}
 	return collect(ctx, out, binPath, args, report)

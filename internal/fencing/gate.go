@@ -1,4 +1,9 @@
-package edge
+// Package fencing acts on the agreement: the Gate that
+// enforces HOLD/DENY around proxied writes and the Control
+// that voices transitions, both over the fence ports. It
+// narrates through the shared event vocabulary but imports
+// no use case — drivers (lock, gc, serve wiring) live above.
+package fencing
 
 import (
 	"context"
@@ -10,7 +15,6 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/fence"
-	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -37,8 +41,8 @@ var manifestRef = regexp.MustCompile(`^/v2/.+/manifests/.+$`)
 // announce delivers one fence transition: a stage event plus a
 // ring outcome, never per request. Nil report discards the
 // event, nil store skips the ring.
-func announce(st fence.GateStore, report gc.Reporter, now time.Time, stage, msg, outcome string) {
-	gc.Emit(report, gc.Event{Stage: stage, Message: msg})
+func announce(st fence.GateStore, report fence.Reporter, now time.Time, stage, msg, outcome string) {
+	fence.Emit(report, fence.Event{Stage: stage, Message: msg})
 	if st == nil {
 		return
 	}
@@ -61,7 +65,7 @@ type Gate struct {
 	// (leases need the shared file store).
 	Dir string
 	// Report receives flip events; nil discards.
-	Report gc.Reporter
+	Report fence.Reporter
 	// Now sources time; nil means time.Now (tests pin it).
 	Now func() time.Time
 

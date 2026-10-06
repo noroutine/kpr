@@ -1,4 +1,4 @@
-package edge
+package fencing
 
 import (
 	"context"
@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/edge"
+	"nrtn.dev/catalyst/kpr/internal/fence"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -358,7 +360,7 @@ func TestGateLoudOnceOnExpiredHold(t *testing.T) {
 	defer release()
 
 	var stages []string
-	g := &Gate{Store: st, Dir: dir, Report: func(e gc.Event) { stages = append(stages, e.Stage) }}
+	g := &Gate{Store: st, Dir: dir, Report: func(e fence.Event) { stages = append(stages, e.Stage) }}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -406,7 +408,7 @@ func TestGateLoudOnMidWaitExpiry(t *testing.T) {
 	defer release()
 
 	var stages []string
-	g := &Gate{Store: st, Dir: dir, Report: func(e gc.Event) { stages = append(stages, e.Stage) }}
+	g := &Gate{Store: st, Dir: dir, Report: func(e fence.Event) { stages = append(stages, e.Stage) }}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -470,7 +472,7 @@ func TestGateEmitsOnDenyFlips(t *testing.T) {
 
 	var stages []string
 	st := store.NewMemStore()
-	g := &Gate{Store: st, Dir: t.TempDir(), Report: func(e gc.Event) { stages = append(stages, e.Stage) }}
+	g := &Gate{Store: st, Dir: t.TempDir(), Report: func(e fence.Event) { stages = append(stages, e.Stage) }}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -627,15 +629,15 @@ func TestGateNowDefaultsToWall(t *testing.T) {
 // the flip for the report path, skipping only the ring write. If
 // this fails, storeless gates panic on the ring.
 func TestEmitWithoutStoreSkipsRing(t *testing.T) {
-	var events []gc.Event
-	g := &Gate{Report: func(e gc.Event) { events = append(events, e) }}
+	var events []fence.Event
+	g := &Gate{Report: func(e fence.Event) { events = append(events, e) }}
 	g.flipHeld(true, "held for test")
 	if len(events) != 1 || events[0].Stage != StageHoldEngage {
 		t.Errorf("events = %v, want the hold_engage flip", events)
 	}
 }
 
-func lockedGate(dir string, report func(e gc.Event)) *Gate {
+func lockedGate(dir string, report func(e fence.Event)) *Gate {
 	st := store.NewMemStore()
 	if err := st.SetUnlocked(context.Background(), false); err != nil {
 		panic(err)
@@ -647,9 +649,23 @@ func lockedGate(dir string, report func(e gc.Event)) *Gate {
 	return g
 }
 
+func mintRelative(t *testing.T) proof.RelativeURLs {
+	t.Helper()
+	dir := t.TempDir()
+	path := dir + "/config.yml"
+	if err := os.WriteFile(path, []byte("http:\n  relativeurls: true\n"), 0o600); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	p, err := proof.ProveRelativeURLs(path)
+	if err != nil {
+		t.Fatalf("ProveRelativeURLs = %v, want mint", err)
+	}
+	return p
+}
+
 func gateHandler(t *testing.T, backend string, g *Gate) http.Handler {
 	t.Helper()
-	p, err := New(backend)
+	p, err := edge.New(backend)
 	if err != nil {
 		t.Fatalf("New = %v, want proxy", err)
 	}

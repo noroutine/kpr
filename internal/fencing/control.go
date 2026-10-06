@@ -1,4 +1,4 @@
-package edge
+package fencing
 
 import (
 	"context"
