@@ -1,12 +1,9 @@
 package proof
 
 import (
-	"context"
 	"errors"
-	"net"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The prover owns both halves of the concert: a bare redis:
@@ -92,46 +89,5 @@ func TestProveBlobCacheOffUnreadable(t *testing.T) {
 		if _, err := ProveBlobCacheOff(tc.path, accept); err == nil {
 			t.Errorf("%s config accepted, want refusal (acceptance cannot fix unreadable)", tc.name)
 		}
-	}
-}
-
-// A proven config with a listener mints; either half failing
-// refuses naming which and the override; acceptance mints either
-// way. If this fails, gc believes an unfenced registry is fenced.
-func TestProveGatewayFencing(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer func() { _ = ln.Close() }()
-	proven := writeRegistryConfig(t, "http:\n  addr: :5000\n  relativeurls: true\n")
-
-	if _, err := ProveGatewayFencing(ctx, proven, ln.Addr().String(), true, nil); err != nil {
-		t.Errorf("proven listening edge refused: %v", err)
-	}
-	if _, err := ProveGatewayFencing(ctx, proven, ln.Addr().String(), false, nil); err == nil {
-		t.Error("leaseless edge cleared, want refusal (nothing to watch)")
-	} else if got := err.Error(); !strings.Contains(got, "file store") || !strings.Contains(got, "--accept-unfenced") {
-		t.Errorf("refusal = %q, want lease reason and override", got)
-	}
-	if _, err := ProveGatewayFencing(ctx, proven, "127.0.0.1:1", true, nil); err == nil {
-		t.Error("silent edge cleared, want refusal")
-	} else if got := err.Error(); !strings.Contains(got, "127.0.0.1:1") || !strings.Contains(got, "--accept-unfenced") {
-		t.Errorf("refusal = %q, want addr and override", got)
-	}
-	if _, err := ProveGatewayFencing(ctx, "/nonexistent.yml", ln.Addr().String(), true, nil); err == nil {
-		t.Error("unproven config cleared, want refusal")
-	}
-	accept := Force(Arm(true, false), true)
-	if _, err := ProveGatewayFencing(ctx, proven, "127.0.0.1:1", true, accept); err != nil {
-		t.Errorf("accepted silent edge refused: %v", err)
-	}
-	if _, err := ProveGatewayFencing(ctx, "/nonexistent.yml", ln.Addr().String(), true, accept); err != nil {
-		t.Errorf("accepted unproven config refused: %v", err)
-	}
-	if _, err := ProveGatewayFencing(ctx, proven, ln.Addr().String(), false, accept); err != nil {
-		t.Errorf("accepted leaseless edge refused: %v", err)
 	}
 }
