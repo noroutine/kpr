@@ -20,6 +20,7 @@ it. The rule, then the receipt. Two megawisdoms up top, then the checklist.
 - [W13: Seams are proto-ports](#w13-seams-are-proto-ports)
 - [W14: A declined port can earn its way back](#w14-a-declined-port-can-earn-its-way-back)
 - [W15: Core takes readings, never readers](#w15-core-takes-readings-never-readers)
+- [W16: One field per splittable role](#w16-one-field-per-splittable-role)
 
 ## W1: Ports hide partners, not steps
 
@@ -234,3 +235,17 @@ so the "automatic" call needs parameters for which sources —
 saving nothing over two bools. The automatic part comes from the other side: stages
 take `ArmedRun`, so a command that forgets the one line doesn't
 compile.
+
+## W16: One field per splittable role
+
+`gcrun.Deps` carries one store four times — `Lock`, `Rec`,
+`Ids`, `Rows` — and production passes the same object into all
+four, so the temptation is a single `Store` field. Resisted: the
+tests script each role apart (unreadable lock marker, failing
+keep-N log, unreadable/unrecordable lineage, untracked rows),
+and one field would force every fake to implement the whole
+store just to break one role. One object N times is not
+duplication — it is `wirePorts` saying the four hats sit on one
+head. Collapse fields only when no test tells the roles apart.
+
+— [656b1a4](https://nrtn.dev/catalyst/kpr/commit/656b1a447dd26ed2ab19f110849cf6c16c58111f)
