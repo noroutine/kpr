@@ -187,7 +187,7 @@ func TestGateDelaysManifestPutDuringHold(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := HoldFile{Dir: dir}
+	hf := store.HoldFile{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(150*time.Millisecond))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
@@ -222,7 +222,7 @@ func TestGateHoldThenDenyWhenLocked(t *testing.T) {
 	defer backend.Close()
 
 	dir := t.TempDir()
-	hf := HoldFile{Dir: dir}
+	hf := store.HoldFile{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(120*time.Millisecond))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
@@ -261,7 +261,7 @@ func TestGateIgnoresExpiredHold(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := HoldFile{Dir: dir}
+	hf := store.HoldFile{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
@@ -301,7 +301,7 @@ func TestGateWakesWhenHoldReleased(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := HoldFile{Dir: dir}
+	hf := store.HoldFile{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(30*time.Second))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
@@ -350,7 +350,7 @@ func TestGateLoudOnceOnExpiredHold(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := HoldFile{Dir: dir}
+	hf := store.HoldFile{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
@@ -398,7 +398,7 @@ func TestGateLoudOnMidWaitExpiry(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := HoldFile{Dir: dir}
+	hf := store.HoldFile{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(150*time.Millisecond))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
@@ -438,7 +438,7 @@ func TestGateIgnoresCorruptHold(t *testing.T) {
 	defer backend.Close()
 
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, holdFileName), []byte("{nope"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, store.HoldFileName), []byte("{nope"), 0o600); err != nil {
 		t.Fatalf("stage corrupt hold: %v", err)
 	}
 	st := store.NewMemStore()
@@ -548,18 +548,6 @@ func putManifest(frontURL string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
-// A lease that cannot land refuses the take: gc must hear the
-// failure instead of collecting unfenced. If this fails, a gc
-// collects while believing pushes are held.
-func TestHoldRefusesBadDir(t *testing.T) {
-	h := HoldFile{Dir: filepath.Join(t.TempDir(), "no-such-dir")}
-	if _, err := h.Hold(context.Background(), time.Now().Add(time.Minute)); err == nil {
-		t.Error("Hold into a missing dir succeeded, want refusal")
-	} else if !strings.Contains(err.Error(), "write hold lease") {
-		t.Errorf("refusal = %q, want the write named", err.Error())
-	}
-}
-
 // No HOLD source means no HOLD waits: an empty dir skips the
 // lease logic entirely and goes straight to the lock evaluation.
 // If this fails, sourceless gates consult phantom leases.
@@ -610,7 +598,7 @@ func TestWaitReleaseStopsOnDisconnect(t *testing.T) {
 // phantom overruns.
 func TestWaitReleaseRereadsAtExpiry(t *testing.T) {
 	dir := t.TempDir()
-	h := HoldFile{Dir: dir}
+	h := store.HoldFile{Dir: dir}
 	release, err := h.Hold(context.Background(), time.Now().Add(50*time.Millisecond))
 	if err != nil {
 		t.Fatalf("Hold: %v", err)

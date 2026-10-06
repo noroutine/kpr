@@ -16,7 +16,7 @@ import (
 // narration belongs to the caller: drivers voice their own
 // output, the ring keeps shared history.
 type Control struct {
-	HoldFile
+	store.HoldFile
 	Store fence.GateStore
 	// Now sources time; nil means time.Now (tests pin it).
 	Now func() time.Time

@@ -11,6 +11,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/fence"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 var gcDeleteUntagged bool
@@ -67,7 +68,7 @@ func drySuffix(dryRun bool) string {
 // the edge owns the adapter.
 func newFenceControl(st fence.GateStore) func(string) fence.Controller {
 	return func(dir string) fence.Controller {
-		return edge.Control{HoldFile: edge.HoldFile{Dir: dir}, Store: st}
+		return edge.Control{HoldFile: store.HoldFile{Dir: dir}, Store: st}
 	}
 }
 

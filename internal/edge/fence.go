@@ -2,12 +2,9 @@ package edge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sync"
 	"time"
@@ -31,11 +28,6 @@ const (
 	// loud, never silent.
 	StageHoldExpired = "hold_expired"
 )
-
-// holdFileName is the HOLD lease file, written by gc around
-// armed collection and read per manifest PUT. It carries an
-// expiry, never authority: stale or corrupt leases fail open.
-const holdFileName = "edge-fence.json"
 
 // manifestRef matches reference-bearing registry paths: manifest
 // PUT creates references, manifest DELETE destroys them. Blob
@@ -79,62 +71,11 @@ type Gate struct {
 	lastExpired bool
 }
 
-// HoldFile engages proxy HOLD leases from a shared dir: gc
-// writes the lease around armed collection, the edge reads it
-// per manifest PUT. It implements the gc fence port from the
-// file side; the registry side stays a stock binary.
-type HoldFile struct {
-	Dir string
-}
-
-// Hold writes a lease expiring at until and returns its release
-// (best-effort remove — the expiry is the real bound, so a
-// crashed collect can never wedge pushes past it).
-func (h HoldFile) Hold(_ context.Context, until time.Time) (func(), error) {
-	raw, err := json.Marshal(struct {
-		Until time.Time `json:"until"`
-	}{Until: until.UTC()})
-	if err != nil {
-		return nil, fmt.Errorf("edge: marshal hold lease: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(h.Dir, holdFileName), raw, 0o600); err != nil {
-		return nil, fmt.Errorf("edge: write hold lease: %w", err)
-	}
-	return func() {
-		_ = os.Remove(filepath.Join(h.Dir, holdFileName))
-	}, nil
-}
-
-// readLease parses the HOLD lease file: the expiry plus whether
-// the file parses at all. Missing and corrupt leases read as
-// absent (fail open — leases are not evidence); expiry is the
-// caller's decision, so released (gone) and overrun (present
-// but past) stay distinguishable.
-func readLease(dir string) (until time.Time, present bool) {
-	if dir == "" {
-		return time.Time{}, false
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, holdFileName))
-	if err != nil {
-		return time.Time{}, false
-	}
-	var lease struct {
-		Until time.Time `json:"until"`
-	}
-	if err := json.Unmarshal(raw, &lease); err != nil {
-		return time.Time{}, false
-	}
-	return lease.Until, true
-}
-
-// heldUntil returns the live lease expiry: only a present lease
-// still in its term holds.
-func heldUntil(dir string, now time.Time) (time.Time, bool) {
-	until, present := readLease(dir)
-	if !present || !until.After(now) {
-		return time.Time{}, false
-	}
-	return until, true
+// lease opens the HOLD lease over the gate's dir: the file
+// backend owns the lease it already hosts, the gate only reads
+// it. Empty dir reads absent — marker-only fencing.
+func (g *Gate) lease() store.HoldFile {
+	return store.HoldFile{Dir: g.Dir}
 }
 
 // Wrap gates reference-bearing writes: HOLD delays to lease
@@ -147,14 +88,14 @@ func (g *Gate) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		now := g.now()
-		if until, held := heldUntil(g.Dir, now); held {
+		if until, held := g.lease().HeldUntil(now); held {
 			g.flipHeld(true, "gc finalize holds manifest writes")
 			g.flipExpired(false, "")
 			if g.waitRelease(r, until) {
 				g.flipExpired(true, "HOLD lease expired mid-collect: pushes flowing unfenced")
 			}
-		} else if _, present := readLease(g.Dir); present {
-			// Present but past at arrival (heldUntil already said
+		} else if _, present := g.lease().Read(); present {
+			// Present but past at arrival (the live check already said
 			// no): a stale lease gc never released. Loud once,
 			// then flow — same hole as mid-wait expiry.
 			g.flipExpired(true, "HOLD lease expired mid-collect: pushes flowing unfenced")
@@ -203,7 +144,7 @@ func (g *Gate) waitRelease(r *http.Request, until time.Time) (expired bool) {
 		// NOTE(mutants): <0 is equivalent — exact-zero expiry is
 		// untestable clock granularity.
 		if time.Until(until) <= 0 {
-			until, present := readLease(g.Dir)
+			until, present := g.lease().Read()
 			return present && !until.After(g.now())
 		}
 		wait := time.Until(until)
@@ -219,8 +160,8 @@ func (g *Gate) waitRelease(r *http.Request, until time.Time) (expired bool) {
 			return false
 		case <-t.C:
 		}
-		if _, held := heldUntil(g.Dir, g.now()); !held {
-			until, present := readLease(g.Dir)
+		if _, held := g.lease().HeldUntil(g.now()); !held {
+			until, present := g.lease().Read()
 			return present && !until.After(g.now())
 		}
 	}
