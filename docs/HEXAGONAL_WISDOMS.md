@@ -21,6 +21,7 @@ it. The rule, then the receipt. Two megawisdoms up top, then the checklist.
 - [W14: A declined port can earn its way back](#w14-a-declined-port-can-earn-its-way-back)
 - [W15: Core takes readings, never readers](#w15-core-takes-readings-never-readers)
 - [W16: One field per splittable role](#w16-one-field-per-splittable-role)
+- [W17: Narration is local, history is shared](#w17-narration-is-local-history-is-shared)
 
 ## W1: Ports hide partners, not steps
 
@@ -249,3 +250,17 @@ duplication — it is `wirePorts` saying the four hats sit on one
 head. Collapse fields only when no test tells the roles apart.
 
 — [656b1a4](https://nrtn.dev/catalyst/kpr/commit/656b1a447dd26ed2ab19f110849cf6c16c58111f)
+
+## W17: Narration is local, history is shared
+
+The fence adapter voiced transitions into the use case's event
+stream, coupling `edge` to `gc` for lines nobody rendered:
+Deny/Allow pass nil, Hold's stages fall through the renderer.
+The shared sink was always the ring — state can't time-travel,
+so transitions must be recorded where both worlds read. Each
+process now voices its own output (the run its hold lines, the
+Gate serve's log) and shares only history. An announce path
+with no rendering consumer is not a channel, it's a habit:
+prove the consumer before keeping the type.
+
+— [d7f9f6d](https://nrtn.dev/catalyst/kpr/commit/d7f9f6df047bdf632f9ffd85d63ca49bb39ea92e)
