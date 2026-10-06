@@ -16,7 +16,7 @@ import (
 // marker silently and the console learns only from pushes.
 func TestControlRecordsTransitions(t *testing.T) {
 	st := store.NewMemStore()
-	c := Control{Store: st}
+	c := Controller{Store: st}
 	ctx := context.Background()
 	c.Deny(ctx, "store locked for test")
 	c.Allow(ctx, "store unlocked for test")
@@ -35,11 +35,11 @@ func TestControlRecordsTransitions(t *testing.T) {
 	}
 }
 
-// A storeless Control drops the transition silently: with no
+// A storeless Controller drops the transition silently: with no
 // ring and no reporter there is nowhere to record. If this
 // fails, storeless transitions panic instead of skipping.
 func TestControlStorelessDenySkipsSilently(t *testing.T) {
-	c := Control{}
+	c := Controller{}
 	c.Deny(context.Background(), "locked for test")
 }
 
@@ -50,7 +50,7 @@ func TestControlStorelessDenySkipsSilently(t *testing.T) {
 // collect holds pushes silently on a quiet store.
 func TestControlHoldRecordsTransitions(t *testing.T) {
 	st := store.NewMemStore()
-	c := Control{HoldFile: store.HoldFile{Dir: t.TempDir()}, Store: st}
+	c := Controller{HoldFile: store.HoldFile{Dir: t.TempDir()}, Store: st}
 	ctx := context.Background()
 	release, err := c.Hold(ctx, time.Now().Add(time.Minute))
 	if err != nil {
@@ -72,7 +72,7 @@ func TestControlHoldRecordsTransitions(t *testing.T) {
 // failed fence records a lease that was never written.
 func TestControlHoldFailureRecordsNothing(t *testing.T) {
 	st := store.NewMemStore()
-	c := Control{HoldFile: store.HoldFile{Dir: filepath.Join(t.TempDir(), "no-such-dir")}, Store: st}
+	c := Controller{HoldFile: store.HoldFile{Dir: filepath.Join(t.TempDir(), "no-such-dir")}, Store: st}
 	if _, err := c.Hold(context.Background(), time.Now().Add(time.Minute)); err == nil {
 		t.Fatal("Hold into a missing dir succeeded, want refusal")
 	}

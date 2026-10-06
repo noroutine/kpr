@@ -78,7 +78,7 @@ carries the flip with zero traffic. Enforcement stays
 single-sourced (lock marker, lease file) through the same
 evaluation the use cases mint from (a boolean here, not a
 mint), so an announcement can never disagree with the gate.
-`fencing.Control` is the adapter (lease file + announcements);
+`fencing.Controller` is the adapter (lease file + announcements);
 `fencing.Gate` enforces. The shared `Event`/`Reporter` vocabulary
 lives in `fence` beside the ports — narrators import no use case.
 

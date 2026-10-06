@@ -1,8 +1,10 @@
 // Package edge is kpr's front door: a transparent reverse proxy
-// in front of the separately-run registry it companions. Slice 1
-// forwards bytes and guards Location headers; slice 2 fences
-// writes through the same handler. The proxy mints nothing and
-// alters no proofs — write proof semantics are unaffected.
+// in front of the separately-run registry it companions. It
+// forwards bytes and guards Location headers — absolute upstream
+// Locations would walk clients around the proxy. HOLD/DENY
+// fencing wraps this handler from the fencing package; the proxy
+// itself mints nothing and alters no proofs.
+
 package edge
 
 import (
@@ -45,9 +47,9 @@ func New(backend string) (*Proxy, error) {
 }
 
 // Handler returns the transparent handler, gated on the proof:
-// nil proof refuses before anything listens. Slice 2 wraps this
-// handler with HOLD/DENY fencing; the forwarding stays byte
-// identical underneath.
+// nil proof refuses before anything listens. Fencing wraps this
+// handler with HOLD/DENY; the forwarding stays byte identical
+// underneath.
 func (p *Proxy) Handler(proven proof.RelativeURLs) (http.Handler, error) {
 	if proven == nil {
 		return nil, ErrNoProof

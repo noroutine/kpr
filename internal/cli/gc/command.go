@@ -68,7 +68,7 @@ func drySuffix(dryRun bool) string {
 // the edge owns the adapter.
 func newFenceControl(st fence.GateStore) func(string) fence.Controller {
 	return func(dir string) fence.Controller {
-		return fencing.Control{HoldFile: store.HoldFile{Dir: dir}, Store: st}
+		return fencing.Controller{HoldFile: store.HoldFile{Dir: dir}, Store: st}
 	}
 }
 

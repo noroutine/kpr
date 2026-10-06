@@ -1,5 +1,5 @@
 // Package fencing acts on the agreement: the Gate that
-// enforces HOLD/DENY around proxied writes and the Control
+// enforces HOLD/DENY around proxied writes and the Controller
 // that voices transitions, both over the fence ports. It
 // narrates through the shared event vocabulary but imports
 // no use case — drivers (lock, gc, serve wiring) live above.
@@ -19,7 +19,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// Control stages, beside the gc ones: same Event shape, same
+// Controller stages, beside the gc ones: same Event shape, same
 // JSON-lines transport, edge-triggered on flips — never per
 // request.
 const (
