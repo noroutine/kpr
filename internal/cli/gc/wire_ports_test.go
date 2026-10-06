@@ -8,12 +8,12 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
-// compose carries every gcrun need across, nothing dropped: one
+// wirePorts carries every gcrun need across, nothing dropped: one
 // store in all four roles plus the registry API, the assembled
 // reporter and fence alongside, and no clock — production
 // derives it from Current. If this fails, a new Deps field is
 // unplugged at the only call site.
-func TestComposeCarriesWholeDeps(t *testing.T) {
+func TestWirePortsCarriesWholeDeps(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
 	d, err := deps.OpenDeps()
@@ -22,23 +22,23 @@ func TestComposeCarriesWholeDeps(t *testing.T) {
 	}
 	defer d.Close()
 	report := renderGCEvent(io.Discard, true)
-	w := composeDeps(d, report, nil)
+	w := wirePorts(d, report, nil)
 	if w.Lock != d.Store || w.Rec != d.Store || w.Ids != d.Store || w.Rows != d.Store {
-		t.Fatal("compose split the store across roles, want one object four times")
+		t.Fatal("wirePorts splits the store across roles, want one object four times")
 	}
 	if w.API != d.Reg {
-		t.Fatal("compose dropped the registry client")
+		t.Fatal("wirePorts drops the registry client")
 	}
 	if w.Report == nil {
-		t.Fatal("compose dropped the reporter")
+		t.Fatal("wirePorts drops the reporter")
 	}
 	if w.Fence != nil {
-		t.Fatal("compose invented a fence: the command assembles it per backend")
+		t.Fatal("wirePorts invents a fence: the command assembles it per backend")
 	}
 	if w.Probe == nil || w.Collect == nil {
-		t.Fatal("compose left the seams unset: production runs the stock probe and collector")
+		t.Fatal("wirePorts leaves the seams unset: production runs the stock probe and collector")
 	}
 	if w.Clock != nil {
-		t.Fatal("compose set the clock: production derives it from Current, only tests inject")
+		t.Fatal("wirePorts sets the clock: production derives it from Current, only tests inject")
 	}
 }
