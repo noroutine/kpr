@@ -345,7 +345,14 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		if err != nil {
 			return fmt.Errorf("gc: engage proxy fence: %w", err)
 		}
-		defer release()
+		// The run voices its own fence lines: the adapter
+		// records to the ring, narration into this stream
+		// belongs here, at the moments this function owns.
+		Emit(d.Report, Event{Stage: StageHoldEngage, Message: "HOLD lease engaged: manifest writes wait out the armed collect"})
+		defer func() {
+			release()
+			Emit(d.Report, Event{Stage: StageHoldRelease, Message: "HOLD lease released: manifest writes flow again"})
+		}()
 		return collect()
 	}
 

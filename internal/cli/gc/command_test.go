@@ -106,6 +106,8 @@ func TestRenderGCEventVoicesStages(t *testing.T) {
 	report(gcrun.Event{Stage: gcrun.StagePostProbe, Message: "readonly"})
 	report(gcrun.Event{Stage: gcrun.StageModeFlip, Message: "readonly→writable"})
 	report(gcrun.Event{Stage: gcrun.StageFailure, Error: "exit status 3: boom"})
+	report(gcrun.Event{Stage: gcrun.StageHoldEngage})
+	report(gcrun.Event{Stage: gcrun.StageHoldRelease})
 	for _, want := range []string{
 		"sentinel: registry is READONLY",
 		"collector started (pid 4242)",
@@ -113,6 +115,8 @@ func TestRenderGCEventVoicesStages(t *testing.T) {
 		"sentinel: registry still READONLY",
 		"WARNING: registry flipped readonly→writable mid-run",
 		"collector failed: exit status 3: boom",
+		"HOLD engaged: manifest writes wait out the armed collect",
+		"HOLD released: manifest writes flow again",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("rendered events lack %q:\n%s", want, out.String())
@@ -128,20 +132,17 @@ func TestRenderGCEventVoicesStages(t *testing.T) {
 
 // The fence constructor moved to gc with the decision (see
 // internal/gc/fence_test.go); the adapter factory here is
-// covered where it is built. If this fails, cli grew a second
+// covered where it is built, ring-only: ephemeral narration
+// belongs to the caller. If this fails, cli grew a second
 // fencing decision beside the use case's.
-func TestNewFenceControlBuildsAnnouncingAdapter(t *testing.T) {
-	var events []gcrun.Event
+func TestNewFenceControlRecordsToRing(t *testing.T) {
 	st := store.NewMemStore()
-	ctl := newFenceControl(st, func(e gcrun.Event) { events = append(events, e) })(t.TempDir())
+	ctl := newFenceControl(st)(t.TempDir())
 	release, err := ctl.Hold(context.Background(), time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatalf("adapter Hold: %v", err)
 	}
 	release()
-	if len(events) != 2 {
-		t.Fatalf("adapter voiced %d transitions, want hold_engage + hold_release", len(events))
-	}
 	activity, err := st.Activity(context.Background())
 	if err != nil {
 		t.Fatalf("activity: %v", err)

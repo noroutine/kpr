@@ -49,6 +49,22 @@ type GateStore interface {
 	PushActivity(ctx context.Context, o store.Outcome) error
 }
 
+// announce delivers one fence transition: a stage event plus a
+// ring outcome, never per request. Nil report discards the
+// event, nil store skips the ring.
+func announce(st GateStore, report gc.Reporter, now time.Time, stage, msg, outcome string) {
+	gc.Emit(report, gc.Event{Stage: stage, Message: msg})
+	if st == nil {
+		return
+	}
+	_ = st.PushActivity(context.Background(), store.Outcome{
+		Reason:  msg,
+		Outcome: outcome,
+		At:      now,
+		Actor:   "kpr-edge",
+	})
+}
+
 // Gate enforces HOLD/DENY around a proxied handler. DENY
 // evaluates the lock through the same proof path the use cases
 // mint from (token discarded — the fence needs a boolean, not

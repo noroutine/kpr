@@ -28,13 +28,18 @@ var gcAcceptModeFlip bool
 var gcNoDryRun bool
 
 // renderGCEvent voices the lifecycle loud: probe verdicts, collector
-// start (pid, so a long mark phase is visibly alive), post-probe, and
-// the flip banner. Collector lines stream raw alongside.
+// start (pid, so a long mark phase is visibly alive), post-probe,
+// the flip banner, and the fence lines the run voices around an
+// armed collect. Collector lines stream raw alongside.
 func renderGCEvent(w io.Writer, dryRun bool) gcrun.Reporter {
 	return func(e gcrun.Event) {
 		switch e.Stage {
 		case gcrun.StagePreProbe:
 			_, _ = fmt.Fprintf(w, "sentinel: registry is %s\n", strings.ToUpper(e.Message))
+		case gcrun.StageHoldEngage:
+			_, _ = fmt.Fprintf(w, "HOLD engaged: manifest writes wait out the armed collect\n")
+		case gcrun.StageHoldRelease:
+			_, _ = fmt.Fprintf(w, "HOLD released: manifest writes flow again\n")
 		case gcrun.StageStarted:
 			if e.PID != 0 {
 				_, _ = fmt.Fprintf(w, "collector started (pid %d)%s\n", e.PID, drySuffix(dryRun))
@@ -57,12 +62,12 @@ func drySuffix(dryRun bool) string {
 }
 
 // newFenceControl builds the run's fence adapter: lease file
-// plus transition announcements over the run's store and
-// report. It travels into gc as a factory — the use case owns
-// the fencing decision, the edge owns the adapter.
-func newFenceControl(st edge.GateStore, report gcrun.Reporter) func(string) fence.Controller {
+// plus ring announcements over the run's store. It travels into
+// gc as a factory — the use case owns the fencing decision,
+// the edge owns the adapter.
+func newFenceControl(st edge.GateStore) func(string) fence.Controller {
 	return func(dir string) fence.Controller {
-		return edge.Control{HoldFile: edge.HoldFile{Dir: dir}, Store: st, Report: report}
+		return edge.Control{HoldFile: edge.HoldFile{Dir: dir}, Store: st}
 	}
 }
 
@@ -107,7 +112,7 @@ revokes.`,
 		accepts := gcAccepts(armedRun)
 		backend, dir, berr := deps.ResolveStoreBackend()
 		report := renderGCEvent(out, dryRun)
-		fence := gcrun.FenceForBackend(backend, dir, newFenceControl(d.Store, report), berr, dryRun, out)
+		fence := gcrun.FenceForBackend(backend, dir, newFenceControl(d.Store), berr, dryRun, out)
 		return gcrun.Run(cmd.Context(), out, wirePorts(d, report, fence), gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,

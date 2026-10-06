@@ -234,6 +234,44 @@ func TestRunBehindStubPorts(t *testing.T) {
 	}
 }
 
+// A fenced run voices its own hold lines: engage before the
+// collect, release after, through the run's reporter — the
+// adapter records to the ring, narration belongs here. If this
+// fails, an armed collect holds pushes with no fence lines in
+// its own output.
+func TestRunFencedVoicesHold(t *testing.T) {
+	cfg, root, lock := stageProvenRun(t)
+	stagePairedGen(t, lock, root)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	var fenceEvents []string
+	var reported []Event
+	var collected [][]string
+	var out strings.Builder
+	stageConfig(t, "http://registry:5000", cfg)
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root},
+		Fence: stubFencer{events: &fenceEvents}, Report: func(e Event) { reported = append(reported, e) },
+		Probe: probe, Collect: okCollector(&collected)},
+		Options{}, Accepts{})
+	if err != nil {
+		t.Fatalf("fenced run: %v", err)
+	}
+	if len(collected) != 1 {
+		t.Fatalf("collector ran %d times, want 1 (armed collect)", len(collected))
+	}
+	if len(fenceEvents) != 2 || fenceEvents[0] != "hold" || fenceEvents[1] != "release" {
+		t.Fatalf("fence saw %v, want hold then release around the collect", fenceEvents)
+	}
+	var stages []string
+	for _, e := range reported {
+		stages = append(stages, e.Stage)
+	}
+	if !slices.Contains(stages, StageHoldEngage) || !slices.Contains(stages, StageHoldRelease) {
+		t.Errorf("reported stages %v, want hold_engage + hold_release voiced by the run", stages)
+	}
+}
+
 // A nil clock derives from Current: production never injects
 // one, the staged default method checks against local time and
 // the preview passes. If this fails, the derive path is dead

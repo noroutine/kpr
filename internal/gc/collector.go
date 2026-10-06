@@ -27,6 +27,13 @@ const (
 	StageModeFlip     = "mode_flip"
 	StageStopped      = "stopped"
 	StageFailure      = "failure"
+	// StageHoldEngage/StageHoldRelease mirror the fence's
+	// transition names: the run voices its own hold lines
+	// through these, so one stream shows fence and collect
+	// together. Rendering labels only — matching strings is
+	// cosmetic, never logic.
+	StageHoldEngage  = "hold_engage"
+	StageHoldRelease = "hold_release"
 )
 
 // Event is one lifecycle stage of a gc run. The JSON tags keep it
