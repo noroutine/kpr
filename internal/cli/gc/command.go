@@ -9,7 +9,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/fence"
-	"nrtn.dev/catalyst/kpr/internal/fencing"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -69,7 +68,7 @@ func drySuffix(dryRun bool) string {
 // the edge owns the adapter.
 func newFenceControl(st fence.GateStore) func(string) fence.Controller {
 	return func(dir string) fence.Controller {
-		return fencing.Controller{HoldFile: store.HoldFile{Dir: dir}, Store: st}
+		return fence.Control{HoldFile: store.HoldFile{Dir: dir}, Store: st}
 	}
 }
 

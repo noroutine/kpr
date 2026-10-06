@@ -1,9 +1,10 @@
-// Package fencing acts on the agreement: the Gate that
-// enforces HOLD/DENY around proxied writes and the Controller
-// that voices transitions, both over the fence ports. It
-// narrates through the shared event vocabulary but imports
-// no use case — drivers (lock, gc, serve wiring) live above.
-package fencing
+// Package fence is everything fencing: the ports (Controller,
+// GateStore) plus the production behavior acting on them (Gate,
+// Control). Ports and behavior share one address until a second
+// disputed agreement forces a ports tree; until then the rule
+// is small: the package narrates through the event vocabulary
+// and imports no use case — drivers live above.
+package fence
 
 import (
 	"context"
@@ -15,12 +16,11 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/event"
-	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// Controller stages, beside the gc ones: same Event shape, same
+// Transition stages, beside the gc ones: same Event shape, same
 // JSON-lines transport, edge-triggered on flips — never per
 // request.
 const (
@@ -42,7 +42,7 @@ var manifestRef = regexp.MustCompile(`^/v2/.+/manifests/.+$`)
 // announce delivers one fence transition: a stage event plus a
 // ring outcome, never per request. Nil report discards the
 // event, nil store skips the ring.
-func announce(st fence.GateStore, report event.Reporter, now time.Time, stage, msg, outcome string) {
+func announce(st GateStore, report event.Reporter, now time.Time, stage, msg, outcome string) {
 	event.Emit(report, event.Event{Stage: stage, Message: msg})
 	if st == nil {
 		return
@@ -61,7 +61,7 @@ func announce(st fence.GateStore, report event.Reporter, now time.Time, stage, m
 // a mint), so kpr's self-gating and the proxy's fencing cannot
 // drift apart.
 type Gate struct {
-	Store fence.GateStore
+	Store GateStore
 	// Dir holds the HOLD lease file; "" means no HOLD source
 	// (leases need the shared file store).
 	Dir string

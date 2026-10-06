@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
-	"nrtn.dev/catalyst/kpr/internal/fencing"
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 )
 
@@ -29,7 +29,7 @@ exactly like no shared store for write ops.`,
 		// The marker denies; this says it out loud — the ring
 		// carries deny_engage at the transition, not at the
 		// first refused push.
-		fencing.Controller{Store: d.Store}.Deny(cmd.Context(), "store locked: registry-store writes denied until 'kpr store unlock'")
+		fence.Control{Store: d.Store}.Deny(cmd.Context(), "store locked: registry-store writes denied until 'kpr store unlock'")
 		_, err = fmt.Fprintln(cmd.OutOrStdout(), "store locked: registry-store writes denied until 'kpr store unlock'")
 		return err
 	},
@@ -58,7 +58,7 @@ to revoke.`,
 		}
 		// Proof opened writes; this says it out loud — the ring
 		// carries deny_release at the transition.
-		fencing.Controller{Store: d.Store}.Allow(cmd.Context(), "store unlocked: shared store proven, registry-store writes allowed")
+		fence.Control{Store: d.Store}.Allow(cmd.Context(), "store unlocked: shared store proven, registry-store writes allowed")
 		return nil
 	},
 }

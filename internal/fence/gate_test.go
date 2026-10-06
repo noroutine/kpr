@@ -1,4 +1,4 @@
-package fencing
+package fence
 
 import (
 	"context"

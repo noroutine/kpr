@@ -18,7 +18,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/console"
 	"nrtn.dev/catalyst/kpr/internal/event"
-	"nrtn.dev/catalyst/kpr/internal/fencing"
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -108,7 +108,7 @@ var serveCmd = &cobra.Command{
 		// switch selects intent, the RelativeURLs proof selects
 		// safety, and a closed edge is a loud line — never a boot
 		// refusal for the servers below.
-		var edgeGate *fencing.Gate
+		var edgeGate *fence.Gate
 		var edgeHandler http.Handler
 		if cfg.EdgeEnabled {
 			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, cfg.RegistryConfig, func(e event.Event) {

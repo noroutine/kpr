@@ -15,7 +15,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/config"
-	"nrtn.dev/catalyst/kpr/internal/fencing"
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -91,7 +91,7 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 	if body := render(&Server{}); !strings.Contains(body, "Gateway") || !strings.Contains(body, "closed") {
 		t.Error("dashboard without a gate must render the gateway closed")
 	}
-	body := render(&Server{Edge: &fencing.Gate{Store: store.NewMemStore()}})
+	body := render(&Server{Edge: &fence.Gate{Store: store.NewMemStore()}})
 	for _, want := range []string{"Gateway", "open", "pass"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard with a gate missing %q (open fence)", want)
@@ -105,7 +105,7 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 	if err := locked.SetUnlocked(context.Background(), false); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	if body := render(&Server{Edge: &fencing.Gate{Store: locked}, Store: locked}); !strings.Contains(body, "deny") {
+	if body := render(&Server{Edge: &fence.Gate{Store: locked}, Store: locked}); !strings.Contains(body, "deny") {
 		t.Error("dashboard with a locked store must read deny before any traffic")
 	}
 	// The other side of the same branch: an unlocked store with an
@@ -115,7 +115,7 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 	if err := open.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("unlock: %v", err)
 	}
-	if body := render(&Server{Edge: &fencing.Gate{Store: open}, Store: open}); !strings.Contains(body, "pass") || strings.Contains(body, "deny") {
+	if body := render(&Server{Edge: &fence.Gate{Store: open}, Store: open}); !strings.Contains(body, "pass") || strings.Contains(body, "deny") {
 		t.Error("dashboard with an unlocked store must read pass, not deny")
 	}
 }
@@ -325,7 +325,7 @@ func TestInfoCardsVoiceConfigAndProof(t *testing.T) {
 	srv := &Server{
 		RegistryURL: "http://registry:5000",
 		EdgeAddr:    ":5000",
-		Edge:        &fencing.Gate{Store: store.NewMemStore()},
+		Edge:        &fence.Gate{Store: store.NewMemStore()},
 	}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()

@@ -1,34 +1,33 @@
-package fencing
+package fence
 
 import (
 	"context"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// Controller implements fence.Controller beside the Gate: Hold
+// Control implements Controller beside the Gate: Hold
 // delegates to the lease file, Deny/Allow record posture
 // transitions to the ring (signed kpr-edge). Enforcement itself
 // never moves — the marker and the lease stay the only truth —
 // so drivers record without the power to disagree. Ephemeral
 // narration belongs to the caller: drivers voice their own
 // output, the ring keeps shared history.
-type Controller struct {
+type Control struct {
 	store.HoldFile
-	Store fence.GateStore
+	Store GateStore
 	// Now sources time; nil means time.Now (tests pin it).
 	Now func() time.Time
 }
 
-var _ fence.Controller = Controller{}
+var _ Controller = Control{}
 
 // Hold engages the lease file and records hold_engage; the
 // wrapped release records hold_release. A Hold that fails to
 // engage records nothing — no lease, no record — and the caller
 // refuses instead of collecting unfenced.
-func (c Controller) Hold(ctx context.Context, until time.Time) (func(), error) {
+func (c Control) Hold(ctx context.Context, until time.Time) (func(), error) {
 	release, err := c.HoldFile.Hold(ctx, until)
 	if err != nil {
 		return nil, err
@@ -42,19 +41,19 @@ func (c Controller) Hold(ctx context.Context, until time.Time) (func(), error) {
 
 // Deny records a deny_engage transition: lock flipped the marker,
 // this writes it into history.
-func (c Controller) Deny(ctx context.Context, reason string) {
+func (c Control) Deny(ctx context.Context, reason string) {
 	c.record("deny_engage", reason)
 }
 
 // Allow records a deny_release transition: unlock proved the
 // store, this writes it into history.
-func (c Controller) Allow(ctx context.Context, reason string) {
+func (c Control) Allow(ctx context.Context, reason string) {
 	c.record("deny_release", reason)
 }
 
 // record writes one fence transition to the ring, signed
 // kpr-edge; nil store skips it.
-func (c Controller) record(outcome, msg string) {
+func (c Control) record(outcome, msg string) {
 	if c.Store == nil {
 		return
 	}
@@ -66,7 +65,7 @@ func (c Controller) record(outcome, msg string) {
 	})
 }
 
-func (c Controller) now() time.Time {
+func (c Control) now() time.Time {
 	if c.Now != nil {
 		return c.Now()
 	}
