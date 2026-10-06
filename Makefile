@@ -119,13 +119,13 @@ e2e:
 ## coverage: Run tests with coverage (coverprofile + terminal summary + HTML report)
 coverage:
 	@if command -v gotestsum >/dev/null 2>&1; then \
-		gotestsum $(GOTESTSUM_FLAGS) --format pkgname -- -race -coverprofile=coverage.raw.out ./...; \
+		gotestsum $(GOTESTSUM_FLAGS) --format pkgname -- -race -coverprofile=coverage.raw.out -coverpkg=./... ./...; \
 	else \
 		echo "gotestsum not found, using go test..."; \
 		echo "Install gotestsum for a dense pass/fail summary:"; \
 		echo "  go install gotest.tools/gotestsum@latest"; \
 		echo ""; \
-		go test -race -coverprofile=coverage.raw.out ./...; \
+		go test -race -coverprofile=coverage.raw.out -coverpkg=./... ./...; \
 	fi
 	@# storetest/ is shared contract scaffolding (exercised only under docker runs),
 	@# not product code: exclude it from the roll-up the way *_test.go is excluded.
