@@ -82,6 +82,15 @@ mint), so an announcement can never disagree with the gate.
 `fence.Gate` enforces. The shared `Event`/`Reporter` vocabulary
 lives in `event` — narrators import no use case.
 
+### A noted exception
+
+`fence` holds both the ports and the behavior acting on them —
+impure by the book: behavior churn touches the agreement's
+home, and `net/http` plus `proof` ride in every importer's cone.
+Kept deliberately: one disputed agreement doesn't earn a ports
+tree. If a second shows up, the ports move out and this note
+dies.
+
 ### Proofs
 
 `RelativeURLs` at open: the proxy takes the proof, no proof
