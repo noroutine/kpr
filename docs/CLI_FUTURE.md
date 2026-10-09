@@ -5,14 +5,6 @@ One subpackage per command was tried (`internal/cli/gc`) and
 reverted: with the run resolving its own reporter, fence, and
 clock, the adapter is one literal — no seam worth a package.
 
-## Unlock takes Deps
-
-`gc.Unlock` still takes eleven positionals (`api, configPath,
-st, rec, ids, rows, clk, timeServer…`) — the shape `gc.Run`
-had before `Deps`/`Options`/`Accepts`. A future move folds it
-into the same bundle: store roles, proofs, and acceptances,
-nothing positional past the writer.
-
 ## Config rides no field
 
 `gc.Deps.Clock` and `deps.Deps.Cfg` are config by another

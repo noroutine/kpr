@@ -39,7 +39,8 @@ func TestUnlockProvesAndRecords(t *testing.T) {
 	cfg, root, _ := stageProvenRun(t)
 	s := store.NewMemStore()
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err != nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	// Silence with an unpaired store establishes the pairing: the
@@ -81,7 +82,8 @@ func TestUnlockPushesGenerationTag(t *testing.T) {
 	s := store.NewMemStore()
 	ctx := context.Background()
 	var out strings.Builder
-	if err := Unlock(ctx, &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err != nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	rows, err := s.All(ctx)
@@ -109,7 +111,8 @@ func TestUnlockRefusesStrangerStore(t *testing.T) {
 	cfg, _, _ := stageProvenRun(t)
 	s := store.NewMemStore()
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{t.TempDir()}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{t.TempDir()}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock on a stranger store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -138,7 +141,8 @@ func TestUnlockRefusesForeignLineage(t *testing.T) {
 		t.Fatalf("stage foreign generation: %v", err)
 	}
 	var out strings.Builder
-	if err := Unlock(ctx, &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock over a foreign lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "foreign lineage") || !strings.Contains(err.Error(), "kpr store adopt") {
 		t.Errorf("refusal names no cause or ceremony: %v", err)
@@ -163,7 +167,8 @@ func TestUnlockRefusesUnpairedWithServed(t *testing.T) {
 	s := store.NewMemStore()
 	stagePairedGen(t, store.NewMemStore(), root)
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with an unpaired store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "unpaired") || !strings.Contains(err.Error(), "kpr store adopt") {
 		t.Errorf("refusal names no cause or ceremony: %v", err)
@@ -200,7 +205,8 @@ func TestUnlockRefusesStaleRollback(t *testing.T) {
 		t.Fatalf("clear baseline: %v", err)
 	}
 	var out strings.Builder
-	if err := Unlock(ctx, &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock over a rollback succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "older than tracked") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -225,7 +231,8 @@ func TestUnlockClockSkewRefuses(t *testing.T) {
 	s := store.NewMemStore()
 	stagePairedGen(t, s, root)
 	var out strings.Builder
-	err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, s, s, stubClock{off: time.Hour}, "time.example.com")
+	stageConfig(t, "http://registry:5000", cfg)
+	err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{off: time.Hour}, Store: s})
 	if err == nil {
 		t.Fatal("skewed unlock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "clock skew") {
@@ -241,7 +248,8 @@ func TestUnlockNTPUnreachableWarnsProceeds(t *testing.T) {
 	s := store.NewMemStore()
 	stagePairedGen(t, s, root)
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, s, s, stubClock{err: errClockUnreachable}, "time.example.com"); err != nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{err: errClockUnreachable}, Store: s}); err != nil {
 		t.Fatalf("unlock with unreachable NTP: %v", err)
 	}
 	if !strings.Contains(out.String(), "proceeding with local clock") {
@@ -279,7 +287,8 @@ func TestUnlockEstablishPairedWarns(t *testing.T) {
 		t.Fatalf("pair: %v", err)
 	}
 	var out strings.Builder
-	if err := Unlock(ctx, &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err != nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err != nil {
 		t.Fatalf("re-establish: %v", err)
 	}
 	if !strings.Contains(out.String(), "nothing served") || !strings.Contains(out.String(), "re-minting") {
@@ -313,7 +322,8 @@ func TestUnlockMintsStoredIdentity(t *testing.T) {
 	s := store.NewMemStore()
 	stagePairedGen(t, s, root)
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err != nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	ident, err := s.GetIdentity(context.Background())
@@ -346,7 +356,8 @@ func TestUnlockS3ConfigRefuses(t *testing.T) {
 	}
 	s := store.NewMemStore()
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, s3cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", s3cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with s3 config succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "no filesystem storage root") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -361,7 +372,8 @@ func TestUnlockUnreachableWarnWriteFailureSurfaces(t *testing.T) {
 	s := store.NewMemStore()
 	stagePairedGen(t, s, root)
 	w := errWriter{errTestStoreDown}
-	if err := Unlock(context.Background(), w, fileAPI{root}, cfg, s, s, s, s, stubClock{err: errClockUnreachable}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), w, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{err: errClockUnreachable}, Store: s}); err == nil {
 		t.Fatal("unlock with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("failure names no output cause: %v", err)
@@ -376,7 +388,8 @@ func TestUnlockTrackedStateFailureRefuses(t *testing.T) {
 	s := store.NewMemStore()
 	rows := failRows{MemStore: s, allErr: errTestStoreDown}
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, s, rows, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: rows, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with unreadable rows succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "tracked state unreadable") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -391,7 +404,8 @@ func TestUnlockLineageFailureRefuses(t *testing.T) {
 	s := store.NewMemStore()
 	ids := errIdentityStore{errTestStoreDown}
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, ids, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: ids, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with unreadable lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unreadable") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -409,7 +423,8 @@ func TestUnlockEstablishWarnWriteFailureSurfaces(t *testing.T) {
 		t.Fatalf("pair: %v", err)
 	}
 	w := errWriter{errTestStoreDown}
-	if err := Unlock(ctx, w, fileAPI{root}, cfg, s, s, s, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, w, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("re-establish with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("failure names no output cause: %v", err)
@@ -424,7 +439,8 @@ func TestUnlockLineageWriteFailureRefuses(t *testing.T) {
 	s := store.NewMemStore()
 	ids := &failIdentityStore{MemStore: store.NewMemStore(), armed: true}
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, s, ids, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: ids, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with unrecordable lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -439,7 +455,8 @@ func TestUnlockMintRecordFailureRefuses(t *testing.T) {
 	s := store.NewMemStore()
 	rec := errRecorder{errTestStoreDown}
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, s, rec, s, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: rec, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with failing keep-N log succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "generation went untracked") {
 		t.Errorf("failure names no cause: %v", err)
@@ -454,7 +471,8 @@ func TestUnlockMarkerFailureRefuses(t *testing.T) {
 	s := store.NewMemStore()
 	st := errUnlockStore{errTestStoreDown}
 	var out strings.Builder
-	if err := Unlock(context.Background(), &out, fileAPI{root}, cfg, st, s, s, s, stubClock{}, "time.example.com"); err == nil {
+	stageConfig(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Store: st}); err == nil {
 		t.Fatal("unlock with failing marker succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "intent marker failed") {
 		t.Errorf("failure names no cause: %v", err)

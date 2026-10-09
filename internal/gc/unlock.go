@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
@@ -22,6 +23,24 @@ type unlockStore interface {
 	SetUnlocked(ctx context.Context, unlocked bool) error
 }
 
+// UnlockDeps carries unlock's world: the registry API, the store in
+// its recorder, identity, and rows roles, the whole store behind
+// them for the intent marker, and the clock the mint checks. A nil
+// clock derives from config.Current(); the filesystem root and the
+// time server resolve there too — config rides no field, and tests
+// stage it the same way production reads it. Unlock takes no flags
+// and no acceptances, so there is no Options beside it.
+type UnlockDeps struct {
+	Rec   Recorder
+	Ids   lineage.IdentityStore
+	Rows  lineage.Rows
+	API   sentinel.API
+	Clock clock.Source
+	// Store is the whole store behind the split roles above: the
+	// intent marker unlock records.
+	Store unlockStore
+}
+
 // Unlock proves the shared store with a fresh generation and records
 // the intent to allow registry-store writes. Read-first through the
 // same verdict gc uses: silence establishes the pairing (generating
@@ -34,8 +53,9 @@ type unlockStore interface {
 // (unlock is manual — fix the clock and retry, there is no accept
 // flag to hide behind), an unreachable NTP warns and proceeds. Anything
 // unproven refuses and the store stays locked.
-func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath string, st unlockStore, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string) error {
-	fsStore, err := proof.ProveFilesystemStore(configPath)
+func Unlock(ctx context.Context, w io.Writer, d UnlockDeps) error {
+	cfg := config.Current()
+	fsStore, err := proof.ProveFilesystemStore(cfg.RegistryConfig)
 	if err != nil {
 		return err
 	}
@@ -43,23 +63,27 @@ func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath strin
 	// Same funnel as gc runs: refusals pass through untouched, so
 	// the skew message and the unreachable warning below read
 	// exactly as before. The ceremony consumes the gate.
-	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, timeServer)); cerr != nil {
+	clk := d.Clock
+	if clk == nil {
+		clk = cfg.ClockSource()
+	}
+	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, cfg.TimeServer)); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
 			return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock and retry (unlock carries no accept flags)",
-				skew.Offset.Round(time.Second), skew.Tolerance, timeServer)
+				skew.Offset.Round(time.Second), skew.Tolerance, cfg.TimeServer)
 		}
-		if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", timeServer, cerr); err != nil {
+		if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", cfg.TimeServer, cerr); err != nil {
 			return err
 		}
 	}
 	now := time.Now().UTC()
-	pay, digest, rerr := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
-	allRows, err := rows.All(ctx)
+	pay, digest, rerr := sentinel.Read(ctx, d.API, sentinel.Repo, sentinel.Tag)
+	allRows, err := d.Rows.All(ctx)
 	if err != nil {
 		return fmt.Errorf("tracked state unreadable: %w", err)
 	}
-	ident, err := ids.GetIdentity(ctx)
+	ident, err := d.Ids.GetIdentity(ctx)
 	if err != nil {
 		return fmt.Errorf("lineage unreadable: %w", err)
 	}
@@ -87,7 +111,7 @@ func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath strin
 				return err
 			}
 		}
-		if err := ids.SetIdentity(ctx, est); err != nil {
+		if err := d.Ids.SetIdentity(ctx, est); err != nil {
 			return fmt.Errorf("lineage unrecordable: %w", err)
 		}
 	}
@@ -96,14 +120,14 @@ func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath strin
 		return err
 	}
 	payload := sentinel.Payload{V: 1, Gen: gen, ID: useID, TS: now.Format(time.RFC3339), Writer: "kpr-unlock"}
-	md, err := writeVerifiedGeneration(ctx, api, root, payload)
+	md, err := writeVerifiedGeneration(ctx, d.API, root, payload)
 	if err != nil {
 		return err
 	}
-	if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
+	if err := d.Rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
 		return fmt.Errorf("proof held but the generation went untracked: %w", err)
 	}
-	if err := st.SetUnlocked(ctx, true); err != nil {
+	if err := d.Store.SetUnlocked(ctx, true); err != nil {
 		return fmt.Errorf("proof held but the intent marker failed: %w", err)
 	}
 	_, err = fmt.Fprintf(w, "store unlocked: shared store proven via %s:%s generation %s\n", sentinel.Repo, sentinel.Tag, gen)
