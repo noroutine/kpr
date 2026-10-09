@@ -11,6 +11,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/helpers/words"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
@@ -70,26 +71,6 @@ type analyzeJSON struct {
 	APITags        int      `json:"api_tags"`
 	APISentinels   int      `json:"api_sentinels"`
 	APIPrime       string   `json:"api_prime"`
-}
-
-// humanBytes renders bytes in the largest binary unit that keeps
-// the value at one or more whole units, two decimals: bytes stay
-// bytes, gibibytes stay gibibytes. Exact bytes stay in --json,
-// humans get a sense of scale at any magnitude.
-func humanBytes(b int64) string {
-	if b < 1024 {
-		return fmt.Sprintf("%d B", b)
-	}
-	v := float64(b)
-	unit := "B"
-	for _, u := range []string{"KiB", "MiB", "GiB", "TiB", "PiB"} {
-		v /= 1024
-		unit = u
-		if v < 1024 {
-			break
-		}
-	}
-	return fmt.Sprintf("%.2f %s", v, unit)
 }
 
 // analyzeRow labels one magnitude line: names pad to one width so
@@ -160,16 +141,6 @@ func summarizeRows(rows []policy.Row) (repos, tags, sentinels int) {
 // a read-only magnitude never refuses over it. The trust word
 // rides as its own field (readStoreView always sets it) — a
 // parenthesis would dangle off the sentinel count.
-// signedPlural signs a delta with singular nouns at ±1: +1 repo,
-// -1 tag, +0 sentinels. Deltas read signed; plain counts don't.
-func signedPlural(n int, one, many string) string {
-	noun := many
-	if n == 1 || n == -1 {
-		noun = one
-	}
-	return fmt.Sprintf("%+d %s", n, noun)
-}
-
 func storeLine(view storeView, api backfill.CatalogReport) string {
 	if !view.ok {
 		return analyzeRow("store", "unavailable")
@@ -192,9 +163,9 @@ func storeDeltaLine(view storeView, api backfill.CatalogReport) string {
 		return analyzeRow("store Δ", "unavailable")
 	}
 	return analyzeRow("store Δ", fmt.Sprintf("%s, %s, %s",
-		signedPlural(view.repos-api.Repos, "repo", "repos"),
-		signedPlural(view.tags-api.Tags, "tag", "tags"),
-		signedPlural(view.sentinels-api.Sentinels, "sentinel", "sentinels")))
+		words.SignedPlural(view.repos-api.Repos, "repo", "repos"),
+		words.SignedPlural(view.tags-api.Tags, "tag", "tags"),
+		words.SignedPlural(view.sentinels-api.Sentinels, "sentinel", "sentinels")))
 }
 
 // readStoreView snapshots tracked rows for the store line and
@@ -250,9 +221,9 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeV
 			words.Plural(fs.Sentinels, "sentinel", "sentinels"),
 			words.Plural(fs.Husks, "husk", "husks"))
 		fsDelta = fmt.Sprintf("%s, %s, %s",
-			signedPlural(liveRepos-api.Repos, "repo", "repos"),
-			signedPlural(fs.Tags-api.Tags, "tag", "tags"),
-			signedPlural(fs.Sentinels-api.Sentinels, "sentinel", "sentinels"))
+			words.SignedPlural(liveRepos-api.Repos, "repo", "repos"),
+			words.SignedPlural(fs.Tags-api.Tags, "tag", "tags"),
+			words.SignedPlural(fs.Sentinels-api.Sentinels, "sentinel", "sentinels"))
 		untagged := fs.Revisions - fs.Tags
 		// NOTE(mutants): <= is equivalent — clamping an
 		// exactly-zero count to zero is identity.
@@ -273,7 +244,7 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeV
 		if fs.DanglingLayers > 0 {
 			blobsBody += ", " + words.Plural(fs.DanglingLayers, "dangling layer link", "dangling layer links")
 		}
-		sizeBody = fmt.Sprintf("%s blobs", humanBytes(fs.BlobBytes))
+		sizeBody = fmt.Sprintf("%s blobs", human.Bytes(fs.BlobBytes))
 	}
 	return []string{
 		catalogLine(api),

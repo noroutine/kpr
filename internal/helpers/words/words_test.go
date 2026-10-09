@@ -25,3 +25,22 @@ func TestPluralCountsNouns(t *testing.T) {
 		}
 	}
 }
+
+// Deltas read signed with singular nouns at ±1: +1 repo, -1 tag,
+// +0 sentinels. If this fails, a delta line miscounts its nouns.
+func TestSignedPluralSignsDeltas(t *testing.T) {
+	for _, tc := range []struct {
+		n         int
+		one, many string
+		want      string
+	}{
+		{1, "repo", "repos", "+1 repo"},
+		{-1, "tag", "tags", "-1 tag"},
+		{0, "sentinel", "sentinels", "+0 sentinels"},
+		{3, "repo", "repos", "+3 repos"},
+	} {
+		if got := words.SignedPlural(tc.n, tc.one, tc.many); got != tc.want {
+			t.Errorf("SignedPlural(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}

@@ -196,25 +196,6 @@ func TestRegistryAnalyzeLinesAlign(t *testing.T) {
 // Each byte figure picks its own unit for its scale: bytes stay
 // bytes, gibibytes stay gibibytes. If this fails, a magnitude
 // reads in the wrong unit.
-func TestHumanBytesScale(t *testing.T) {
-	for _, c := range []struct {
-		in   int64
-		want string
-	}{
-		{0, "0 B"},
-		{71, "71 B"},
-		{1023, "1023 B"},
-		{1024, "1.00 KiB"},
-		{9580388, "9.14 MiB"},
-		{679001899008, "632.37 GiB"},
-		{1 << 50, "1.00 PiB"},
-	} {
-		if got := humanBytes(c.in); got != c.want {
-			t.Errorf("humanBytes(%d) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 // Analyze speaks full JSON for scripts: the exact key set, exact
 // values. If this fails, piping breaks.
 func TestRegistryAnalyzeJSON(t *testing.T) {

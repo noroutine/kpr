@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/registryfs"
@@ -165,7 +166,7 @@ func lsAge(now time.Time, ts string) string {
 	if err != nil {
 		return "unknown ts"
 	}
-	return shortAge(now, stamp)
+	return human.ShortAge(now, stamp)
 }
 
 func init() {

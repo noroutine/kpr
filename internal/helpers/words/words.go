@@ -16,3 +16,13 @@ func Plural(n int, one, many string) string {
 	}
 	return fmt.Sprintf("%d %s", n, many)
 }
+
+// SignedPlural signs a delta with singular nouns at ±1: +1 repo,
+// -1 tag, +0 sentinels. Deltas read signed; plain counts don't.
+func SignedPlural(n int, one, many string) string {
+	noun := many
+	if n == 1 || n == -1 {
+		noun = one
+	}
+	return fmt.Sprintf("%+d %s", n, noun)
+}

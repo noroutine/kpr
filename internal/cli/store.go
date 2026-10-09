@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/helpers/words"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
@@ -81,19 +82,6 @@ type storeLsOpts struct {
 // (noroutine/kpr-web is inventory, not machinery).
 func isSentinelRow(r policy.Row) bool {
 	return r.Repo == sentinel.Repo
-}
-
-// shortAge renders a push time as a compact duration ("2h5m ago").
-// A future stamp clamps to zero — the row is odd, the rendering
-// must not be.
-func shortAge(now, pushed time.Time) string {
-	d := now.Sub(pushed)
-	// NOTE(mutants): <= is equivalent — clamping an exactly-zero
-	// age to zero is identity.
-	if d < 0 {
-		d = 0
-	}
-	return d.Round(time.Second).String() + " ago"
 }
 
 // runStoreLs prints tracked rows as aligned columns under headers:
@@ -170,7 +158,7 @@ func runStoreLs(ctx context.Context, w io.Writer, s store.Store, opts storeLsOpt
 			state = r.Reason
 		}
 		if _, err := fmt.Fprintf(tw, "%s:%s\t%s\t%s\n",
-			r.Repo, r.Tag, shortAge(opts.now, r.PushedAt), state); err != nil {
+			r.Repo, r.Tag, human.ShortAge(opts.now, r.PushedAt), state); err != nil {
 			return err
 		}
 	}
@@ -256,7 +244,7 @@ func runStoreGhosts(ctx context.Context, w io.Writer, s store.Store, reg keeper.
 		}
 		for _, g := range ghosts {
 			if _, err := fmt.Fprintf(tw, "%s:%s\t%s\t%s\n",
-				g.Row.Repo, g.Row.Tag, shortAge(opts.now, g.Row.PushedAt), g.Evidence); err != nil {
+				g.Row.Repo, g.Row.Tag, human.ShortAge(opts.now, g.Row.PushedAt), g.Evidence); err != nil {
 				return err
 			}
 		}
@@ -471,7 +459,7 @@ func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentine
 func renderOutcome(now time.Time, a store.Outcome) string {
 	age := "unknown age"
 	if !a.At.IsZero() {
-		age = shortAge(now, a.At)
+		age = human.ShortAge(now, a.At)
 	}
 	if a.Repo == "" && a.Tag == "" {
 		return fmt.Sprintf("  %s (%s), %s", a.Outcome, a.Reason, age)

@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -78,7 +79,7 @@ func proofState(ctx context.Context, api sentinel.API) string {
 	if err != nil {
 		return p.Gen
 	}
-	return p.Gen + " (" + age.Round(time.Second).String() + " ago)"
+	return p.Gen + " (" + human.Ago(age) + ")"
 }
 
 // describeStore names the wired backend with its address for the

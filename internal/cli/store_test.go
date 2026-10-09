@@ -801,15 +801,6 @@ func TestStoreRmUntagHeldKeepsRowLoud(t *testing.T) {
 	}
 }
 
-// A future push clamps to zero age: the row is odd, the rendering
-// must not be. If this fails, clock-skewed pushes print negative
-// ages.
-func TestShortAgeClampsFuture(t *testing.T) {
-	if got := shortAge(cliNow, cliNow.Add(time.Hour)); got != "0s ago" {
-		t.Errorf("shortAge(future) = %q, want 0s ago", got)
-	}
-}
-
 // Listing against dead state fails naming the outage: an empty
 // table must mean empty, never unreadable. If this fails, an
 // outage prints as no inventory.
