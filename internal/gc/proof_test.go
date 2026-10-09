@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
+	"nrtn.dev/catalyst/kpr/internal/stage"
 )
 
 // Missing binary or config refuses with the remedy instead of failing
@@ -39,7 +40,7 @@ func TestWriteVerifiedRefusesUnwritable(t *testing.T) {
 		t.Fatalf("stage blocker: %v", err)
 	}
 	payload := sentinel.Payload{V: 1, Gen: "gen", ID: "id", TS: "ts", Writer: "test"}
-	if _, err := sentinel.WriteVerified(context.Background(), fileAPI{t.TempDir()}, blocker, payload); err == nil {
+	if _, err := sentinel.WriteVerified(context.Background(), stage.FileAPI{Root: t.TempDir()}, blocker, payload); err == nil {
 		t.Fatal("mint under a blocked root succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "unwritable") {
 		t.Errorf("refusal names no cause: %v", err)

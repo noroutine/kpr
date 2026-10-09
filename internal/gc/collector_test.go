@@ -12,6 +12,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/stage"
 )
 
 // Killing a never-started command is a silent no-op: the cancel path
@@ -100,10 +101,6 @@ type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 
-type errWriter struct{ err error }
-
-func (w errWriter) Write([]byte) (int, error) { return 0, w.err }
-
 // A cancelled context refuses before spawning: no child outlives
 // the caller that gave up. If this fails, a cancelled gc still
 // forks the collector.
@@ -142,7 +139,7 @@ func TestCollectorDeadListenerKillsChild(t *testing.T) {
 	defer func() { collectorCommand = old }()
 
 	_, report := collectEvents()
-	if err := runCollector(context.Background(), errWriter{errors.New("status pipe closed")},
+	if err := runCollector(context.Background(), stage.ErrWriter{Err: errors.New("status pipe closed")},
 		"/bin/sh", nil, report); err == nil {
 		t.Fatal("runCollector with dead listener succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "collector output:") {

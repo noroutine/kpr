@@ -14,9 +14,9 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/event"
-	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
+	"nrtn.dev/catalyst/kpr/internal/stage"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -58,28 +58,6 @@ func acceptAll() Accepts {
 // checked like the registry checks it. Whatever Write laid down,
 // this serves back — a file-backed fake registry for the proof half
 // of Run. A different (or empty) root serves nothing.
-type fileAPI struct{ root string }
-
-func (f fileAPI) blob(root, digest string) ([]byte, error) {
-	hex := strings.TrimPrefix(digest, "sha256:")
-	return os.ReadFile(filepath.Join(root, "docker", "registry", "v2", "blobs", "sha256", hex[:2], hex, "data"))
-}
-
-func (f fileAPI) GetManifest(_ context.Context, repo, tag string) ([]byte, error) {
-	raw, err := os.ReadFile(filepath.Join(f.root, "docker", "registry", "v2", "repositories", repo, "_manifests", "tags", tag, "current", "link"))
-	if err != nil {
-		return nil, err
-	}
-	return f.blob(f.root, strings.TrimSpace(string(raw)))
-}
-
-func (f fileAPI) GetBlob(_ context.Context, repo, digest string) ([]byte, error) {
-	hex := strings.TrimPrefix(digest, "sha256:")
-	if _, err := os.Stat(filepath.Join(f.root, "docker", "registry", "v2", "repositories", repo, "_layers", "sha256", hex, "link")); err != nil {
-		return nil, err
-	}
-	return f.blob(f.root, digest)
-}
 
 // frozenAPI serves one fixed generation whatever the store holds: a
 // stale snapshot on demand. If Run accepts it, the proof compares
@@ -97,42 +75,6 @@ func (f frozenAPI) GetBlob(context.Context, string, string) ([]byte, error) {
 	return f.blob, nil
 }
 
-// stageProvenRun stages a config over an empty root and returns the
-// config, the root, and a lock: the sentinel Write inside Run lays
-// the proof ground itself, so tests start empty and vary one port.
-// stubClock answers a fixed offset (or error): the verdict-on-offset
-// wiring without the network. Zero value is a healthy clock.
-type stubClock struct {
-	off time.Duration
-	err error
-}
-
-func (s stubClock) Offset(context.Context, string) (time.Duration, error) {
-	if s.err != nil {
-		return 0, s.err
-	}
-	return s.off, nil
-}
-
-var errClockUnreachable = errors.New("no route to time source")
-
-// stageConfig installs the Current the run reads: the registry
-// URL and config file the test staged, the fixed example time
-// source, and the collector binary (/bin/sh unless the test
-// stages its own). Scoped to the test — SetCurrent restores
-// after.
-func stageConfig(t *testing.T, url, cfgPath string, bin ...string) {
-	t.Helper()
-	binPath := "/bin/sh"
-	if len(bin) > 0 {
-		binPath = bin[0]
-	}
-	t.Cleanup(config.SetCurrent(&config.Config{
-		RegistryURL: url, RegistryConfig: cfgPath, TimeServer: "time.example.com",
-		RegistryBinPath: binPath,
-	}))
-}
-
 // stageConfigEdge is stageConfig plus the loopback edge the online
 // preflight dials: only cleared online runs need it.
 func stageConfigEdge(t *testing.T, url, cfgPath, edge string, bin ...string) {
@@ -147,24 +89,6 @@ func stageConfigEdge(t *testing.T, url, cfgPath, edge string, bin ...string) {
 	}))
 }
 
-func stageProvenRun(t *testing.T) (string, string, *store.MemStore) {
-	t.Helper()
-	root := t.TempDir()
-	cfg := filepath.Join(t.TempDir(), "config.yml")
-	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o644); err != nil {
-		t.Fatalf("stage config: %v", err)
-	}
-	// Runs prove locality per pass, but intent is the operator's:
-	// staged stores arrive unlocked so tests vary the ports, not
-	// the marker. Fresh-locked is pinned by the storetest contract
-	// and the dedicated refusal test below.
-	s := store.NewMemStore()
-	if err := s.SetUnlocked(context.Background(), true); err != nil {
-		t.Fatalf("stage unlock: %v", err)
-	}
-	return cfg, root, s
-}
-
 func okCollector(collected *[][]string) Collector {
 	return func(_ context.Context, _ io.Writer, _ string, args []string, _ event.Reporter) error {
 		*collected = append(*collected, args)
@@ -176,15 +100,15 @@ func okCollector(collected *[][]string) Collector {
 // tag, digest, actor. If this fails, generations go untracked and
 // keep-N can never reap them — the litter returns silently.
 func TestRunRecordsMintedGeneration(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
+	cfg, root, s := stage.ProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
@@ -219,16 +143,16 @@ func TestRunRecordsMintedGeneration(t *testing.T) {
 // full pass with no network and no binary. If this fails, Run reaches
 // past its ports to the concrete world.
 func TestRunBehindStubPorts(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	stagePairedGen(t, lock, root)
+	cfg, root, lock := stage.ProvenRun(t)
+	stage.PairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
@@ -250,8 +174,8 @@ func TestRunBehindStubPorts(t *testing.T) {
 // fails, an armed collect holds pushes with no fence lines in
 // its own output.
 func TestRunFencedVoicesHold(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	stagePairedGen(t, lock, root)
+	cfg, root, lock := stage.ProvenRun(t)
+	stage.PairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeReadonly, "", nil
 	})
@@ -259,9 +183,9 @@ func TestRunFencedVoicesHold(t *testing.T) {
 	var reported []event.Event
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root},
 		Fence: stubFencer{events: &fenceEvents}, Report: func(e event.Event) { reported = append(reported, e) }},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
@@ -287,16 +211,16 @@ func TestRunFencedVoicesHold(t *testing.T) {
 // the preview passes. If this fails, the derive path is dead
 // and production mints against no clock at all.
 func TestRunNilClockDerivesFromCurrent(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	stagePairedGen(t, lock, root)
+	cfg, root, lock := stage.ProvenRun(t)
+	stage.PairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("nil-clock run: %v", err)
@@ -311,25 +235,25 @@ func TestRunNilClockDerivesFromCurrent(t *testing.T) {
 // names its count. If this fails, empty runs invent removals (or
 // real ones go unannounced).
 func TestRunHuskVerdictNamesRemovals(t *testing.T) {
-	runArmed := func(t *testing.T, stage func(v2 string)) string {
+	runArmed := func(t *testing.T, setup func(v2 string)) string {
 		t.Helper()
-		cfg, root, s := stageProvenRun(t)
+		cfg, root, s := stage.ProvenRun(t)
 		v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
 		if err := os.MkdirAll(v2, 0o755); err != nil {
 			t.Fatalf("stage v2: %v", err)
 		}
-		if stage != nil {
-			stage(v2)
+		if setup != nil {
+			setup(v2)
 		}
-		stagePairedGen(t, s, root)
+		stage.PairedGen(t, s, root)
 		probe := Probe(func(context.Context, string) (Mode, string, error) {
 			return modeReadonly, "", nil
 		})
 		var collected [][]string
 		var out strings.Builder
-		stageConfig(t, "http://registry:5000", cfg)
+		stage.Config(t, "http://registry:5000", cfg)
 		useSeams(t, probe, okCollector(&collected))
-		err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+		err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 			Options{Armed: flagArmed()}, Accepts{})
 		if err != nil {
 			t.Fatalf("stub-port armed run: %v", err)
@@ -375,8 +299,8 @@ func TestRunHuskVerdictNamesRemovals(t *testing.T) {
 // surfaces the collector error like the preview does. If this fails,
 // real-run collection errors vanish into a nil return.
 func TestRunArmedCollectFailureSurfaces(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	stagePairedGen(t, lock, root)
+	cfg, root, lock := stage.ProvenRun(t)
+	stage.PairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeReadonly, "", nil
 	})
@@ -384,9 +308,9 @@ func TestRunArmedCollectFailureSurfaces(t *testing.T) {
 		return errors.New("collector exploded")
 	}
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, failCollector)
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "collector exploded") {
 		t.Fatalf("armed collect failure = %v, want the collector error surfaced", err)
@@ -415,16 +339,16 @@ func (w *tailFailWriter) Write(p []byte) (int, error) {
 // would report success while the operator never saw the verdict.
 // If this fails, output errors below the event stream go quiet.
 func TestRunDryRunTailWriteFailureSurfaces(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	stagePairedGen(t, lock, root)
+	cfg, root, lock := stage.ProvenRun(t)
+	stage.PairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	out := &tailFailWriter{}
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err := Run(context.Background(), out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err == nil {
 		t.Fatal("dry-run with failing verdict write succeeded, want the write error")
@@ -436,7 +360,7 @@ func TestRunDryRunTailWriteFailureSurfaces(t *testing.T) {
 // If this fails, gc previews whatever directory the mount points
 // at.
 func TestRunStrangerStoreRefuses(t *testing.T) {
-	cfg, _, lock := stageProvenRun(t)
+	cfg, _, lock := stage.ProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeReadonly, "", nil
 	})
@@ -451,9 +375,9 @@ func TestRunStrangerStoreRefuses(t *testing.T) {
 	} {
 		var collected [][]string
 		var out strings.Builder
-		stageConfig(t, "http://registry:5000", cfg)
+		stage.Config(t, "http://registry:5000", cfg)
 		useSeams(t, probe, okCollector(&collected))
-		err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{t.TempDir()}, Clock: stubClock{}, Report: func(event.Event) {}},
+		err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: t.TempDir()}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 			Options{Armed: tc.armed}, Accepts{})
 		if err == nil {
 			t.Fatalf("armed=%v gc on a stranger's store succeeded, want refusal", tc.armed != nil)
@@ -480,19 +404,19 @@ func TestRunRefusesUnattributableLineage(t *testing.T) {
 		payload sentinel.Payload
 		want    string
 	}{
-		{name: "identity-less", payload: sentinel.Payload{V: 1, Gen: newGenID(t), TS: now}, want: "identity-less"},
-		{name: "unpaired", payload: sentinel.Payload{V: 1, Gen: newGenID(t), ID: newGenID(t), TS: now}, want: "unpaired"},
+		{name: "identity-less", payload: sentinel.Payload{V: 1, Gen: stage.NewGenID(t), TS: now}, want: "identity-less"},
+		{name: "unpaired", payload: sentinel.Payload{V: 1, Gen: stage.NewGenID(t), ID: stage.NewGenID(t), TS: now}, want: "unpaired"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg, root, lock := stageProvenRun(t)
+			cfg, root, lock := stage.ProvenRun(t)
 			if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, tc.payload); err != nil {
 				t.Fatalf("stage served: %v", err)
 			}
 			var collected [][]string
 			var out strings.Builder
-			stageConfig(t, "http://registry:5000", cfg)
+			stage.Config(t, "http://registry:5000", cfg)
 			useSeams(t, readonlyProbe(), okCollector(&collected))
-			err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+			err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 				Options{Armed: flagArmed()}, Accepts{})
 			if err == nil {
 				t.Fatalf("gc over %s lineage succeeded, want refusal", tc.name)
@@ -513,9 +437,9 @@ func TestRunRefusesUnattributableLineage(t *testing.T) {
 // proof is presence of the sentinel, not freshness, and old
 // snapshots pass silently.
 func TestRunStaleSnapshotRefuses(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	stagePairedGen(t, lock, root)
-	manRaw, err := fileAPI{root}.GetManifest(context.Background(), sentinel.Repo, sentinel.Tag)
+	cfg, root, lock := stage.ProvenRun(t)
+	stage.PairedGen(t, lock, root)
+	manRaw, err := stage.FileAPI{Root: root}.GetManifest(context.Background(), sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read staged manifest: %v", err)
 	}
@@ -527,7 +451,7 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 	if err := json.Unmarshal(manRaw, &staged); err != nil {
 		t.Fatalf("parse staged manifest: %v", err)
 	}
-	payRaw, err := fileAPI{root}.GetBlob(context.Background(), sentinel.Repo, staged.Config.Digest)
+	payRaw, err := stage.FileAPI{Root: root}.GetBlob(context.Background(), sentinel.Repo, staged.Config.Digest)
 	if err != nil {
 		t.Fatalf("read staged blob: %v", err)
 	}
@@ -537,9 +461,9 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 	frozen := frozenAPI{manifest: manRaw, blob: payRaw}
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err = Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: frozen, Clock: stubClock{}, Report: func(event.Event) {}},
+	err = Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: frozen, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("gc on a stale snapshot succeeded, want refusal")
@@ -552,15 +476,15 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 // (the lock expires), but warns loud instead of pretending a clean
 // handoff. If this fails, a leaked lock reads as orderly.
 func TestRunWarnsOnReleaseFailure(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
-	stagePairedGen(t, s, root)
+	cfg, root, s := stage.ProvenRun(t)
+	stage.PairedGen(t, s, root)
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, Probe(func(context.Context, string) (Mode, string, error) { return modeReadonly, "", nil }), okCollector(&collected))
 	err := Run(context.Background(), &out,
-		Deps{Lock: releaseFailLocker{s}, Rec: s, Ids: s, Rows: s, API: fileAPI{root},
-			Clock: stubClock{}, Report: func(event.Event) {}},
+		Deps{Lock: releaseFailLocker{s}, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root},
+			Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("release-failed run: %v", err)
@@ -583,8 +507,8 @@ func (releaseFailLocker) ReleaseLock(context.Context, string) error {
 // --accept-mode-flip passes warned instead — the operator presumed
 // to know. If this fails, mid-run writes go unnoticed either way.
 func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
-	stagePairedGen(t, s, root)
+	cfg, root, s := stage.ProvenRun(t)
+	stage.PairedGen(t, s, root)
 	flipProbe := func() Probe {
 		calls := 0
 		return func(context.Context, string) (Mode, string, error) {
@@ -597,9 +521,9 @@ func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 	}
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, flipProbe(), okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "mode changed") {
 		t.Fatalf("flipped run = %v, want the mode-change refusal", err)
@@ -607,9 +531,9 @@ func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 		t.Errorf("refusal names no override: %v", err)
 	}
 	out.Reset()
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, flipProbe(), okCollector(&collected))
-	if err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	if err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{ModeFlip: acceptRisk()}); err != nil {
 		t.Fatalf("mode-flip-accepted run: %v", err)
 	}
@@ -623,15 +547,15 @@ func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 // stranger, empty, or down. If this fails, previews describe stores
 // kpr never shared.
 func TestRunDryRunRefusesWithoutSentinel(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
+	cfg, root, s := stage.ProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "no sentinel served") {
 		t.Fatalf("dry-run on silence = %v, want the no-shared-store refusal", err)
@@ -647,16 +571,16 @@ func TestRunDryRunRefusesWithoutSentinel(t *testing.T) {
 // generation first. If this fails, every default gc invocation
 // costs a generation.
 func TestRunDryRunSkipsProof(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
-	stagePairedGen(t, s, root)
+	cfg, root, s := stage.ProvenRun(t)
+	stage.PairedGen(t, s, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
@@ -696,15 +620,15 @@ func TestRunDryRunSkipsProof(t *testing.T) {
 // nothing. If this fails, armed gc collects against a live
 // registry believing it fenced, or mints for a run that refuses.
 func TestRunWritableRefusalMintsNothing(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
+	cfg, root, s := stage.ProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeWritable, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "gateway") || !strings.Contains(err.Error(), "--accept-unfenced") {
 		t.Fatalf("writable run = %v, want the gateway refusal with override", err)
@@ -728,8 +652,8 @@ func TestRunWritableRefusalMintsNothing(t *testing.T) {
 // proven ground, and refusing now would lie about work done. If this
 // fails, a transient probe blip fails a good run.
 func TestRunDeadPostProbeWarns(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
-	stagePairedGen(t, s, root)
+	cfg, root, s := stage.ProvenRun(t)
+	stage.PairedGen(t, s, root)
 	calls := 0
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		calls++
@@ -740,9 +664,9 @@ func TestRunDeadPostProbeWarns(t *testing.T) {
 	})
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("dead-post-probe run: %v", err)
@@ -758,8 +682,8 @@ func TestRunDeadPostProbeWarns(t *testing.T) {
 // not the gate under test.
 func stagePairedRun(t *testing.T) (cfg, root, localID, gen string, lock *store.MemStore) {
 	t.Helper()
-	cfg, root, lock = stageProvenRun(t)
-	gen = stagePairedGen(t, lock, root)
+	cfg, root, lock = stage.ProvenRun(t)
+	gen = stage.PairedGen(t, lock, root)
 	ident, err := lock.GetIdentity(context.Background())
 	if err != nil {
 		t.Fatalf("read paired identity: %v", err)
@@ -771,31 +695,6 @@ func stagePairedRun(t *testing.T) (cfg, root, localID, gen string, lock *store.M
 // stagePairedGen writes a fresh ID-bearing generation and pairs the
 // store to it: downstream-gate tests need the verdict to pass so the
 // gate under test fires. It returns the served generation.
-func stagePairedGen(t *testing.T, lock *store.MemStore, root string) string {
-	t.Helper()
-	gen := newGenID(t)
-	id := newGenID(t)
-	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag,
-		sentinel.Payload{V: 1, Gen: gen, ID: id, TS: now}); err != nil {
-		t.Fatalf("stage paired generation: %v", err)
-	}
-	if err := lock.SetIdentity(context.Background(), store.Identity{
-		ID: id, BaselineGen: gen, AdoptedAt: time.Now().UTC(),
-	}); err != nil {
-		t.Fatalf("pair store: %v", err)
-	}
-	return gen
-}
-
-func newGenID(t *testing.T) string {
-	t.Helper()
-	id, err := sentinel.NewGen()
-	if err != nil {
-		t.Fatalf("mint generation id: %v", err)
-	}
-	return id
-}
 
 func readonlyProbe() Probe {
 	return Probe(func(context.Context, string) (Mode, string, error) {
@@ -810,16 +709,16 @@ func readonlyProbe() Probe {
 // this fails, gc clobbers registries mounted by mistake.
 func TestRunForeignLineageRefusesBeforeMint(t *testing.T) {
 	cfg, root, _, gen, lock := stagePairedRun(t)
-	foreign := newGenID(t)
+	foreign := stage.NewGenID(t)
 	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag,
 		sentinel.Payload{V: 1, Gen: gen, ID: foreign}); err != nil {
 		t.Fatalf("stage foreign generation: %v", err)
 	}
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, acceptAll())
 	if err == nil {
 		t.Fatal("gc over a foreign lineage succeeded, want refusal")
@@ -836,7 +735,7 @@ func TestRunForeignLineageRefusesBeforeMint(t *testing.T) {
 	if len(rows) != 0 {
 		t.Errorf("refused run recorded %d rows, want none", len(rows))
 	}
-	back, _, rerr := sentinel.Read(context.Background(), fileAPI{root}, sentinel.Repo, sentinel.Tag)
+	back, _, rerr := sentinel.Read(context.Background(), stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if rerr != nil {
 		t.Fatalf("read back served: %v", rerr)
 	}
@@ -850,12 +749,12 @@ func TestRunForeignLineageRefusesBeforeMint(t *testing.T) {
 // and records the store's ID from the served payload. If this fails,
 // every new registry needs a manual adopt before its first gc.
 func TestRunSilenceEstablishesPairing(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
+	cfg, root, lock := stage.ProvenRun(t)
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("first run on silence: %v", err)
@@ -870,7 +769,7 @@ func TestRunSilenceEstablishesPairing(t *testing.T) {
 	if len(collected) != 1 {
 		t.Errorf("collected %d times, want one proof pass", len(collected))
 	}
-	served, _, err := sentinel.Read(context.Background(), fileAPI{root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(context.Background(), stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served baseline: %v", err)
 	}
@@ -887,9 +786,9 @@ func TestRunClockSkewRefusesUnlessAccepted(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
 	var out strings.Builder
 	var refused [][]string
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(&refused))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{off: time.Hour}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{Off: time.Hour}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("skewed clock run succeeded, want refusal")
@@ -900,9 +799,9 @@ func TestRunClockSkewRefusesUnlessAccepted(t *testing.T) {
 	}
 	var accepted [][]string
 	out.Reset()
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(&accepted))
-	err = Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{off: time.Hour}, Report: func(event.Event) {}},
+	err = Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{Off: time.Hour}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{ClockSkew: acceptRisk()})
 	if err != nil {
 		t.Fatalf("skew-accepted run: %v", err)
@@ -922,12 +821,6 @@ func TestRunClockSkewRefusesUnlessAccepted(t *testing.T) {
 // matrix proves the ceremony around this; here the refusal itself
 // is pinned (live registries are writable, which would refuse
 // first). If this fails, gc mints over rollbacks silently.
-// newRow tracks a generation at a fixed age: stale verdicts compare
-// served gens against the newest tracked push.
-func newRow(repo, tag string, at time.Time) policy.Row {
-	return policy.Row{Repo: repo, Tag: tag, Digest: "sha256:" + tag,
-		MediaType: sentinel.ManifestMediaType, PushedAt: at, Actor: "test"}
-}
 
 func TestRunStaleRollbackRefusesArmed(t *testing.T) {
 	cfg, root, localID, gen, lock := stagePairedRun(t)
@@ -938,18 +831,18 @@ func TestRunStaleRollbackRefusesArmed(t *testing.T) {
 		t.Fatalf("clear baseline: %v", err)
 	}
 	now := time.Now().UTC()
-	if err := lock.Record(ctx, newRow(sentinel.Repo, gen, now.Add(-time.Hour))); err != nil {
+	if err := lock.Record(ctx, stage.NewRow(sentinel.Repo, gen, now.Add(-time.Hour))); err != nil {
 		t.Fatalf("track served generation: %v", err)
 	}
-	newer := newGenID(t)
-	if err := lock.Record(ctx, newRow(sentinel.Repo, newer, now)); err != nil {
+	newer := stage.NewGenID(t)
+	if err := lock.Record(ctx, stage.NewRow(sentinel.Repo, newer, now)); err != nil {
 		t.Fatalf("track newer generation: %v", err)
 	}
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(&collected))
-	err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("gc over a rollback succeeded, want refusal")
@@ -974,17 +867,17 @@ func TestRunRollbackAcceptWarns(t *testing.T) {
 		t.Fatalf("clear baseline: %v", err)
 	}
 	now := time.Now().UTC()
-	if err := lock.Record(ctx, newRow(sentinel.Repo, gen, now.Add(-time.Hour))); err != nil {
+	if err := lock.Record(ctx, stage.NewRow(sentinel.Repo, gen, now.Add(-time.Hour))); err != nil {
 		t.Fatalf("track served generation: %v", err)
 	}
-	if err := lock.Record(ctx, newRow(sentinel.Repo, newGenID(t), now)); err != nil {
+	if err := lock.Record(ctx, stage.NewRow(sentinel.Repo, stage.NewGenID(t), now)); err != nil {
 		t.Fatalf("track newer generation: %v", err)
 	}
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(&collected))
-	err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{Rollback: acceptRisk()})
 	if err != nil {
 		t.Fatalf("rollback-accepted run: %v", err)
@@ -1002,18 +895,18 @@ func TestRunRollbackAcceptWarns(t *testing.T) {
 // re-mint (a wipe revokes no acceptance). If this fails, a wiped
 // tag reads as a fresh deploy and revokes the operator's accept.
 func TestRunEstablishPairedWarns(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
+	cfg, root, lock := stage.ProvenRun(t)
 	ctx := context.Background()
-	id := newGenID(t)
+	id := stage.NewGenID(t)
 	adopted := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	if err := lock.SetIdentity(ctx, store.Identity{ID: id, BaselineGen: "accepted-gen", AdoptedAt: adopted}); err != nil {
 		t.Fatalf("pair: %v", err)
 	}
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(&collected))
-	err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("re-establish: %v", err)
@@ -1035,7 +928,7 @@ func TestRunEstablishPairedWarns(t *testing.T) {
 	if len(collected) != 1 {
 		t.Errorf("warned run collected %d times, want one proof pass", len(collected))
 	}
-	served, _, err := sentinel.Read(ctx, fileAPI{root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(ctx, stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served baseline: %v", err)
 	}
@@ -1051,9 +944,9 @@ func TestRunNTPUnreachableWarnsProceeds(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{err: errClockUnreachable}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{Err: stage.ErrClockUnreachable}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("run with unreachable NTP: %v", err)
@@ -1090,32 +983,16 @@ func (s scriptLocker) AcquireLock(ctx context.Context, name string, ttl time.Dur
 	return s.held, nil
 }
 
-// errIdentityStore fails the lineage read: the backend-outage
-// stand-in for the pairing record.
-type errIdentityStore struct{ err error }
-
-func (e errIdentityStore) GetIdentity(context.Context) (store.Identity, error) {
-	return store.Identity{}, e.err
-}
-
-func (e errIdentityStore) SetIdentity(context.Context, store.Identity) error { return e.err }
-
-// errRecorder fails the keep-N write: the backend-outage stand-in
-// for the generation log.
-type errRecorder struct{ err error }
-
-func (e errRecorder) Record(context.Context, policy.Row) error { return e.err }
-
 // An unreadable lock marker refuses before anything mints: unknown
 // intent is not unlocked intent. If this fails, a backend outage at
 // the marker reads as permission.
 func TestRunLockUnreadableRefuses(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
-	lock := scriptLocker{MemStore: s, unlockErr: errTestStoreDown, held: true}
+	cfg, root, s := stage.ProvenRun(t)
+	lock := scriptLocker{MemStore: s, unlockErr: stage.ErrTestStoreDown, held: true}
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable lock succeeded, want refusal")
@@ -1128,12 +1005,12 @@ func TestRunLockUnreadableRefuses(t *testing.T) {
 // probe, no lock held. If this fails, a bare image mints a proof
 // no collector can redeem.
 func TestRunMissingBinaryRefuses(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
+	cfg, root, s := stage.ProvenRun(t)
 	lock := scriptLocker{MemStore: s, held: true}
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg, "/nonexistent-registry")
+	stage.Config(t, "http://registry:5000", cfg, "/nonexistent-registry")
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with missing binary succeeded, want refusal")
@@ -1146,16 +1023,16 @@ func TestRunMissingBinaryRefuses(t *testing.T) {
 // collection only understands the shared directory layout. If this
 // fails, gc mints against a store it cannot prove local.
 func TestRunS3ConfigRefuses(t *testing.T) {
-	_, _, s := stageProvenRun(t)
+	_, _, s := stage.ProvenRun(t)
 	s3cfg := filepath.Join(t.TempDir(), "config.yml")
 	if err := os.WriteFile(s3cfg, []byte("storage:\n  s3:\n    bucket: blobs\n"), 0o644); err != nil {
 		t.Fatalf("stage config: %v", err)
 	}
 	lock := scriptLocker{MemStore: s, held: true}
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", s3cfg)
+	stage.Config(t, "http://registry:5000", s3cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{t.TempDir()}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: t.TempDir()}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with s3 config succeeded, want refusal")
@@ -1168,12 +1045,12 @@ func TestRunS3ConfigRefuses(t *testing.T) {
 // redis is down, not that gc is broken. If this fails, a redis
 // outage reports a mystery error.
 func TestRunAcquireFailureRefuses(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
-	lock := scriptLocker{MemStore: s, held: true, acquireErr: errTestStoreDown}
+	cfg, root, s := stage.ProvenRun(t)
+	lock := scriptLocker{MemStore: s, held: true, acquireErr: stage.ErrTestStoreDown}
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with dead lock backend succeeded, want refusal")
@@ -1185,13 +1062,13 @@ func TestRunAcquireFailureRefuses(t *testing.T) {
 // A held lock refuses without minting: two collectors never mark
 // together. If this fails, concurrent runs double-collect.
 func TestRunContendedLockRefuses(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
+	cfg, root, s := stage.ProvenRun(t)
 	lock := scriptLocker{MemStore: s, held: false}
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run under a held lock succeeded, want refusal")
@@ -1207,15 +1084,15 @@ func TestRunContendedLockRefuses(t *testing.T) {
 // not a default. If this fails, an unreachable registry collects
 // under an assumed mode.
 func TestRunDeadPreProbeRefuses(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
+	cfg, root, s := stage.ProvenRun(t)
 	lock := scriptLocker{MemStore: s, held: true}
 	dead := Probe(func(context.Context, string) (Mode, string, error) {
 		return modeUnknown, "", errProbeDead
 	})
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, dead, okCollector(nil))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if !errors.Is(err, errProbeDead) {
 		t.Fatalf("dead-probe run = %v, want the probe error surfaced", err)
@@ -1236,9 +1113,9 @@ func TestRunReadonlyDeadCacheCollects(t *testing.T) {
 	}
 	var collected [][]string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", redisCfg)
+	stage.Config(t, "http://registry:5000", redisCfg)
 	useSeams(t, readonlyProbe(), okCollector(&collected))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("run with dead cache refused: %v", err)
@@ -1254,10 +1131,10 @@ func TestRunReadonlyDeadCacheCollects(t *testing.T) {
 // did.
 func TestRunSkewWarnWriteFailureSurfaces(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
-	w := errWriter{errTestStoreDown}
-	stageConfig(t, "http://registry:5000", cfg)
+	w := stage.ErrWriter{Err: stage.ErrTestStoreDown}
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{off: time.Hour}, Report: func(event.Event) {}},
+	err := Run(context.Background(), w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{Off: time.Hour}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{ClockSkew: acceptRisk()})
 	if err == nil {
 		t.Fatal("skewed accepted run with dead output succeeded, want failure")
@@ -1270,10 +1147,10 @@ func TestRunSkewWarnWriteFailureSurfaces(t *testing.T) {
 // reason: air-gapped sites stay working, but never silently.
 func TestRunUnreachableWarnWriteFailureSurfaces(t *testing.T) {
 	cfg, root, _, _, lock := stagePairedRun(t)
-	w := errWriter{errTestStoreDown}
-	stageConfig(t, "http://registry:5000", cfg)
+	w := stage.ErrWriter{Err: stage.ErrTestStoreDown}
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{err: errClockUnreachable}, Report: func(event.Event) {}},
+	err := Run(context.Background(), w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{Err: stage.ErrClockUnreachable}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with dead output succeeded, want failure")
@@ -1286,14 +1163,14 @@ func TestRunUnreachableWarnWriteFailureSurfaces(t *testing.T) {
 // stranger, empty, or down — never proceed. If this fails, a
 // backend outage at the rows reads as a clean store.
 func TestRunTrackedStateFailureRefuses(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	stagePairedGen(t, lock, root)
-	rows := failRows{MemStore: lock, allErr: errTestStoreDown}
+	cfg, root, lock := stage.ProvenRun(t)
+	stage.PairedGen(t, lock, root)
+	rows := stage.FailRows{MemStore: lock, AllErr: stage.ErrTestStoreDown}
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: rows, API: fileAPI{root},
-		Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: rows, API: stage.FileAPI{Root: root},
+		Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable rows succeeded, want refusal")
@@ -1306,13 +1183,13 @@ func TestRunTrackedStateFailureRefuses(t *testing.T) {
 // reason: unknown pairing is not pairing. If this fails, a backend
 // outage at the lineage reads as unpaired.
 func TestRunLineageFailureRefuses(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	stagePairedGen(t, lock, root)
-	ids := errIdentityStore{errTestStoreDown}
+	cfg, root, lock := stage.ProvenRun(t)
+	stage.PairedGen(t, lock, root)
+	ids := stage.ErrIdentityStore{Err: stage.ErrTestStoreDown}
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable lineage succeeded, want refusal")
@@ -1326,12 +1203,12 @@ func TestRunLineageFailureRefuses(t *testing.T) {
 // would orphan it. If this fails, a backend outage mid-ceremony
 // reads as paired.
 func TestRunLineageWriteFailureRefuses(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	ids := &failIdentityStore{MemStore: store.NewMemStore(), armed: true}
+	cfg, root, lock := stage.ProvenRun(t)
+	ids := &stage.FailIdentityStore{MemStore: store.NewMemStore(), Armed: true}
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unrecordable lineage succeeded, want refusal")
@@ -1344,12 +1221,12 @@ func TestRunLineageWriteFailureRefuses(t *testing.T) {
 // the proof is held but untracked, and silence would litter. If
 // this fails, a backend outage at the log reads as collected.
 func TestRunMintRecordFailureRefuses(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
-	rec := errRecorder{errTestStoreDown}
+	cfg, root, lock := stage.ProvenRun(t)
+	rec := stage.ErrRecorder{Err: stage.ErrTestStoreDown}
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: rec, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: rec, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with failing keep-N log succeeded, want failure")
@@ -1368,16 +1245,16 @@ func TestRunStaleWarnWriteFailureSurfaces(t *testing.T) {
 		t.Fatalf("clear baseline: %v", err)
 	}
 	now := time.Now().UTC()
-	if err := lock.Record(ctx, newRow(sentinel.Repo, gen, now.Add(-time.Hour))); err != nil {
+	if err := lock.Record(ctx, stage.NewRow(sentinel.Repo, gen, now.Add(-time.Hour))); err != nil {
 		t.Fatalf("track served generation: %v", err)
 	}
-	if err := lock.Record(ctx, newRow(sentinel.Repo, newGenID(t), now)); err != nil {
+	if err := lock.Record(ctx, stage.NewRow(sentinel.Repo, stage.NewGenID(t), now)); err != nil {
 		t.Fatalf("track newer generation: %v", err)
 	}
-	w := errWriter{errTestStoreDown}
-	stageConfig(t, "http://registry:5000", cfg)
+	w := stage.ErrWriter{Err: stage.ErrTestStoreDown}
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(ctx, w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(ctx, w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{Rollback: acceptRisk()})
 	if err == nil {
 		t.Fatal("stale accepted run with dead output succeeded, want failure")
@@ -1389,15 +1266,15 @@ func TestRunStaleWarnWriteFailureSurfaces(t *testing.T) {
 // A re-mint warning that cannot print fails the run for the same
 // reason: a wiped tag is an incident, and the incident must print.
 func TestRunEstablishWarnWriteFailureSurfaces(t *testing.T) {
-	cfg, root, lock := stageProvenRun(t)
+	cfg, root, lock := stage.ProvenRun(t)
 	ctx := context.Background()
-	if err := lock.SetIdentity(ctx, store.Identity{ID: newGenID(t)}); err != nil {
+	if err := lock.SetIdentity(ctx, store.Identity{ID: stage.NewGenID(t)}); err != nil {
 		t.Fatalf("pair: %v", err)
 	}
-	w := errWriter{errTestStoreDown}
-	stageConfig(t, "http://registry:5000", cfg)
+	w := stage.ErrWriter{Err: stage.ErrTestStoreDown}
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, readonlyProbe(), okCollector(nil))
-	err := Run(ctx, w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	err := Run(ctx, w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("re-establish with dead output succeeded, want failure")
@@ -1423,14 +1300,14 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 		return ghost
 	}
 
-	cfg, root, s := stageProvenRun(t)
+	cfg, root, s := stage.ProvenRun(t)
 	ghost := stageGhost(t, root)
 	var collected [][]string
 	var stages []string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	if err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(e event.Event) { stages = append(stages, e.Stage) }},
+	if err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(e event.Event) { stages = append(stages, e.Stage) }},
 		Options{Armed: flagArmed()}, Accepts{}); err != nil {
 		t.Fatalf("armed run: %v", err)
 	}
@@ -1446,13 +1323,13 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 		t.Errorf("armed run emitted no post-probe (stages %v), want the full tail", stages)
 	}
 
-	cfg, root, s = stageProvenRun(t)
-	stagePairedGen(t, s, root)
+	cfg, root, s = stage.ProvenRun(t)
+	stage.PairedGen(t, s, root)
 	ghost = stageGhost(t, root)
 	var preview strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	if err := Run(context.Background(), &preview, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
+	if err := Run(context.Background(), &preview, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{}); err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
@@ -1473,7 +1350,7 @@ func TestRunPruneFailureWarnsCollectStands(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads through directory permissions")
 	}
-	cfg, root, s := stageProvenRun(t)
+	cfg, root, s := stage.ProvenRun(t)
 	dark := filepath.Join(root, "docker", "registry", "v2", "repositories", "test", "dark")
 	if err := os.MkdirAll(dark, 0o755); err != nil {
 		t.Fatalf("stage dir: %v", err)
@@ -1488,9 +1365,9 @@ func TestRunPruneFailureWarnsCollectStands(t *testing.T) {
 	var collected [][]string
 	var stages []string
 	var out strings.Builder
-	stageConfig(t, "http://registry:5000", cfg)
+	stage.Config(t, "http://registry:5000", cfg)
 	useSeams(t, probe, okCollector(&collected))
-	if err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(e event.Event) { stages = append(stages, e.Stage) }},
+	if err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Report: func(e event.Event) { stages = append(stages, e.Stage) }},
 		Options{Armed: flagArmed()}, Accepts{}); err != nil {
 		t.Fatalf("prune-failed run: %v", err)
 	}
@@ -1501,5 +1378,25 @@ func TestRunPruneFailureWarnsCollectStands(t *testing.T) {
 	// the warning never emits the post-probe.
 	if !slices.Contains(stages, stagePostProbe) {
 		t.Errorf("prune-failed run emitted no post-probe (stages %v), want the full tail", stages)
+	}
+}
+
+// A locked store refuses before anything else: no probe, no proof,
+// no collector — the refusal names the fix. Fresh stores are born
+// locked, so this is also the default-deny pin at the use-case
+// level (the contract pins it at the backend level). If this fails,
+// a fresh deploy collects without ever proving locality.
+func TestRunRefusesLockedStore(t *testing.T) {
+	cfg, root, _ := stage.ProvenRun(t)
+	var collected [][]string
+	var out strings.Builder
+	stage.Config(t, "http://registry:5000", cfg)
+	useSeams(t, Probe(func(context.Context, string) (Mode, string, error) { return modeReadonly, "", nil }), okCollector(&collected))
+	err := Run(context.Background(), &out,
+		Deps{Lock: store.NewMemStore(), Rec: store.NewMemStore(), Ids: store.NewMemStore(), Rows: store.NewMemStore(), API: stage.FileAPI{Root: root},
+			Clock: stage.StubClock{}, Report: func(event.Event) {}},
+		Options{}, Accepts{})
+	if err == nil || !strings.Contains(err.Error(), "store is locked") {
+		t.Fatalf("locked run = %v, want the locked refusal", err)
 	}
 }
