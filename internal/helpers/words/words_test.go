@@ -3,7 +3,7 @@ package words_test
 import (
 	"testing"
 
-	"nrtn.dev/catalyst/kpr/internal/words"
+	"nrtn.dev/catalyst/kpr/internal/helpers/words"
 )
 
 // Every command counts nouns the same way: 1 repo, 2 repos, 0

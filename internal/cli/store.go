@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/helpers/words"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
@@ -21,7 +22,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 	"nrtn.dev/catalyst/kpr/internal/trust"
-	"nrtn.dev/catalyst/kpr/internal/words"
 )
 
 // OpenStore opens state the same way every command does. The logic lives in

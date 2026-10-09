@@ -9,8 +9,8 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/helpers/words"
 	"nrtn.dev/catalyst/kpr/internal/proof"
-	"nrtn.dev/catalyst/kpr/internal/words"
 )
 
 var (
