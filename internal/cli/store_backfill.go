@@ -42,10 +42,6 @@ stdout, a path for a file) and is otherwise discarded.`,
 		}
 		defer d.Close()
 		armed := proof.Arm(backfillNoDryRun, d.Cfg.CLINoDryRun)
-		glob := ""
-		if len(args) == 1 {
-			glob = args[0]
-		}
 		out := cmd.OutOrStdout()
 		live := newLiveLines(out)
 		stream, tick, closeSink, err := resolveBackfillSink(backfillOutput, out, live)
@@ -68,11 +64,21 @@ stdout, a path for a file) and is otherwise discarded.`,
 			Rec: d.Store, Ids: d.Store, Lock: d.Store,
 			Log: stream, Progress: tick,
 		},
-			backfill.Options{RepoGlob: glob, Armed: armed},
+			backfill.Options{RepoGlob: backfillGlob(args), Armed: armed},
 			backfill.Accepts{Rollback: proof.Force(armed, backfillAcceptRollback)})
 		live.doneBlock(backfillLines(sum), 0)
 		return err
 	},
+}
+
+// backfillGlob reads the optional repo glob: `store backfill
+// [repo-glob]` scopes the walk, empty lists all. Cobra caps the
+// args at one, so this is a presence check, never an index.
+func backfillGlob(args []string) string {
+	if len(args) == 1 {
+		return args[0]
+	}
+	return ""
 }
 
 // resolveBackfillSink maps --output to the per-tag stream and the

@@ -152,6 +152,18 @@ func TestResolveBackfillSinkRoutesStream(t *testing.T) {
 	}
 }
 
+// The repo glob is positional-or-empty: no arg lists all, one
+// arg scopes the walk. Cobra caps the args, so the helper only
+// checks presence. If this fails, the walk scopes wrong.
+func TestBackfillGlob(t *testing.T) {
+	if got := backfillGlob(nil); got != "" {
+		t.Errorf("glob(nil) = %q, want empty (list all)", got)
+	}
+	if got := backfillGlob([]string{"app*"}); got != "app*" {
+		t.Errorf("glob([app*]) = %q, want the pattern", got)
+	}
+}
+
 // The display is three copypastable lines: what the catalog
 // names, what the store holds (tracked over everything, like
 // analyze counts it, sentinels as a memo), and the run's own
