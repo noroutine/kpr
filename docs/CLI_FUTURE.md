@@ -30,3 +30,21 @@ name) and keeps the parent registering the exported `Cmd`.
 `deps` gains nothing per move — if a move wants something
 from the parent that `deps` lacks, that something was
 command code wearing shared clothes.
+
+## Unlock takes Deps
+
+`gc.Unlock` still takes eleven positionals (`api, configPath,
+st, rec, ids, rows, clk, timeServer…`) — the shape `gc.Run`
+had before `Deps`/`Options`/`Accepts`. A future move folds it
+into the same bundle: store roles, proofs, and acceptances,
+nothing positional past the writer.
+
+## Config rides no field
+
+`gc.Deps.Clock` and `deps.Deps.Cfg` are config by another
+name: `config.Current()` already names the clock source and
+everything `Cfg` carries, and tests stage it the same way
+production reads it. Precedent set with `RegistryBinPath`,
+`ClockSource`, `RegistryURL` — resolve at use, never thread.
+A field that carries no per-run variation is a seam wearing
+a port's clothes (W13).

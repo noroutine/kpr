@@ -12,10 +12,10 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// AdoptRows is the tracked state adopt prunes on re-pair: old-epoch
+// adoptRows is the tracked state adopt prunes on re-pair: old-epoch
 // sentinel rows would read as rollback evidence in the next verdict.
 // The full store satisfies it; the use case declares only these.
-type AdoptRows interface {
+type adoptRows interface {
 	All(ctx context.Context) ([]policy.Row, error)
 	Delete(ctx context.Context, repo, tag string) error
 }
@@ -27,7 +27,7 @@ type AdoptRows interface {
 // prunes the old epoch's sentinel rows; --gen must name the served
 // generation, accepting the rollback as baseline. Identity-less
 // payloads refuse even here — adopt blesses evidence, not silence.
-func Adopt(ctx context.Context, w io.Writer, api sentinel.API, ids lineage.IdentityStore, rows AdoptRows, identArg, genArg string) error {
+func Adopt(ctx context.Context, w io.Writer, api sentinel.API, ids lineage.IdentityStore, rows adoptRows, identArg, genArg string) error {
 	pay, _, rerr := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
 	if rerr != nil {
 		if !sentinel.Absent(rerr) {
@@ -85,7 +85,7 @@ func Adopt(ctx context.Context, w io.Writer, api sentinel.API, ids lineage.Ident
 
 // pruneSentinelRows drops the sentinel repo's rows: they belong to
 // the abandoned epoch. Other repos are untouched.
-func pruneSentinelRows(ctx context.Context, rows AdoptRows) (int, error) {
+func pruneSentinelRows(ctx context.Context, rows adoptRows) (int, error) {
 	all, err := rows.All(ctx)
 	if err != nil {
 		return 0, err

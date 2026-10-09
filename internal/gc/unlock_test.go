@@ -22,7 +22,7 @@ func TestRunRefusesLockedStore(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	useSeams(t, Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }), okCollector(&collected))
+	useSeams(t, Probe(func(context.Context, string) (Mode, string, error) { return modeReadonly, "", nil }), okCollector(&collected))
 	err := Run(context.Background(), &out,
 		Deps{Lock: store.NewMemStore(), Rec: store.NewMemStore(), Ids: store.NewMemStore(), Rows: store.NewMemStore(), API: fileAPI{root},
 			Clock: stubClock{}, Report: func(event.Event) {}},

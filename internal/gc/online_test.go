@@ -41,7 +41,7 @@ func loopbackEdge(t *testing.T) (string, func()) {
 
 func writableProbe() Probe {
 	return Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeWritable, "", nil
+		return modeWritable, "", nil
 	})
 }
 

@@ -17,25 +17,25 @@ import (
 // the collector itself, so one event stream tells the whole run: what
 // the sentinel saw before, what the collector said, what it saw after.
 const (
-	StageStart        = "start"
-	StageSpawn        = "spawn"
-	StageStarted      = "started"
-	StagePreProbe     = "pre_probe"
-	StageCollectBegin = "collect_begin"
-	StageCollectExit  = "collect_exit"
-	StagePostProbe    = "post_probe"
-	StagePrune        = "prune"
-	StageHusk         = "husk"
-	StageModeFlip     = "mode_flip"
-	StageStopped      = "stopped"
-	StageFailure      = "failure"
-	// StageHoldEngage/StageHoldRelease mirror the fence's
+	stageStart        = "start"
+	stageSpawn        = "spawn"
+	stageStarted      = "started"
+	stagePreProbe     = "pre_probe"
+	stageCollectBegin = "collect_begin"
+	stageCollectExit  = "collect_exit"
+	stagePostProbe    = "post_probe"
+	stagePrune        = "prune"
+	stageHusk         = "husk"
+	stageModeFlip     = "mode_flip"
+	stageStopped      = "stopped"
+	stageFailure      = "failure"
+	// stageHoldEngage/stageHoldRelease mirror the fence's
 	// transition names: the run voices its own hold lines
 	// through these, so one stream shows fence and collect
 	// together. Rendering labels only — matching strings is
 	// cosmetic, never logic.
-	StageHoldEngage  = "hold_engage"
-	StageHoldRelease = "hold_release"
+	stageHoldEngage  = "hold_engage"
+	stageHoldRelease = "hold_release"
 )
 
 // Collector runs the stock collector binary against the proven store,
@@ -49,16 +49,16 @@ type Collector func(ctx context.Context, out io.Writer, binPath string, args []s
 var collect Collector = runCollector
 
 func fail(report event.Reporter, started time.Time, err error) error {
-	failure := event.Timed(StageFailure, started)
+	failure := event.Timed(stageFailure, started)
 	failure.Error = err.Error()
 	event.Emit(report, failure)
 	return err
 }
 
-// Args builds the stock collector invocation: the operator's flags,
+// args builds the stock collector invocation: the operator's flags,
 // nothing invented. dryRun previews (the default); only an explicit
 // --no-dry-run collects for real.
-func Args(configPath string, deleteUntagged, dryRun bool) []string {
+func args(configPath string, deleteUntagged, dryRun bool) []string {
 	args := []string{"garbage-collect"}
 	if dryRun {
 		args = append(args, "--dry-run")
@@ -119,7 +119,7 @@ func drainGCOutput(lines <-chan gcOutput) {
 // tests swap the seam.
 func runCollector(ctx context.Context, out io.Writer, binPath string, args []string, report event.Reporter) error {
 	started := time.Now()
-	event.Emit(report, event.Event{Stage: StageStart})
+	event.Emit(report, event.Event{Stage: stageStart})
 	if err := ctx.Err(); err != nil {
 		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
@@ -137,14 +137,14 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	cmd.Stdout = writer
 	cmd.Stderr = writer
 
-	event.Emit(report, event.Timed(StageSpawn, started))
+	event.Emit(report, event.Timed(stageSpawn, started))
 	if err := cmd.Start(); err != nil {
 		_ = writer.Close()
 		_ = reader.Close()
 		return fail(report, started, fmt.Errorf("collector: %w", err))
 	}
 	_ = writer.Close()
-	begun := event.Timed(StageStarted, started)
+	begun := event.Timed(stageStarted, started)
 	if cmd.Process != nil {
 		begun.PID = cmd.Process.Pid
 	}
@@ -154,7 +154,7 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	go func() { waitErr <- cmd.Wait() }()
 	lines := scanGCOutput(reader)
 	defer drainGCOutput(lines)
-	event.Emit(report, event.Timed(StageCollectBegin, started))
+	event.Emit(report, event.Timed(stageCollectBegin, started))
 	lastLine := ""
 	// feed streams one line to out, tracking the last for
 	// failure context. Write errors kill the child and fail:
@@ -203,7 +203,7 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	if cancelled {
 		_ = reader.Close()
 		<-waitErr
-		event.Emit(report, event.Timed(StageStopped, started))
+		event.Emit(report, event.Timed(stageStopped, started))
 		return ctx.Err()
 	}
 	// The child is dead and every write end is closed, so the
@@ -219,7 +219,7 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 		}
 	}
 	_ = reader.Close()
-	exit := event.Timed(StageCollectExit, started)
+	exit := event.Timed(stageCollectExit, started)
 	if exitErr != nil {
 		exit.Error = exitErr.Error()
 	}

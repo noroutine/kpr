@@ -47,7 +47,7 @@ var errFenceBoom = errors.New("boom")
 func TestArmedCollectHoldsFenceAroundCollect(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var events []string
 	var out strings.Builder
@@ -76,7 +76,7 @@ func TestPreviewNeverHoldsFence(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	stagePairedGen(t, s, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var events []string
 	var out strings.Builder
@@ -98,7 +98,7 @@ func TestPreviewNeverHoldsFence(t *testing.T) {
 func TestArmedCollectRefusesWhenFenceFails(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var events []string
 	var out strings.Builder
@@ -126,7 +126,7 @@ func TestArmedCollectRefusesWhenFenceFails(t *testing.T) {
 func TestRunResolvesFenceFromStore(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var stages []string
 	var collected []string
@@ -138,7 +138,7 @@ func TestRunResolvesFenceFromStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolved-fence run: %v", err)
 	}
-	for _, want := range []string{StageHoldEngage, StageHoldRelease} {
+	for _, want := range []string{stageHoldEngage, stageHoldRelease} {
 		found := false
 		for _, got := range stages {
 			if got == want {

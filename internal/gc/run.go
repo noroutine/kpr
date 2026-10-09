@@ -109,7 +109,7 @@ type Deps struct {
 	API   sentinel.API
 	Clock clock.Source
 	// Report is the event sink. Nil renders to the run's
-	// writer via RenderEvent; an injected reporter always wins,
+	// writer via renderEvent; an injected reporter always wins,
 	// so tests observe stages silently.
 	Report event.Reporter
 	// Store is the whole store behind the split roles above:
@@ -152,10 +152,10 @@ type Deps struct {
 func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts) error {
 	gcStarted := time.Now()
 	if d.Report == nil {
-		d.Report = RenderEvent(w, proof.Unarmed(opts.Armed))
+		d.Report = renderEvent(w, proof.Unarmed(opts.Armed))
 	}
 	if d.Fence == nil && d.Store != nil {
-		d.Fence = FenceForBackend(d.Store, opts.Armed, w)
+		d.Fence = fenceForBackend(d.Store, opts.Armed, w)
 	}
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
@@ -168,7 +168,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		}
 		return fmt.Errorf("store lock unreadable: %w", err)
 	}
-	if err := Ready(config.Current().RegistryBinPath, config.Current().RegistryConfig); err != nil {
+	if err := ready(config.Current().RegistryBinPath, config.Current().RegistryConfig); err != nil {
 		return err
 	}
 	fsStore, err := proof.ProveFilesystemStore(config.Current().RegistryConfig)
@@ -216,15 +216,15 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	if err != nil {
 		return err
 	}
-	pre := event.Timed(StagePreProbe, gcStarted)
-	pre.Message = ModeName(mode)
+	pre := event.Timed(stagePreProbe, gcStarted)
+	pre.Message = modeName(mode)
 	event.Emit(d.Report, pre)
 	// Cleared by the online preflight on the writable path, nil
 	// everywhere else: only the writable-armed dispatch consumes
 	// them, so a nil here never reaches a delete.
 	var onlineCache proof.BlobCacheOff
 	var onlineFence proof.GatewayFencingAvailable
-	if mode == ModeWritable {
+	if mode == modeWritable {
 		// The online path: a serving registry collects under the
 		// fence, so writability is the mode, not a risk — the
 		// risks are a vouched cache and a missing fence, each
@@ -248,7 +248,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	}
 	now := time.Now().UTC()
 	switch mode {
-	case ModeWritable, ModeReadonly:
+	case modeWritable, modeReadonly:
 		pay, digest, rerr := sentinel.Read(ctx, d.API, sentinel.Repo, sentinel.Tag)
 		allRows, err := d.Rows.All(ctx)
 		if err != nil {
@@ -319,7 +319,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		return fmt.Errorf("sentinel inconclusive for %s", config.Current().RegistryURL)
 	}
 	switch mode {
-	case ModeWritable:
+	case modeWritable:
 		// Uncleared armed runs refused at the preflight, before the
 		// proof: what reaches here is a preview or a cleared online
 		// run (proven or per-risk accepted).
@@ -332,7 +332,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 				return err
 			}
 		}
-	case ModeReadonly:
+	case modeReadonly:
 		// The generation read-back above is the whole gate: no
 		// tracked rows needed, an empty redis proves as well as
 		// a full one.
@@ -361,28 +361,28 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		// The run voices its own fence lines: the adapter
 		// records to the ring, narration into this stream
 		// belongs here, at the moments this function owns.
-		event.Emit(d.Report, event.Event{Stage: StageHoldEngage, Message: "HOLD lease engaged: manifest writes wait out the armed collect"})
+		event.Emit(d.Report, event.Event{Stage: stageHoldEngage, Message: "HOLD lease engaged: manifest writes wait out the armed collect"})
 		defer func() {
 			release()
-			event.Emit(d.Report, event.Event{Stage: StageHoldRelease, Message: "HOLD lease released: manifest writes flow again"})
+			event.Emit(d.Report, event.Event{Stage: stageHoldRelease, Message: "HOLD lease released: manifest writes flow again"})
 		}()
 		return op()
 	}
 
 	switch {
 	case proof.Unarmed(opts.Armed):
-		if err := collect(ctx, w, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
+		if err := collect(ctx, w, config.Current().RegistryBinPath, args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
 			return err
 		}
-	case mode == ModeWritable:
+	case mode == modeWritable:
 		if err := fenced(func() error {
-			return collectWritableArmed(ctx, w, collect, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
+			return collectWritableArmed(ctx, w, collect, config.Current().RegistryBinPath, args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
 		}); err != nil {
 			return err
 		}
 	default:
 		if err := fenced(func() error {
-			return collect(ctx, w, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
+			return collect(ctx, w, config.Current().RegistryBinPath, args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
 		}); err != nil {
 			return err
 		}
@@ -403,8 +403,8 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		if _, werr := fmt.Fprintf(w, "pruning husks...\n"); werr != nil {
 			return werr
 		}
-		husked, herr := RemoveHusks(root)
-		hev := event.Timed(StageHusk, gcStarted)
+		husked, herr := removeHusks(root)
+		hev := event.Timed(stageHusk, gcStarted)
 		if herr != nil {
 			hev.Error = herr.Error()
 			event.Emit(d.Report, hev)
@@ -423,8 +423,8 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		if _, werr := fmt.Fprintf(w, "pruning empty directories...\n"); werr != nil {
 			return werr
 		}
-		pruned, perr := PruneEmptyDirs(root)
-		pev := event.Timed(StagePrune, gcStarted)
+		pruned, perr := pruneEmptyDirs(root)
+		pev := event.Timed(stagePrune, gcStarted)
 		if perr != nil {
 			pev.Error = perr.Error()
 			event.Emit(d.Report, pev)
@@ -441,21 +441,21 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	}
 	post, _, perr := probe(ctx, config.Current().RegistryURL)
 	if perr != nil {
-		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, ModeName(mode))
+		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, modeName(mode))
 		return nil
 	}
-	pev := event.Timed(StagePostProbe, gcStarted)
-	pev.Message = ModeName(post)
+	pev := event.Timed(stagePostProbe, gcStarted)
+	pev.Message = modeName(post)
 	event.Emit(d.Report, pev)
 	if post != mode {
-		flip := event.Timed(StageModeFlip, gcStarted)
-		flip.Message = ModeName(mode) + "→" + ModeName(post)
+		flip := event.Timed(stageModeFlip, gcStarted)
+		flip.Message = modeName(mode) + "→" + modeName(post)
 		event.Emit(d.Report, flip)
-		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", ModeName(mode), ModeName(post)); werr != nil {
+		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", modeName(mode), modeName(post)); werr != nil {
 			return werr
 		}
 		if accepts.ModeFlip == nil {
-			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run, or re-run with --accept-mode-flip", ModeName(mode), ModeName(post))
+			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run, or re-run with --accept-mode-flip", modeName(mode), modeName(post))
 		}
 	}
 	// The verdict goes last: the marking flood buries everything

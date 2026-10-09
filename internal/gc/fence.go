@@ -16,13 +16,13 @@ type holdDirStore interface {
 	HoldDir() (string, bool)
 }
 
-// FenceForBackend decides the run's fence AND builds it from
+// fenceForBackend decides the run's fence AND builds it from
 // the store's own capability — no backend names travel here
 // (the leaseReady the preflight takes is simply this returning
 // non-nil). Previews stay silent either way — nothing is
 // deleted, so nothing holds. Armed travels as the mint, never
 // a bool: the signature is the point of proofs.
-func FenceForBackend(st fence.GateStore, armed proof.ArmedRun, out io.Writer) fence.Controller {
+func fenceForBackend(st fence.GateStore, armed proof.ArmedRun, out io.Writer) fence.Controller {
 	if hs, ok := st.(holdDirStore); ok {
 		if dir, ok := hs.HoldDir(); ok {
 			return fence.Control{HoldFile: store.HoldFile{Dir: dir}, Store: st}

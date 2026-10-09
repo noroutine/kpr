@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-// PruneEmptyDirs removes the collector's leftover directory
+// pruneEmptyDirs removes the collector's leftover directory
 // skeleton under root, deepest first: the stock collector deletes
 // blobs and links but never their parent dirs, so every gc leaves
 // an empty tree behind. Only genuinely empty directories go —
@@ -19,7 +19,7 @@ import (
 // the stock walker stats whether or not they hold anything), and
 // root itself are never touched: prune stays invisible to the next
 // collect.
-func PruneEmptyDirs(root string) (int, error) {
+func pruneEmptyDirs(root string) (int, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return 0, fmt.Errorf("skeleton unreadable at %s: %w", root, err)

@@ -178,7 +178,7 @@ func okCollector(collected *[][]string) Collector {
 func TestRunRecordsMintedGeneration(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
@@ -222,7 +222,7 @@ func TestRunBehindStubPorts(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
 	stagePairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
@@ -253,7 +253,7 @@ func TestRunFencedVoicesHold(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
 	stagePairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var fenceEvents []string
 	var reported []event.Event
@@ -277,7 +277,7 @@ func TestRunFencedVoicesHold(t *testing.T) {
 	for _, e := range reported {
 		stages = append(stages, e.Stage)
 	}
-	if !slices.Contains(stages, StageHoldEngage) || !slices.Contains(stages, StageHoldRelease) {
+	if !slices.Contains(stages, stageHoldEngage) || !slices.Contains(stages, stageHoldRelease) {
 		t.Errorf("reported stages %v, want hold_engage + hold_release voiced by the run", stages)
 	}
 }
@@ -290,7 +290,7 @@ func TestRunNilClockDerivesFromCurrent(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
 	stagePairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
@@ -323,7 +323,7 @@ func TestRunHuskVerdictNamesRemovals(t *testing.T) {
 		}
 		stagePairedGen(t, s, root)
 		probe := Probe(func(context.Context, string) (Mode, string, error) {
-			return ModeReadonly, "", nil
+			return modeReadonly, "", nil
 		})
 		var collected [][]string
 		var out strings.Builder
@@ -378,7 +378,7 @@ func TestRunArmedCollectFailureSurfaces(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
 	stagePairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	failCollector := func(context.Context, io.Writer, string, []string, event.Reporter) error {
 		return errors.New("collector exploded")
@@ -418,7 +418,7 @@ func TestRunDryRunTailWriteFailureSurfaces(t *testing.T) {
 	cfg, root, lock := stageProvenRun(t)
 	stagePairedGen(t, lock, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	out := &tailFailWriter{}
@@ -438,7 +438,7 @@ func TestRunDryRunTailWriteFailureSurfaces(t *testing.T) {
 func TestRunStrangerStoreRefuses(t *testing.T) {
 	cfg, _, lock := stageProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	for _, tc := range []struct {
 		armed proof.ArmedRun
@@ -532,7 +532,7 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 		t.Fatalf("read staged blob: %v", err)
 	}
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	frozen := frozenAPI{manifest: manRaw, blob: payRaw}
 	var collected [][]string
@@ -557,7 +557,7 @@ func TestRunWarnsOnReleaseFailure(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	useSeams(t, Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }), okCollector(&collected))
+	useSeams(t, Probe(func(context.Context, string) (Mode, string, error) { return modeReadonly, "", nil }), okCollector(&collected))
 	err := Run(context.Background(), &out,
 		Deps{Lock: releaseFailLocker{s}, Rec: s, Ids: s, Rows: s, API: fileAPI{root},
 			Clock: stubClock{}, Report: func(event.Event) {}},
@@ -590,9 +590,9 @@ func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 		return func(context.Context, string) (Mode, string, error) {
 			calls++
 			if calls == 1 {
-				return ModeReadonly, "", nil
+				return modeReadonly, "", nil
 			}
-			return ModeWritable, "", nil
+			return modeWritable, "", nil
 		}
 	}
 	var collected [][]string
@@ -625,7 +625,7 @@ func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 func TestRunDryRunRefusesWithoutSentinel(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
@@ -650,7 +650,7 @@ func TestRunDryRunSkipsProof(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	stagePairedGen(t, s, root)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
@@ -698,7 +698,7 @@ func TestRunDryRunSkipsProof(t *testing.T) {
 func TestRunWritableRefusalMintsNothing(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeWritable, "", nil
+		return modeWritable, "", nil
 	})
 	var collected [][]string
 	var out strings.Builder
@@ -734,9 +734,9 @@ func TestRunDeadPostProbeWarns(t *testing.T) {
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		calls++
 		if calls == 1 {
-			return ModeReadonly, "", nil
+			return modeReadonly, "", nil
 		}
-		return ModeUnknown, "", errProbeDead
+		return modeUnknown, "", errProbeDead
 	})
 	var collected [][]string
 	var out strings.Builder
@@ -799,7 +799,7 @@ func newGenID(t *testing.T) string {
 
 func readonlyProbe() Probe {
 	return Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 }
 
@@ -1210,7 +1210,7 @@ func TestRunDeadPreProbeRefuses(t *testing.T) {
 	cfg, root, s := stageProvenRun(t)
 	lock := scriptLocker{MemStore: s, held: true}
 	dead := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeUnknown, "", errProbeDead
+		return modeUnknown, "", errProbeDead
 	})
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
@@ -1412,7 +1412,7 @@ func TestRunEstablishWarnWriteFailureSurfaces(t *testing.T) {
 // read.
 func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	stageGhost := func(t *testing.T, root string) string {
 		t.Helper()
@@ -1442,7 +1442,7 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 	}
 	// The post-probe runs downstream of the prune print: a run
 	// that returns right after printing never emits it.
-	if !slices.Contains(stages, StagePostProbe) {
+	if !slices.Contains(stages, stagePostProbe) {
 		t.Errorf("armed run emitted no post-probe (stages %v), want the full tail", stages)
 	}
 
@@ -1483,7 +1483,7 @@ func TestRunPruneFailureWarnsCollectStands(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dark, 0o755) })
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	})
 	var collected [][]string
 	var stages []string
@@ -1499,7 +1499,7 @@ func TestRunPruneFailureWarnsCollectStands(t *testing.T) {
 	}
 	// The tail runs past a failed prune: a run that returns on
 	// the warning never emits the post-probe.
-	if !slices.Contains(stages, StagePostProbe) {
+	if !slices.Contains(stages, stagePostProbe) {
 		t.Errorf("prune-failed run emitted no post-probe (stages %v), want the full tail", stages)
 	}
 }

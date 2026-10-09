@@ -61,12 +61,12 @@ func TestCollectorStreamsLinesAndReportsStages(t *testing.T) {
 			t.Errorf("collector output lacks %q:\n%s", want, out.String())
 		}
 	}
-	wantStages := []string{StageStart, StageSpawn, StageStarted, StageCollectBegin, StageCollectExit}
+	wantStages := []string{stageStart, stageSpawn, stageStarted, stageCollectBegin, stageCollectExit}
 	if got := stages(*emitted); !equalStages(got, wantStages) {
 		t.Errorf("stages = %v, want %v", got, wantStages)
 	}
 	for _, e := range *emitted {
-		if e.Stage == StageStarted && e.PID <= 0 {
+		if e.Stage == stageStarted && e.PID <= 0 {
 			t.Errorf("started event carries pid %d, want the live child", e.PID)
 		}
 	}
@@ -195,8 +195,8 @@ func TestCollectorDrainsEveryLine(t *testing.T) {
 		t.Errorf("drain endpoints = %q..%q, want line-1..line-5000", lines[0], lines[4999])
 	}
 	got := stages(*emitted)
-	if len(got) == 0 || got[len(got)-1] != StageCollectExit {
-		t.Errorf("last stage = %v, want %q", got, StageCollectExit)
+	if len(got) == 0 || got[len(got)-1] != stageCollectExit {
+		t.Errorf("last stage = %v, want %q", got, stageCollectExit)
 	}
 }
 
@@ -231,8 +231,8 @@ func TestCollectorFailureCarriesLastLine(t *testing.T) {
 		t.Errorf("error lacks the last line: %v", err)
 	}
 	got := stages(*emitted)
-	if len(got) == 0 || got[len(got)-1] != StageFailure {
-		t.Errorf("last stage = %v, want %q", got, StageFailure)
+	if len(got) == 0 || got[len(got)-1] != stageFailure {
+		t.Errorf("last stage = %v, want %q", got, stageFailure)
 	}
 }
 
@@ -249,7 +249,7 @@ func TestCollectorCancelStops(t *testing.T) {
 	emitted, inner := collectEvents()
 	report := func(e event.Event) {
 		inner(e)
-		if e.Stage == StageStarted {
+		if e.Stage == stageStarted {
 			cancel()
 		}
 	}
@@ -262,8 +262,8 @@ func TestCollectorCancelStops(t *testing.T) {
 			t.Error("cancelled collect returned nil, want the cancellation")
 		}
 		got := stages(*emitted)
-		if len(got) == 0 || got[len(got)-1] != StageStopped {
-			t.Errorf("last stage = %v, want %q", got, StageStopped)
+		if len(got) == 0 || got[len(got)-1] != stageStopped {
+			t.Errorf("last stage = %v, want %q", got, stageStopped)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("cancelled collect hung, want a prompt stop")
@@ -274,11 +274,11 @@ func TestCollectorCancelStops(t *testing.T) {
 // composes with it. If this fails, dry-run never asked the collector
 // for a preview.
 func TestArgsDryRun(t *testing.T) {
-	dry := Args("/etc/distribution/config.yml", false, true)
+	dry := args("/etc/distribution/config.yml", false, true)
 	if !hasArg(dry, "--dry-run") {
 		t.Errorf("dry gc args = %v, want --dry-run", dry)
 	}
-	real := Args("/etc/distribution/config.yml", true, false)
+	real := args("/etc/distribution/config.yml", true, false)
 	if hasArg(real, "--dry-run") {
 		t.Errorf("real gc args = %v, want no --dry-run", real)
 	}
@@ -390,8 +390,8 @@ func TestCollectorBurstDrainsAfterExit(t *testing.T) {
 		}
 	}
 	got := stages(*emitted)
-	if len(got) == 0 || got[len(got)-1] != StageCollectExit {
-		t.Errorf("last stage = %v, want %q", got, StageCollectExit)
+	if len(got) == 0 || got[len(got)-1] != stageCollectExit {
+		t.Errorf("last stage = %v, want %q", got, stageCollectExit)
 	}
 }
 

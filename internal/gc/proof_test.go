@@ -15,15 +15,15 @@ import (
 // shared into this container. If this fails, a bare image (no mounts)
 // crashes on paths instead of explaining them.
 func TestReadyGatesMissingPrereqs(t *testing.T) {
-	if err := Ready("/bin/registry", "/etc/distribution/config.yml"); err != nil {
+	if err := ready("/bin/registry", "/etc/distribution/config.yml"); err != nil {
 		t.Logf("note: this host lacks %v (fine outside the image)", err)
 	}
-	if err := Ready("/no/such/binary", "/etc/distribution/config.yml"); err == nil {
+	if err := ready("/no/such/binary", "/etc/distribution/config.yml"); err == nil {
 		t.Error("missing binary passed readiness, want refusal")
 	} else if !strings.Contains(err.Error(), "/no/such/binary") {
 		t.Errorf("refusal names no path: %v", err)
 	}
-	if err := Ready("/bin/sh", "/no/such/config.yml"); err == nil {
+	if err := ready("/bin/sh", "/no/such/config.yml"); err == nil {
 		t.Error("missing config passed readiness, want refusal")
 	} else if !strings.Contains(err.Error(), "/no/such/config.yml") {
 		t.Errorf("refusal names no path: %v", err)

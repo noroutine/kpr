@@ -15,10 +15,10 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// UnlockStore records the operator's write intent: the one method
+// unlockStore records the operator's write intent: the one method
 // unlock needs. store.Store satisfies it; the use case declares
 // only this.
-type UnlockStore interface {
+type unlockStore interface {
 	SetUnlocked(ctx context.Context, unlocked bool) error
 }
 
@@ -34,7 +34,7 @@ type UnlockStore interface {
 // (unlock is manual — fix the clock and retry, there is no accept
 // flag to hide behind), an unreachable NTP warns and proceeds. Anything
 // unproven refuses and the store stays locked.
-func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath string, st UnlockStore, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string) error {
+func Unlock(ctx context.Context, w io.Writer, api sentinel.API, configPath string, st unlockStore, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string) error {
 	fsStore, err := proof.ProveFilesystemStore(configPath)
 	if err != nil {
 		return err

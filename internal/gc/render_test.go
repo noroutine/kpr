@@ -13,14 +13,14 @@ import (
 // exactly the moments the operator watches.
 func TestRenderEventVoicesStages(t *testing.T) {
 	var out strings.Builder
-	report := RenderEvent(&out, true)
-	report(event.Event{Stage: StagePreProbe, Message: "readonly"})
-	report(event.Event{Stage: StageStarted, PID: 4242})
-	report(event.Event{Stage: StagePostProbe, Message: "readonly"})
-	report(event.Event{Stage: StageModeFlip, Message: "readonly→writable"})
-	report(event.Event{Stage: StageFailure, Error: "exit status 3: boom"})
-	report(event.Event{Stage: StageHoldEngage})
-	report(event.Event{Stage: StageHoldRelease})
+	report := renderEvent(&out, true)
+	report(event.Event{Stage: stagePreProbe, Message: "readonly"})
+	report(event.Event{Stage: stageStarted, PID: 4242})
+	report(event.Event{Stage: stagePostProbe, Message: "readonly"})
+	report(event.Event{Stage: stageModeFlip, Message: "readonly→writable"})
+	report(event.Event{Stage: stageFailure, Error: "exit status 3: boom"})
+	report(event.Event{Stage: stageHoldEngage})
+	report(event.Event{Stage: stageHoldRelease})
 	for _, want := range []string{
 		"sentinel: registry is READONLY",
 		"collector started (pid 4242)",
@@ -36,9 +36,9 @@ func TestRenderEventVoicesStages(t *testing.T) {
 		}
 	}
 	var real strings.Builder
-	RenderEvent(&real, false)(event.Event{Stage: StageStarted, PID: 7})
+	renderEvent(&real, false)(event.Event{Stage: stageStarted, PID: 7})
 	if strings.Contains(real.String(), "dry-run") {
 		t.Errorf("real-run start claims dry-run:\n%s", real.String())
 	}
-	RenderEvent(&real, false)(event.Event{Stage: StageStarted})
+	renderEvent(&real, false)(event.Event{Stage: stageStarted})
 }

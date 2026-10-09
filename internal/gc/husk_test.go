@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// RemoveHusks deletes tagless repo dirs: nothing pullable lives
+// removeHusks deletes tagless repo dirs: nothing pullable lives
 // there, so removal only orphans blobs the next collect owns. A
 // tagged repo stays, a sentinel-prefix repo stays (machinery, never
 // inventory), and a husk with a live upload session stays (a push in
@@ -20,12 +20,12 @@ import (
 // classifies nothing instead of failing the stat. If this fails,
 // fresh roots refuse collection.
 func TestRemoveHusksMissingLayoutIsNil(t *testing.T) {
-	got, err := RemoveHusks(t.TempDir())
+	got, err := removeHusks(t.TempDir())
 	if err != nil {
-		t.Fatalf("RemoveHusks over bare root: %v", err)
+		t.Fatalf("removeHusks over bare root: %v", err)
 	}
 	if len(got) != 0 {
-		t.Errorf("RemoveHusks over bare root = %v, want nil", got)
+		t.Errorf("removeHusks over bare root = %v, want nil", got)
 	}
 }
 
@@ -49,12 +49,12 @@ func TestRemoveHusksSparesNestedKept(t *testing.T) {
 			t.Fatalf("stage file: %v", err)
 		}
 	}
-	got, err := RemoveHusks(root)
+	got, err := removeHusks(root)
 	if err != nil {
-		t.Fatalf("RemoveHusks: %v", err)
+		t.Fatalf("removeHusks: %v", err)
 	}
 	if len(got) != 0 {
-		t.Errorf("RemoveHusks = %v, want empty (nested kept vetoes the husk)", got)
+		t.Errorf("removeHusks = %v, want empty (nested kept vetoes the husk)", got)
 	}
 	if _, err := os.Stat(filepath.Join(v2, "outer")); err != nil {
 		t.Errorf("nested-kept ancestor removed: %v", err)
@@ -79,12 +79,12 @@ func TestRemoveHusksSkipsRemovedChildren(t *testing.T) {
 			t.Fatalf("stage file: %v", err)
 		}
 	}
-	got, err := RemoveHusks(root)
+	got, err := removeHusks(root)
 	if err != nil {
-		t.Fatalf("RemoveHusks: %v", err)
+		t.Fatalf("removeHusks: %v", err)
 	}
 	if len(got) != 1 || got[0] != "p" {
-		t.Errorf("RemoveHusks = %v, want [p] (child skipped as gone)", got)
+		t.Errorf("removeHusks = %v, want [p] (child skipped as gone)", got)
 	}
 }
 
@@ -121,8 +121,8 @@ func TestRemoveHusksUnreadableRefuses(t *testing.T) {
 		return root
 	}
 	for _, blind := range []string{"_uploads", filepath.Join("_manifests", "tags")} {
-		if _, err := RemoveHusks(stage(t, blind)); err == nil {
-			t.Errorf("RemoveHusks over blinded %s succeeded, want refusal", blind)
+		if _, err := removeHusks(stage(t, blind)); err == nil {
+			t.Errorf("removeHusks over blinded %s succeeded, want refusal", blind)
 		}
 	}
 }
@@ -182,9 +182,9 @@ func TestRemoveHusksDeletesOnlyTrueHusks(t *testing.T) {
 	if err := os.Chtimes(staleSession, old, old); err != nil {
 		t.Fatalf("age residue: %v", err)
 	}
-	got, err := RemoveHusks(root)
+	got, err := removeHusks(root)
 	if err != nil {
-		t.Fatalf("RemoveHusks: %v", err)
+		t.Fatalf("removeHusks: %v", err)
 	}
 	if strings.Join(got, ",") != "cleartags,husk,nest/husk,stale,stray/nest-husk" {
 		t.Fatalf("removed %v, want [cleartags husk nest/husk stale stray/nest-husk]", got)

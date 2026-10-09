@@ -48,11 +48,11 @@ func collectWritableArmed(ctx context.Context, out io.Writer, collect Collector,
 	return collect(ctx, out, binPath, args, report)
 }
 
-// Ready infers at runtime whether this container can collect at all:
+// ready infers at runtime whether this container can collect at all:
 // the stock binary and the registry config it reads store paths from
 // must both exist. Anything missing refuses with the remedy — a bare
 // image (no shared mounts) explains itself instead of failing mid-run.
-func Ready(binPath, configPath string) error {
+func ready(binPath, configPath string) error {
 	if st, err := os.Stat(binPath); err != nil || st.IsDir() {
 		return fmt.Errorf("gc unavailable: registry binary not found at %s (image must COPY it from the registry image)", binPath)
 	}
