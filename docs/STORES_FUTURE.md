@@ -7,10 +7,14 @@ one field per splittable role). Single **package**, not single
 interface — a fat `Store` would let fence code reach rows.
 
 End-state: `fence` owns a lease port next to `Controller`/`GateStore`,
-backends implement it, `FenceForBackend` decides by capability,
-`edge` goes fs-free. Staging: `store/hold.go` moved as-is (file
-backend semantics frozen); per-backend impls split when a consumer
-arrives.
+backends implement it, `edge` goes fs-free. Staging: `store/hold.go`
+moved as-is (file backend semantics frozen); per-backend impls
+split when a consumer arrives.
+
+Done already: `FenceForBackend` decides by capability, not name —
+`FileStore.HoldDir` advertises lease hosting, no backend strings
+travel. The remaining future is per-backend lease *impls* (redis
+`SET NX EX`), not the decision.
 
 ## Per-backend lease honesty
 

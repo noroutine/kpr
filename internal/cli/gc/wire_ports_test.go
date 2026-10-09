@@ -31,6 +31,9 @@ func TestWirePortsCarriesWholeDeps(t *testing.T) {
 	if w.API != d.Reg {
 		t.Fatal("wirePorts drops the registry client")
 	}
+	if w.Store != fence.GateStore(d.Store) {
+		t.Fatal("wirePorts drops the whole store: the fence resolves from its capability")
+	}
 	if w.Report != nil {
 		t.Fatal("wirePorts sets the reporter: the run renders by default, only tests inject")
 	}

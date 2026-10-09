@@ -21,7 +21,7 @@ import (
 func wirePorts(d *deps.Deps, armed proof.ArmedRun, out io.Writer) gcrun.Deps {
 	return gcrun.Deps{
 		Lock: d.Store, Rec: d.Store, Ids: d.Store, Rows: d.Store,
-		API: d.Reg, Fence: gcrun.FenceForBackend(d.Backend, d.StoreDir, d.Store, armed, out),
+		API: d.Reg, Store: d.Store, Fence: gcrun.FenceForBackend(d.Store, armed, out),
 		Probe: gcrun.ProbeRegistry, Collect: gcrun.RunCollector,
 	}
 }

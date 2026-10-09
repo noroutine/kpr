@@ -16,11 +16,6 @@ type Deps struct {
 	Cfg   *config.Config
 	Store store.StoreCloser
 	Reg   *registry.Client
-	// Backend and StoreDir name the resolved state backend:
-	// resolved once here so commands never re-derive them (a
-	// second resolution could answer differently).
-	Backend  string
-	StoreDir string
 }
 
 func OpenDeps() (*Deps, error) {
@@ -29,6 +24,8 @@ func OpenDeps() (*Deps, error) {
 	// where they need it, so the process reasons about this one
 	// value — the same one every command wires from.
 	config.SetCurrent(cfg)
+	// Resolved once here, never re-derived downstream: a second
+	// resolution could answer differently.
 	backend, dir, err := ResolveStoreBackend()
 	if err != nil {
 		return nil, err
@@ -39,7 +36,7 @@ func OpenDeps() (*Deps, error) {
 	}
 	reg := registry.NewClient(cfg.RegistryURL)
 	reg.SetBasicAuth(cfg.RegistryUser, cfg.RegistryPassword)
-	return &Deps{Cfg: cfg, Store: s, Reg: reg, Backend: backend, StoreDir: dir}, nil
+	return &Deps{Cfg: cfg, Store: s, Reg: reg}, nil
 }
 
 func (d *Deps) Close() {

@@ -51,6 +51,12 @@ func NewFileStore(dir string) *FileStore {
 // docs/STORES.md.
 func (s *FileStore) Dir() string { return s.dir }
 
+// HoldDir reports where this store hosts HOLD leases: its own
+// dir, shared with the edge. The capability — not the backend
+// name — decides fencing, so mem and redis simply lack it (a
+// lease needs a medium both processes see).
+func (s *FileStore) HoldDir() (string, bool) { return s.dir, true }
+
 func (s *FileStore) rowsDir() string     { return filepath.Join(s.dir, "rows") }
 func (s *FileStore) locksDir() string    { return filepath.Join(s.dir, "locks") }
 func (s *FileStore) currentFile() string { return filepath.Join(s.dir, "current.json") }

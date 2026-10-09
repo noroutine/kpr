@@ -111,6 +111,10 @@ type Deps struct {
 	// writer via RenderEvent; an injected reporter always wins,
 	// so tests observe stages silently.
 	Report event.Reporter
+	// Store is the whole store behind the split roles above:
+	// the fence resolves from its own capability, never from
+	// backend-name strings threaded through the call.
+	Store fence.GateStore
 	// Fence, when non-nil, holds the edge around armed collects
 	// (previews never engage). A fence that fails to engage
 	// refuses the run: collecting unfenced when fencing was
