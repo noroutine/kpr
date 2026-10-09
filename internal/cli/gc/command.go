@@ -1,13 +1,8 @@
 package gc
 
 import (
-	"fmt"
-	"io"
-	"strings"
-
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
-	"nrtn.dev/catalyst/kpr/internal/event"
 	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
@@ -25,40 +20,6 @@ var gcAcceptRollback bool
 var gcAcceptModeFlip bool
 
 var gcNoDryRun bool
-
-// renderGCEvent voices the lifecycle loud: probe verdicts, collector
-// start (pid, so a long mark phase is visibly alive), post-probe,
-// the flip banner, and the fence lines the run voices around an
-// armed collect. Collector lines stream raw alongside.
-func renderGCEvent(w io.Writer, dryRun bool) event.Reporter {
-	return func(e event.Event) {
-		switch e.Stage {
-		case gcrun.StagePreProbe:
-			_, _ = fmt.Fprintf(w, "sentinel: registry is %s\n", strings.ToUpper(e.Message))
-		case gcrun.StageHoldEngage:
-			_, _ = fmt.Fprintf(w, "HOLD engaged: manifest writes wait out the armed collect\n")
-		case gcrun.StageHoldRelease:
-			_, _ = fmt.Fprintf(w, "HOLD released: manifest writes flow again\n")
-		case gcrun.StageStarted:
-			if e.PID != 0 {
-				_, _ = fmt.Fprintf(w, "collector started (pid %d)%s\n", e.PID, drySuffix(dryRun))
-			}
-		case gcrun.StagePostProbe:
-			_, _ = fmt.Fprintf(w, "sentinel: registry still %s\n", strings.ToUpper(e.Message))
-		case gcrun.StageModeFlip:
-			_, _ = fmt.Fprintf(w, "WARNING: registry flipped %s mid-run\n", e.Message)
-		case gcrun.StageFailure:
-			_, _ = fmt.Fprintf(w, "collector failed: %s\n", e.Error)
-		}
-	}
-}
-
-func drySuffix(dryRun bool) string {
-	if dryRun {
-		return " — dry-run, nothing will be deleted"
-	}
-	return ""
-}
 
 var Cmd = &cobra.Command{
 	Use:   "gc",
@@ -100,9 +61,8 @@ revokes.`,
 		dryRun := GcDryRun(armedRun)
 		accepts := gcAccepts(armedRun)
 		backend, dir, berr := deps.ResolveStoreBackend()
-		report := renderGCEvent(out, dryRun)
 		fencer := gcrun.FenceForBackend(backend, dir, d.Store, berr, dryRun, out)
-		return gcrun.Run(cmd.Context(), out, wirePorts(d, report, fencer), gcrun.Options{
+		return gcrun.Run(cmd.Context(), out, wirePorts(d, fencer), gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			DryRun:         dryRun,
 		}, accepts)

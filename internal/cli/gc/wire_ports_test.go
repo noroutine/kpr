@@ -1,7 +1,6 @@
 package gc
 
 import (
-	"io"
 	"testing"
 
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
@@ -9,10 +8,10 @@ import (
 )
 
 // wirePorts carries every gcrun need across, nothing dropped: one
-// store in all four roles plus the registry API, the assembled
-// reporter and fence alongside, and no clock — production
-// derives it from Current. If this fails, a new Deps field is
-// unplugged at the only call site.
+// store in all four roles plus the registry API and the fence
+// alongside, no reporter and no clock — the run renders by
+// default and production derives the clock from Current. If this
+// fails, a new Deps field is unplugged at the only call site.
 func TestWirePortsCarriesWholeDeps(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
@@ -21,16 +20,15 @@ func TestWirePortsCarriesWholeDeps(t *testing.T) {
 		t.Fatalf("stage deps: %v", err)
 	}
 	defer d.Close()
-	report := renderGCEvent(io.Discard, true)
-	w := wirePorts(d, report, nil)
+	w := wirePorts(d, nil)
 	if w.Lock != d.Store || w.Rec != d.Store || w.Ids != d.Store || w.Rows != d.Store {
 		t.Fatal("wirePorts splits the store across roles, want one object four times")
 	}
 	if w.API != d.Reg {
 		t.Fatal("wirePorts drops the registry client")
 	}
-	if w.Report == nil {
-		t.Fatal("wirePorts drops the reporter")
+	if w.Report != nil {
+		t.Fatal("wirePorts sets the reporter: the run renders by default, only tests inject")
 	}
 	if w.Fence != nil {
 		t.Fatal("wirePorts invents a fence: the command assembles it per backend")

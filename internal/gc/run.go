@@ -106,7 +106,9 @@ type Deps struct {
 	Rows  lineage.Rows
 	API   sentinel.API
 	Clock clock.Source
-	// Report is the event sink the CLI renders loud.
+	// Report is the event sink. Nil renders to the run's
+	// writer via RenderEvent; an injected reporter always wins,
+	// so tests observe stages silently.
 	Report event.Reporter
 	// Fence, when non-nil, holds the edge around armed collects
 	// (previews never engage). A fence that fails to engage
@@ -145,6 +147,9 @@ type Deps struct {
 // config.
 func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts) error {
 	gcStarted := time.Now()
+	if d.Report == nil {
+		d.Report = RenderEvent(w, opts.DryRun)
+	}
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
 	// place guaranteeing them moved. The run consumes the gate;
