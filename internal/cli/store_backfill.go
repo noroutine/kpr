@@ -38,11 +38,6 @@ stdout, a path for a file) and is otherwise discarded.`,
 		noDryRun, _ := cmd.Flags().GetBool("no-dry-run")
 		acceptRollback, _ := cmd.Flags().GetBool("accept-rollback")
 		output, _ := cmd.Flags().GetString("output")
-		fsStore, err := proof.ProveFilesystemStore(d.Cfg.RegistryConfig)
-		if err != nil {
-			return err
-		}
-		root := fsStore.Root()
 		armed := proof.Arm(noDryRun, d.Cfg.CLINoDryRun)
 		glob := ""
 		if len(args) == 1 {
@@ -52,7 +47,7 @@ stdout, a path for a file) and is otherwise discarded.`,
 		live := newLiveLines(out)
 		opts := backfill.Options{
 			RepoGlob: glob,
-			DryRun:   proof.Unarmed(armed),
+			Armed:    armed,
 		}
 		sink, closeSink, err := resolveBackfillSink(output, out, live)
 		if err != nil {
@@ -64,17 +59,19 @@ stdout, a path for a file) and is otherwise discarded.`,
 		// Preview announces itself up front — small view, said
 		// before the run spends API calls, never as a trailing
 		// suffix on the settled lines.
-		if opts.DryRun {
+		if proof.Unarmed(armed) {
 			if _, err := fmt.Fprintln(out, "dry run — preview only, nothing recorded"); err != nil {
 				return err
 			}
 		}
 		// Warnings share the terminal with the repaint: each
 		// breaks the block onto its own line first.
-		sum, err := backfill.Run(cmd.Context(), breakWriter{w: out, live: live}, d.Reg, d.Reg,
-			d.Store, d.Store, d.Store, d.Store, root,
+		sum, err := backfill.Run(cmd.Context(), breakWriter{w: out, live: live}, backfill.Deps{
+			API: d.Reg, Reg: d.Reg, Rows: d.Store,
+			Rec: d.Store, Ids: d.Store, Lock: d.Store,
+		},
 			opts,
-			proof.Force(armed, acceptRollback))
+			backfill.Accepts{Rollback: proof.Force(armed, acceptRollback)})
 		live.doneBlock(backfillLines(sum), 0)
 		return err
 	},

@@ -19,10 +19,12 @@ import (
 	"strings"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
+	"nrtn.dev/catalyst/kpr/internal/storeops"
 )
 
 // ActorBackfill signs every backfilled row: the actor names the
@@ -46,19 +48,31 @@ type Registry interface {
 	ManifestDigest(ctx context.Context, repo, tag string) (digest, mediaType string, err error)
 }
 
-// Rows is the tracked state backfill checks absence against. The
-// full store satisfies it; use cases declare only this.
-type Rows interface {
-	All(ctx context.Context) ([]policy.Row, error)
+// Deps carries backfill's world: the sentinel API, the catalog
+// registry, and the store in its rows, recorder, identity, and
+// lock roles. Roles share lineage's and storeops' vocabulary —
+// one set of port types for every ceremony. The filesystem root
+// resolves from config.Current(): config rides no field, and
+// tests stage it the same way production reads it.
+type Deps struct {
+	API  sentinel.API
+	Reg  Registry
+	Rows lineage.Rows
+	Rec  storeops.Recorder
+	Ids  lineage.IdentityStore
+	Lock proof.Locker
 }
 
-// Recorder stamps the absent rows. The full store satisfies it;
-// use cases declare only this.
-type Recorder interface {
-	Record(ctx context.Context, r policy.Row) error
+// Accepts carries the one risk backfill can take: a restored older
+// generation (--accept-rollback). Everything else refuses; there
+// is no umbrella by design — one field, same shape as gc.Accepts.
+type Accepts struct {
+	Rollback proof.AcceptedRisk
 }
 
 // Options tunes a backfill run: which repos, preview or armed.
+// Armed carries the mint — nil previews (the fail-closed
+// default), only an explicit --no-dry-run records for real.
 // Log takes the per-tag stream (one line per verdict: would
 // record/recorded, would skip/skipped with the reason); nil
 // discards it. Progress reports the running summary on the
@@ -66,7 +80,7 @@ type Recorder interface {
 // caller throttles rendering; nil skips it.
 type Options struct {
 	RepoGlob string
-	DryRun   bool
+	Armed    proof.ArmedRun
 	Log      io.Writer
 	Progress func(Summary)
 }
@@ -97,39 +111,49 @@ type Summary struct {
 // floater itself never becomes a row. A locked store refuses with
 // the unlock named; a stranger store refuses; tagless repos count
 // as husks, never warn.
-func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows Rows, rec Recorder, ids lineage.IdentityStore, lock proof.Locker, root string, opts Options, rollback proof.AcceptedRisk) (Summary, error) {
+func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts) (Summary, error) {
 	var sum Summary
 	log := opts.Log
 	if log == nil {
 		log = io.Discard
 	}
+	dryRun := proof.Unarmed(opts.Armed)
 	progress := func() {
 		if opts.Progress != nil {
 			opts.Progress(sum)
 		}
 	}
+	// The mount root resolves here, not at the call site: a foreign
+	// config refuses before the run spends API calls — and before
+	// the lock proof, the order the command always refused in.
+	root := config.Current().RegistryConfig
+	fsStore, err := proof.ProveFilesystemStore(root)
+	if err != nil {
+		return sum, err
+	}
+	root = fsStore.Root()
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words as gc.
-	if _, err := proof.ProveUnlockedStore(ctx, lock); err != nil {
+	if _, err := proof.ProveUnlockedStore(ctx, d.Lock); err != nil {
 		if errors.Is(err, proof.ErrLocked) {
 			return sum, err
 		}
 		return sum, fmt.Errorf("store lock unreadable: %w", err)
 	}
 	now := time.Now().UTC()
-	pay, rerr := sentinel.LastProof(ctx, api)
-	allRows, err := rows.All(ctx)
+	pay, rerr := sentinel.LastProof(ctx, d.API)
+	allRows, err := d.Rows.All(ctx)
 	if err != nil {
 		return sum, fmt.Errorf("tracked state unreadable: %w", err)
 	}
-	ident, err := ids.GetIdentity(ctx)
+	ident, err := d.Ids.GetIdentity(ctx)
 	if err != nil {
 		return sum, fmt.Errorf("lineage unreadable: %w", err)
 	}
 	v := lineage.Judge(
 		lineage.Served{Payload: pay, Err: rerr},
 		lineage.Local{Ident: ident, Rows: allRows},
-		lineage.Ask{DryRun: opts.DryRun, Force: rollback != nil, Now: now})
+		lineage.Ask{DryRun: dryRun, Force: accepts.Rollback != nil, Now: now})
 	if !v.Proceed {
 		return sum, fmt.Errorf("%s — %s", v.Reason, v.Action)
 	}
@@ -148,7 +172,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 		sum.Tracked++
 	}
 	progress()
-	repos, err := reg.CatalogAll(ctx)
+	repos, err := d.Reg.CatalogAll(ctx)
 	if err != nil {
 		return sum, fmt.Errorf("backfill enumeration: %w", err)
 	}
@@ -166,7 +190,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 		return sum, fmt.Errorf("backfill: no catalog repository matches %q", opts.RepoGlob)
 	}
 	for _, repo := range matched {
-		tags, err := reg.Catalog(ctx, repo)
+		tags, err := d.Reg.Catalog(ctx, repo)
 		if err != nil && !isNotFound(err) {
 			return sum, fmt.Errorf("backfill tags for %s: %w", repo, err)
 		}
@@ -178,7 +202,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 			sum.Husks++
 			progress()
 			verb := "skipped"
-			if opts.DryRun {
+			if dryRun {
 				verb = "would skip"
 			}
 			if _, werr := fmt.Fprintf(log, "%s %s (husk: no tags)\n", verb, repo); werr != nil {
@@ -213,7 +237,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 			sum.Skipped++
 			progress()
 			verb := "skipped"
-			if opts.DryRun {
+			if dryRun {
 				verb = "would skip"
 			}
 			_, err := fmt.Fprintf(log, "%s %s:%s (%s)\n", verb, repo, tag, reason)
@@ -236,7 +260,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 				}
 				continue
 			}
-			digest, mediaType, derr := reg.ManifestDigest(ctx, repo, tag)
+			digest, mediaType, derr := d.Reg.ManifestDigest(ctx, repo, tag)
 			if derr != nil {
 				sum.Failed++
 				progress()
@@ -262,7 +286,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 				Digest: digest, MediaType: mediaType,
 				PushedAt: mtime, Actor: ActorBackfill,
 			}
-			if opts.DryRun {
+			if dryRun {
 				sum.Recorded++
 				progress()
 				if _, werr := fmt.Fprintf(log, "would record %s:%s %s\n", repo, tag, digest); werr != nil {
@@ -270,7 +294,7 @@ func Run(ctx context.Context, w io.Writer, api sentinel.API, reg Registry, rows 
 				}
 				continue
 			}
-			if err := rec.Record(ctx, row); err != nil {
+			if err := d.Rec.Record(ctx, row); err != nil {
 				return sum, fmt.Errorf("backfill record %s:%s: %w", repo, tag, err)
 			}
 			sum.Recorded++

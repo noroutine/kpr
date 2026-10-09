@@ -15,6 +15,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/testing/fakes"
 )
 
 // stubStatus is the typed registry failure the client reports:
@@ -82,11 +83,17 @@ func (s *stubRegistry) ManifestDigest(_ context.Context, repo, tag string) (stri
 // stagePaired writes a served generation and pairs the store to it,
 // tracking the generation like a proven run would. Returns the root
 // (volume layout), the mem store (rows, identity, lock), the served
-// gen, and the store identity.
+// gen, and the store identity. Stages the config over the root too:
+// the run resolves its mount from Current, never from an argument.
 func stagePaired(t *testing.T) (root string, s *store.MemStore, gen, id string) {
 	t.Helper()
 	ctx := context.Background()
 	root = t.TempDir()
+	cfg := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+root+"\n"), 0o644); err != nil {
+		t.Fatalf("stage config: %v", err)
+	}
+	fakes.Config(t, "", cfg)
 	s = store.NewMemStore()
 	if err := s.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("unlock staging store: %v", err)
@@ -153,7 +160,7 @@ func TestBackfillAdoptsSentinelFossils(t *testing.T) {
 		},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -177,7 +184,7 @@ func TestBackfillAdoptsSentinelFossils(t *testing.T) {
 	if _, ok := byTag[sentinel.Tag]; ok {
 		t.Fatal("floater row recorded — latest is a pointer, not inventory")
 	}
-	if sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil); err != nil {
+	if sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{}); err != nil {
 		t.Fatalf("rerun: %v", err)
 	} else if sum.Recorded != 0 || sum.Skipped != 2 {
 		t.Fatalf("rerun = %+v, want 0 recorded, 2 skipped", sum)
@@ -204,7 +211,7 @@ func TestBackfillFloaterFirstStillAdoptsFossil(t *testing.T) {
 		},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -234,7 +241,7 @@ func TestBackfillClampsSentinelNewerThanLatest(t *testing.T) {
 		},
 	}
 	var out strings.Builder
-	if _, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil); err != nil {
+	if _, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	rows, _ := s.All(ctx)
@@ -289,7 +296,7 @@ func TestBackfillLogsEveryVerdict(t *testing.T) {
 		},
 	}
 	var dry strings.Builder
-	if _, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, Options{DryRun: true, Log: &dry}, nil); err != nil {
+	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Log: &dry}, Accepts{}); err != nil {
 		t.Fatalf("dry Run: %v", err)
 	}
 	for _, want := range []string{
@@ -303,7 +310,7 @@ func TestBackfillLogsEveryVerdict(t *testing.T) {
 		}
 	}
 	var armed strings.Builder
-	if _, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, Options{Log: &armed}, nil); err != nil {
+	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false), Log: &armed}, Accepts{}); err != nil {
 		t.Fatalf("armed Run: %v", err)
 	}
 	for _, want := range []string{
@@ -336,7 +343,7 @@ func TestBackfillRecordsAbsentWithMtimes(t *testing.T) {
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -375,10 +382,10 @@ func TestBackfillProgressReportsVerdicts(t *testing.T) {
 	}
 	var last Summary
 	n := 0
-	opts := Options{DryRun: true, Log: io.Discard, Progress: func(sum Summary) {
+	opts := Options{Log: io.Discard, Progress: func(sum Summary) {
 		last, n = sum, n+1
 	}}
-	if _, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, opts, nil); err != nil {
+	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, opts, Accepts{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if n == 0 {
@@ -411,10 +418,10 @@ func TestBackfillProgressReportsScan(t *testing.T) {
 		},
 	}
 	var snaps []Summary
-	opts := Options{DryRun: true, Log: io.Discard, Progress: func(sum Summary) {
+	opts := Options{Log: io.Discard, Progress: func(sum Summary) {
 		snaps = append(snaps, sum)
 	}}
-	if _, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, opts, nil); err != nil {
+	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, opts, Accepts{}); err != nil {
 		t.Fatalf("Run: %v, want scan", err)
 	}
 	if len(snaps) == 0 {
@@ -451,7 +458,7 @@ func TestBackfillCountsSentinelsSeparately(t *testing.T) {
 		tags:    map[string][]string{"app": {"v1"}},
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
-	sum, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, Options{DryRun: true, Log: io.Discard}, nil)
+	sum, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Log: io.Discard}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v, want preview", err)
 	}
@@ -473,8 +480,8 @@ func TestBackfillRunPrintsNoSummary(t *testing.T) {
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
 	var out strings.Builder
-	opts := Options{DryRun: true, Log: io.Discard}
-	if _, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, opts, nil); err != nil {
+	opts := Options{Log: io.Discard}
+	if _, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, opts, Accepts{}); err != nil {
 		t.Fatalf("Run: %v, want preview", err)
 	}
 	if out.Len() != 0 {
@@ -496,7 +503,7 @@ func TestBackfillDryRunPrintsWithoutRecording(t *testing.T) {
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, io.Discard, fileAPI{root}, reg, s, s, s, s, root, Options{DryRun: true, Log: &out}, nil)
+	sum, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Log: &out}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -528,7 +535,7 @@ func TestBackfillSkipsTracked(t *testing.T) {
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -560,7 +567,7 @@ func TestBackfillSkipsTrackedSentinelGen(t *testing.T) {
 		},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -583,7 +590,7 @@ func TestBackfillUnknownGlobRefuses(t *testing.T) {
 	root, s, _, _ := stagePaired(t)
 	reg := &stubRegistry{repos: []string{"app"}}
 	var out strings.Builder
-	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{RepoGlob: "nope-*"}, nil)
+	_, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false), RepoGlob: "nope-*"}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "no catalog repository matches") {
 		t.Errorf("err = %v, want the no-match refusal", err)
 	}
@@ -605,7 +612,7 @@ func TestBackfillMatchingGlobAdopts(t *testing.T) {
 		},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{RepoGlob: "app*"}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false), RepoGlob: "app*"}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -647,7 +654,7 @@ func TestBackfillMidRun404Skips(t *testing.T) {
 	}
 	var out strings.Builder
 	var logged strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{Log: &logged}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false), Log: &logged}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -679,7 +686,7 @@ func TestBackfillTwoDigestFailuresBothCount(t *testing.T) {
 		},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -700,7 +707,7 @@ func TestBackfillMissingLinkSkips(t *testing.T) {
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -720,7 +727,7 @@ func TestBackfillLockedRefuses(t *testing.T) {
 	}
 	reg := &stubRegistry{}
 	var out strings.Builder
-	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	_, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if !errors.Is(err, proof.ErrLocked) {
 		t.Errorf("err = %v, want the locked refusal", err)
 	}
@@ -737,7 +744,7 @@ func TestBackfillForeignRefuses(t *testing.T) {
 	}
 	reg := &stubRegistry{}
 	var out strings.Builder
-	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	_, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "foreign lineage") {
 		t.Errorf("err = %v, want the foreign refusal", err)
 	}
@@ -764,13 +771,13 @@ func TestBackfillRollbackNeedsAcceptArmed(t *testing.T) {
 	}
 	reg := &stubRegistry{repos: []string{}}
 	var out strings.Builder
-	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	_, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "--accept-rollback") {
 		t.Errorf("err = %v, want the rollback refusal naming its flag", err)
 	}
 
 	var warn strings.Builder
-	sum, err := Run(ctx, &warn, fileAPI{root}, reg, s, s, s, s, root, Options{}, accept(t))
+	sum, err := Run(ctx, &warn, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{Rollback: accept(t)})
 	if err != nil {
 		t.Fatalf("accepted Run: %v", err)
 	}
@@ -782,7 +789,7 @@ func TestBackfillRollbackNeedsAcceptArmed(t *testing.T) {
 	}
 
 	var preview strings.Builder
-	if _, err := Run(ctx, &preview, fileAPI{root}, reg, s, s, s, s, root, Options{DryRun: true}, nil); err != nil {
+	if _, err := Run(ctx, &preview, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{}, Accepts{}); err != nil {
 		t.Errorf("dry run over rollback refused: %v", err)
 	}
 }
@@ -804,7 +811,7 @@ func TestBackfillUnreadableMtimeWarnsPast(t *testing.T) {
 		},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -854,7 +861,7 @@ func TestBackfillBlindFloaterWarnsUncapped(t *testing.T) {
 		},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -874,7 +881,7 @@ func TestBackfillUnreachableCatalogRefuses(t *testing.T) {
 	root, s, _, _ := stagePaired(t)
 	reg := &stubRegistry{reposErr: fmt.Errorf("connection refused")}
 	var out strings.Builder
-	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	_, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "backfill enumeration") {
 		t.Errorf("err = %v, want the enumeration refusal", err)
 	}
@@ -889,7 +896,7 @@ func TestBackfillUnreadableLockRefuses(t *testing.T) {
 	root, s, _, _ := stagePaired(t)
 	reg := &stubRegistry{}
 	var out strings.Builder
-	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, lockFail{err: errors.New("i/o")}, root, Options{}, nil)
+	_, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: lockFail{err: errors.New("i/o")}}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "store lock unreadable") {
 		t.Errorf("err = %v, want the unreadable-lock refusal", err)
 	}
@@ -907,7 +914,7 @@ func TestBackfillUnreadableRowsRefuses(t *testing.T) {
 	root, s, _, _ := stagePaired(t)
 	reg := &stubRegistry{}
 	var out strings.Builder
-	_, err := Run(ctx, &out, fileAPI{root}, reg, rowsFail{err: errors.New("i/o")}, s, s, s, root, Options{}, nil)
+	_, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: rowsFail{err: errors.New("i/o")}, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "tracked state unreadable") {
 		t.Errorf("err = %v, want the unreadable-rows refusal", err)
 	}
@@ -925,7 +932,7 @@ func TestBackfillUnreadableIdentityRefuses(t *testing.T) {
 	root, s, _, _ := stagePaired(t)
 	reg := &stubRegistry{}
 	var out strings.Builder
-	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, idsFail{err: errors.New("i/o")}, s, root, Options{}, nil)
+	_, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: idsFail{err: errors.New("i/o")}, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "lineage unreadable") {
 		t.Errorf("err = %v, want the unreadable-lineage refusal", err)
 	}
@@ -950,7 +957,7 @@ func TestBackfillTagsUnreachableRefuses(t *testing.T) {
 		tagsErr: map[string]error{"app": &stubStatus{code: 500}},
 	}
 	var out strings.Builder
-	_, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil)
+	_, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "backfill tags for app") {
 		t.Errorf("err = %v, want the tags refusal", err)
 	}
@@ -965,7 +972,7 @@ func TestBackfillLogWriteFailsRun(t *testing.T) {
 	root, s, _, _ := stagePaired(t)
 	reg := &stubRegistry{repos: []string{"bare"}, tags: map[string][]string{"bare": {}}}
 	var out strings.Builder
-	if _, err := Run(ctx, &out, fileAPI{root}, reg, s, s, s, s, root, Options{Log: errWriter{}}, nil); err == nil {
+	if _, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false), Log: errWriter{}}, Accepts{}); err == nil {
 		t.Error("husk over dead log succeeded, want the write failure")
 	}
 }
@@ -993,7 +1000,7 @@ func TestBackfillStaleWarnWriteFails(t *testing.T) {
 		t.Fatalf("track newer: %v", err)
 	}
 	reg := &stubRegistry{repos: []string{}}
-	if _, err := Run(ctx, errWriter{}, fileAPI{root}, reg, s, s, s, s, root, Options{}, accept(t)); err == nil {
+	if _, err := Run(ctx, errWriter{}, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{Rollback: accept(t)}); err == nil {
 		t.Error("stale warning over dead pipe succeeded, want the write failure")
 	}
 }
@@ -1011,7 +1018,7 @@ func TestBackfillDigestWarnWriteFails(t *testing.T) {
 			"app\x00v1": errors.New("boom"),
 		},
 	}
-	if _, err := Run(ctx, errWriter{}, fileAPI{root}, reg, s, s, s, s, root, Options{}, nil); err == nil {
+	if _, err := Run(ctx, errWriter{}, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false)}, Accepts{}); err == nil {
 		t.Error("digest warning over dead pipe succeeded, want the write failure")
 	}
 }
