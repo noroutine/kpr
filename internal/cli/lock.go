@@ -1,12 +1,10 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/fence"
-	"nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/storeops"
 )
 
 var lockCmd = &cobra.Command{
@@ -23,15 +21,7 @@ exactly like no shared store for write ops.`,
 			return err
 		}
 		defer d.Close()
-		if err := d.Store.SetUnlocked(cmd.Context(), false); err != nil {
-			return err
-		}
-		// The marker denies; this says it out loud — the ring
-		// carries deny_engage at the transition, not at the
-		// first refused push.
-		fence.Control{Store: d.Store}.Deny(cmd.Context(), "store locked: registry-store writes denied until 'kpr store unlock'")
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), "store locked: registry-store writes denied until 'kpr store unlock'")
-		return err
+		return storeops.Lock(cmd.Context(), cmd.OutOrStdout(), d.Store)
 	},
 }
 
@@ -53,7 +43,7 @@ to revoke.`,
 			return err
 		}
 		defer d.Close()
-		if err := gc.Unlock(cmd.Context(), cmd.OutOrStdout(), gc.UnlockDeps{
+		if err := storeops.Unlock(cmd.Context(), cmd.OutOrStdout(), storeops.UnlockDeps{
 			Rec: d.Store, Ids: d.Store, Rows: d.Store,
 			API: d.Reg, Store: d.Store,
 		}); err != nil {

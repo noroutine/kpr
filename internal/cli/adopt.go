@@ -4,7 +4,7 @@ import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 
-	"nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/storeops"
 )
 
 var adoptGen string
@@ -31,7 +31,7 @@ volume or remove the stale tags instead. At most one IDENT.`,
 		if len(args) == 1 {
 			ident = args[0]
 		}
-		return gc.Adopt(cmd.Context(), cmd.OutOrStdout(), d.Reg, d.Store, d.Store, ident, adoptGen)
+		return storeops.Adopt(cmd.Context(), cmd.OutOrStdout(), d.Reg, d.Store, d.Store, ident, adoptGen)
 	},
 }
 

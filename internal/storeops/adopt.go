@@ -1,4 +1,4 @@
-package gc
+package storeops
 
 import (
 	"context"

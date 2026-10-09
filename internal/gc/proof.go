@@ -9,25 +9,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/proof"
-	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
-
-// writeVerifiedGeneration is the shared tail of every mint ceremony
-// (armed gc runs, unlock): one generation written and read back,
-// refusing identically everywhere — one funnel, no copies. Returns
-// the manifest digest for keep-N. The future FreshGeneration token
-// is minted here, beside the Write and Verify it names; until its
-// first consumer arrives it stays parked, not faked.
-func writeVerifiedGeneration(ctx context.Context, api sentinel.API, root string, payload sentinel.Payload) (string, error) {
-	md, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, payload)
-	if err != nil {
-		return "", fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
-	}
-	if err := sentinel.Verify(ctx, api, sentinel.Repo, sentinel.Tag, payload.Gen); err != nil {
-		return "", fmt.Errorf("kpr does not share this registry's store: %v", err)
-	}
-	return md, nil
-}
 
 // collectWritableArmed runs the collector for real against a
 // writable registry: the preflight clearance is demanded at the

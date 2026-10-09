@@ -10,6 +10,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/storeops"
 )
 
 var errTestStoreDown = errors.New("redis: connection refused")
@@ -21,7 +22,7 @@ func TestAdoptPairsUnpairedStore(t *testing.T) {
 	_, root, lock := stageProvenRun(t)
 	gen := stageServedGen(t, root)
 	var out strings.Builder
-	if err := Adopt(context.Background(), &out, fileAPI{root}, lock, lock, "", ""); err != nil {
+	if err := storeops.Adopt(context.Background(), &out, fileAPI{root}, lock, lock, "", ""); err != nil {
 		t.Fatalf("adopt served lineage: %v", err)
 	}
 	ident, err := lock.GetIdentity(context.Background())
@@ -64,7 +65,7 @@ func TestAdoptPinMatchPairs(t *testing.T) {
 		t.Fatalf("read served: %v", err)
 	}
 	var out strings.Builder
-	if err := Adopt(context.Background(), &out, fileAPI{root}, lock, lock, served.ID, ""); err != nil {
+	if err := storeops.Adopt(context.Background(), &out, fileAPI{root}, lock, lock, served.ID, ""); err != nil {
 		t.Fatalf("adopt with matching pin: %v", err)
 	}
 	ident, _ := lock.GetIdentity(context.Background())
@@ -82,7 +83,7 @@ func TestAdoptPinMismatchRefuses(t *testing.T) {
 	}
 	pin := newGenID(t)
 	var out strings.Builder
-	err = Adopt(context.Background(), &out, fileAPI{root}, lock, lock, pin, "")
+	err = storeops.Adopt(context.Background(), &out, fileAPI{root}, lock, lock, pin, "")
 	if err == nil {
 		t.Fatal("adopt with mismatched pin succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), served.ID) || !strings.Contains(err.Error(), pin) {
@@ -145,7 +146,7 @@ func (f failRows) Delete(ctx context.Context, repo, tag string) error {
 func TestAdoptAbsentRefusesWithoutIdent(t *testing.T) {
 	_, root, lock := stageProvenRun(t)
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, fileAPI{root}, lock, lock, "", "")
+	err := storeops.Adopt(context.Background(), &out, fileAPI{root}, lock, lock, "", "")
 	if err == nil {
 		t.Fatal("adopt on silence succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "nothing served") {
@@ -159,7 +160,7 @@ func TestAdoptAbsentRefusesWithoutIdent(t *testing.T) {
 func TestAdoptUnreadableRefuses(t *testing.T) {
 	_, _, lock := stageProvenRun(t)
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, errSentinelAPI{errTestStoreDown}, lock, lock, "", "")
+	err := storeops.Adopt(context.Background(), &out, errSentinelAPI{errTestStoreDown}, lock, lock, "", "")
 	if err == nil {
 		t.Fatal("adopt on erroring sentinel succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "sentinel unreadable") {
@@ -174,7 +175,7 @@ func TestAdoptPrePairWriteFailureRefuses(t *testing.T) {
 	_, root, _ := stageProvenRun(t)
 	ids := &failIdentityStore{MemStore: store.NewMemStore(), armed: true}
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, fileAPI{root},
+	err := storeops.Adopt(context.Background(), &out, fileAPI{root},
 		ids, store.NewMemStore(), newGenID(t), "")
 	if err == nil {
 		t.Fatal("adopt with failing lineage write succeeded, want refusal")
@@ -187,7 +188,7 @@ func TestAdoptAbsentBootstrapsWithIdent(t *testing.T) {
 	_, root, lock := stageProvenRun(t)
 	pin := newGenID(t)
 	var out strings.Builder
-	if err := Adopt(context.Background(), &out, fileAPI{root}, lock, lock, pin, ""); err != nil {
+	if err := storeops.Adopt(context.Background(), &out, fileAPI{root}, lock, lock, pin, ""); err != nil {
 		t.Fatalf("adopt with pin on silence: %v", err)
 	}
 	ident, _ := lock.GetIdentity(context.Background())
@@ -203,7 +204,7 @@ func TestAdoptIdentityLessRefuses(t *testing.T) {
 		t.Fatalf("stage identity-less generation: %v", err)
 	}
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, fileAPI{root}, lock, lock, "", "")
+	err := storeops.Adopt(context.Background(), &out, fileAPI{root}, lock, lock, "", "")
 	if err == nil {
 		t.Fatal("adopt of an identity-less generation succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "identity-less") {
@@ -242,7 +243,7 @@ func TestAdoptRepairsForeignLineage(t *testing.T) {
 		t.Fatalf("read served: %v", err)
 	}
 	var out strings.Builder
-	if err := Adopt(ctx, &out, fileAPI{root}, lock, lock, "", ""); err != nil {
+	if err := storeops.Adopt(ctx, &out, fileAPI{root}, lock, lock, "", ""); err != nil {
 		t.Fatalf("adopt foreign lineage: %v", err)
 	}
 	ident, _ := lock.GetIdentity(ctx)
@@ -295,7 +296,7 @@ func TestAdoptPruneFailuresRefuse(t *testing.T) {
 			stageServedGen(t, root)
 			tc.rows.MemStore = lock
 			var out strings.Builder
-			err := Adopt(ctx, &out, fileAPI{root}, lock, tc.rows, "", "")
+			err := storeops.Adopt(ctx, &out, fileAPI{root}, lock, tc.rows, "", "")
 			if err == nil {
 				t.Fatal("adopt with failing prune succeeded, want refusal")
 			} else if !strings.Contains(err.Error(), "old epoch unprunable") {
@@ -322,7 +323,7 @@ func TestAdoptRepairWriteFailureRefuses(t *testing.T) {
 	}
 	ids.armed = true
 	var out strings.Builder
-	if err := Adopt(ctx, &out, fileAPI{root}, ids, store.NewMemStore(), "", ""); err == nil {
+	if err := storeops.Adopt(ctx, &out, fileAPI{root}, ids, store.NewMemStore(), "", ""); err == nil {
 		t.Fatal("re-adopt with failing lineage write succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -331,7 +332,7 @@ func TestAdoptRepairWriteFailureRefuses(t *testing.T) {
 	// pairing records nothing and says so.
 	fresh := &failIdentityStore{MemStore: store.NewMemStore(), armed: true}
 	var freshOut strings.Builder
-	if err := Adopt(ctx, &freshOut, fileAPI{root}, fresh, store.NewMemStore(), "", ""); err == nil {
+	if err := storeops.Adopt(ctx, &freshOut, fileAPI{root}, fresh, store.NewMemStore(), "", ""); err == nil {
 		t.Fatal("first pairing with failing lineage write succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -357,7 +358,7 @@ func TestAdoptAlreadyPairedRefreshesBaseline(t *testing.T) {
 		t.Fatalf("stage second: %v", err)
 	}
 	var out strings.Builder
-	if err := Adopt(ctx, &out, fileAPI{root}, lock, lock, "", ""); err != nil {
+	if err := storeops.Adopt(ctx, &out, fileAPI{root}, lock, lock, "", ""); err != nil {
 		t.Fatalf("re-adopt same lineage: %v", err)
 	}
 	ident, _ := lock.GetIdentity(ctx)
@@ -373,7 +374,7 @@ func TestAdoptGenMismatchRefuses(t *testing.T) {
 	_, root, lock := stageProvenRun(t)
 	gen := stageServedGen(t, root)
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, fileAPI{root}, lock, lock, "", newGenID(t))
+	err := storeops.Adopt(context.Background(), &out, fileAPI{root}, lock, lock, "", newGenID(t))
 	if err == nil {
 		t.Fatal("adopt with mismatched --gen succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), gen) {

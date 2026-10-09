@@ -33,13 +33,13 @@ func TestReadyGatesMissingPrereqs(t *testing.T) {
 // An unwritable root refuses the mint before the read-back: the
 // generation is never half-laid. If this fails, a read-only mount
 // reports a same-store mismatch instead of the write error.
-func TestWriteVerifiedGenerationRefusesUnwritable(t *testing.T) {
+func TestWriteVerifiedRefusesUnwritable(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(blocker, []byte("in the way"), 0o644); err != nil {
 		t.Fatalf("stage blocker: %v", err)
 	}
 	payload := sentinel.Payload{V: 1, Gen: "gen", ID: "id", TS: "ts", Writer: "test"}
-	if _, err := writeVerifiedGeneration(context.Background(), fileAPI{t.TempDir()}, blocker, payload); err == nil {
+	if _, err := sentinel.WriteVerified(context.Background(), fileAPI{t.TempDir()}, blocker, payload); err == nil {
 		t.Fatal("mint under a blocked root succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "unwritable") {
 		t.Errorf("refusal names no cause: %v", err)

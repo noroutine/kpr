@@ -1,4 +1,4 @@
-package gc
+package storeops
 
 import (
 	"context"
@@ -120,7 +120,7 @@ func Unlock(ctx context.Context, w io.Writer, d UnlockDeps) error {
 		return err
 	}
 	payload := sentinel.Payload{V: 1, Gen: gen, ID: useID, TS: now.Format(time.RFC3339), Writer: "kpr-unlock"}
-	md, err := writeVerifiedGeneration(ctx, d.API, root, payload)
+	md, err := sentinel.WriteVerified(ctx, d.API, root, payload)
 	if err != nil {
 		return err
 	}

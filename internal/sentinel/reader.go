@@ -108,6 +108,23 @@ func Verify(ctx context.Context, api API, repo, tag string, wantGen string) erro
 	return nil
 }
 
+// WriteVerified is the shared tail of every mint ceremony (armed gc
+// runs, unlock): one generation written and read back, refusing
+// identically everywhere — one funnel, no copies. Returns the
+// manifest digest for keep-N. The future FreshGeneration token is
+// minted here, beside the Write and Verify it names; until its
+// first consumer arrives it stays parked, not faked.
+func WriteVerified(ctx context.Context, api API, root string, p Payload) (string, error) {
+	md, err := Write(root, Repo, Tag, p)
+	if err != nil {
+		return "", fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
+	}
+	if err := Verify(ctx, api, Repo, Tag, p.Gen); err != nil {
+		return "", fmt.Errorf("kpr does not share this registry's store: %v", err)
+	}
+	return md, nil
+}
+
 // ProofStaleAfter is the age past which a served generation stops
 // meaning "recently proven": tag lifecycle keeps working, but blob
 // reclamation hasn't been demonstrated within the window. A loud

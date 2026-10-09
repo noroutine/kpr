@@ -16,6 +16,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/storeops"
 )
 
 // lockTTL bounds a collector run: a crashed gc releases at expiry
@@ -55,12 +56,8 @@ type Locker interface {
 	IsUnlocked(ctx context.Context) (bool, error)
 }
 
-// Recorder tracks minted generations for keep-N: the one method
-// minting needs after a verified proof. store.Store satisfies it;
-// the use case declares only this.
-type Recorder interface {
-	Record(ctx context.Context, r policy.Row) error
-}
+// Recorder lives in storeops: the keep-N write the mint ceremonies
+// share, one vocabulary everywhere.
 
 // Options tunes a gc run, and only that: the operator's flags.
 // Armed carries the mint — nil previews (the fail-closed
@@ -103,7 +100,7 @@ type Accepts struct {
 // caller's job.
 type Deps struct {
 	Lock  Locker
-	Rec   Recorder
+	Rec   storeops.Recorder
 	Ids   lineage.IdentityStore
 	Rows  lineage.Rows
 	API   sentinel.API
@@ -300,7 +297,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 			return err
 		}
 		payload := sentinel.Payload{V: 1, Gen: gen, ID: useID, TS: now.Format(time.RFC3339), Writer: "kpr-gc"}
-		md, err := writeVerifiedGeneration(ctx, d.API, root, payload)
+		md, err := sentinel.WriteVerified(ctx, d.API, root, payload)
 		if err != nil {
 			return err
 		}
