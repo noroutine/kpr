@@ -34,7 +34,7 @@ var storeBackfillCmd = &cobra.Command{
 	Use:   "backfill [repo-glob]",
 	Short: "Adopt pre-kpr tags into tracked rows",
 	Long:  backfillLong(),
-	Args: cobra.MaximumNArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
