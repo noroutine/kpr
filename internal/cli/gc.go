@@ -1,9 +1,9 @@
-package gc
+package cli
 
 import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
-	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -58,7 +58,14 @@ revokes.`,
 		// of Armed. The adapter feeds raw readings (flag var,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
-		return gcrun.Run(cmd.Context(), out, wirePorts(d), gcrun.Options{
+		return gc.Run(cmd.Context(), out, gc.Deps{
+			// One store wearing all four hats (lock, recorder,
+			// identity, rows), the whole store behind them, and
+			// the registry API. Reporter, fence, and clock stay
+			// unset — the run renders and resolves them.
+			Lock: d.Store, Rec: d.Store, Ids: d.Store, Rows: d.Store,
+			API: d.Reg, Store: d.Store,
+		}, gc.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			Armed:          armedRun,
 		}, gcAccepts(armedRun))
@@ -80,8 +87,8 @@ func init() {
 // nothing else. There is no umbrella — a test below pins that no
 // single flag mints the whole set. If this fails, an umbrella
 // re-entered through a shared mint.
-func gcAccepts(armed proof.ArmedRun) gcrun.Accepts {
-	return gcrun.Accepts{
+func gcAccepts(armed proof.ArmedRun) gc.Accepts {
+	return gc.Accepts{
 		Cache:     proof.Force(armed, gcAcceptBlobCache),
 		Fence:     proof.Force(armed, gcAcceptUnfenced),
 		ClockSkew: proof.Force(armed, gcAcceptClockSkew),

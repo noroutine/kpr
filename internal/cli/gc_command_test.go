@@ -1,4 +1,4 @@
-package gc
+package cli
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
-	gcrun "nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -34,13 +34,13 @@ func TestGcAcceptsMintsPerRisk(t *testing.T) {
 	armed := proof.Arm(true, false)
 	cases := []struct {
 		flag string
-		hold func(gcrun.Accepts) proof.AcceptedRisk
+		hold func(gc.Accepts) proof.AcceptedRisk
 	}{
-		{"accept-blob-cache", func(a gcrun.Accepts) proof.AcceptedRisk { return a.Cache }},
-		{"accept-unfenced", func(a gcrun.Accepts) proof.AcceptedRisk { return a.Fence }},
-		{"accept-clock-skew", func(a gcrun.Accepts) proof.AcceptedRisk { return a.ClockSkew }},
-		{"accept-rollback", func(a gcrun.Accepts) proof.AcceptedRisk { return a.Rollback }},
-		{"accept-mode-flip", func(a gcrun.Accepts) proof.AcceptedRisk { return a.ModeFlip }},
+		{"accept-blob-cache", func(a gc.Accepts) proof.AcceptedRisk { return a.Cache }},
+		{"accept-unfenced", func(a gc.Accepts) proof.AcceptedRisk { return a.Fence }},
+		{"accept-clock-skew", func(a gc.Accepts) proof.AcceptedRisk { return a.ClockSkew }},
+		{"accept-rollback", func(a gc.Accepts) proof.AcceptedRisk { return a.Rollback }},
+		{"accept-mode-flip", func(a gc.Accepts) proof.AcceptedRisk { return a.ModeFlip }},
 	}
 	for _, tc := range cases {
 		if err := Cmd.Flags().Set(tc.flag, "true"); err != nil {
@@ -71,7 +71,7 @@ func TestGcAcceptsMintsPerRisk(t *testing.T) {
 		}
 		defer func() { _ = Cmd.Flags().Set(tc.flag, "false") }()
 	}
-	if got := gcAccepts(proof.Arm(false, false)); got != (gcrun.Accepts{}) {
+	if got := gcAccepts(proof.Arm(false, false)); got != (gc.Accepts{}) {
 		t.Errorf("disarmed mint = %+v, want zero", got)
 	}
 }
