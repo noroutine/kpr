@@ -24,28 +24,19 @@ var gcNoDryRun bool
 var Cmd = &cobra.Command{
 	Use:   "gc",
 	Short: "Garbage-collect unreferenced registry blobs",
-	Long: `Run the stock registry garbage-collect against the shared store,
-streaming its output and reporting each stage, in dry-run mode unless
---no-dry-run (or KPR_CLI_NO_DRY_RUN=true), which collects for real.
-The sentinel probes the registry first: stopped (readonly) takes
-the classic offline collect; serving (writable) takes the online
-path — an armed run clears the blob cache and the gateway fence
-up front (each overridable with --accept-blob-cache /
---accept-unfenced), a preview prints the same checklist and
-proceeds warned, inconclusive always refuses. Three further risks
-each refuse with their own --accept-* flag and no umbrella:
-clock skew past tolerance (--accept-clock-skew), a restored older
-generation (--accept-rollback), and a registry mode flip mid-run
-(--accept-mode-flip). Then gc proves
-the store shared with a fresh generation it reads back through the
-API. After the
-collect the sentinel re-probes: a mode flip mid-run is loud but
-never a panic — it fails the run unless --accept-mode-flip
-(which presumes you verified pulls after the run). Flipping readonly stays with the operator — this command
-never rewrites registry config. The store starts locked (fresh
-stores included): a locked run refuses before probing — 'kpr
-store unlock' proves the shared store and opens writes, 'kpr store lock'
-revokes.`,
+	Long: `Run the stock registry garbage-collect against the shared store.
+
+Key facts:
+
+- Dry-run by default; --no-dry-run (or KPR_CLI_NO_DRY_RUN=true)
+  collects for real.
+- --delete-untagged also drops orphaned manifests.
+- A serving registry collects only with --accept-blob-cache and
+  --accept-unfenced; a stopped one needs neither.
+- --accept-clock-skew, --accept-rollback, and --accept-mode-flip
+  each clear exactly their own risk; there is no umbrella flag.
+- A locked store refuses before anything: 'kpr store unlock'
+  opens writes, 'kpr store lock' revokes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
