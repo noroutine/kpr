@@ -124,8 +124,8 @@ type Deps struct {
 	// unknown safety.
 	Fence fence.Controller
 	// Probe reads the registry mode; Collect runs the stock
-	// collector binary. Seams with production defaults, scripted
-	// apart in tests.
+	// collector binary. Nil takes the production default; an
+	// injected seam always wins, so tests script apart.
 	Probe   Probe
 	Collect Collector
 }
@@ -160,6 +160,12 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	}
 	if d.Fence == nil && d.Store != nil {
 		d.Fence = FenceForBackend(d.Store, opts.Armed, w)
+	}
+	if d.Probe == nil {
+		d.Probe = ProbeRegistry
+	}
+	if d.Collect == nil {
+		d.Collect = RunCollector
 	}
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
