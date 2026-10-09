@@ -58,11 +58,7 @@ revokes.`,
 		// of Armed. The adapter feeds raw readings (flag var,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
-		// The backend rides d: OpenDeps resolved it once, so the
-		// fence leases from the same dir the store opened — never
-		// a second, possibly different, resolution.
-		fencer := gcrun.FenceForBackend(d.Backend, d.StoreDir, d.Store, armedRun, out)
-		return gcrun.Run(cmd.Context(), out, wirePorts(d, fencer), gcrun.Options{
+		return gcrun.Run(cmd.Context(), out, wirePorts(d, armedRun, out), gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			Armed:          armedRun,
 		}, gcAccepts(armedRun))
