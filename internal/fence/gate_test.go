@@ -225,7 +225,11 @@ func TestGateHoldThenDenyWhenLocked(t *testing.T) {
 
 	dir := t.TempDir()
 	hf := store.HoldFile{Dir: dir}
-	release, err := hf.Hold(context.Background(), time.Now().Add(120*time.Millisecond))
+	// The stopwatch starts at the hold, not at the PUT: server
+	// setup sits between them, and measuring from the PUT turns
+	// that jitter into flakes.
+	holdStart := time.Now()
+	release, err := hf.Hold(context.Background(), holdStart.Add(120*time.Millisecond))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
 	}
@@ -235,13 +239,12 @@ func TestGateHoldThenDenyWhenLocked(t *testing.T) {
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
-	start := time.Now()
 	resp, err := putManifest(front.URL)
 	if err != nil {
 		t.Fatalf("held PUT = %v, want 423 after expiry", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if elapsed := time.Since(start); elapsed < 120*time.Millisecond {
+	if elapsed := time.Since(holdStart); elapsed < 120*time.Millisecond {
 		t.Errorf("held PUT answered after %v, want it held to expiry", elapsed)
 	}
 	if resp.StatusCode != http.StatusLocked {
