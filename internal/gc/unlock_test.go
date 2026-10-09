@@ -22,11 +22,10 @@ func TestRunRefusesLockedStore(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
+	useSeams(t, Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }), okCollector(&collected))
 	err := Run(context.Background(), &out,
 		Deps{Lock: store.NewMemStore(), Rec: store.NewMemStore(), Ids: store.NewMemStore(), Rows: store.NewMemStore(), API: fileAPI{root},
-			Clock: stubClock{}, Report: func(event.Event) {},
-			Probe:   Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
-			Collect: okCollector(&collected)},
+			Clock: stubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("locked run = %v, want the locked refusal", err)

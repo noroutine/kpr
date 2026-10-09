@@ -35,14 +35,14 @@ const lockTTL = 30 * time.Minute
 const holdLease = 5 * time.Minute
 
 // Probe classifies the registry via the write sentinel: writable,
-// readonly, or unknown with the cause. ProbeRegistry is the
-// production implementation; tests substitute a stub. Consumed by
-// Run below.
+// readonly, or unknown with the cause.
 type Probe func(ctx context.Context, baseURL string) (Mode, string, error)
 
-// ProbeRegistry satisfies Probe: the assertion pins the port to the
-// implementation it carries.
-var _ Probe = ProbeRegistry
+// probe is the probe seam: the production implementation, swapped
+// per test via useSeams. A constant function needs no port —
+// nothing varies per run — so the seam carries the substitution
+// alone (W13).
+var probe Probe = probeRegistry
 
 // Locker serializes collector runs on one named single-flight lock
 // and carries the operator's write intent: store.Store satisfies it
@@ -91,8 +91,9 @@ type Accepts struct {
 // four roles — lock (intent gate plus single-flight), recorder,
 // identity, rows — each scriptable apart in tests, one object
 // wearing all four hats in production — plus the registry API,
-// the clock the mint checks, the event reporter, the fence, and
-// the probe/collect seams. A nil clock derives from
+// the clock the mint checks, the event reporter, and the fence.
+// Probe and collect stay seams (package vars, W13): constant
+// functions carry no per-run variation, so they ride no field. A nil clock derives from
 // config.Current() (production never sets it); tests inject
 // fakes for the skew and unreachable paths. Config otherwise
 // never rides along: Current() names the registry wherever the
@@ -123,11 +124,6 @@ type Deps struct {
 	// run: collecting unfenced when fencing was requested is
 	// unknown safety.
 	Fence fence.Controller
-	// Probe reads the registry mode; Collect runs the stock
-	// collector binary. Nil takes the production default; an
-	// injected seam always wins, so tests script apart.
-	Probe   Probe
-	Collect Collector
 }
 
 // Run probes the registry writable/readonly, proves the local mount
@@ -160,12 +156,6 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	}
 	if d.Fence == nil && d.Store != nil {
 		d.Fence = FenceForBackend(d.Store, opts.Armed, w)
-	}
-	if d.Probe == nil {
-		d.Probe = ProbeRegistry
-	}
-	if d.Collect == nil {
-		d.Collect = RunCollector
 	}
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
@@ -222,7 +212,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 			_, _ = fmt.Fprintf(w, "Warning: gc lock release failed (%v); expires in %v\n", rerr, lockTTL)
 		}
 	}()
-	mode, _, err := d.Probe(ctx, config.Current().RegistryURL)
+	mode, _, err := probe(ctx, config.Current().RegistryURL)
 	if err != nil {
 		return err
 	}
@@ -360,9 +350,9 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	// engage refuses instead of collecting unfenced. The lease
 	// outlives a crashed collect by design — expiry, not release,
 	// bounds it.
-	fenced := func(collect func() error) error {
+	fenced := func(op func() error) error {
 		if d.Fence == nil {
-			return collect()
+			return op()
 		}
 		release, err := d.Fence.Hold(ctx, time.Now().Add(holdLease))
 		if err != nil {
@@ -376,23 +366,23 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 			release()
 			event.Emit(d.Report, event.Event{Stage: StageHoldRelease, Message: "HOLD lease released: manifest writes flow again"})
 		}()
-		return collect()
+		return op()
 	}
 
 	switch {
 	case proof.Unarmed(opts.Armed):
-		if err := d.Collect(ctx, w, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
+		if err := collect(ctx, w, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
 			return err
 		}
 	case mode == ModeWritable:
 		if err := fenced(func() error {
-			return collectWritableArmed(ctx, w, d.Collect, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
+			return collectWritableArmed(ctx, w, collect, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
 		}); err != nil {
 			return err
 		}
 	default:
 		if err := fenced(func() error {
-			return d.Collect(ctx, w, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
+			return collect(ctx, w, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
 		}); err != nil {
 			return err
 		}
@@ -449,7 +439,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 			}
 		}
 	}
-	post, _, perr := d.Probe(ctx, config.Current().RegistryURL)
+	post, _, perr := probe(ctx, config.Current().RegistryURL)
 	if perr != nil {
 		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, ModeName(mode))
 		return nil

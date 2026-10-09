@@ -53,8 +53,8 @@ func TestCollectorStreamsLinesAndReportsStages(t *testing.T) {
 
 	emitted, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
-		t.Fatalf("RunCollector: %v", err)
+	if err := runCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("runCollector: %v", err)
 	}
 	for _, want := range []string{"out-line", "err-line"} {
 		if !strings.Contains(out.String(), want) {
@@ -102,8 +102,8 @@ func TestCollectorCancelledContextSpawnsNothing(t *testing.T) {
 	cancel()
 	_, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(ctx, &out, "/bin/sh", nil, report); err == nil {
-		t.Fatal("RunCollector on cancelled context succeeded, want refusal")
+	if err := runCollector(ctx, &out, "/bin/sh", nil, report); err == nil {
+		t.Fatal("runCollector on cancelled context succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "context canceled") {
 		t.Errorf("refusal names no cause: %v", err)
 	}
@@ -115,8 +115,8 @@ func TestCollectorCancelledContextSpawnsNothing(t *testing.T) {
 func TestCollectorMissingBinaryFailsAtSpawn(t *testing.T) {
 	_, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(context.Background(), &out, "/nonexistent-collector", nil, report); err == nil {
-		t.Fatal("RunCollector on missing binary succeeded, want failure")
+	if err := runCollector(context.Background(), &out, "/nonexistent-collector", nil, report); err == nil {
+		t.Fatal("runCollector on missing binary succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "collector:") {
 		t.Errorf("failure names no spawn cause: %v", err)
 	}
@@ -132,9 +132,9 @@ func TestCollectorDeadListenerKillsChild(t *testing.T) {
 	defer func() { collectorCommand = old }()
 
 	_, report := collectEvents()
-	if err := RunCollector(context.Background(), errWriter{errors.New("status pipe closed")},
+	if err := runCollector(context.Background(), errWriter{errors.New("status pipe closed")},
 		"/bin/sh", nil, report); err == nil {
-		t.Fatal("RunCollector with dead listener succeeded, want failure")
+		t.Fatal("runCollector with dead listener succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "collector output:") {
 		t.Errorf("failure names no output cause: %v", err)
 	}
@@ -151,8 +151,8 @@ func TestCollectorQuietChildDrainsClean(t *testing.T) {
 
 	_, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
-		t.Fatalf("RunCollector: %v", err)
+	if err := runCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("runCollector: %v", err)
 	}
 	if !strings.Contains(out.String(), "parting-word") {
 		t.Errorf("drained output lacks the line:\n%s", out.String())
@@ -184,8 +184,8 @@ func TestCollectorDrainsEveryLine(t *testing.T) {
 
 	emitted, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
-		t.Fatalf("RunCollector: %v", err)
+	if err := runCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("runCollector: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != 5000 {
@@ -223,7 +223,7 @@ func TestCollectorFailureCarriesLastLine(t *testing.T) {
 
 	emitted, report := collectEvents()
 	var out strings.Builder
-	err := RunCollector(context.Background(), &out, "/bin/sh", nil, report)
+	err := runCollector(context.Background(), &out, "/bin/sh", nil, report)
 	if err == nil {
 		t.Fatal("failing collector returned nil, want the exit surfaced")
 	}
@@ -255,7 +255,7 @@ func TestCollectorCancelStops(t *testing.T) {
 	}
 	var out strings.Builder
 	done := make(chan error, 1)
-	go func() { done <- RunCollector(ctx, &out, "/bin/sh", nil, report) }()
+	go func() { done <- runCollector(ctx, &out, "/bin/sh", nil, report) }()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -377,8 +377,8 @@ func TestCollectorBurstDrainsAfterExit(t *testing.T) {
 	emitted, report := collectEvents()
 	var buf strings.Builder
 	out := slowWriter{w: &buf, delay: time.Millisecond}
-	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
-		t.Fatalf("RunCollector: %v", err)
+	if err := runCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("runCollector: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	if len(lines) != 200 {

@@ -10,9 +10,10 @@ import (
 
 // wirePorts carries every gcrun need across, nothing dropped: one
 // store in all four roles, the whole store behind them, and the
-// registry API — reporter, fence, probe, collect, and clock stay
-// nil for the run to default. If this fails, a new Deps field is
-// unplugged at the only call site.
+// registry API — reporter, fence, and clock stay nil for the run
+// to default (probe/collect ride no field: package seams, W13).
+// If this fails, a new Deps field is unplugged at the only call
+// site.
 func TestWirePortsCarriesWholeDeps(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
@@ -36,9 +37,6 @@ func TestWirePortsCarriesWholeDeps(t *testing.T) {
 	}
 	if w.Fence != nil {
 		t.Fatal("wirePorts sets the fence: the run resolves it from the store, only tests inject")
-	}
-	if w.Probe != nil || w.Collect != nil {
-		t.Fatal("wirePorts sets the seams: the run takes the stock probe and collector by default, only tests inject")
 	}
 	if w.Clock != nil {
 		t.Fatal("wirePorts sets the clock: production derives it from Current, only tests inject")

@@ -260,7 +260,8 @@ func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
+	useSeams(t, writableProbe(), okCollector(&collected))
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("writable preview: %v", err)
@@ -285,7 +286,8 @@ func TestRunExForceRisksOpenNothingOnline(t *testing.T) {
 	var out strings.Builder
 	accept := proof.Force(proof.Arm(true, false), true)
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
+	useSeams(t, writableProbe(), okCollector(&collected))
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()},
 		Accepts{ClockSkew: accept, Rollback: accept, ModeFlip: accept})
 	if err == nil {
@@ -316,7 +318,8 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 	var collected [][]string
 	var out strings.Builder
 	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
-	err := Run(ctx, &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
+	useSeams(t, writableProbe(), okCollector(&collected))
+	err := Run(ctx, &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("cleared online run: %v", err)
@@ -354,7 +357,8 @@ func TestRunOnlineRefusalReportWriteFailureSurfaces(t *testing.T) {
 	fencer := stubFencer{events: &events}
 	w := errWriter{errTestStoreDown}
 	stageConfig(t, "http://registry:5000", stageOnlineConfig(t, root, false))
-	err := Run(context.Background(), w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(nil)},
+	useSeams(t, writableProbe(), okCollector(nil))
+	err := Run(context.Background(), w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err == nil {
 		t.Fatal("uncleared preview with dead output succeeded, want failure")
@@ -380,7 +384,8 @@ func TestRunOnlineClearReportWriteFailureSurfaces(t *testing.T) {
 	fencer := stubFencer{events: &events}
 	w := errWriter{errTestStoreDown}
 	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
-	err := Run(ctx, w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(nil)},
+	useSeams(t, writableProbe(), okCollector(nil))
+	err := Run(ctx, w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(event.Event) {}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("cleared online run with dead output succeeded, want failure")

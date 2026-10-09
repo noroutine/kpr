@@ -201,8 +201,16 @@ real thing explicitly. Start with the seam — it's one line and it
 proves the substitution matters. Promote to a port when the second
 consumer arrives (gc-4's orchestration consuming it); a seam used
 in one test file stays a seam. Ports don't eliminate seams, they
-push them to the boundary: `RunCollector` still bottoms out in the
+push them to the boundary: `runCollector` still bottoms out in the
 seam, because something must finally call `exec`.
+
+Demotion (the static-vs-computed rule): `Probe`/`Collect` went back
+from `Deps` fields to package vars. Their production values are
+constant — `probeRegistry`/`runCollector` on every run, no inputs —
+so the fields carried no per-run variation, only test substitution,
+which a seam does in one line. `Report`/`Fence`/`Clock` stayed
+ports: each computes from the run (writer, store+armed, config).
+Ports carry what varies; seams carry what merely substitutes.
 
 — [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
 

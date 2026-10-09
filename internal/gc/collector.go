@@ -39,14 +39,14 @@ const (
 )
 
 // Collector runs the stock collector binary against the proven store,
-// streaming its output and reporting the lifecycle. RunCollector is
-// the production implementation; tests substitute a stub. Consumed by
-// the run orchestration when it moves (gc-4).
+// streaming its output and reporting the lifecycle.
 type Collector func(ctx context.Context, out io.Writer, binPath string, args []string, report event.Reporter) error
 
-// RunCollector satisfies Collector: the assertion pins the port to
-// the implementation it will carry.
-var _ Collector = RunCollector
+// collect is the collector seam: the production implementation,
+// swapped per test via useSeams. A constant function needs no port —
+// nothing varies per run — so the seam carries the substitution
+// alone (W13).
+var collect Collector = runCollector
 
 func fail(report event.Reporter, started time.Time, err error) error {
 	failure := event.Timed(StageFailure, started)
@@ -102,7 +102,7 @@ func scanGCOutput(r io.Reader) <-chan gcOutput {
 }
 
 // drainGCOutput blocks until scanGCOutput's goroutine has returned,
-// signaled by its own close. RunCollector never returns while that
+// signaled by its own close. runCollector never returns while that
 // goroutine could still be mid-syscall on the pipe: a caller that got
 // control back could otherwise reuse the pipe's fd number for an
 // unrelated file, corrupting the in-flight read.
@@ -111,12 +111,13 @@ func drainGCOutput(lines <-chan gcOutput) {
 	}
 }
 
-// RunCollector spawns the stock collector with its stdin closed and
+// runCollector spawns the stock collector with its stdin closed and
 // stdout/stderr merged into a pipe, streams every line to out, and
 // reports the lifecycle. A failing exit carries the last line, so a
 // number never arrives without the clue. Cancelling kills the child
-// and reports stopped.
-func RunCollector(ctx context.Context, out io.Writer, binPath string, args []string, report event.Reporter) error {
+// and reports stopped. Private: the collect seam above carries it,
+// tests swap the seam.
+func runCollector(ctx context.Context, out io.Writer, binPath string, args []string, report event.Reporter) error {
 	started := time.Now()
 	event.Emit(report, event.Event{Stage: StageStart})
 	if err := ctx.Err(); err != nil {

@@ -170,8 +170,9 @@ Two readings worth keeping:
 
 **Driven side: fully.** Every outbound effect in the use cases
 goes through a substitutable port (`sweep.Registry`,
-`keeper.CatalogSource`/`Prober`, `gc.Probe`/`Collector`/`Locker`,
-`clock.Source`, `store.Store` under a contract all adapters honor),
+`keeper.CatalogSource`/`Prober`, `gc.Locker` (probe/collect demoted
+to seams, W13), `clock.Source`, `store.Store` under a contract all
+adapters honor),
 and unit tests prove it — no HTTP server, no binary, no redis,
 no network needed.
 

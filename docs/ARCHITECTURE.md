@@ -121,7 +121,7 @@ the way).
 - **Core**: `policy` — pure over `(rows, catalogs, now)`. No ports
   needed; time arrives as an argument.
 - **Use cases**: `keeper` (evaluate, reap, status, plan),
-  `gc` (`Run` behind `Probe`/`Collector`/`Locker`), `sweep`
+  `gc` (`Run` behind `Locker`; probe/collect are seams, W13), `sweep`
   (pass loop behind `Registry`). Pure orchestration, substitutable
   in tests with no HTTP server, binary, or redis.
 - **Outbound adapters**: `store` (redis + mem + file behind one pinned

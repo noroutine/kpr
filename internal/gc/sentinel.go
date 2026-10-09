@@ -47,23 +47,24 @@ func ModeName(m Mode) string {
 // a copy.
 //
 // NOTE: no separate inconclusive branch lives here on purpose —
-// ProbeRegistry never returns (Unknown, nil), so its own error
+// probeRegistry never returns (Unknown, nil), so its own error
 // (endpoint + status) IS the inconclusive report. A wrapper message
 // would be dead code guarding a path the probe cannot produce.
 func ProbeRegistryMode(ctx context.Context, baseURL string) (string, error) {
-	mode, _, err := ProbeRegistry(ctx, baseURL)
+	mode, _, err := probeRegistry(ctx, baseURL)
 	if err != nil {
 		return "unknown", err
 	}
 	return ModeName(mode), nil
 }
 
-// ProbeRegistry initiates a blob upload under the probe repo: 202
+// probeRegistry initiates a blob upload under the probe repo: 202
 // means writable (the upload is cancelled at once, leaving nothing),
 // 405 means maintenance readonly. Anything else is inconclusive and
 // an error — gc fails closed rather than collecting blind. The upload
 // id returns with the writable verdict for the same-store proof.
-func ProbeRegistry(ctx context.Context, baseURL string) (Mode, string, error) {
+// Private: the probe seam above carries it, tests swap the seam.
+func probeRegistry(ctx context.Context, baseURL string) (Mode, string, error) {
 	endpoint := strings.TrimSuffix(baseURL, "/") + "/v2/" + ProbeRepo + "/blobs/uploads/"
 	// NOTE(mutants): timeout arithmetic is equivalent — no test
 	// distinguishes a 5s probe from a 6s one, and none should.

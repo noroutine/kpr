@@ -37,7 +37,7 @@ func TestProbeRegistryModes(t *testing.T) {
 	}))
 	defer broken.Close()
 
-	if mode, uuid, err := ProbeRegistry(context.Background(), writable.URL); err != nil || mode != ModeWritable {
+	if mode, uuid, err := probeRegistry(context.Background(), writable.URL); err != nil || mode != ModeWritable {
 		t.Errorf("writable probe = (%v, %v), want (writable, nil)", mode, err)
 	} else if uuid != "uuid" {
 		t.Errorf("writable probe uuid = %q, want the Location tail", uuid)
@@ -45,13 +45,13 @@ func TestProbeRegistryModes(t *testing.T) {
 	if !sawDelete {
 		t.Error("writable probe left the upload behind: no cancel DELETE seen")
 	}
-	if mode, _, err := ProbeRegistry(context.Background(), readonly.URL); err != nil || mode != ModeReadonly {
+	if mode, _, err := probeRegistry(context.Background(), readonly.URL); err != nil || mode != ModeReadonly {
 		t.Errorf("readonly probe = (%v, %v), want (readonly, nil)", mode, err)
 	}
-	if mode, _, err := ProbeRegistry(context.Background(), broken.URL); err == nil || mode != ModeUnknown {
+	if mode, _, err := probeRegistry(context.Background(), broken.URL); err == nil || mode != ModeUnknown {
 		t.Errorf("broken probe = (%v, %v), want (unknown, error)", mode, err)
 	}
-	if mode, _, err := ProbeRegistry(context.Background(), "http://127.0.0.1:1"); err == nil || mode != ModeUnknown {
+	if mode, _, err := probeRegistry(context.Background(), "http://127.0.0.1:1"); err == nil || mode != ModeUnknown {
 		t.Errorf("down probe = (%v, %v), want (unknown, error)", mode, err)
 	}
 }
@@ -78,7 +78,7 @@ func TestProbeRegistryModeNamesInconclusive(t *testing.T) {
 // no verdict exists. If this fails, a misconfigured registry URL
 // panics path-building instead of refusing.
 func TestProbeRegistryBadURLIsUnknown(t *testing.T) {
-	if mode, _, err := ProbeRegistry(context.Background(), "http://exa\tmple.com"); err == nil || mode != ModeUnknown {
+	if mode, _, err := probeRegistry(context.Background(), "http://exa\tmple.com"); err == nil || mode != ModeUnknown {
 		t.Errorf("bad-URL probe = (%v, %v), want (unknown, error)", mode, err)
 	}
 }
@@ -142,7 +142,7 @@ func TestProbeBadLocationSkipsCancel(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	mode, uuid, err := ProbeRegistry(context.Background(), srv.URL)
+	mode, uuid, err := probeRegistry(context.Background(), srv.URL)
 	if err != nil || mode != ModeWritable {
 		t.Fatalf("bad-location probe = (%v, %q, %v), want (writable, \"\", nil)", mode, uuid, err)
 	}
@@ -163,7 +163,7 @@ func TestProbeDeleteFailureSkipsClose(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer srv.Close()
-	mode, uuid, err := ProbeRegistry(context.Background(), srv.URL)
+	mode, uuid, err := probeRegistry(context.Background(), srv.URL)
 	if err != nil || mode != ModeWritable {
 		t.Fatalf("refused-cancel probe = (%v, %q, %v), want (writable, u1, nil)", mode, uuid, err)
 	}

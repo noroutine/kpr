@@ -52,7 +52,8 @@ func TestArmedCollectHoldsFenceAroundCollect(t *testing.T) {
 	var events []string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Fence: stubFencer{events: &events}, Probe: probe, Collect: collectWithEvents(&events)},
+	useSeams(t, probe, collectWithEvents(&events))
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Fence: stubFencer{events: &events}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
@@ -80,7 +81,8 @@ func TestPreviewNeverHoldsFence(t *testing.T) {
 	var events []string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: collectWithEvents(&events)},
+	useSeams(t, probe, collectWithEvents(&events))
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}},
 		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
@@ -101,7 +103,8 @@ func TestArmedCollectRefusesWhenFenceFails(t *testing.T) {
 	var events []string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Fence: stubFencer{events: &events, holdErr: errFenceBoom}, Probe: probe, Collect: collectWithEvents(&events)},
+	useSeams(t, probe, collectWithEvents(&events))
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Fence: stubFencer{events: &events, holdErr: errFenceBoom}},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("broken-fence run = nil, want refusal")
@@ -129,7 +132,8 @@ func TestRunResolvesFenceFromStore(t *testing.T) {
 	var collected []string
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
-	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(e event.Event) { stages = append(stages, e.Stage) }, Store: store.NewFileStore(t.TempDir()), Probe: probe, Collect: collectWithEvents(&collected)},
+	useSeams(t, probe, collectWithEvents(&collected))
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(e event.Event) { stages = append(stages, e.Stage) }, Store: store.NewFileStore(t.TempDir())},
 		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("resolved-fence run: %v", err)
