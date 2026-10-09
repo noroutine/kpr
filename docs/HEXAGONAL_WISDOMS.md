@@ -212,7 +212,7 @@ which a seam does in one line. `Report`/`Fence`/`Clock` stayed
 ports: each computes from the run (writer, store+armed, config).
 Ports carry what varies; seams carry what merely substitutes.
 
-— [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
+— [7ac2020](https://nrtn.dev/catalyst/kpr/commit/7ac2020ec4c25cde304b0abd23064cbd146c862d), [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
 
 ## W14: A declined port can earn its way back
 
