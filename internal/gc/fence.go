@@ -16,8 +16,8 @@ import (
 // non-nil). Previews stay silent either way — nothing is
 // deleted, so nothing holds. Armed travels as the mint, never
 // a bool: the signature is the point of proofs.
-func FenceForBackend(backend, dir string, st fence.GateStore, backendErr error, armed proof.ArmedRun, out io.Writer) fence.Controller {
-	if backendErr == nil && backend == "file" {
+func FenceForBackend(backend, dir string, st fence.GateStore, armed proof.ArmedRun, out io.Writer) fence.Controller {
+	if backend == "file" {
 		return fence.Control{HoldFile: store.HoldFile{Dir: dir}, Store: st}
 	}
 	if !proof.Unarmed(armed) {

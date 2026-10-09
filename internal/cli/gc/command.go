@@ -61,7 +61,7 @@ revokes.`,
 		// The backend rides d: OpenDeps resolved it once, so the
 		// fence leases from the same dir the store opened — never
 		// a second, possibly different, resolution.
-		fencer := gcrun.FenceForBackend(d.Backend, d.StoreDir, d.Store, nil, armedRun, out)
+		fencer := gcrun.FenceForBackend(d.Backend, d.StoreDir, d.Store, armedRun, out)
 		return gcrun.Run(cmd.Context(), out, wirePorts(d, fencer), gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
 			Armed:          armedRun,
