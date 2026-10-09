@@ -26,17 +26,9 @@ var Cmd = &cobra.Command{
 	Short: "Garbage-collect unreferenced registry blobs",
 	Long: `Run the stock registry garbage-collect against the shared store.
 
-Key facts:
-
-- Dry-run by default; --no-dry-run (or KPR_CLI_NO_DRY_RUN=true)
-  collects for real.
-- --delete-untagged also drops orphaned manifests.
-- A serving registry collects only with --accept-blob-cache and
-  --accept-unfenced; a stopped one needs neither.
-- --accept-clock-skew, --accept-rollback, and --accept-mode-flip
-  each clear exactly their own risk; there is no umbrella flag.
-- A locked store refuses before anything: 'kpr store unlock'
-  opens writes, 'kpr store lock' revokes.`,
+Dry-run by default; --no-dry-run collects for real. Probes the
+registry, proves the shared store, then collects — each risk
+refuses unless overridden with its own --accept-* flag.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
