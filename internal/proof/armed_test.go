@@ -71,3 +71,18 @@ func ExampleArm() {
 func collectIfArmedRun(a ArmedRun) {
 	fmt.Println("collecting (armed via " + a.Source() + ")")
 }
+
+// Unarmed is the absence of the mint: flag or env arms, silence
+// previews. If this fails, callers collect on nothing or preview
+// when armed.
+func TestUnarmedFollowsTheMint(t *testing.T) {
+	if !Unarmed(Arm(false, false)) {
+		t.Error("disarmed run not dry-run, want preview")
+	}
+	if Unarmed(Arm(true, false)) {
+		t.Error("flag-armed run dry-run, want collect")
+	}
+	if Unarmed(Arm(false, true)) {
+		t.Error("env-armed run dry-run, want collect")
+	}
+}

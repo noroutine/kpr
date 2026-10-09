@@ -58,7 +58,7 @@ revokes.`,
 		// of Armed. The adapter feeds raw readings (flag var,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
-		dryRun := GcDryRun(armedRun)
+		dryRun := proof.Unarmed(armedRun)
 		accepts := gcAccepts(armedRun)
 		backend, dir, berr := deps.ResolveStoreBackend()
 		fencer := gcrun.FenceForBackend(backend, dir, d.Store, berr, dryRun, out)
@@ -93,10 +93,3 @@ func gcAccepts(armed proof.ArmedRun) gcrun.Accepts {
 		ModeFlip:  proof.Force(armed, gcAcceptModeFlip),
 	}
 }
-
-// GcDryRun reads the mode off the mint: dry-run is the absence of
-// Armed, never a second flag. Exported for commands that share
-// the run-mode semantics (backfill) until they move to their own
-// subpackages. If this fails, preview/collect splits answer to
-// something other than the mint.
-func GcDryRun(a proof.ArmedRun) bool { return a == nil }

@@ -75,18 +75,3 @@ func TestGcAcceptsMintsPerRisk(t *testing.T) {
 		t.Errorf("disarmed mint = %+v, want zero", got)
 	}
 }
-
-// Dry-run is the absence of the mint: flag or env arms, silence
-// previews. If this fails, gc collects on nothing or previews when
-// armed.
-func TestGcDryRunFollowsTheMint(t *testing.T) {
-	if !GcDryRun(proof.Arm(false, false)) {
-		t.Error("disarmed gc not dry-run, want preview")
-	}
-	if GcDryRun(proof.Arm(true, false)) {
-		t.Error("flag-armed gc dry-run, want collect")
-	}
-	if GcDryRun(proof.Arm(false, true)) {
-		t.Error("env-armed gc dry-run, want collect")
-	}
-}

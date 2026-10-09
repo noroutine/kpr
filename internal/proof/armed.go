@@ -32,6 +32,11 @@ func armedFromFlag() ArmedRun { return armedRun{source: "flag"} }
 // rule: produced, not crafted.
 func armedFromEnv() ArmedRun { return armedRun{source: "env"} }
 
+// Unarmed reports the absence of the mint: dry-run is no
+// ArmedRun, never a boolean of its own. Commands share this
+// instead of comparing to nil at scattered call sites.
+func Unarmed(a ArmedRun) bool { return a == nil }
+
 // Arm evaluates human intent at the adapter boundary: an
 // explicit flag mints from the flag, the env arming mints from
 // the env, anything else mints nothing — dry-run is the absence

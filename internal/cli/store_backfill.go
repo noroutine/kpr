@@ -9,7 +9,6 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
-	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
@@ -53,7 +52,7 @@ stdout, a path for a file) and is otherwise discarded.`,
 		live := newLiveLines(out)
 		opts := backfill.Options{
 			RepoGlob: glob,
-			DryRun:   gccmd.GcDryRun(armed),
+			DryRun:   proof.Unarmed(armed),
 		}
 		sink, closeSink, err := resolveBackfillSink(output, out, live)
 		if err != nil {
