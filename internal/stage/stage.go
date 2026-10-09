@@ -1,6 +1,6 @@
-// Package stage holds the shared-store staging both suites stand on:
-// a file-backed registry API, a scripted clock, staged config, and
-// the fault fakes. gc's run tests and storeops' ceremony tests borrow
+// Package stage holds test fakes for the shared-store world: a
+// file-backed registry API, a scripted clock, staged config, and
+// the fault doubles. Any suite proving store ceremonies stands on
 // the same ground — one set of fakes, never a copy per suite.
 package stage
 
