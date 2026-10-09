@@ -12,6 +12,12 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
+var (
+	backfillNoDryRun       bool
+	backfillAcceptRollback bool
+	backfillOutput         string
+)
+
 var storeBackfillCmd = &cobra.Command{
 	Use:   "backfill [repo-glob]",
 	Short: "Adopt pre-kpr tags into tracked rows",
@@ -35,10 +41,7 @@ stdout, a path for a file) and is otherwise discarded.`,
 			return err
 		}
 		defer d.Close()
-		noDryRun, _ := cmd.Flags().GetBool("no-dry-run")
-		acceptRollback, _ := cmd.Flags().GetBool("accept-rollback")
-		output, _ := cmd.Flags().GetString("output")
-		armed := proof.Arm(noDryRun, d.Cfg.CLINoDryRun)
+		armed := proof.Arm(backfillNoDryRun, d.Cfg.CLINoDryRun)
 		glob := ""
 		if len(args) == 1 {
 			glob = args[0]
@@ -49,7 +52,7 @@ stdout, a path for a file) and is otherwise discarded.`,
 			RepoGlob: glob,
 			Armed:    armed,
 		}
-		sink, closeSink, err := resolveBackfillSink(output, out, live)
+		sink, closeSink, err := resolveBackfillSink(backfillOutput, out, live)
 		if err != nil {
 			return err
 		}
@@ -71,7 +74,7 @@ stdout, a path for a file) and is otherwise discarded.`,
 			Rec: d.Store, Ids: d.Store, Lock: d.Store,
 		},
 			opts,
-			backfill.Accepts{Rollback: proof.Force(armed, acceptRollback)})
+			backfill.Accepts{Rollback: proof.Force(armed, backfillAcceptRollback)})
 		live.doneBlock(backfillLines(sum), 0)
 		return err
 	},
@@ -142,8 +145,8 @@ func (b breakWriter) Write(p []byte) (int, error) {
 }
 
 func init() {
-	storeBackfillCmd.Flags().Bool("no-dry-run", false, "Record absent rows for real (default previews)")
-	storeBackfillCmd.Flags().Bool("accept-rollback", false, "Record against a restored older generation (a rollback may have resurrected blobs)")
-	storeBackfillCmd.Flags().String("output", "", "Per-tag stream sink: - for stdout, a path for a file (default discards, counters stay)")
+	storeBackfillCmd.Flags().BoolVar(&backfillNoDryRun, "no-dry-run", false, "Record absent rows for real (default previews)")
+	storeBackfillCmd.Flags().BoolVar(&backfillAcceptRollback, "accept-rollback", false, "Record against a restored older generation (a rollback may have resurrected blobs)")
+	storeBackfillCmd.Flags().StringVar(&backfillOutput, "output", "", "Per-tag stream sink: - for stdout, a path for a file (default discards, counters stay)")
 	storeCmd.AddCommand(storeBackfillCmd)
 }
