@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
 	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
@@ -60,7 +59,7 @@ func init() {
 
 	// Subpackaged commands register here; each owns its flags,
 	// help, and RunE behind its exported Cmd.
-	RootCmd.AddCommand(gccmd.Cmd)
+	RootCmd.AddCommand(Cmd)
 }
 
 // Execute runs the root command

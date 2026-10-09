@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
-	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
 	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
@@ -150,7 +149,7 @@ func TestUnlockRefusesUnsharedStore(t *testing.T) {
 // command invents intent without a backend.
 func TestLockCommandsRefuseBadBackend(t *testing.T) {
 	t.Setenv(config.EnvStore, "bogus-backend")
-	for _, target := range []*cobra.Command{lockCmd, unlockCmd, adoptCmd, gccmd.Cmd} {
+	for _, target := range []*cobra.Command{lockCmd, unlockCmd, adoptCmd, Cmd} {
 		var buf bytes.Buffer
 		target.SetOut(&buf)
 		defer target.SetOut(nil)

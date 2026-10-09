@@ -24,16 +24,14 @@ kpr
 
 ## gc
 
-First command in its own subpackage
-(`internal/cli/gc`, imported as `gccmd`): flags, help, `RunE`,
-rendering (`renderGCEvent`), acceptances (`gcAccepts`), the
-fence adapter factory (`newFenceControl`). The stock binary
-path lives in config (`KPR_REGISTRY_BIN_PATH`, default
-`/bin/registry`). `GcDryRun` stays exported: backfill
-shares the run-mode semantics until it moves too.
+A plain command file (`internal/cli/gc.go`): flags, help,
+`RunE`, acceptances (`gcAccepts`). The stock binary path
+lives in config (`KPR_REGISTRY_BIN_PATH`, default
+`/bin/registry`).
 
 Wiring order inside `RunE`: open deps → arm the run (flag or
 env, never both, never neither — dry-run is the absence of
-`Armed`) → resolve backend → fence → `wirePorts` plugs the
-driven adapters into `gcrun.Deps` → `gc.Run`. Refusals name
-their remedy; usage never prints on refusal.
+`Armed`) → `gc.Run` with the store in all four roles inline,
+`Options`, and `gcAccepts`. The run renders and resolves
+reporter, fence, and clock itself. Refusals name their
+remedy; usage never prints on refusal.

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	gccmd "nrtn.dev/catalyst/kpr/internal/cli/gc"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
@@ -798,7 +797,7 @@ func TestCommandTailsRunAgainstFileBackend(t *testing.T) {
 // invents numbers without a backend.
 func TestKeeperCommandsRefuseBadBackend(t *testing.T) {
 	t.Setenv(config.EnvStore, "bogus-backend")
-	for _, target := range []*cobra.Command{statusCmd, planCmd, planDiscardCmd, sweepCmd, gccmd.Cmd, lockCmd} {
+	for _, target := range []*cobra.Command{statusCmd, planCmd, planDiscardCmd, sweepCmd, Cmd, lockCmd} {
 		var buf bytes.Buffer
 		target.SetOut(&buf)
 		defer target.SetOut(nil)

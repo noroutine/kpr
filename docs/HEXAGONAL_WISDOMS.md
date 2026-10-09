@@ -247,15 +247,16 @@ compile.
 
 ## W16: One field per splittable role
 
-`gcrun.Deps` carries one store four times — `Lock`, `Rec`,
+`gc.Deps` carries one store four times — `Lock`, `Rec`,
 `Ids`, `Rows` — and production passes the same object into all
 four, so the temptation is a single `Store` field. Resisted: the
 tests script each role apart (unreadable lock marker, failing
 keep-N log, unreadable/unrecordable lineage, untracked rows),
 and one field would force every fake to implement the whole
 store just to break one role. One object N times is not
-duplication — it is `wirePorts` saying the four hats sit on one
-head. Collapse fields only when no test tells the roles apart.
+duplication — it is the call-site literal saying the four hats
+sit on one head. Collapse fields only when no test tells the
+roles apart.
 
 — [656b1a4](https://nrtn.dev/catalyst/kpr/commit/656b1a447dd26ed2ab19f110849cf6c16c58111f)
 
