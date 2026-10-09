@@ -49,14 +49,6 @@ stdout, a path for a file) and is otherwise discarded.`,
 			return err
 		}
 		defer closeSink()
-		// Preview announces itself up front — small view, said
-		// before the run spends API calls, never as a trailing
-		// suffix on the settled lines.
-		if proof.Unarmed(armed) {
-			if _, err := fmt.Fprintln(out, "dry run — preview only, nothing recorded"); err != nil {
-				return err
-			}
-		}
 		// Warnings share the terminal with the repaint: each
 		// breaks the block onto its own line first.
 		sum, err := backfill.Run(cmd.Context(), breakWriter{w: out, live: live}, backfill.Deps{

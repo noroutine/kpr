@@ -469,9 +469,10 @@ func TestBackfillCountsSentinelsSeparately(t *testing.T) {
 	}
 }
 
-// The run prints no summary itself: warnings own the writer, the
-// caller renders the counters from the returned Summary. If this
-// fails, the display double-prints.
+// The run prints no summary itself — only the preview banner up
+// front; warnings own the writer, the caller renders the counters
+// from the returned Summary. If this fails, the display
+// double-prints.
 func TestBackfillRunPrintsNoSummary(t *testing.T) {
 	ctx := context.Background()
 	root, s, _, _ := stagePaired(t)
@@ -485,8 +486,8 @@ func TestBackfillRunPrintsNoSummary(t *testing.T) {
 	if _, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s, Log: io.Discard}, Options{}, Accepts{}); err != nil {
 		t.Fatalf("Run: %v, want preview", err)
 	}
-	if out.Len() != 0 {
-		t.Errorf("run wrote %q, want warnings only (none here)", out.String())
+	if out.String() != "dry run — preview only, nothing recorded\n" {
+		t.Errorf("run wrote %q, want the preview banner only", out.String())
 	}
 }
 

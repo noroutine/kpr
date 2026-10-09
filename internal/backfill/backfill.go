@@ -159,6 +159,14 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	if !v.Proceed {
 		return sum, fmt.Errorf("%s — %s", v.Reason, v.Action)
 	}
+	// A preview announces itself up front — said before the run
+	// spends API calls, never as a trailing suffix on the settled
+	// lines. Refusals above stay silent: nothing runs, nothing said.
+	if dryRun {
+		if _, err := fmt.Fprintln(w, "dry run — preview only, nothing recorded"); err != nil {
+			return sum, err
+		}
+	}
 	if v.Stale {
 		if _, err := fmt.Fprintf(w, "Warning: %s — %s\n", v.Reason, v.Action); err != nil {
 			return sum, err
