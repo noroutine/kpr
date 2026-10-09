@@ -67,6 +67,21 @@ jobs:
     - name: Build
       run: make build
 
+    # DOCKER_CFG is a repo secret: base64 of a docker config.json
+    # carrying a Docker Hub login. Hosted runners share egress IPs,
+    # so anonymous pulls burn the per-IP quota on other repos'
+    # traffic — the login lifts CI onto the account's own budget.
+    - name: Log in to Docker Hub
+      env:
+        DOCKER_CFG: ${{ secrets.DOCKER_CFG }}
+      run: |
+        if [ -n "$DOCKER_CFG" ]; then
+          mkdir -p ~/.docker
+          echo "$DOCKER_CFG" | base64 -d > ~/.docker/config.json
+        else
+          echo "::warning::DOCKER_CFG unset, Docker Hub pulls stay anonymous"
+        fi
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
 
