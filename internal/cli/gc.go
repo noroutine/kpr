@@ -28,7 +28,8 @@ var Cmd = &cobra.Command{
 
 Dry-run by default; --no-dry-run collects for real. Probes the
 registry, proves the shared store, then collects — each risk
-refuses unless overridden with its own --accept-* flag.`,
+refuses unless overridden with its own --accept-* flag. Armed
+runs also fence pushes and prune husks and empty dirs.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
