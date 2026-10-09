@@ -10,11 +10,8 @@ import (
 var lockCmd = &cobra.Command{
 	Use:   "lock",
 	Short: "Deny kpr registry-store writes",
-	Long: `Drop the unlock marker: gc and every future store writer refuse
-until 'kpr store unlock' proves the shared store again. Reads, sweeps,
-and the receiver keep working — only writes under the registry's
-store go away. Doubles as the remote-mode simulator: locked behaves
-exactly like no shared store for write ops.`,
+	Long: `Drop the unlock marker; gc and every future store writer refuse.
+Reads, sweeps, and the receiver keep working.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
@@ -28,15 +25,10 @@ exactly like no shared store for write ops.`,
 var unlockCmd = &cobra.Command{
 	Use:   "unlock",
 	Short: "Prove the shared store and allow kpr writes",
-	Long: `Mint a fresh sentinel generation onto the shared store, read
-it back through the API, and record the intent to allow
-registry-store writes (gc and future writers). Reads first
-through the same verdict gc uses: foreign, unpaired, stale, and
-identity-less lineages refuse with the ceremony named (as does a
-skewed clock — fix the clock and retry, there are no accept flags here).
-Silence establishes the pairing. The marker never opens without
-proof. Fresh stores start locked: unlock once per deploy, lock
-to revoke.`,
+	Long: `Mint a fresh sentinel generation, read it back through the API,
+and allow registry-store writes. Foreign, unpaired, stale, and
+identity-less lineages refuse with the ceremony named. Fresh
+stores start locked: unlock once per deploy.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {

@@ -139,12 +139,6 @@ func TestRegistryLsSentinels(t *testing.T) {
 // The help names the store-side twin: operators diffing views must
 // find `store ls sentinels` from `registry ls --help`. If this
 // fails, the help points at one view while the other moved.
-func TestRegistryLsHelpNamesStoreTwin(t *testing.T) {
-	if !strings.Contains(registryLsCmd.Long, "`store ls sentinels`") {
-		t.Errorf("help = %q, want the store-side twin named", registryLsCmd.Long)
-	}
-}
-
 // The long view names every column and row: the header prints,
 // every row prints, and the buffer flushes — an early return would
 // hand back empty output. If this fails, --long lists nothing

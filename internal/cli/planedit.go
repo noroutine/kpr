@@ -44,11 +44,9 @@ func runPlanRemove(ctx context.Context, w io.Writer, s store.Store, patterns []s
 var planAddCmd = &cobra.Command{
 	Use:   "add <pattern>...",
 	Short: "Mark tracked images matching patterns due",
-	Long: `Mark tracked rows whose repo:tag (registry stripped) matches
-any pattern, with a manual reason. Kyverno-style globs (* crosses
-slashes, ? is one char) or regex: for full regex, repeatable —
-matches union. An exact repo:tag spelling is typo-proof: matching
-no tracked row refuses. A direct plan edit: no dry-run.`,
+	Long: `Mark tracked rows whose repo:tag matches any pattern — globs,
+regex:, or exact spellings. An exact spelling matching nothing
+refuses.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
@@ -64,9 +62,8 @@ no tracked row refuses. A direct plan edit: no dry-run.`,
 var planRemoveCmd = &cobra.Command{
 	Use:   "remove <pattern>...",
 	Short: "Unmark due rows matching patterns",
-	Long: `Drop due marks whose repo:tag (registry stripped) matches any
-pattern: glob, regex:, or exact image, one matcher takes all three.
-Rows survive; only marks go. A direct plan edit: no dry-run.`,
+	Long: `Drop due marks whose repo:tag matches any pattern. Rows survive;
+only marks go.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()

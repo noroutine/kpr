@@ -191,12 +191,12 @@ func TestStoreLsSortsRepoBeforeTag(t *testing.T) {
 	}
 }
 
-// The help names the ghosts twin: operators converging the delta
-// must find `ls ghosts` from `store ls --help`. If this fails,
+// The help names the ghosts target: operators converging the delta
+// must find 'ls ghosts' from `store ls --help`. If this fails,
 // the help points at one view while the other moved.
 func TestStoreLsHelpNamesGhostsTwin(t *testing.T) {
-	if !strings.Contains(storeLsCmd.Long, "`ls ghosts`") {
-		t.Errorf("help = %q, want the ghosts twin named", storeLsCmd.Long)
+	if !strings.Contains(storeLsCmd.Long, "'ls ghosts'") {
+		t.Errorf("help = %q, want the ghosts target named", storeLsCmd.Long)
 	}
 }
 

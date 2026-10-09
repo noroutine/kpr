@@ -12,14 +12,9 @@ var adoptGen string
 var adoptCmd = &cobra.Command{
 	Use:   "adopt [IDENT]",
 	Short: "Pair this store to the served lineage",
-	Long: `Pair this store to the lineage the registry serves, without
-minting. The explicit ceremony for every pairing the verdict
-refuses to do on its own: an unpaired store follows the served
-identity (or a pinned IDENT, which must match it); a store paired
-elsewhere re-pairs and prunes the old epoch's sentinel rows;
---gen names the served generation, accepting a rollback as
-baseline. Identity-less payloads refuse even here: wipe the
-volume or remove the stale tags instead. At most one IDENT.`,
+	Long: `Pair this store to the served lineage — or a pinned IDENT,
+which must match it. Re-pairs a store paired elsewhere, pruning
+the old epoch's sentinel rows. Identity-less payloads refuse.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()

@@ -233,7 +233,7 @@ func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, a
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show keeper banner and counters as text",
-	Long:  `Banner plus counters from tracked state, for scripts and ssh. Needs state; fails fast without it. Store facts (backend, lock, proof, identity) live under 'store status'.`,
+	Long:  `Banner plus counters from tracked state, for scripts and ssh.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
@@ -249,7 +249,6 @@ var planJSON bool
 var planCmd = &cobra.Command{
 	Use:   "plan",
 	Short: "Show pending sweep candidates with reasons",
-	Long:  `Pending candidates (rows marked due) with reasons. --json renders them for piping.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
@@ -285,14 +284,7 @@ var reapCmd = &cobra.Command{
 	Use:   "reap [policy]",
 	Short: "Evaluate policies and mark rows due",
 	Long: `Evaluate one policy (or all) and mark selected rows due with
-reasons. Bare reap means reap all. Marks accumulate across calls
-until sweep or plan discard. Policies: ttl (elapsed explicit TTL),
-hash (bare hashes past the default), partial (digest-less stale
-uploads), untagged (tag gone from the catalog past grace), keep-n
-(past the freshest ten per repo).
-Dry-run unless --no-dry-run (or KPR_CLI_NO_DRY_RUN=true): unarmed, it
-only prints the plan. Repeat --exclude to spare keep-N for rows
-whose repo:tag matches (registry stripped).`,
+reasons. Policies: ttl, hash, partial, untagged, keep-n.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
@@ -314,8 +306,7 @@ whose repo:tag matches (registry stripped).`,
 var planDiscardCmd = &cobra.Command{
 	Use:   "discard",
 	Short: "Drop the whole plan (clear all due marks)",
-	Long: `Clear every due mark. Rows survive; only marks go, so the next
-sweep finds nothing until a fresh reap marks again.`,
+	Long:  `Clear every due mark. Rows survive; only marks go.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
@@ -333,15 +324,9 @@ var sweepOutput string
 var sweepCmd = &cobra.Command{
 	Use:   "sweep",
 	Short: "Run one sweep pass in-process and print its summary",
-	Long: `Run one sweep pass in-process and print the pass summary.
-No opinions, no marks: only rows already marked due are processed.
-The sweeper lives here, not in serve (serve serves endpoints; it
-never sweeps). --no-dry-run (or KPR_CLI_NO_DRY_RUN=true) arms
-it: deletes for real. Disarmed plans only. Counters repaint one
-live line on a terminal and converge to the summary; row
-records ride OTLP-only (stdout stays quiet), failure lines
-stream on stdout. --output writes the per-row log (would
-sweep/swept, skips, failures) plus the summary into a file.`,
+	Long: `One sweep pass, in-process. Only rows already due are processed.
+Row records ride OTLP-only; failures stream on stdout, --output
+files the per-row log.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {

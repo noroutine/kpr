@@ -25,11 +25,8 @@ var Cmd = &cobra.Command{
 	Use:   "gc",
 	Short: "Garbage-collect unreferenced registry blobs",
 	Long: `Run the stock registry garbage-collect against the shared store.
-
-Dry-run by default; --no-dry-run collects for real. Probes the
-registry, proves the shared store, then collects — each risk
-refuses unless overridden with its own --accept-* flag. Armed
-runs also fence pushes and prune husks and empty dirs.`,
+Each risk refuses unless overridden with its own --accept-* flag;
+armed runs also fence pushes and prune husks and empty dirs.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {

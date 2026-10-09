@@ -27,7 +27,7 @@ import (
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start management console, application server, and registry edge",
-	Long:  `Start the kpr servers: management console on port 9300, application server on port 8080, and the transparent registry edge proxy on the edge address (KPR_EDGE_ADDR, :5000). The edge opens only on a RelativeURLs proof over KPR_REGISTRY_CONFIG: KPR_EDGE=false opts out, a failed proof closes it loudly, and neither stops the other servers.`,
+	Long:  `Start the kpr servers: console, application, and the transparent registry edge proxy. The edge opens only on a RelativeURLs proof; KPR_EDGE=false opts out, and a failed proof closes the edge loudly while the other servers keep running.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		logLicenseBanner()
 		// Resolve configuration once: environment first, explicit flags

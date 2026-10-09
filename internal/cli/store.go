@@ -470,30 +470,16 @@ func renderOutcome(now time.Time, a store.Outcome) string {
 var storeCmd = &cobra.Command{
 	Use:   "store",
 	Short: "Inspect and prune tracked store rows",
-	Long: `Lay of the field for tracked state: 'store ls' lists
-tracked rows short (sentinels take 'ls sentinels', ghosts agreed
-gone by catalog and fs take 'ls ghosts', --long the
-full row), 'store inspect' shows one full row, 'store rm' drops
-rows outright. rm removes tracking only —
-the registry tag survives, untracked until a re-push or backfill
-re-tracks it. 'store lock' / 'store unlock' gate registry-store
-writes behind a fresh proof; 'store adopt' pairs the lineage;
-'store backfill' adopts pre-kpr tags into tracked rows.`,
 }
 
 var storeLsCmd = &cobra.Command{
 	Use:   "ls [sentinels|ghosts]",
 	Short: "List tracked rows (sentinels and ghosts take their own target)",
-	Long: `Tracked rows as short aligned columns: repo:tag, age, due
-state. Sentinel generations stay out — machinery, not inventory;
-` + "`ls sentinels`" + ` shows only them (same columns, wider
-names). ` + "`ls ghosts`" + ` shows only rows both witnesses agree
-are gone (catalog 404, fs absent), each with its evidence —
-read-only, acting on one stays plain ` + "`store rm`" + `'s job
-(the tag is already gone upstream, so ` + "`--untag`" + ` has
-nothing to delete). Skipped and conflicting repos degrade to
-footers, never to ghosts; partial answers still exit 0. --long
-restores the full row (digest, pushed, actor).`,
+	Long: `Tracked rows as short columns: repo:tag, age, due state.
+Sentinels stay out — machinery, not inventory; 'ls sentinels'
+shows only them, 'ls ghosts' only rows both witnesses agree are
+gone. Skipped and conflicting repos degrade to footers; partial
+answers still exit 0.`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) > 1 || (len(args) == 1 && args[0] != "sentinels" && args[0] != "ghosts") {
 			return fmt.Errorf("want `ls`, `ls sentinels`, or `ls ghosts`, got %q", args)
@@ -537,12 +523,8 @@ restores the full row (digest, pushed, actor).`,
 var storeStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show trust, backend, lock, proof, identity, and activity",
-	Long: `The store card: the trust word on top (the same verdict
-analyze parentheses — paired, or why mistrusted), the wired
-backend, intent marker, live proof generation with its age, the
-lineage pairing the verdicts judge against, and the tail of the
-activity ring (the sweeper's per-row outcomes — what the counters
-count). --json renders it for piping.`,
+	Long: `The store card: trust word, backend, lock, live proof with
+age, lineage pairing, and the activity tail.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
@@ -572,14 +554,10 @@ var storeInspectCmd = &cobra.Command{
 var storeRmCmd = &cobra.Command{
 	Use:   "rm <repo:tag>...",
 	Short: "Drop tracked rows (tag stays, untracked)",
-	Long: `Delete tracked rows outright: exact repo:tag spellings only
-(no globs — this is destructive), all-or-nothing (one unknown
-ref refuses before anything is deleted). Bare rm removes tracking
-only: the registry tag goes untracked until a re-push or backfill
-re-tracks it. --untag deletes the manifest by digest first (the
-sweeper's order and path) and drops the row only on confirm; a
-held or failed delete keeps its row loudly. Either way blob bytes
-still need 'kpr gc'. A direct store edit: no dry-run.`,
+	Long: `Delete tracked rows outright: exact repo:tag spellings only,
+all-or-nothing. Bare rm removes tracking only — the tag survives
+untracked. --untag deletes the manifest first and drops the row
+only on confirm.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()

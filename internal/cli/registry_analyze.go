@@ -25,16 +25,9 @@ var registryAnalyzeJSON bool
 var registryAnalyzeCmd = &cobra.Command{
 	Use:   "analyze",
 	Short: "Report registry store magnitude, fs vs API",
-	Long: `Report magnitude as five live lines, grouped by sense: the
-fast catalog view first (repos, tags — a rough size up front),
-then the fs-vs-catalog shape, manifests, blobs, and bytes. The
-fs line carries the running fs-minus-catalog delta — negative
-while the walk counts up, converging on the skew. The API has
-no endpoints for revisions, blobs, uploads, or layer links, so
-those stay fs-side. Read-only and verdict-free: the live block
-is the display, nothing reprints it. Needs the filestore proof
-(KPR_REGISTRY_CONFIG names a config with a filesystem storage
-root). Point-in-time on a live registry.`,
+	Long: `Registry magnitude as five live lines: catalog shape,
+fs-vs-catalog shape, manifests, blobs, bytes. Read-only,
+point-in-time on a live registry.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// No openDeps: analyze never touches the state store — a
 		// down redis must not refuse a read-only walk. The
