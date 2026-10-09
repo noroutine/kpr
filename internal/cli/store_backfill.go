@@ -10,6 +10,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/words"
 )
 
 var (
@@ -116,7 +117,7 @@ func backfillLines(sum backfill.Summary) []string {
 	}
 	return []string{
 		row("catalog", fmt.Sprintf("%s, %s",
-			plural(sum.Repos, "repo", "repos"), plural(sum.Tags, "tag", "tags"))),
+			words.Plural(sum.Repos, "repo", "repos"), words.Plural(sum.Tags, "tag", "tags"))),
 		row("store", fmt.Sprintf("%d tracked, %d %s",
 			sum.Tracked+sum.Sentinels, sum.Sentinels, noun)),
 		row("backfill", fmt.Sprintf("%d recorded, %d skipped, %d husks, %d failed",

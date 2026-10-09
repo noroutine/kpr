@@ -17,6 +17,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/registryfs"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/trust"
+	"nrtn.dev/catalyst/kpr/internal/words"
 )
 
 var registryAnalyzeJSON bool
@@ -110,9 +111,9 @@ func analyzeRow(name, body string) string {
 // present is structure, anything else calls for investigation.
 func catalogLine(api backfill.CatalogReport) string {
 	return analyzeRow("catalog", fmt.Sprintf("%s, %s, %s, prime status: %s",
-		plural(api.Repos, "repo", "repos"),
-		plural(api.Tags, "tag", "tags"),
-		plural(api.Sentinels, "sentinel", "sentinels"),
+		words.Plural(api.Repos, "repo", "repos"),
+		words.Plural(api.Tags, "tag", "tags"),
+		words.Plural(api.Sentinels, "sentinel", "sentinels"),
 		api.Prime))
 }
 
@@ -174,9 +175,9 @@ func storeLine(view storeView, api backfill.CatalogReport) string {
 		return analyzeRow("store", "unavailable")
 	}
 	body := fmt.Sprintf("%s, %s, %s",
-		plural(view.repos, "repo", "repos"),
-		plural(view.tags, "tag", "tags"),
-		plural(view.sentinels, "sentinel", "sentinels"))
+		words.Plural(view.repos, "repo", "repos"),
+		words.Plural(view.tags, "tag", "tags"),
+		words.Plural(view.sentinels, "sentinel", "sentinels"))
 	if view.note != "" {
 		body += ", store status: " + view.note
 	}
@@ -244,10 +245,10 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeV
 		// delta. The tail still says how many were netted out.
 		liveRepos := fs.Repos - fs.Husks
 		fsBody = fmt.Sprintf("%s, %s, %s, %s",
-			plural(liveRepos, "repo", "repos"),
-			plural(fs.Tags, "tag", "tags"),
-			plural(fs.Sentinels, "sentinel", "sentinels"),
-			plural(fs.Husks, "husk", "husks"))
+			words.Plural(liveRepos, "repo", "repos"),
+			words.Plural(fs.Tags, "tag", "tags"),
+			words.Plural(fs.Sentinels, "sentinel", "sentinels"),
+			words.Plural(fs.Husks, "husk", "husks"))
 		fsDelta = fmt.Sprintf("%s, %s, %s",
 			signedPlural(liveRepos-api.Repos, "repo", "repos"),
 			signedPlural(fs.Tags-api.Tags, "tag", "tags"),
@@ -261,16 +262,16 @@ func analyzeLines(api backfill.CatalogReport, fs registryfs.Report, store storeV
 		// Dead pointers print only when present: a clean walk
 		// reads exactly as before, a dirty one names its count.
 		revsBody = fmt.Sprintf("%s, %d untagged",
-			plural(fs.Revisions, "revision", "revisions"), untagged)
+			words.Plural(fs.Revisions, "revision", "revisions"), untagged)
 		if fs.DanglingTags > 0 {
-			revsBody += ", " + plural(fs.DanglingTags, "dangling tag link", "dangling tag links")
+			revsBody += ", " + words.Plural(fs.DanglingTags, "dangling tag link", "dangling tag links")
 		}
 		blobsBody = fmt.Sprintf("%s, %s, %s",
-			plural(fs.Blobs, "blob", "blobs"),
-			plural(fs.LayerLinks, "layer link", "layer links"),
-			plural(fs.Uploads, "upload", "uploads"))
+			words.Plural(fs.Blobs, "blob", "blobs"),
+			words.Plural(fs.LayerLinks, "layer link", "layer links"),
+			words.Plural(fs.Uploads, "upload", "uploads"))
 		if fs.DanglingLayers > 0 {
-			blobsBody += ", " + plural(fs.DanglingLayers, "dangling layer link", "dangling layer links")
+			blobsBody += ", " + words.Plural(fs.DanglingLayers, "dangling layer link", "dangling layer links")
 		}
 		sizeBody = fmt.Sprintf("%s blobs", humanBytes(fs.BlobBytes))
 	}

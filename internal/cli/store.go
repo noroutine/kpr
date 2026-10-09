@@ -21,6 +21,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 	"nrtn.dev/catalyst/kpr/internal/trust"
+	"nrtn.dev/catalyst/kpr/internal/words"
 )
 
 // OpenStore opens state the same way every command does. The logic lives in
@@ -199,11 +200,11 @@ func runStoreGhosts(ctx context.Context, w io.Writer, s store.Store, reg keeper.
 	footers := []string{}
 	if len(unreadable) > 0 {
 		footers = append(footers, fmt.Sprintf("skipped %s (catalog unreadable)%s",
-			plural(len(unreadable), "repo", "repos"), ghostNames(opts.long, unreadable)))
+			words.Plural(len(unreadable), "repo", "repos"), ghostNames(opts.long, unreadable)))
 	}
 	if len(conflicts) > 0 {
 		footers = append(footers, fmt.Sprintf("conflict %s (catalog lists, fs absent)%s",
-			plural(len(conflicts), "repo", "repos"), ghostNames(opts.long, conflicts)))
+			words.Plural(len(conflicts), "repo", "repos"), ghostNames(opts.long, conflicts)))
 	}
 	if opts.json {
 		out := struct {
