@@ -226,7 +226,8 @@ func TestStoreBackfillDryRunAnnouncesPreview(t *testing.T) {
 	t.Setenv(config.EnvStoreDir, dir)
 	t.Setenv(config.EnvRegistryURL, srv.URL)
 	t.Setenv(config.EnvRegistryConfig, cfgPath)
-	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build())
+	backend, storeDir := resolveTestBackend(t)
+	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
 	if err != nil {
 		t.Fatalf("open file store: %v", err)
 	}

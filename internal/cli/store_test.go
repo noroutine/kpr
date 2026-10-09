@@ -1055,7 +1055,8 @@ func TestStoreLsGhostsCommandListsAgreedGone(t *testing.T) {
 	func() {
 		t.Setenv(config.EnvStore, "file")
 		t.Setenv(config.EnvStoreDir, dir)
-		s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build())
+		backend, storeDir := resolveTestBackend(t)
+		s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
 		if err != nil {
 			t.Fatalf("open file store: %v", err)
 		}
@@ -1096,7 +1097,8 @@ func TestStoreLsCommandSplitsSentinels(t *testing.T) {
 	func() {
 		t.Setenv(config.EnvStore, "file")
 		t.Setenv(config.EnvStoreDir, dir)
-		s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build())
+		backend, storeDir := resolveTestBackend(t)
+		s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
 		if err != nil {
 			t.Fatalf("open file store: %v", err)
 		}

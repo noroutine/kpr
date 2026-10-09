@@ -63,7 +63,8 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 	if !strings.Contains(out, "store unlocked: shared store proven via") {
 		t.Fatalf("unlock output names no proof:\n%s", out)
 	}
-	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build())
+	backend, storeDir := resolveTestBackend(t)
+	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestLockUnlockRoundTrip(t *testing.T) {
 	if !strings.Contains(out, "store locked") {
 		t.Fatalf("lock output confirms nothing:\n%s", out)
 	}
-	s, err = deps.OpenStore(config.NewBuilder().FromEnv().Build())
+	s, err = deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -176,7 +177,8 @@ func TestAdoptBootstrapsSilence(t *testing.T) {
 	if !strings.Contains(out, "paired to "+ident) {
 		t.Errorf("adopt output lacks the pairing:\n%s", out)
 	}
-	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build())
+	backend, storeDir := resolveTestBackend(t)
+	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
@@ -188,4 +190,15 @@ func TestAdoptBootstrapsSilence(t *testing.T) {
 	if paired.ID != ident {
 		t.Errorf("paired = %q, want the pinned %q", paired.ID, ident)
 	}
+}
+
+// resolveTestBackend resolves the staged backend once for tests
+// that open stores directly: env is staged, never re-derived.
+func resolveTestBackend(t *testing.T) (string, string) {
+	t.Helper()
+	backend, dir, err := deps.ResolveStoreBackend()
+	if err != nil {
+		t.Fatalf("resolve staged backend: %v", err)
+	}
+	return backend, dir
 }

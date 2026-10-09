@@ -28,7 +28,11 @@ import (
 // this forwarder keeps the e2e suite (outside internal/cli, which cannot see
 // deps) on that same path.
 func OpenStore(cfg *config.Config) (store.StoreCloser, error) {
-	return deps.OpenStore(cfg)
+	backend, dir, err := deps.ResolveStoreBackend()
+	if err != nil {
+		return nil, err
+	}
+	return deps.OpenStore(cfg, backend, dir)
 }
 
 // splitRef cuts an exact repo:tag, sharing the split with

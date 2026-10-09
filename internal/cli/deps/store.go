@@ -23,11 +23,7 @@ func StoreName(s store.Store) string {
 // without it is worse than refusing. Exported so the e2e suite
 // (test/e2e) opens state the same way every command does — auth, DB
 // selection, and refusal included.
-func OpenStore(cfg *config.Config) (store.StoreCloser, error) {
-	backend, dir, err := ResolveStoreBackend()
-	if err != nil {
-		return nil, err
-	}
+func OpenStore(cfg *config.Config, backend, dir string) (store.StoreCloser, error) {
 	// NOTE(mutants): the 5s bound is timing, not logic — no test
 	// distinguishes it from any other positive bound without a
 	// stopwatch, and file Ping ignores ctx entirely. A mutant here

@@ -25,7 +25,11 @@ func TestOpenStoreNamesDeadRedis(t *testing.T) {
 	clearStoreEnv(t)
 	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
 	cfg := config.NewBuilder().WithRedisAddr("127.0.0.1:1").Build()
-	if _, err := OpenStore(cfg); err == nil {
+	backend, dir, err := ResolveStoreBackend()
+	if err != nil {
+		t.Fatalf("ResolveStoreBackend: %v", err)
+	}
+	if _, err := OpenStore(cfg, backend, dir); err == nil {
 		t.Error("OpenStore on dead redis succeeded, want a fast error")
 	} else if !strings.Contains(err.Error(), "redis") {
 		t.Errorf("error = %q, want it to name redis", err.Error())
@@ -45,20 +49,6 @@ func TestStoreNamesVoiceBackend(t *testing.T) {
 	}
 }
 
-// Conflicting backend env refuses with the conflict named: guessing
-// state wrong is worse than not booting. If this fails, file+redis
-// together pick one silently.
-func TestOpenStoreRefusesConflictingBackend(t *testing.T) {
-	t.Setenv(config.EnvStore, "file")
-	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
-	cfg := config.NewBuilder().FromEnv().Build()
-	if _, err := OpenStore(cfg); err == nil {
-		t.Error("OpenStore on conflicting backend succeeded, want refusal")
-	} else if !strings.Contains(err.Error(), "conflicts") {
-		t.Errorf("refusal = %q, want the conflict named", err.Error())
-	}
-}
-
 // A file backend rooted at a non-directory refuses naming the dir:
 // the operator learns the path is wrong, not that redis is down.
 // If this fails, a bad store dir blames redis.
@@ -70,7 +60,11 @@ func TestOpenStoreRefusesBadFileDir(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, blocker)
 	cfg := config.NewBuilder().FromEnv().Build()
-	if _, err := OpenStore(cfg); err == nil {
+	backend, dir, err := ResolveStoreBackend()
+	if err != nil {
+		t.Fatalf("ResolveStoreBackend: %v", err)
+	}
+	if _, err := OpenStore(cfg, backend, dir); err == nil {
 		t.Error("OpenStore on file-backed dir succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), blocker) {
 		t.Errorf("refusal = %q, want the dir named", err.Error())
@@ -158,7 +152,11 @@ func TestOpenStoreRedisSuccess(t *testing.T) {
 	clearStoreEnv(t)
 	t.Setenv(config.EnvRedisAddr, addr)
 	cfg := config.NewBuilder().WithRedisAddr(addr).Build()
-	s, err := OpenStore(cfg)
+	backend, dir, err := ResolveStoreBackend()
+	if err != nil {
+		t.Fatalf("ResolveStoreBackend: %v", err)
+	}
+	s, err := OpenStore(cfg, backend, dir)
 	if err != nil {
 		t.Fatalf("OpenStore on answering redis: %v", err)
 	}
@@ -176,7 +174,11 @@ func TestOpenStoreFileBackend(t *testing.T) {
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
 	cfg := config.NewBuilder().FromEnv().Build()
-	s, err := OpenStore(cfg)
+	backend, dir, err := ResolveStoreBackend()
+	if err != nil {
+		t.Fatalf("ResolveStoreBackend: %v", err)
+	}
+	s, err := OpenStore(cfg, backend, dir)
 	if err != nil {
 		t.Fatalf("OpenStore(file): %v", err)
 	}

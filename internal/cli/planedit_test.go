@@ -117,7 +117,8 @@ func TestPlanEditTailsRunAgainstFileBackend(t *testing.T) {
 		t.Setenv(config.EnvStore, "file")
 		t.Setenv(config.EnvStoreDir, dir)
 		cfg := config.NewBuilder().FromEnv().Build()
-		s, err := deps.OpenStore(cfg)
+		backend, storeDir := resolveTestBackend(t)
+		s, err := deps.OpenStore(cfg, backend, storeDir)
 		if err != nil {
 			t.Fatalf("open file store: %v", err)
 		}
