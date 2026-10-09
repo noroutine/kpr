@@ -164,13 +164,13 @@ func TestBackfillGlob(t *testing.T) {
 	}
 }
 
-// The help names the two things flags cannot say: the glob
-// scope and the stream sink. Defaults and refusals live on the
-// flags themselves. If this fails, the help drifted from the
-// command's shape.
+// The help names the three things flags cannot say: the glob
+// scope, the live default, and the stream sink. Defaults and
+// refusals live on the flags themselves. If this fails, the
+// help drifted from the command's shape.
 func TestBackfillLongNamesScopeAndSink(t *testing.T) {
 	long := backfillLong()
-	for _, want := range []string{"Repo-glob", "--output"} {
+	for _, want := range []string{"Repo-glob", "Live counters", "--output"} {
 		if !strings.Contains(long, want) {
 			t.Errorf("help lacks %q:\n%s", want, long)
 		}

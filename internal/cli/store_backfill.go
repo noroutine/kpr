@@ -25,9 +25,9 @@ var (
 func backfillLong() string {
 	return `Adopt tags the receiver never saw into tracked rows.
 
-Repo-glob scopes the walk, empty means all. The per-tag stream
-goes to --output (- for stdout, a path for a file) and is
-otherwise discarded.`
+Repo-glob scopes the walk, empty means all. Live counters
+report by default; --output routes the per-tag stream
+(- for stdout, a path for a file).`
 }
 
 var storeBackfillCmd = &cobra.Command{
