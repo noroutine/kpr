@@ -48,10 +48,6 @@ stdout, a path for a file) and is otherwise discarded.`,
 		}
 		out := cmd.OutOrStdout()
 		live := newLiveLines(out)
-		opts := backfill.Options{
-			RepoGlob: glob,
-			Armed:    armed,
-		}
 		stream, tick, closeSink, err := resolveBackfillSink(backfillOutput, out, live)
 		if err != nil {
 			return err
@@ -72,7 +68,7 @@ stdout, a path for a file) and is otherwise discarded.`,
 			Rec: d.Store, Ids: d.Store, Lock: d.Store,
 			Log: stream, Progress: tick,
 		},
-			opts,
+			backfill.Options{RepoGlob: glob, Armed: armed},
 			backfill.Accepts{Rollback: proof.Force(armed, backfillAcceptRollback)})
 		live.doneBlock(backfillLines(sum), 0)
 		return err
