@@ -53,8 +53,18 @@ func TestCollectorStreamsLinesAndReportsStages(t *testing.T) {
 
 	emitted, report := collectEvents()
 	var out strings.Builder
-	if err := runCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
-		t.Fatalf("runCollector: %v", err)
+	// Bounded: without the drain a broken collector hangs here
+	// instead of failing — the timeout turns that hang into a
+	// verdict instead of a suite timeout.
+	done := make(chan error, 1)
+	go func() { done <- runCollector(context.Background(), &out, "/bin/sh", nil, report) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runCollector: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("runCollector hung: the drain never released the scanner")
 	}
 	for _, want := range []string{"out-line", "err-line"} {
 		if !strings.Contains(out.String(), want) {
