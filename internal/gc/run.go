@@ -116,9 +116,12 @@ type Deps struct {
 	// backend-name strings threaded through the call.
 	Store fence.GateStore
 	// Fence, when non-nil, holds the edge around armed collects
-	// (previews never engage). A fence that fails to engage
-	// refuses the run: collecting unfenced when fencing was
-	// requested is unknown safety.
+	// (previews never engage). Nil resolves from Store's own
+	// capability when a store rides along — an injected fence
+	// always wins, so tests drive stubs; nil with no Store stays
+	// nil and silent. A fence that fails to engage refuses the
+	// run: collecting unfenced when fencing was requested is
+	// unknown safety.
 	Fence fence.Controller
 	// Probe reads the registry mode; Collect runs the stock
 	// collector binary. Seams with production defaults, scripted
@@ -154,6 +157,9 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	gcStarted := time.Now()
 	if d.Report == nil {
 		d.Report = RenderEvent(w, proof.Unarmed(opts.Armed))
+	}
+	if d.Fence == nil && d.Store != nil {
+		d.Fence = FenceForBackend(d.Store, opts.Armed, w)
 	}
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the

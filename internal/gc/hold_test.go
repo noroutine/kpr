@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/event"
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 type stubFencer struct {
@@ -111,6 +112,37 @@ func TestArmedCollectRefusesWhenFenceFails(t *testing.T) {
 	for _, e := range events {
 		if e == "collect" {
 			t.Fatalf("broken-fence run collected: %v", events)
+		}
+	}
+}
+
+// No injected fence resolves from the store's own capability: a
+// file store behind the roles engages a real HOLD around the
+// collect. If this fails, the run stopped defaulting — callers
+// silently collect unfenced where they used to hold.
+func TestRunResolvesFenceFromStore(t *testing.T) {
+	cfg, root, s := stageProvenRun(t)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return ModeReadonly, "", nil
+	})
+	var stages []string
+	var collected []string
+	var out strings.Builder
+	stageConfig(t, "http://registry:5000", cfg)
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(e event.Event) { stages = append(stages, e.Stage) }, Store: store.NewFileStore(t.TempDir()), Probe: probe, Collect: collectWithEvents(&collected)},
+		Options{Armed: flagArmed()}, Accepts{})
+	if err != nil {
+		t.Fatalf("resolved-fence run: %v", err)
+	}
+	for _, want := range []string{StageHoldEngage, StageHoldRelease} {
+		found := false
+		for _, got := range stages {
+			if got == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("run stages = %v, want %q voiced", stages, want)
 		}
 	}
 }

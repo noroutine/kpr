@@ -1,13 +1,11 @@
 package gc
 
 import (
-	"strings"
 	"testing"
 
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/fence"
-	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
 // wirePorts carries every gcrun need across, nothing dropped: one
@@ -23,8 +21,7 @@ func TestWirePortsCarriesWholeDeps(t *testing.T) {
 		t.Fatalf("stage deps: %v", err)
 	}
 	defer d.Close()
-	var out strings.Builder
-	w := wirePorts(d, proof.Arm(true, false), &out)
+	w := wirePorts(d)
 	if w.Lock != d.Store || w.Rec != d.Store || w.Ids != d.Store || w.Rows != d.Store {
 		t.Fatal("wirePorts splits the store across roles, want one object four times")
 	}
@@ -37,11 +34,8 @@ func TestWirePortsCarriesWholeDeps(t *testing.T) {
 	if w.Report != nil {
 		t.Fatal("wirePorts sets the reporter: the run renders by default, only tests inject")
 	}
-	if _, ok := w.Fence.(fence.Control); !ok {
-		t.Fatalf("wirePorts fence = %T, want the file backend's Control", w.Fence)
-	}
-	if out.Len() != 0 {
-		t.Fatalf("wirePorts warned %q on a shared file store, want silence", out.String())
+	if w.Fence != nil {
+		t.Fatal("wirePorts sets the fence: the run resolves it from the store, only tests inject")
 	}
 	if w.Probe == nil || w.Collect == nil {
 		t.Fatal("wirePorts leaves the seams unset: production runs the stock probe and collector")
