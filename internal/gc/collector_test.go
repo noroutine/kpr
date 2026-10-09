@@ -12,7 +12,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/proof"
-	"nrtn.dev/catalyst/kpr/internal/stage"
+	"nrtn.dev/catalyst/kpr/internal/testing/fakes"
 )
 
 // Killing a never-started command is a silent no-op: the cancel path
@@ -139,7 +139,7 @@ func TestCollectorDeadListenerKillsChild(t *testing.T) {
 	defer func() { collectorCommand = old }()
 
 	_, report := collectEvents()
-	if err := runCollector(context.Background(), stage.ErrWriter{Err: errors.New("status pipe closed")},
+	if err := runCollector(context.Background(), fakes.ErrWriter{Err: errors.New("status pipe closed")},
 		"/bin/sh", nil, report); err == nil {
 		t.Fatal("runCollector with dead listener succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "collector output:") {

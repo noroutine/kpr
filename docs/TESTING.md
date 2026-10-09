@@ -87,14 +87,16 @@ live in e2e now): `coverage-e2e` runs both suites with
 against the total. The union — not the unit number — is the bar
 that must stay above 90%.
 
-`internal/storetest` is excluded from the unit roll-up in the
+`internal/testing/storetest` is excluded from the unit roll-up in the
 Makefile (filtered out of the profile before reporting): it is
 shared contract scaffolding imported by the store suites —
 exercised only under docker-backed runs — not product code,
 same reason `*_test.go` files never count. Filtering it moves
 the unit total from ~80% to ~86% with zero product code
 touched. `coverage-e2e` keeps it: under that profile the
-helpers genuinely execute.
+helpers genuinely execute. Its neighbor `internal/testing/fakes`
+holds the shared fakes (registry API, clock, staging, fault
+doubles) the store-ceremony suites borrow instead of copying.
 
 Named residue stays below 80% on purpose — error returns that
 cannot fire without contorting the test: `json.Marshal` on
@@ -226,7 +228,7 @@ catch both loudly). Trust a failing hand-mutant over the label.
 
 Test scaffolding is excluded from candidacy (`--exclude-files` in
 the `mutation` target: the e2e harness files plus
-`internal/storetest/contract.go`): mutants in test support measure
+`internal/testing/storetest/contract.go`): mutants in test support measure
 nothing — they break tests trivially or live only because the
 docker suites don't run. Same rationale as the coverage filter,
 and it keeps mutator coverage a meaningful gate instead of a

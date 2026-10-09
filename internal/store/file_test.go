@@ -12,7 +12,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/store"
-	"nrtn.dev/catalyst/kpr/internal/storetest"
+	"nrtn.dev/catalyst/kpr/internal/testing/storetest"
 )
 
 // The file store must satisfy the same contract as mem and redis:

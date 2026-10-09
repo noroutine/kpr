@@ -1,7 +1,7 @@
 package store
 
 // Internal sabotage: the layout helpers refuse bad inputs, and the
-// atomic writer refuses a broken filesystem at every stage. If any
+// atomic writer refuses a broken filesystem at every fakes. If any
 // of these fail, corrupt names write outside the root or a full
 // disk mints silently.
 

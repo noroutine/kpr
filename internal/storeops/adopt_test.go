@@ -8,25 +8,25 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
-	"nrtn.dev/catalyst/kpr/internal/stage"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/testing/fakes"
 )
 
 // Adopt pairs the store without minting: the read comes first, the
 // identity follows the evidence. If Adopt is undefined, the ceremony
 // has no use case behind it.
 func TestAdoptPairsUnpairedStore(t *testing.T) {
-	_, root, lock := stage.ProvenRun(t)
+	_, root, lock := fakes.ProvenRun(t)
 	gen := stageServedGen(t, root)
 	var out strings.Builder
-	if err := Adopt(context.Background(), &out, stage.FileAPI{Root: root}, lock, lock, "", ""); err != nil {
+	if err := Adopt(context.Background(), &out, fakes.FileAPI{Root: root}, lock, lock, "", ""); err != nil {
 		t.Fatalf("adopt served lineage: %v", err)
 	}
 	ident, err := lock.GetIdentity(context.Background())
 	if err != nil {
 		t.Fatalf("read identity: %v", err)
 	}
-	served, _, err := sentinel.Read(context.Background(), stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(context.Background(), fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served: %v", err)
 	}
@@ -45,24 +45,24 @@ func TestAdoptPairsUnpairedStore(t *testing.T) {
 // its gen and ID: adopt tests need served evidence, not pairing.
 func stageServedGen(t *testing.T, root string) (gen string) {
 	t.Helper()
-	gen = stage.NewGenID(t)
+	gen = fakes.NewGenID(t)
 	now := time.Now().UTC().Format(time.RFC3339)
 	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag,
-		sentinel.Payload{V: 1, Gen: gen, ID: stage.NewGenID(t), TS: now}); err != nil {
+		sentinel.Payload{V: 1, Gen: gen, ID: fakes.NewGenID(t), TS: now}); err != nil {
 		t.Fatalf("stage served generation: %v", err)
 	}
 	return gen
 }
 
 func TestAdoptPinMatchPairs(t *testing.T) {
-	_, root, lock := stage.ProvenRun(t)
+	_, root, lock := fakes.ProvenRun(t)
 	stageServedGen(t, root)
-	served, _, err := sentinel.Read(context.Background(), stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(context.Background(), fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served: %v", err)
 	}
 	var out strings.Builder
-	if err := Adopt(context.Background(), &out, stage.FileAPI{Root: root}, lock, lock, served.ID, ""); err != nil {
+	if err := Adopt(context.Background(), &out, fakes.FileAPI{Root: root}, lock, lock, served.ID, ""); err != nil {
 		t.Fatalf("adopt with matching pin: %v", err)
 	}
 	ident, _ := lock.GetIdentity(context.Background())
@@ -72,15 +72,15 @@ func TestAdoptPinMatchPairs(t *testing.T) {
 }
 
 func TestAdoptPinMismatchRefuses(t *testing.T) {
-	_, root, lock := stage.ProvenRun(t)
+	_, root, lock := fakes.ProvenRun(t)
 	stageServedGen(t, root)
-	served, _, err := sentinel.Read(context.Background(), stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(context.Background(), fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served: %v", err)
 	}
-	pin := stage.NewGenID(t)
+	pin := fakes.NewGenID(t)
 	var out strings.Builder
-	err = Adopt(context.Background(), &out, stage.FileAPI{Root: root}, lock, lock, pin, "")
+	err = Adopt(context.Background(), &out, fakes.FileAPI{Root: root}, lock, lock, pin, "")
 	if err == nil {
 		t.Fatal("adopt with mismatched pin succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), served.ID) || !strings.Contains(err.Error(), pin) {
@@ -105,9 +105,9 @@ func (s errSentinelAPI) GetBlob(context.Context, string, string) ([]byte, error)
 }
 
 func TestAdoptAbsentRefusesWithoutIdent(t *testing.T) {
-	_, root, lock := stage.ProvenRun(t)
+	_, root, lock := fakes.ProvenRun(t)
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, stage.FileAPI{Root: root}, lock, lock, "", "")
+	err := Adopt(context.Background(), &out, fakes.FileAPI{Root: root}, lock, lock, "", "")
 	if err == nil {
 		t.Fatal("adopt on silence succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "nothing served") {
@@ -119,9 +119,9 @@ func TestAdoptAbsentRefusesWithoutIdent(t *testing.T) {
 // unreadable is not absent. If this fails, a 500 reads as
 // unpaired and adopts over an unknown lineage.
 func TestAdoptUnreadableRefuses(t *testing.T) {
-	_, _, lock := stage.ProvenRun(t)
+	_, _, lock := fakes.ProvenRun(t)
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, errSentinelAPI{stage.ErrTestStoreDown}, lock, lock, "", "")
+	err := Adopt(context.Background(), &out, errSentinelAPI{fakes.ErrTestStoreDown}, lock, lock, "", "")
 	if err == nil {
 		t.Fatal("adopt on erroring sentinel succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "sentinel unreadable") {
@@ -133,11 +133,11 @@ func TestAdoptUnreadableRefuses(t *testing.T) {
 // operator must know the lineage did not record. If this fails,
 // an outage during adopt reads as paired.
 func TestAdoptPrePairWriteFailureRefuses(t *testing.T) {
-	_, root, _ := stage.ProvenRun(t)
-	ids := &stage.FailIdentityStore{MemStore: store.NewMemStore(), Armed: true}
+	_, root, _ := fakes.ProvenRun(t)
+	ids := &fakes.FailIdentityStore{MemStore: store.NewMemStore(), Armed: true}
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, stage.FileAPI{Root: root},
-		ids, store.NewMemStore(), stage.NewGenID(t), "")
+	err := Adopt(context.Background(), &out, fakes.FileAPI{Root: root},
+		ids, store.NewMemStore(), fakes.NewGenID(t), "")
 	if err == nil {
 		t.Fatal("adopt with failing lineage write succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
@@ -146,10 +146,10 @@ func TestAdoptPrePairWriteFailureRefuses(t *testing.T) {
 }
 
 func TestAdoptAbsentBootstrapsWithIdent(t *testing.T) {
-	_, root, lock := stage.ProvenRun(t)
-	pin := stage.NewGenID(t)
+	_, root, lock := fakes.ProvenRun(t)
+	pin := fakes.NewGenID(t)
 	var out strings.Builder
-	if err := Adopt(context.Background(), &out, stage.FileAPI{Root: root}, lock, lock, pin, ""); err != nil {
+	if err := Adopt(context.Background(), &out, fakes.FileAPI{Root: root}, lock, lock, pin, ""); err != nil {
 		t.Fatalf("adopt with pin on silence: %v", err)
 	}
 	ident, _ := lock.GetIdentity(context.Background())
@@ -159,13 +159,13 @@ func TestAdoptAbsentBootstrapsWithIdent(t *testing.T) {
 }
 
 func TestAdoptIdentityLessRefuses(t *testing.T) {
-	_, root, lock := stage.ProvenRun(t)
+	_, root, lock := fakes.ProvenRun(t)
 	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag,
-		sentinel.Payload{V: 1, Gen: stage.NewGenID(t)}); err != nil {
+		sentinel.Payload{V: 1, Gen: fakes.NewGenID(t)}); err != nil {
 		t.Fatalf("stage identity-less generation: %v", err)
 	}
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, stage.FileAPI{Root: root}, lock, lock, "", "")
+	err := Adopt(context.Background(), &out, fakes.FileAPI{Root: root}, lock, lock, "", "")
 	if err == nil {
 		t.Fatal("adopt of an identity-less generation succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "identity-less") {
@@ -182,9 +182,9 @@ func TestAdoptIdentityLessRefuses(t *testing.T) {
 // other repos are untouched. If this fails, an adopt carries stale
 // evidence into the next verdict.
 func TestAdoptRepairsForeignLineage(t *testing.T) {
-	_, root, lock := stage.ProvenRun(t)
-	oldID := stage.NewGenID(t)
-	oldGen := stage.NewGenID(t)
+	_, root, lock := fakes.ProvenRun(t)
+	oldID := fakes.NewGenID(t)
+	oldGen := fakes.NewGenID(t)
 	ctx := context.Background()
 	if err := lock.SetIdentity(ctx, store.Identity{ID: oldID, BaselineGen: oldGen}); err != nil {
 		t.Fatalf("pair old lineage: %v", err)
@@ -199,12 +199,12 @@ func TestAdoptRepairsForeignLineage(t *testing.T) {
 		}
 	}
 	stageServedGen(t, root)
-	served, _, err := sentinel.Read(ctx, stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(ctx, fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served: %v", err)
 	}
 	var out strings.Builder
-	if err := Adopt(ctx, &out, stage.FileAPI{Root: root}, lock, lock, "", ""); err != nil {
+	if err := Adopt(ctx, &out, fakes.FileAPI{Root: root}, lock, lock, "", ""); err != nil {
 		t.Fatalf("adopt foreign lineage: %v", err)
 	}
 	ident, _ := lock.GetIdentity(ctx)
@@ -238,15 +238,15 @@ func TestAdoptRepairsForeignLineage(t *testing.T) {
 func TestAdoptPruneFailuresRefuse(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		rows stage.FailRows
+		rows fakes.FailRows
 	}{
-		{"unreadable rows", stage.FailRows{AllErr: stage.ErrTestStoreDown}},
-		{"undeletable rows", stage.FailRows{DelErr: stage.ErrTestStoreDown}},
+		{"unreadable rows", fakes.FailRows{AllErr: fakes.ErrTestStoreDown}},
+		{"undeletable rows", fakes.FailRows{DelErr: fakes.ErrTestStoreDown}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, root, lock := stage.ProvenRun(t)
+			_, root, lock := fakes.ProvenRun(t)
 			ctx := context.Background()
-			oldID := stage.NewGenID(t)
+			oldID := fakes.NewGenID(t)
 			if err := lock.SetIdentity(ctx, store.Identity{ID: oldID}); err != nil {
 				t.Fatalf("pair old lineage: %v", err)
 			}
@@ -257,7 +257,7 @@ func TestAdoptPruneFailuresRefuse(t *testing.T) {
 			stageServedGen(t, root)
 			tc.rows.MemStore = lock
 			var out strings.Builder
-			err := Adopt(ctx, &out, stage.FileAPI{Root: root}, lock, tc.rows, "", "")
+			err := Adopt(ctx, &out, fakes.FileAPI{Root: root}, lock, tc.rows, "", "")
 			if err == nil {
 				t.Fatal("adopt with failing prune succeeded, want refusal")
 			} else if !strings.Contains(err.Error(), "old epoch unprunable") {
@@ -271,29 +271,29 @@ func TestAdoptPruneFailuresRefuse(t *testing.T) {
 // silent success. If this fails, an outage mid-ceremony reads as
 // re-paired.
 func TestAdoptRepairWriteFailureRefuses(t *testing.T) {
-	_, root, _ := stage.ProvenRun(t)
+	_, root, _ := fakes.ProvenRun(t)
 	ctx := context.Background()
 	gen := stageServedGen(t, root)
-	served, _, err := sentinel.Read(ctx, stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(ctx, fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served: %v", err)
 	}
-	ids := &stage.FailIdentityStore{MemStore: store.NewMemStore()}
+	ids := &fakes.FailIdentityStore{MemStore: store.NewMemStore()}
 	if err := ids.SetIdentity(ctx, store.Identity{ID: served.ID, BaselineGen: gen}); err != nil {
 		t.Fatalf("pair: %v", err)
 	}
 	ids.Armed = true
 	var out strings.Builder
-	if err := Adopt(ctx, &out, stage.FileAPI{Root: root}, ids, store.NewMemStore(), "", ""); err == nil {
+	if err := Adopt(ctx, &out, fakes.FileAPI{Root: root}, ids, store.NewMemStore(), "", ""); err == nil {
 		t.Fatal("re-adopt with failing lineage write succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
 		t.Errorf("refusal names no cause: %v", err)
 	}
 	// Fresh store, served generation, failing write: the first
 	// pairing records nothing and says so.
-	fresh := &stage.FailIdentityStore{MemStore: store.NewMemStore(), Armed: true}
+	fresh := &fakes.FailIdentityStore{MemStore: store.NewMemStore(), Armed: true}
 	var freshOut strings.Builder
-	if err := Adopt(ctx, &freshOut, stage.FileAPI{Root: root}, fresh, store.NewMemStore(), "", ""); err == nil {
+	if err := Adopt(ctx, &freshOut, fakes.FileAPI{Root: root}, fresh, store.NewMemStore(), "", ""); err == nil {
 		t.Fatal("first pairing with failing lineage write succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -301,9 +301,9 @@ func TestAdoptRepairWriteFailureRefuses(t *testing.T) {
 }
 
 func TestAdoptAlreadyPairedRefreshesBaseline(t *testing.T) {
-	_, root, lock := stage.ProvenRun(t)
-	id := stage.NewGenID(t)
-	first := stage.NewGenID(t)
+	_, root, lock := fakes.ProvenRun(t)
+	id := fakes.NewGenID(t)
+	first := fakes.NewGenID(t)
 	now := time.Now().UTC().Format(time.RFC3339)
 	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag,
 		sentinel.Payload{V: 1, Gen: first, ID: id, TS: now}); err != nil {
@@ -313,13 +313,13 @@ func TestAdoptAlreadyPairedRefreshesBaseline(t *testing.T) {
 	if err := lock.SetIdentity(ctx, store.Identity{ID: id, BaselineGen: first}); err != nil {
 		t.Fatalf("pair: %v", err)
 	}
-	second := stage.NewGenID(t)
+	second := fakes.NewGenID(t)
 	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag,
 		sentinel.Payload{V: 1, Gen: second, ID: id, TS: now}); err != nil {
 		t.Fatalf("stage second: %v", err)
 	}
 	var out strings.Builder
-	if err := Adopt(ctx, &out, stage.FileAPI{Root: root}, lock, lock, "", ""); err != nil {
+	if err := Adopt(ctx, &out, fakes.FileAPI{Root: root}, lock, lock, "", ""); err != nil {
 		t.Fatalf("re-adopt same lineage: %v", err)
 	}
 	ident, _ := lock.GetIdentity(ctx)
@@ -332,10 +332,10 @@ func TestAdoptAlreadyPairedRefreshesBaseline(t *testing.T) {
 }
 
 func TestAdoptGenMismatchRefuses(t *testing.T) {
-	_, root, lock := stage.ProvenRun(t)
+	_, root, lock := fakes.ProvenRun(t)
 	gen := stageServedGen(t, root)
 	var out strings.Builder
-	err := Adopt(context.Background(), &out, stage.FileAPI{Root: root}, lock, lock, "", stage.NewGenID(t))
+	err := Adopt(context.Background(), &out, fakes.FileAPI{Root: root}, lock, lock, "", fakes.NewGenID(t))
 	if err == nil {
 		t.Fatal("adopt with mismatched --gen succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), gen) {

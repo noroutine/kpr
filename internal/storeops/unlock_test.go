@@ -8,19 +8,19 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
-	"nrtn.dev/catalyst/kpr/internal/stage"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/testing/fakes"
 )
 
 // Unlock proves the shared store and records intent: the marker
 // flips and the output names the proven generation. If this fails,
 // a colocated deploy can never open writes.
 func TestUnlockProvesAndRecords(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err != nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	// Silence with an unpaired store establishes the pairing: the
@@ -32,7 +32,7 @@ func TestUnlockProvesAndRecords(t *testing.T) {
 	if ident.ID == "" {
 		t.Error("unlock succeeded but recorded no identity")
 	}
-	served, _, err := sentinel.Read(context.Background(), stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(context.Background(), fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served: %v", err)
 	}
@@ -58,12 +58,12 @@ func TestUnlockProvesAndRecords(t *testing.T) {
 // floater: the recorded row names a tag that exists. If this
 // fails, tracked generations dangle from birth.
 func TestUnlockPushesGenerationTag(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
 	ctx := context.Background()
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err != nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	rows, err := s.All(ctx)
@@ -74,7 +74,7 @@ func TestUnlockPushesGenerationTag(t *testing.T) {
 		t.Fatalf("tracked rows = %d, want the one unlock generation", len(rows))
 	}
 	gen := rows[0].Tag
-	got, _, err := sentinel.Read(ctx, stage.FileAPI{Root: root}, sentinel.Repo, gen)
+	got, _, err := sentinel.Read(ctx, fakes.FileAPI{Root: root}, sentinel.Repo, gen)
 	if err != nil {
 		t.Fatalf("read generation tag %s: %v (row names a tag nothing pushed)", gen, err)
 	}
@@ -88,11 +88,11 @@ func TestUnlockPushesGenerationTag(t *testing.T) {
 // root never receives the generation, so the read-back fails. If
 // this fails, a remote kpr unlocks against nothing and gc follows.
 func TestUnlockRefusesStrangerStore(t *testing.T) {
-	cfg, _, _ := stage.ProvenRun(t)
+	cfg, _, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: t.TempDir()}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: t.TempDir()}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock on a stranger store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -106,12 +106,12 @@ func TestUnlockRefusesStrangerStore(t *testing.T) {
 // adopt ceremony named, the served generation untouched, the marker
 // down. If this fails, unlock overwrites a stranger's latest.
 func TestUnlockRefusesForeignLineage(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
 	ctx := context.Background()
-	servedGen := stage.PairedGen(t, s, root)
-	foreign := stage.NewGenID(t)
-	served, _, err := sentinel.Read(ctx, stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	servedGen := fakes.PairedGen(t, s, root)
+	foreign := fakes.NewGenID(t)
+	served, _, err := sentinel.Read(ctx, fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served: %v", err)
 	}
@@ -121,13 +121,13 @@ func TestUnlockRefusesForeignLineage(t *testing.T) {
 		t.Fatalf("stage foreign generation: %v", err)
 	}
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock over a foreign lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "foreign lineage") || !strings.Contains(err.Error(), "kpr store adopt") {
 		t.Errorf("refusal names no cause or ceremony: %v", err)
 	}
-	back, _, err := sentinel.Read(ctx, stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	back, _, err := sentinel.Read(ctx, fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read back served: %v", err)
 	}
@@ -143,12 +143,12 @@ func TestUnlockRefusesForeignLineage(t *testing.T) {
 // the operator's explicit ceremony, not a side effect of unlock. If
 // this fails, unlock silently pairs to whatever it found.
 func TestUnlockRefusesUnpairedWithServed(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	stage.PairedGen(t, store.NewMemStore(), root)
+	fakes.PairedGen(t, store.NewMemStore(), root)
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with an unpaired store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "unpaired") || !strings.Contains(err.Error(), "kpr store adopt") {
 		t.Errorf("refusal names no cause or ceremony: %v", err)
@@ -166,15 +166,15 @@ func TestUnlockRefusesUnpairedWithServed(t *testing.T) {
 // being minted past — the restore is an incident, not a baseline.
 // If this fails, `kpr store unlock` silently buries what `kpr gc` refuses.
 func TestUnlockRefusesStaleRollback(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
 	ctx := context.Background()
-	gen := stage.PairedGen(t, s, root)
+	gen := fakes.PairedGen(t, s, root)
 	now := time.Now().UTC()
-	if err := s.Record(ctx, stage.NewRow(sentinel.Repo, gen, now.Add(-time.Hour))); err != nil {
+	if err := s.Record(ctx, fakes.NewRow(sentinel.Repo, gen, now.Add(-time.Hour))); err != nil {
 		t.Fatalf("track served generation: %v", err)
 	}
-	if err := s.Record(ctx, stage.NewRow(sentinel.Repo, stage.NewGenID(t), now)); err != nil {
+	if err := s.Record(ctx, fakes.NewRow(sentinel.Repo, fakes.NewGenID(t), now)); err != nil {
 		t.Fatalf("track newer generation: %v", err)
 	}
 	ident, err := s.GetIdentity(ctx)
@@ -185,13 +185,13 @@ func TestUnlockRefusesStaleRollback(t *testing.T) {
 		t.Fatalf("clear baseline: %v", err)
 	}
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock over a rollback succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "older than tracked") {
 		t.Errorf("refusal names no cause: %v", err)
 	}
-	back, _, err := sentinel.Read(ctx, stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	back, _, err := sentinel.Read(ctx, fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read back served: %v", err)
 	}
@@ -207,12 +207,12 @@ func TestUnlockRefusesStaleRollback(t *testing.T) {
 // refuses (unlock is a manual ceremony — fix NTP and retry, there
 // is no accept flag to hide behind), an unreachable NTP warns through.
 func TestUnlockClockSkewRefuses(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	stage.PairedGen(t, s, root)
+	fakes.PairedGen(t, s, root)
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{Off: time.Hour}, Store: s})
+	fakes.Config(t, "http://registry:5000", cfg)
+	err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{Off: time.Hour}, Store: s})
 	if err == nil {
 		t.Fatal("skewed unlock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "clock skew") {
@@ -224,12 +224,12 @@ func TestUnlockClockSkewRefuses(t *testing.T) {
 }
 
 func TestUnlockNTPUnreachableWarnsProceeds(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	stage.PairedGen(t, s, root)
+	fakes.PairedGen(t, s, root)
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{Err: stage.ErrClockUnreachable}, Store: s}); err != nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{Err: fakes.ErrClockUnreachable}, Store: s}); err != nil {
 		t.Fatalf("unlock with unreachable NTP: %v", err)
 	}
 	if !strings.Contains(out.String(), "proceeding with local clock") {
@@ -239,7 +239,7 @@ func TestUnlockNTPUnreachableWarnsProceeds(t *testing.T) {
 	if ok, err := s.IsUnlocked(context.Background()); err != nil || !ok {
 		t.Fatalf("warned unlock IsUnlocked = (%v, %v), want (true, nil)", ok, err)
 	}
-	served, _, err := sentinel.Read(context.Background(), stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(context.Background(), fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served proof: %v", err)
 	}
@@ -258,17 +258,17 @@ func TestUnlockNTPUnreachableWarnsProceeds(t *testing.T) {
 // operator must hear about it. If this fails, a wiped tag reads as
 // a fresh deploy.
 func TestUnlockEstablishPairedWarns(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
 	ctx := context.Background()
-	id := stage.NewGenID(t)
+	id := fakes.NewGenID(t)
 	adopted := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	if err := s.SetIdentity(ctx, store.Identity{ID: id, BaselineGen: "accepted-gen", AdoptedAt: adopted}); err != nil {
 		t.Fatalf("pair: %v", err)
 	}
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err != nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err != nil {
 		t.Fatalf("re-establish: %v", err)
 	}
 	if !strings.Contains(out.String(), "nothing served") || !strings.Contains(out.String(), "re-minting") {
@@ -285,7 +285,7 @@ func TestUnlockEstablishPairedWarns(t *testing.T) {
 	if ok, err := s.IsUnlocked(ctx); err != nil || !ok {
 		t.Fatalf("warned unlock IsUnlocked = (%v, %v), want (true, nil)", ok, err)
 	}
-	served, _, err := sentinel.Read(ctx, stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(ctx, fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served baseline: %v", err)
 	}
@@ -298,19 +298,19 @@ func TestUnlockEstablishPairedWarns(t *testing.T) {
 // payload after unlock carries the stored ID. If this fails, every
 // unlock litters an identity-less generation the next gc refuses.
 func TestUnlockMintsStoredIdentity(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	stage.PairedGen(t, s, root)
+	fakes.PairedGen(t, s, root)
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err != nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	ident, err := s.GetIdentity(context.Background())
 	if err != nil {
 		t.Fatalf("read identity: %v", err)
 	}
-	served, _, err := sentinel.Read(context.Background(), stage.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
+	served, _, err := sentinel.Read(context.Background(), fakes.FileAPI{Root: root}, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read served: %v", err)
 	}
@@ -329,15 +329,15 @@ func (e errUnlockStore) SetUnlocked(context.Context, bool) error { return e.err 
 // unlock proves a local store or nothing. If this fails, unlock
 // mints against a layout it cannot prove local.
 func TestUnlockS3ConfigRefuses(t *testing.T) {
-	_, root, _ := stage.ProvenRun(t)
+	_, root, _ := fakes.ProvenRun(t)
 	s3cfg := t.TempDir() + "/config.yml"
 	if err := os.WriteFile(s3cfg, []byte("storage:\n  s3:\n    bucket: blobs\n"), 0o644); err != nil {
 		t.Fatalf("stage config: %v", err)
 	}
 	s := store.NewMemStore()
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", s3cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	fakes.Config(t, "http://registry:5000", s3cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with s3 config succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "no filesystem storage root") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -348,12 +348,12 @@ func TestUnlockS3ConfigRefuses(t *testing.T) {
 // manual, and its warnings are mandatory. If this fails, an
 // air-gapped unlock proceeds with no trace of the missed clock.
 func TestUnlockUnreachableWarnWriteFailureSurfaces(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	stage.PairedGen(t, s, root)
-	w := stage.ErrWriter{Err: stage.ErrTestStoreDown}
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), w, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{Err: stage.ErrClockUnreachable}, Store: s}); err == nil {
+	fakes.PairedGen(t, s, root)
+	w := fakes.ErrWriter{Err: fakes.ErrTestStoreDown}
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), w, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{Err: fakes.ErrClockUnreachable}, Store: s}); err == nil {
 		t.Fatal("unlock with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("failure names no output cause: %v", err)
@@ -364,12 +364,12 @@ func TestUnlockUnreachableWarnWriteFailureSurfaces(t *testing.T) {
 // means stranger, empty, or down. If this fails, a backend outage
 // at the rows reads as a clean store.
 func TestUnlockTrackedStateFailureRefuses(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	rows := stage.FailRows{MemStore: s, AllErr: stage.ErrTestStoreDown}
+	rows := fakes.FailRows{MemStore: s, AllErr: fakes.ErrTestStoreDown}
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: rows, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: rows, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with unreadable rows succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "tracked state unreadable") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -380,12 +380,12 @@ func TestUnlockTrackedStateFailureRefuses(t *testing.T) {
 // reason. If this fails, a backend outage at the lineage unlocks
 // against an unknown pairing.
 func TestUnlockLineageFailureRefuses(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	ids := stage.ErrIdentityStore{Err: stage.ErrTestStoreDown}
+	ids := fakes.ErrIdentityStore{Err: fakes.ErrTestStoreDown}
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: ids, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: ids, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with unreadable lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unreadable") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -396,15 +396,15 @@ func TestUnlockLineageFailureRefuses(t *testing.T) {
 // an incident, and the incident must print. If this fails, the
 // recovery proceeds with no trace of the wipe.
 func TestUnlockEstablishWarnWriteFailureSurfaces(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
 	ctx := context.Background()
-	if err := s.SetIdentity(ctx, store.Identity{ID: stage.NewGenID(t)}); err != nil {
+	if err := s.SetIdentity(ctx, store.Identity{ID: fakes.NewGenID(t)}); err != nil {
 		t.Fatalf("pair: %v", err)
 	}
-	w := stage.ErrWriter{Err: stage.ErrTestStoreDown}
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(ctx, w, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	w := fakes.ErrWriter{Err: fakes.ErrTestStoreDown}
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(ctx, w, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("re-establish with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("failure names no output cause: %v", err)
@@ -415,12 +415,12 @@ func TestUnlockEstablishWarnWriteFailureSurfaces(t *testing.T) {
 // orphan rule as gc. If this fails, a backend outage mid-ceremony
 // reads as paired.
 func TestUnlockLineageWriteFailureRefuses(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	ids := &stage.FailIdentityStore{MemStore: store.NewMemStore(), Armed: true}
+	ids := &fakes.FailIdentityStore{MemStore: store.NewMemStore(), Armed: true}
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: ids, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: ids, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with unrecordable lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -431,12 +431,12 @@ func TestUnlockLineageWriteFailureRefuses(t *testing.T) {
 // proof is held but untracked. If this fails, a backend outage at
 // the log litters silently.
 func TestUnlockMintRecordFailureRefuses(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	rec := stage.ErrRecorder{Err: stage.ErrTestStoreDown}
+	rec := fakes.ErrRecorder{Err: fakes.ErrTestStoreDown}
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: rec, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: s}); err == nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: rec, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: s}); err == nil {
 		t.Fatal("unlock with failing keep-N log succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "generation went untracked") {
 		t.Errorf("failure names no cause: %v", err)
@@ -447,12 +447,12 @@ func TestUnlockMintRecordFailureRefuses(t *testing.T) {
 // is held and tracked, but writes stay closed. If this fails, a
 // backend outage at the marker reads as unlocked.
 func TestUnlockMarkerFailureRefuses(t *testing.T) {
-	cfg, root, _ := stage.ProvenRun(t)
+	cfg, root, _ := fakes.ProvenRun(t)
 	s := store.NewMemStore()
-	st := errUnlockStore{stage.ErrTestStoreDown}
+	st := errUnlockStore{fakes.ErrTestStoreDown}
 	var out strings.Builder
-	stage.Config(t, "http://registry:5000", cfg)
-	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: stage.FileAPI{Root: root}, Clock: stage.StubClock{}, Store: st}); err == nil {
+	fakes.Config(t, "http://registry:5000", cfg)
+	if err := Unlock(context.Background(), &out, UnlockDeps{Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Store: st}); err == nil {
 		t.Fatal("unlock with failing marker succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "intent marker failed") {
 		t.Errorf("failure names no cause: %v", err)

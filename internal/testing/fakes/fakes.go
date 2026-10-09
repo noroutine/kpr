@@ -1,8 +1,8 @@
-// Package stage holds test fakes for the shared-store world: a
+// Package fakes holds test fakes for the shared-store world: a
 // file-backed registry API, a scripted clock, staged config, and
 // the fault doubles. Any suite proving store ceremonies stands on
 // the same ground — one set of fakes, never a copy per suite.
-package stage
+package fakes
 
 import (
 	"context"
