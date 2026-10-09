@@ -107,36 +107,36 @@ func TestStoreBackfillOutputBadPathRefuses(t *testing.T) {
 func TestResolveBackfillSinkRoutesStream(t *testing.T) {
 	var out bytes.Buffer
 	live := newLiveLines(&out)
-	dash, closeDash, err := resolveBackfillSink("-", &out, live)
+	dashed, dashedTick, closeDash, err := resolveBackfillSink("-", &out, live)
 	if err != nil {
 		t.Fatalf("resolve -: %v", err)
 	}
 	defer closeDash()
-	if dash.Progress != nil {
+	if dashedTick != nil {
 		t.Error("resolve - sets Progress, want the stream instead of repaint")
 	}
-	if _, err := fmt.Fprint(dash.Log, "app:v1"); err != nil {
+	if _, err := fmt.Fprint(dashed, "app:v1"); err != nil {
 		t.Fatalf("write - stream: %v", err)
 	}
 	if out.String() != "app:v1" {
 		t.Errorf("stdout = %q, want the stream", out.String())
 	}
-	quiet, _, err := resolveBackfillSink("", &out, live)
+	quiet, quietTick, _, err := resolveBackfillSink("", &out, live)
 	if err != nil {
 		t.Fatalf("resolve default: %v", err)
 	}
-	if quiet.Log != nil {
+	if quiet != nil {
 		t.Error("resolve default sets Log, want it discarded")
 	}
-	if quiet.Progress == nil {
+	if quietTick == nil {
 		t.Error("resolve default drops Progress, want live repaint")
 	}
 	stream := filepath.Join(t.TempDir(), "stream.log")
-	filed, closeFile, err := resolveBackfillSink(stream, &out, live)
+	filed, _, closeFile, err := resolveBackfillSink(stream, &out, live)
 	if err != nil {
 		t.Fatalf("resolve file: %v", err)
 	}
-	if _, err := fmt.Fprint(filed.Log, "app:v1"); err != nil {
+	if _, err := fmt.Fprint(filed, "app:v1"); err != nil {
 		t.Fatalf("write file stream: %v", err)
 	}
 	closeFile()
@@ -147,7 +147,7 @@ func TestResolveBackfillSinkRoutesStream(t *testing.T) {
 	if string(raw) != "app:v1" {
 		t.Errorf("stream file = %q, want the stream", raw)
 	}
-	if _, _, err := resolveBackfillSink(filepath.Join(t.TempDir(), "gone", "stream.log"), &out, live); err == nil {
+	if _, _, _, err := resolveBackfillSink(filepath.Join(t.TempDir(), "gone", "stream.log"), &out, live); err == nil {
 		t.Error("resolve bad path succeeded, want refusal before any walk")
 	}
 }

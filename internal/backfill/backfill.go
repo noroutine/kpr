@@ -49,11 +49,12 @@ type Registry interface {
 }
 
 // Deps carries backfill's world: the sentinel API, the catalog
-// registry, and the store in its rows, recorder, identity, and
-// lock roles. Roles share lineage's and storeops' vocabulary —
-// one set of port types for every ceremony. The filesystem root
-// resolves from config.Current(): config rides no field, and
-// tests stage it the same way production reads it.
+// registry, the store in its rows, recorder, identity, and lock
+// roles, and the live report it streams through. Roles share
+// lineage's and storeops' vocabulary — one set of port types for
+// every ceremony. The filesystem root resolves from
+// config.Current(): config rides no field, and tests stage it the
+// same way production reads it.
 type Deps struct {
 	API  sentinel.API
 	Reg  Registry
@@ -61,6 +62,13 @@ type Deps struct {
 	Rec  storeops.Recorder
 	Ids  lineage.IdentityStore
 	Lock proof.Locker
+	// Log takes the per-tag stream (one line per verdict: would
+	// record/recorded, would skip/skipped with the reason); nil
+	// discards it. Progress reports the running summary on the
+	// tracked baseline, per listed repo, and per tag verdict — the
+	// caller throttles rendering; nil skips it.
+	Log      io.Writer
+	Progress func(Summary)
 }
 
 // Accepts carries the one risk backfill can take: a restored older
@@ -73,16 +81,10 @@ type Accepts struct {
 // Options tunes a backfill run: which repos, preview or armed.
 // Armed carries the mint — nil previews (the fail-closed
 // default), only an explicit --no-dry-run records for real.
-// Log takes the per-tag stream (one line per verdict: would
-// record/recorded, would skip/skipped with the reason); nil
-// discards it. Progress reports the running summary on the
-// tracked baseline, per listed repo, and per tag verdict — the
-// caller throttles rendering; nil skips it.
+// Reporting rides Deps, never here.
 type Options struct {
 	RepoGlob string
 	Armed    proof.ArmedRun
-	Log      io.Writer
-	Progress func(Summary)
 }
 
 // Summary counts a run: the adoptable baseline (tracked rows
@@ -113,14 +115,14 @@ type Summary struct {
 // as husks, never warn.
 func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts) (Summary, error) {
 	var sum Summary
-	log := opts.Log
+	log := d.Log
 	if log == nil {
 		log = io.Discard
 	}
 	dryRun := proof.Unarmed(opts.Armed)
 	progress := func() {
-		if opts.Progress != nil {
-			opts.Progress(sum)
+		if d.Progress != nil {
+			d.Progress(sum)
 		}
 	}
 	// The mount root resolves here, not at the call site: a foreign

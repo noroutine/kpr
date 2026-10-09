@@ -296,7 +296,7 @@ func TestBackfillLogsEveryVerdict(t *testing.T) {
 		},
 	}
 	var dry strings.Builder
-	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Log: &dry}, Accepts{}); err != nil {
+	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s, Log: &dry}, Options{}, Accepts{}); err != nil {
 		t.Fatalf("dry Run: %v", err)
 	}
 	for _, want := range []string{
@@ -310,7 +310,7 @@ func TestBackfillLogsEveryVerdict(t *testing.T) {
 		}
 	}
 	var armed strings.Builder
-	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false), Log: &armed}, Accepts{}); err != nil {
+	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s, Log: &armed}, Options{Armed: proof.Arm(true, false)}, Accepts{}); err != nil {
 		t.Fatalf("armed Run: %v", err)
 	}
 	for _, want := range []string{
@@ -382,10 +382,11 @@ func TestBackfillProgressReportsVerdicts(t *testing.T) {
 	}
 	var last Summary
 	n := 0
-	opts := Options{Log: io.Discard, Progress: func(sum Summary) {
-		last, n = sum, n+1
-	}}
-	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, opts, Accepts{}); err != nil {
+	deps := Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s,
+		Log: io.Discard, Progress: func(sum Summary) {
+			last, n = sum, n+1
+		}}
+	if _, err := Run(ctx, io.Discard, deps, Options{}, Accepts{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if n == 0 {
@@ -418,10 +419,11 @@ func TestBackfillProgressReportsScan(t *testing.T) {
 		},
 	}
 	var snaps []Summary
-	opts := Options{Log: io.Discard, Progress: func(sum Summary) {
-		snaps = append(snaps, sum)
-	}}
-	if _, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, opts, Accepts{}); err != nil {
+	deps := Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s,
+		Log: io.Discard, Progress: func(sum Summary) {
+			snaps = append(snaps, sum)
+		}}
+	if _, err := Run(ctx, io.Discard, deps, Options{}, Accepts{}); err != nil {
 		t.Fatalf("Run: %v, want scan", err)
 	}
 	if len(snaps) == 0 {
@@ -458,7 +460,7 @@ func TestBackfillCountsSentinelsSeparately(t *testing.T) {
 		tags:    map[string][]string{"app": {"v1"}},
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
-	sum, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Log: io.Discard}, Accepts{})
+	sum, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s, Log: io.Discard}, Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v, want preview", err)
 	}
@@ -480,8 +482,7 @@ func TestBackfillRunPrintsNoSummary(t *testing.T) {
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
 	var out strings.Builder
-	opts := Options{Log: io.Discard}
-	if _, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, opts, Accepts{}); err != nil {
+	if _, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s, Log: io.Discard}, Options{}, Accepts{}); err != nil {
 		t.Fatalf("Run: %v, want preview", err)
 	}
 	if out.Len() != 0 {
@@ -503,7 +504,7 @@ func TestBackfillDryRunPrintsWithoutRecording(t *testing.T) {
 		digests: map[string]string{"app\x00v1": "sha256:abc"},
 	}
 	var out strings.Builder
-	sum, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Log: &out}, Accepts{})
+	sum, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s, Log: &out}, Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -654,7 +655,7 @@ func TestBackfillMidRun404Skips(t *testing.T) {
 	}
 	var out strings.Builder
 	var logged strings.Builder
-	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false), Log: &logged}, Accepts{})
+	sum, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s, Log: &logged}, Options{Armed: proof.Arm(true, false)}, Accepts{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -972,7 +973,7 @@ func TestBackfillLogWriteFailsRun(t *testing.T) {
 	root, s, _, _ := stagePaired(t)
 	reg := &stubRegistry{repos: []string{"bare"}, tags: map[string][]string{"bare": {}}}
 	var out strings.Builder
-	if _, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s}, Options{Armed: proof.Arm(true, false), Log: errWriter{}}, Accepts{}); err == nil {
+	if _, err := Run(ctx, &out, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s, Log: errWriter{}}, Options{Armed: proof.Arm(true, false)}, Accepts{}); err == nil {
 		t.Error("husk over dead log succeeded, want the write failure")
 	}
 }
