@@ -18,19 +18,16 @@ var (
 	backfillOutput         string
 )
 
-// backfillLong is the command's help: what the run adopts, then
-// the preview default and each refusal with its override. Dense
-// on purpose — every clause names a behavior the tests pin.
+// backfillLong is the command's help: what the run adopts, the
+// glob scope, and the stream sink. Flags document their own
+// defaults and refusals — the Long only says what the flags
+// cannot.
 func backfillLong() string {
 	return `Adopt tags the receiver never saw into tracked rows.
 
-Preview by default; --no-dry-run records for real. Enumerates
-the catalog (repo-glob scopes it, empty means all), HEADs every
-tag's digest, records the absent ones — signed kpr-backfill,
-never due. A stranger store refuses; a restored generation
-refuses armed unless --accept-rollback. A locked store refuses
-naming the ceremony. The per-tag stream goes to --output
-(- for stdout, a path for a file) and is otherwise discarded.`
+Repo-glob scopes the walk, empty means all. The per-tag stream
+goes to --output (- for stdout, a path for a file) and is
+otherwise discarded.`
 }
 
 var storeBackfillCmd = &cobra.Command{

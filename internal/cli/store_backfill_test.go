@@ -164,12 +164,13 @@ func TestBackfillGlob(t *testing.T) {
 	}
 }
 
-// The help names every flag the command accepts and the preview
-// default: help that drifts from the flags lies. If this fails,
-// a flag went undocumented or the default flipped.
-func TestBackfillLongNamesFlags(t *testing.T) {
+// The help names the two things flags cannot say: the glob
+// scope and the stream sink. Defaults and refusals live on the
+// flags themselves. If this fails, the help drifted from the
+// command's shape.
+func TestBackfillLongNamesScopeAndSink(t *testing.T) {
 	long := backfillLong()
-	for _, want := range []string{"--no-dry-run", "--accept-rollback", "--output", "Preview by default"} {
+	for _, want := range []string{"Repo-glob", "--output"} {
 		if !strings.Contains(long, want) {
 			t.Errorf("help lacks %q:\n%s", want, long)
 		}
