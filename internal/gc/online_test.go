@@ -261,7 +261,7 @@ func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("writable preview: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestRunExForceRisksOpenNothingOnline(t *testing.T) {
 	accept := proof.Force(proof.Arm(true, false), true)
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
-		Options{DryRun: false},
+		Options{Armed: flagArmed()},
 		Accepts{ClockSkew: accept, Rollback: accept, ModeFlip: accept})
 	if err == nil {
 		t.Fatal("risk-accepted uncleared run succeeded, want the preflight refusal")
@@ -317,7 +317,7 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 	var out strings.Builder
 	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
 	err := Run(ctx, &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(&collected)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("cleared online run: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestRunOnlineRefusalReportWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	stageConfig(t, "http://registry:5000", stageOnlineConfig(t, root, false))
 	err := Run(context.Background(), w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(nil)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err == nil {
 		t.Fatal("uncleared preview with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
@@ -381,7 +381,7 @@ func TestRunOnlineClearReportWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
 	err := Run(ctx, w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Fence: fencer, Report: func(event.Event) {}, Probe: writableProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("cleared online run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {

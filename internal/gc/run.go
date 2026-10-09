@@ -63,12 +63,13 @@ type Recorder interface {
 }
 
 // Options tunes a gc run, and only that: the operator's flags.
-// DryRun previews (the default) — only an explicit --no-dry-run
-// collects for real. Everything the run is wired to (reporter,
-// fence) rides Deps, never here.
+// Armed carries the mint — nil previews (the fail-closed
+// default), only an explicit --no-dry-run collects for real.
+// Everything the run is wired to (reporter, fence) rides Deps,
+// never here.
 type Options struct {
 	DeleteUntagged bool
-	DryRun         bool
+	Armed          proof.ArmedRun
 }
 
 // Accepts groups the sealed risk acceptances beside Options, not
@@ -148,7 +149,7 @@ type Deps struct {
 func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts) error {
 	gcStarted := time.Now()
 	if d.Report == nil {
-		d.Report = RenderEvent(w, opts.DryRun)
+		d.Report = RenderEvent(w, proof.Unarmed(opts.Armed))
 	}
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
@@ -227,7 +228,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		// checklist as information and previews on.
 		cache, fence, report, perr := onlinePreflight(ctx, config.Current().RegistryConfig, config.Current().EdgeAddr, d.Fence != nil, accepts.Cache, accepts.Fence)
 		if perr != nil {
-			if opts.DryRun {
+			if proof.Unarmed(opts.Armed) {
 				if _, err := io.WriteString(w, report+"\n"); err != nil {
 					return err
 				}
@@ -254,7 +255,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		v := lineage.Judge(
 			lineage.Served{Payload: pay, Digest: digest, Err: rerr},
 			lineage.Local{Ident: ident, Rows: allRows},
-			lineage.Ask{DryRun: opts.DryRun, Force: accepts.Rollback != nil, Now: now})
+			lineage.Ask{DryRun: proof.Unarmed(opts.Armed), Force: accepts.Rollback != nil, Now: now})
 		if !v.Proceed && !v.Establish {
 			return fmt.Errorf("%s — %s", v.Reason, v.Action)
 		}
@@ -263,7 +264,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 				return err
 			}
 		}
-		if opts.DryRun {
+		if proof.Unarmed(opts.Armed) {
 			break
 		}
 		useID := ident.ID
@@ -316,7 +317,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		// Uncleared armed runs refused at the preflight, before the
 		// proof: what reaches here is a preview or a cleared online
 		// run (proven or per-risk accepted).
-		if opts.DryRun {
+		if proof.Unarmed(opts.Armed) {
 			if _, err := io.WriteString(w, "Warning: registry is writable; dry-run mode, nothing will be deleted\n"); err != nil {
 				return err
 			}
@@ -363,7 +364,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	}
 
 	switch {
-	case opts.DryRun:
+	case proof.Unarmed(opts.Armed):
 		if err := d.Collect(ctx, w, config.Current().RegistryBinPath, Args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
 			return err
 		}
@@ -392,7 +393,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	// collection already succeeded, and occupancy races resolve
 	// safe — anything else (permissions, I/O) names itself in
 	// the warning.
-	if !opts.DryRun {
+	if !proof.Unarmed(opts.Armed) {
 		if _, werr := fmt.Fprintf(w, "pruning husks...\n"); werr != nil {
 			return werr
 		}
@@ -454,7 +455,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	// The verdict goes last: the marking flood buries everything
 	// above it, so a preview restates its harmlessness here, where
 	// the eye lands.
-	if opts.DryRun {
+	if proof.Unarmed(opts.Armed) {
 		if _, werr := io.WriteString(w, "dry-run complete: nothing was deleted (collect for real with --no-dry-run)\n"); werr != nil {
 			return werr
 		}

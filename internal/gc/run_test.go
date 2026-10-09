@@ -33,6 +33,13 @@ func acceptRisk() proof.AcceptedRisk {
 	return proof.Force(proof.Arm(true, false), true)
 }
 
+// flagArmed mints the armed run the way the command does for
+// --no-dry-run. Tests that collect for real say so out loud: a
+// bare Options{Armed: flagArmed()} previews, never collects.
+func flagArmed() proof.ArmedRun {
+	return proof.Arm(true, false)
+}
+
 // acceptAll spells every acceptance: for runs that must refuse (or
 // pass) with nothing left unaccepted, so the verdict pins the
 // gate under test, not a missing token.
@@ -177,7 +184,7 @@ func TestRunRecordsMintedGeneration(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: false}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -220,7 +227,7 @@ func TestRunBehindStubPorts(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -254,7 +261,7 @@ func TestRunFencedVoicesHold(t *testing.T) {
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root},
 		Fence: stubFencer{events: &fenceEvents}, Report: func(e event.Event) { reported = append(reported, e) },
 		Probe: probe, Collect: okCollector(&collected)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("fenced run: %v", err)
 	}
@@ -287,7 +294,7 @@ func TestRunNilClockDerivesFromCurrent(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("nil-clock run: %v", err)
 	}
@@ -319,7 +326,7 @@ func TestRunHuskVerdictNamesRemovals(t *testing.T) {
 		var out strings.Builder
 		stageConfig(t, "http://registry:5000", cfg)
 		err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-			Options{DryRun: false}, Accepts{})
+			Options{Armed: flagArmed()}, Accepts{})
 		if err != nil {
 			t.Fatalf("stub-port armed run: %v", err)
 		}
@@ -375,7 +382,7 @@ func TestRunArmedCollectFailureSurfaces(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: failCollector},
-		Options{DryRun: false}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "collector exploded") {
 		t.Fatalf("armed collect failure = %v, want the collector error surfaced", err)
 	}
@@ -412,7 +419,7 @@ func TestRunDryRunTailWriteFailureSurfaces(t *testing.T) {
 	out := &tailFailWriter{}
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err == nil {
 		t.Fatal("dry-run with failing verdict write succeeded, want the write error")
 	}
@@ -427,25 +434,27 @@ func TestRunStrangerStoreRefuses(t *testing.T) {
 	probe := Probe(func(context.Context, string) (Mode, string, error) {
 		return ModeReadonly, "", nil
 	})
-	for _, dry := range []bool{true, false} {
+	for _, tc := range []struct {
+		armed proof.ArmedRun
+		want  string
+	}{
+		// A preview cannot establish pairing: nothing served
+		// refuses at the read, before any proof language.
+		{nil, "no sentinel served"},
+		{flagArmed(), "does not share"},
+	} {
 		var collected [][]string
 		var out strings.Builder
 		stageConfig(t, "http://registry:5000", cfg)
 		err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{t.TempDir()}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-			Options{DryRun: dry}, Accepts{})
-		want := "does not share"
-		if dry {
-			// A preview cannot establish pairing: nothing served
-			// refuses at the read, before any proof language.
-			want = "no sentinel served"
-		}
+			Options{Armed: tc.armed}, Accepts{})
 		if err == nil {
-			t.Fatalf("dry=%v gc on a stranger's store succeeded, want refusal", dry)
-		} else if !strings.Contains(err.Error(), want) {
-			t.Errorf("dry=%v refusal names no cause: %v", dry, err)
+			t.Fatalf("armed=%v gc on a stranger's store succeeded, want refusal", tc.armed != nil)
+		} else if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("armed=%v refusal names no cause: %v", tc.armed != nil, err)
 		}
 		if len(collected) != 0 {
-			t.Errorf("dry=%v collector ran %v on unproven ground, want no invocation", dry, collected)
+			t.Errorf("armed=%v collector ran %v on unproven ground, want no invocation", tc.armed != nil, collected)
 		}
 	}
 }
@@ -476,7 +485,7 @@ func TestRunRefusesUnattributableLineage(t *testing.T) {
 			var out strings.Builder
 			stageConfig(t, "http://registry:5000", cfg)
 			err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&collected)},
-				Options{}, Accepts{})
+				Options{Armed: flagArmed()}, Accepts{})
 			if err == nil {
 				t.Fatalf("gc over %s lineage succeeded, want refusal", tc.name)
 			} else if !strings.Contains(err.Error(), tc.want) {
@@ -522,7 +531,7 @@ func TestRunStaleSnapshotRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err = Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: frozen, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: false}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("gc on a stale snapshot succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
@@ -544,7 +553,7 @@ func TestRunWarnsOnReleaseFailure(t *testing.T) {
 			Clock: stubClock{}, Report: func(event.Event) {},
 			Probe:   Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
 			Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("release-failed run: %v", err)
 	}
@@ -582,7 +591,7 @@ func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: flipProbe(), Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "mode changed") {
 		t.Fatalf("flipped run = %v, want the mode-change refusal", err)
 	} else if !strings.Contains(err.Error(), "--accept-mode-flip") {
@@ -591,7 +600,7 @@ func TestRunFlipRefusesUnlessModeFlipAccepted(t *testing.T) {
 	out.Reset()
 	stageConfig(t, "http://registry:5000", cfg)
 	if err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: flipProbe(), Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{ModeFlip: acceptRisk()}); err != nil {
+		Options{}, Accepts{ModeFlip: acceptRisk()}); err != nil {
 		t.Fatalf("mode-flip-accepted run: %v", err)
 	}
 	if !strings.Contains(out.String(), "WARNING") {
@@ -612,7 +621,7 @@ func TestRunDryRunRefusesWithoutSentinel(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "no sentinel served") {
 		t.Fatalf("dry-run on silence = %v, want the no-shared-store refusal", err)
 	}
@@ -636,7 +645,7 @@ func TestRunDryRunSkipsProof(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
@@ -683,7 +692,7 @@ func TestRunWritableRefusalMintsNothing(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: false}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "gateway") || !strings.Contains(err.Error(), "--accept-unfenced") {
 		t.Fatalf("writable run = %v, want the gateway refusal with override", err)
 	}
@@ -720,7 +729,7 @@ func TestRunDeadPostProbeWarns(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("dead-post-probe run: %v", err)
 	}
@@ -796,7 +805,7 @@ func TestRunForeignLineageRefusesBeforeMint(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&collected)},
-		Options{}, acceptAll())
+		Options{Armed: flagArmed()}, acceptAll())
 	if err == nil {
 		t.Fatal("gc over a foreign lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "foreign lineage") {
@@ -831,7 +840,7 @@ func TestRunSilenceEstablishesPairing(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&collected)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("first run on silence: %v", err)
 	}
@@ -864,7 +873,7 @@ func TestRunClockSkewRefusesUnlessAccepted(t *testing.T) {
 	var refused [][]string
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{off: time.Hour}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&refused)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("skewed clock run succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "clock skew") {
@@ -876,7 +885,7 @@ func TestRunClockSkewRefusesUnlessAccepted(t *testing.T) {
 	out.Reset()
 	stageConfig(t, "http://registry:5000", cfg)
 	err = Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{off: time.Hour}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&accepted)},
-		Options{}, Accepts{ClockSkew: acceptRisk()})
+		Options{Armed: flagArmed()}, Accepts{ClockSkew: acceptRisk()})
 	if err != nil {
 		t.Fatalf("skew-accepted run: %v", err)
 	}
@@ -922,7 +931,7 @@ func TestRunStaleRollbackRefusesArmed(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&collected)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("gc over a rollback succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "older than tracked") {
@@ -956,7 +965,7 @@ func TestRunRollbackAcceptWarns(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&collected)},
-		Options{}, Accepts{Rollback: acceptRisk()})
+		Options{Armed: flagArmed()}, Accepts{Rollback: acceptRisk()})
 	if err != nil {
 		t.Fatalf("rollback-accepted run: %v", err)
 	}
@@ -984,7 +993,7 @@ func TestRunEstablishPairedWarns(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(ctx, &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&collected)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("re-establish: %v", err)
 	}
@@ -1023,7 +1032,7 @@ func TestRunNTPUnreachableWarnsProceeds(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{err: errClockUnreachable}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&collected)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("run with unreachable NTP: %v", err)
 	}
@@ -1084,7 +1093,7 @@ func TestRunLockUnreadableRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable lock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "store lock unreadable") {
@@ -1101,7 +1110,7 @@ func TestRunMissingBinaryRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg, "/nonexistent-registry")
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with missing binary succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "registry binary not found") {
@@ -1122,7 +1131,7 @@ func TestRunS3ConfigRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", s3cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{t.TempDir()}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with s3 config succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "no filesystem storage root") {
@@ -1139,7 +1148,7 @@ func TestRunAcquireFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with dead lock backend succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "redis unreachable") {
@@ -1156,7 +1165,7 @@ func TestRunContendedLockRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&collected)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run under a held lock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "another gc run holds the lock") {
@@ -1179,7 +1188,7 @@ func TestRunDeadPreProbeRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: dead, Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if !errors.Is(err, errProbeDead) {
 		t.Fatalf("dead-probe run = %v, want the probe error surfaced", err)
 	}
@@ -1201,7 +1210,7 @@ func TestRunReadonlyDeadCacheCollects(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", redisCfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(&collected)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("run with dead cache refused: %v", err)
 	}
@@ -1219,7 +1228,7 @@ func TestRunSkewWarnWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{off: time.Hour}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{ClockSkew: acceptRisk()})
+		Options{Armed: flagArmed()}, Accepts{ClockSkew: acceptRisk()})
 	if err == nil {
 		t.Fatal("skewed accepted run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
@@ -1234,7 +1243,7 @@ func TestRunUnreachableWarnWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{err: errClockUnreachable}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
@@ -1253,7 +1262,7 @@ func TestRunTrackedStateFailureRefuses(t *testing.T) {
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: rows, API: fileAPI{root},
 		Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable rows succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "tracked state unreadable") {
@@ -1271,7 +1280,7 @@ func TestRunLineageFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unreadable lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unreadable") {
@@ -1289,7 +1298,7 @@ func TestRunLineageWriteFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: lock, Ids: ids, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with unrecordable lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "lineage unrecordable") {
@@ -1306,7 +1315,7 @@ func TestRunMintRecordFailureRefuses(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: lock, Rec: rec, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("run with failing keep-N log succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "generation went untracked") {
@@ -1333,7 +1342,7 @@ func TestRunStaleWarnWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(ctx, w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{Rollback: acceptRisk()})
+		Options{Armed: flagArmed()}, Accepts{Rollback: acceptRisk()})
 	if err == nil {
 		t.Fatal("stale accepted run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
@@ -1352,7 +1361,7 @@ func TestRunEstablishWarnWriteFailureSurfaces(t *testing.T) {
 	w := errWriter{errTestStoreDown}
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(ctx, w, Deps{Lock: lock, Rec: lock, Ids: lock, Rows: lock, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: readonlyProbe(), Collect: okCollector(nil)},
-		Options{}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("re-establish with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
@@ -1384,7 +1393,7 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	if err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(e event.Event) { stages = append(stages, e.Stage) }, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: false}, Accepts{}); err != nil {
+		Options{Armed: flagArmed()}, Accepts{}); err != nil {
 		t.Fatalf("armed run: %v", err)
 	}
 	if _, err := os.Stat(ghost); !os.IsNotExist(err) {
@@ -1405,7 +1414,7 @@ func TestRunPrunesSkeletonArmedOnly(t *testing.T) {
 	var preview strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	if err := Run(context.Background(), &preview, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{}); err != nil {
+		Options{}, Accepts{}); err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
 	if _, err := os.Stat(ghost); err != nil {
@@ -1442,7 +1451,7 @@ func TestRunPruneFailureWarnsCollectStands(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	if err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(e event.Event) { stages = append(stages, e.Stage) }, Probe: probe, Collect: okCollector(&collected)},
-		Options{DryRun: false}, Accepts{}); err != nil {
+		Options{Armed: flagArmed()}, Accepts{}); err != nil {
 		t.Fatalf("prune-failed run: %v", err)
 	}
 	if !strings.Contains(out.String(), "empty-dir cleanup incomplete") {

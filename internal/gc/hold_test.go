@@ -52,7 +52,7 @@ func TestArmedCollectHoldsFenceAroundCollect(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Fence: stubFencer{events: &events}, Probe: probe, Collect: collectWithEvents(&events)},
-		Options{DryRun: false}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestPreviewNeverHoldsFence(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Probe: probe, Collect: collectWithEvents(&events)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("stub-port run: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestArmedCollectRefusesWhenFenceFails(t *testing.T) {
 	var out strings.Builder
 	stageConfig(t, "http://registry:5000", cfg)
 	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fileAPI{root}, Clock: stubClock{}, Report: func(event.Event) {}, Fence: stubFencer{events: &events, holdErr: errFenceBoom}, Probe: probe, Collect: collectWithEvents(&events)},
-		Options{DryRun: false}, Accepts{})
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("broken-fence run = nil, want refusal")
 	}

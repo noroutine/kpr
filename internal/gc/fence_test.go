@@ -15,7 +15,7 @@ import (
 func TestFenceForBackendWiresFileStore(t *testing.T) {
 	var out strings.Builder
 	dir := t.TempDir()
-	fenced := FenceForBackend("file", dir, store.NewMemStore(), nil, false, &out)
+	fenced := FenceForBackend("file", dir, store.NewMemStore(), nil, flagArmed(), &out)
 	ctl, ok := fenced.(fence.Control)
 	if !ok {
 		t.Fatalf("file backend fence = %T, want a fence.Control", fenced)
@@ -35,7 +35,7 @@ func TestFenceForBackendWiresFileStore(t *testing.T) {
 func TestFenceForBackendWarnsWhenUnshared(t *testing.T) {
 	st := store.NewMemStore()
 	var armed strings.Builder
-	if fenced := FenceForBackend("redis", "", st, nil, false, &armed); fenced != nil {
+	if fenced := FenceForBackend("redis", "", st, nil, flagArmed(), &armed); fenced != nil {
 		t.Errorf("redis backend fence = %v, want nil", fenced)
 	}
 	if !strings.Contains(armed.String(), "unfenced") {
@@ -43,7 +43,7 @@ func TestFenceForBackendWarnsWhenUnshared(t *testing.T) {
 	}
 
 	var preview strings.Builder
-	if fenced := FenceForBackend("redis", "", st, nil, true, &preview); fenced != nil {
+	if fenced := FenceForBackend("redis", "", st, nil, nil, &preview); fenced != nil {
 		t.Errorf("preview fence = %v, want nil", fenced)
 	}
 	if preview.Len() != 0 {
@@ -51,7 +51,7 @@ func TestFenceForBackendWarnsWhenUnshared(t *testing.T) {
 	}
 
 	var broken strings.Builder
-	if fenced := FenceForBackend("", "", st, errors.New("boom"), false, &broken); fenced != nil {
+	if fenced := FenceForBackend("", "", st, errors.New("boom"), flagArmed(), &broken); fenced != nil {
 		t.Errorf("broken backend fence = %v, want nil", fenced)
 	}
 	if !strings.Contains(broken.String(), "unfenced") {

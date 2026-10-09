@@ -27,7 +27,7 @@ func TestRunRefusesLockedStore(t *testing.T) {
 			Clock: stubClock{}, Report: func(event.Event) {},
 			Probe:   Probe(func(context.Context, string) (Mode, string, error) { return ModeReadonly, "", nil }),
 			Collect: okCollector(&collected)},
-		Options{DryRun: true}, Accepts{})
+		Options{}, Accepts{})
 	if err == nil || !strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("locked run = %v, want the locked refusal", err)
 	}

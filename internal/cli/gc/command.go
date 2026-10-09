@@ -58,13 +58,12 @@ revokes.`,
 		// of Armed. The adapter feeds raw readings (flag var,
 		// config value); minting stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
-		dryRun := proof.Unarmed(armedRun)
 		accepts := gcAccepts(armedRun)
 		backend, dir, berr := deps.ResolveStoreBackend()
-		fencer := gcrun.FenceForBackend(backend, dir, d.Store, berr, dryRun, out)
+		fencer := gcrun.FenceForBackend(backend, dir, d.Store, berr, armedRun, out)
 		return gcrun.Run(cmd.Context(), out, wirePorts(d, fencer), gcrun.Options{
 			DeleteUntagged: gcDeleteUntagged,
-			DryRun:         dryRun,
+			Armed:          armedRun,
 		}, accepts)
 	},
 }
