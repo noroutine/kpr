@@ -18,22 +18,19 @@ var (
 	backfillOutput         string
 )
 
-// backfillLong is the command's help: what the run adopts, what
-// it refuses on, and where the live report goes. Dense on
-// purpose — every clause names a behavior the tests pin.
+// backfillLong is the command's help: what the run adopts, then
+// the preview default and each refusal with its override. Dense
+// on purpose — every clause names a behavior the tests pin.
 func backfillLong() string {
-	return `Adopts tags the receiver never saw: enumerates the catalog ` +
-		`(repo-glob scopes it, empty means all), HEADs every tag's ` +
-		`digest, records the absent ones with link mtimes — signed ` +
-		`kpr-backfill, never due. Tracked rows are no-ops; mid-run ` +
-		`vanishes skip by count. Gates per run on the served ` +
-		`generation without minting: stranger stores refuse, a ` +
-		`restored generation refuses armed unless --accept-rollback ` +
-		`(a preview warns through). A locked store refuses naming ` +
-		`the ceremony. Preview by default; --no-dry-run records. ` +
-		`Two lines repaint live on a terminal; warnings break above ` +
-		`onto their own lines. The per-tag stream goes to --output ` +
-		`(- for stdout, a path for a file) and is otherwise discarded.`
+	return `Adopt tags the receiver never saw into tracked rows.
+
+Preview by default; --no-dry-run records for real. Enumerates
+the catalog (repo-glob scopes it, empty means all), HEADs every
+tag's digest, records the absent ones — signed kpr-backfill,
+never due. A stranger store refuses; a restored generation
+refuses armed unless --accept-rollback. A locked store refuses
+naming the ceremony. The per-tag stream goes to --output
+(- for stdout, a path for a file) and is otherwise discarded.`
 }
 
 var storeBackfillCmd = &cobra.Command{
