@@ -276,9 +276,10 @@ func runDiscardPlan(ctx context.Context, w io.Writer, s store.Store) error {
 	return err
 }
 
-var reapNoDryRun bool
-
-var reapExclude []string
+var (
+	reapNoDryRun bool
+	reapExclude  []string
+)
 
 var reapCmd = &cobra.Command{
 	Use:   "reap [policy]",
@@ -318,8 +319,10 @@ var planDiscardCmd = &cobra.Command{
 	},
 }
 
-var sweepNoDryRun bool
-var sweepOutput string
+var (
+	sweepNoDryRun bool
+	sweepOutput   string
+)
 
 var sweepCmd = &cobra.Command{
 	Use:   "sweep",

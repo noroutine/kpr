@@ -7,19 +7,15 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
-var gcDeleteUntagged bool
-
-var gcAcceptBlobCache bool
-
-var gcAcceptUnfenced bool
-
-var gcAcceptClockSkew bool
-
-var gcAcceptRollback bool
-
-var gcAcceptModeFlip bool
-
-var gcNoDryRun bool
+var (
+	gcDeleteUntagged  bool
+	gcAcceptBlobCache bool
+	gcAcceptUnfenced  bool
+	gcAcceptClockSkew bool
+	gcAcceptRollback  bool
+	gcAcceptModeFlip  bool
+	gcNoDryRun        bool
+)
 
 var Cmd = &cobra.Command{
 	Use:   "gc",
