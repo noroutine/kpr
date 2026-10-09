@@ -18,22 +18,28 @@ var (
 	backfillOutput         string
 )
 
+// backfillLong is the command's help: what the run adopts, what
+// it refuses on, and where the live report goes. Dense on
+// purpose — every clause names a behavior the tests pin.
+func backfillLong() string {
+	return `Adopts tags the receiver never saw: enumerates the catalog ` +
+		`(repo-glob scopes it, empty means all), HEADs every tag's ` +
+		`digest, records the absent ones with link mtimes — signed ` +
+		`kpr-backfill, never due. Tracked rows are no-ops; mid-run ` +
+		`vanishes skip by count. Gates per run on the served ` +
+		`generation without minting: stranger stores refuse, a ` +
+		`restored generation refuses armed unless --accept-rollback ` +
+		`(a preview warns through). A locked store refuses naming ` +
+		`the ceremony. Preview by default; --no-dry-run records. ` +
+		`Two lines repaint live on a terminal; warnings break above ` +
+		`onto their own lines. The per-tag stream goes to --output ` +
+		`(- for stdout, a path for a file) and is otherwise discarded.`
+}
+
 var storeBackfillCmd = &cobra.Command{
 	Use:   "backfill [repo-glob]",
 	Short: "Adopt pre-kpr tags into tracked rows",
-	Long: `One-shot import for tags the receiver never saw: enumerates
-the catalog (repo-glob scopes it, empty means all), HEADs every
-tag's digest, and records the absent ones with their link mtimes
-— signed kpr-backfill, never due. Tracked rows are no-ops;
-mid-run vanishes skip by count. Gates per run on the served
-generation without minting: stranger stores refuse, a restored
-generation refuses armed unless --accept-rollback (a preview
-warns through). A locked store refuses naming the ceremony.
-Preview by default; --no-dry-run records. Two lines repaint
-live on a terminal (what the catalog names, what the store
-holds against it); mid-run warnings break above them onto
-their own lines. The per-tag stream goes to --output (- for
-stdout, a path for a file) and is otherwise discarded.`,
+	Long:  backfillLong(),
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
