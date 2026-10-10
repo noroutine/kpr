@@ -59,7 +59,6 @@ reference pages above. Each `X.md` states what ships today; its
 | [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | filling missing digests on tracked rows |
 | [CLI_FUTURE](CLI_FUTURE.md) | one subpackage per command |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |
-| [SENTINELS_FUTURE](SENTINELS_FUTURE.md) | backfill snapshot detection |
 
 Deferred by decision, kept so the reasoning survives:
 

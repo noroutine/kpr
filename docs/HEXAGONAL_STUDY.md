@@ -43,10 +43,14 @@ Landed:
 - [ba7e27f](https://nrtn.dev/catalyst/kpr/commit/ba7e27ff71b9bbd67cda39feefeed560b05e9fd2) — `Untag`, cli delegates, duplicate dies.
 - [4d06efb](https://nrtn.dev/catalyst/kpr/commit/4d06efb5577f1e7000267787ae38a78c1e664f66) — `Untrack` (bare `rm` delegates, journals `untracked`), partial-output fix, row-drop-failure continuation.
 
-Follow-up (open): `Adopt`'s `pruneSentinelRows` deletes rows
-past the sweeper — check whether epoch pruning belongs in
-`Sweeper` beside `Untrack`, or stands as the ceremony's own
-explicit exception.
+Follow-up (closed): `Adopt`'s re-pair deletes past the
+sweeper and stands as the ceremony's own explicit exception,
+recorded beside the rule in [ARCHITECTURE.md](ARCHITECTURE.md).
+The exception now also untags: re-pair walks the catalog's
+sentinel namespace, deletes every fossil tag (served digest's
+own tags stay), then prunes rows, then stamps — each gate
+refusing before the next writes, preview narrating the same
+evaluation arming executes.
 
 Separate outcome — serve/sweep split:
 

@@ -37,7 +37,7 @@ flowchart LR
     subgraph serve["<b>kpr serve</b> · long-running"]
       direction TB
       edge{{"<b>edge proxy</b> :5000<br/>forwards byte-identical<br/>HOLD / DENY fence"}} ~~~
-      recv{{"<b>receiver</b> :8080<br/>records pushed rows"}} ~~~
+      recv{{"<b>receiver</b> :8080<br/>push records · delete drops"}} ~~~
       console["<b>console</b> :9300<br/>counters · plan · activity"]
     end
 
@@ -99,6 +99,12 @@ Deletes have one owner: the sweeper is the only deleter of
 registry manifests and tracked rows — `store rm` calls into it
 (`Sweeper.Untrack` for rows, `Sweeper.Untag` for manifests, a
 specific sweep going around the plan) instead of deleting past it.
+One documented exception: `store adopt`'s re-pair cut (untagging
+the old epoch's fossil sentinel tags, then pruning its rows).
+Adopt takes on a foreign store, not a foreign registry, and runs
+pre-unlock where the sweeper's proofs cannot exist — the cut is
+operator fiat with no verdict to exercise, so there is nothing
+to delegate. Full story in [ADOPT.md](ADOPT.md).
 The CLI splits along the decision line:
 `reap` marks, `sweep` runs, `plan` edits, `gc` reclaims. `reap`
 evaluates the policies (reading candidates from state, and the catalog

@@ -1,8 +1,23 @@
 # Dry-run
 
 Dry-run is the default mode, not a flag. Every mutating command
-previews unless explicitly armed for that invocation. Future work
-lives in [DRY_RUN_FUTURE.md](DRY_RUN_FUTURE.md).
+previews unless explicitly armed for that invocation.
+
+## Rule
+
+Unarmed runs as close as possible to armed minus the destructive
+operations: one code path, same gates, same verdicts, same
+counters, would-tense narration — only the mutating call takes
+the `Armed` proof. An early armed/unarmed fork that reimplements
+evaluation is the smell; the proof-gated single mutation is the
+shape.
+
+Two deliberate exceptions. `store unlock` never previews (the
+mint is the command; there is no evaluation to rehearse). And
+the stock collector's `--dry-run` is a foreign option we pass
+through, not our path: `kpr gc` previews its own removals
+through the rule above, while the mark walk is the binary's —
+our promises end at the flag.
 
 ## Terminology
 
@@ -30,6 +45,8 @@ foreign option we pass through.
   Same gates, same verdicts, same counters — the mutating call
   alone is gated. A preview that skips evaluation lies about what
   arming would do; a preview that evaluates differently doubly so.
+  An early armed/unarmed fork that reimplements evaluation is the
+  smell; the proof-gated single mutation is the shape.
 - **Previews narrate in the would-tense.** `would sweep` /
   `would record` / `would skip`, plus how to arm. Armed runs
   narrate in the past tense. Counts match across modes:
@@ -40,11 +57,16 @@ foreign option we pass through.
   registry delete succeeds) stay armed-only — the preview says
   what it would attempt, not what would succeed.
 
+Acceptance per operation: unarmed and armed summaries agree
+field-for-field on the same state (modulo outcomes unknowable
+without mutating), and the per-row preview log greps line-by-line
+against the armed one in the would-tense.
+
 ## Overrides
 
 | Signal | Scope | Source |
 |---|---|---|
-| `--no-dry-run` | one invocation of gc, reap, sweep, `store backfill` | flag |
+| `--no-dry-run` | one invocation of gc, reap, sweep, `store backfill`, `store adopt` | flag |
 | `KPR_CLI_NO_DRY_RUN=true` | every one-shot in the process | env |
 
 `sweep --output` writes the per-row log (would-tense in preview)

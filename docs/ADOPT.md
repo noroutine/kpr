@@ -24,10 +24,13 @@ for every pairing the verdict refuses to do on its own.
 - **Unpaired store** follows the served identity (or a pinned
   `IDENT`, which must match it) and takes the served generation
   as baseline.
-- **Store paired elsewhere** re-pairs and forgets the old epoch's
-  sentinel rows (deletes them from the store, not from the
-  registry — abandoned generations stay served until gc collects
-  them).
+- **Store paired elsewhere** re-pairs and cuts the old epoch:
+  every served sentinel tag but the served digest's own is
+  untagged from the registry (the floater and the served
+  generation's tag stay — they are the proof), then the old
+  epoch's sentinel rows are pruned from the store, then the
+  identity is stamped. Each step refuses before the next writes.
+  Untagged fossils fall to the next `gc --delete-untagged`.
 - **Already paired to the served identity** refreshes the
   baseline to the served generation, keeping the recorded
   adoption time.
@@ -53,8 +56,14 @@ for every pairing the verdict refuses to do on its own.
 
 Adopt pairs; it stamps no rows and never unlocks —
 `kpr store unlock` always follows to open writes. Only re-pairing
-forgets rows, and only the old epoch's sentinel ones (other repos
-are untouched; the registry keeps serving them until gc). The served
+cuts the epoch: untag, then prune (only rows under the sentinel
+namespace, the same scope the untag walks; other repos are
+untouched), then stamp. The re-pair deletes
+directly instead of through the sweeper — the documented
+exception to sweeper-owns-deletes: adopt takes on a foreign
+store, not a foreign registry, and runs pre-unlock where the
+sweeper's proofs cannot exist. Adopt previews by default; arm
+with `--no-dry-run`. The served
 generation stays untracked until the next armed `gc`
 adopt-records it (`backfill` would record it as an absent tag
 too), so the trust word reads `behind` in between — lag on a
