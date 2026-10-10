@@ -15,7 +15,8 @@ import (
 // is the TTL non-matching tags fall back to; zero means no expiry, so
 // a normal :latest is untouched. MaxTTL clamps every parsed TTL.
 // HashTTL is the default for bare commit hashes (no -ttl suffix): 48h
-// covers next-day triage where 24h proved too short.
+// of implied TTL before they become eligible; 24h expired builds
+// too fast.
 const (
 	DefaultTTL = time.Duration(0)
 	MaxTTL     = 30 * 24 * time.Hour
@@ -23,22 +24,55 @@ const (
 )
 
 // ttlRe matches TTL tags in two forms: a bare ttl.sh-style number plus
-// one unit (10m), or a suffixed tag — any alphanumeric+hyphen stem of
+// one unit (10m), or a suffixed tag — an alphanumeric+hyphen stem of
 // any length plus a -ttl suffix (abc1234-10m, myapp-10m). The stem
-// group is non-capturing so submatch indices never move. The suffix
-// is the explicit intent, so the stem carries no meaning: hex-only
-// scoping was dropped once CI tags stopped looking like git hashes.
+// opens with an alphanumeric, never a hyphen: leading hyphens are
+// refused, not read as negatives ("-14m" defaults to keep — and
+// docker tags cannot open with one either). The stem group is
+// non-capturing so submatch indices never move. The suffix is the
+// explicit intent, so the stem carries no meaning: hex-only scoping
+// was dropped once CI tags stopped looking like git hashes.
 // Bare tags (no suffix) still go through isBareHash below.
-var ttlRe = regexp.MustCompile(`^(?:[A-Za-z0-9-]*-)?(\d+)([smhdw])` + `$`)
+var ttlRe = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9-]*-)?(\d+)([smhdw])` + `$`)
 
 // hashRe matches a bare commit hash: lowercase hex, at least six
-// chars. The letter check lives in isBareHash: hex without a single
-// a-f is a build number until proven otherwise.
+// chars. The letter check lives in isBareHash: hex with a single
+// a-f reads as a hash outright, all-digit hex only when it is not
+// date-like.
 var hashRe = regexp.MustCompile(`^[0-9a-f]{6,}$`)
 
+// dateFloor and dateCeil bound date-like tags: Docker's first public
+// release month to a century out. An all-digit tag outside the
+// window cannot be a release date, so it reads as a hash.
+var (
+	dateFloor = time.Date(2013, 3, 1, 0, 0, 0, 0, time.UTC)
+	dateCeil  = dateFloor.AddDate(100, 0, 0)
+)
+
+// isDateLike reports whether tag is YYYYMMDD with a real calendar
+// date inside the Docker-era window, plus up to two DNS-serial
+// counter digits. time.Parse rejects impossible months and days
+// (month 13, Feb 30); the window rejects years like 1968.
+func isDateLike(tag string) bool {
+	if len(tag) != 8 && len(tag) != 9 && len(tag) != 10 {
+		return false
+	}
+	for i := 0; i < len(tag); i++ {
+		if tag[i] < '0' || tag[i] > '9' {
+			return false
+		}
+	}
+	d, err := time.Parse("20060102", tag[:8])
+	if err != nil {
+		return false
+	}
+	return !d.Before(dateFloor) && !d.After(dateCeil)
+}
+
 // isBareHash reports whether tag is a commit hash without an explicit
-// -ttl suffix: hex of at least six with at least one a-f letter, so
-// all-digit tags (dates, build numbers) default to keep.
+// -ttl suffix: hex of at least six with at least one a-f letter, or
+// all-digit hex that is not date-like. Date-like tags default to
+// keep; the rest of number-only is of no interest and collects.
 func isBareHash(tag string) bool {
 	if !hashRe.MatchString(tag) {
 		return false
@@ -48,7 +82,7 @@ func isBareHash(tag string) bool {
 			return true
 		}
 	}
-	return false
+	return !isDateLike(tag)
 }
 
 // unitDur maps a TTL tag unit to its duration.

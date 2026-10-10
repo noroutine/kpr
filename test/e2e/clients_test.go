@@ -65,7 +65,7 @@ func TestMultiarchIndexSwept(t *testing.T) {
 	}
 
 	s.ReapArmed()
-	s.ExpectDue("test/multi", "24h", "ttl:24h0m0s elapsed")
+	s.ExpectDue("test/multi", "24h", "ttl:24h elapsed")
 
 	sum := s.SweepArmed()
 	if sum.Performed != 1 || sum.Failed != 0 {

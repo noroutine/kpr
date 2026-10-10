@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"sort"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 )
 
 // latestTag is spared by every collecting policy and never counts
@@ -63,14 +65,15 @@ func SelectTTL(rows []Row, now time.Time) []Row {
 			continue
 		}
 		if !r.PushedAt.Add(ttl).After(now) {
-			due = append(due, mark(r, fmt.Sprintf("ttl:%s elapsed", ttl)))
+			due = append(due, mark(r, fmt.Sprintf("ttl:%s elapsed", human.Dur(ttl))))
 		}
 	}
 	return due
 }
 
 // SelectHashes marks bare commit hashes past the hash default: pushes
-// with no TTL encoding at all, kept 48h for next-day triage. Unknown
+// with no TTL encoding at all, eligible after 48h of implied TTL.
+// Unknown
 // age defaults keep, exactly like every other age-anchored selector.
 func SelectHashes(rows []Row, now time.Time) []Row {
 	var due []Row
@@ -82,7 +85,7 @@ func SelectHashes(rows []Row, now time.Time) []Row {
 			continue
 		}
 		if !r.PushedAt.Add(HashTTL).After(now) {
-			due = append(due, mark(r, fmt.Sprintf("ttl:%s elapsed", HashTTL)))
+			due = append(due, mark(r, fmt.Sprintf("ttl:%s elapsed", human.Dur(HashTTL))))
 		}
 	}
 	return due
@@ -100,7 +103,7 @@ func SelectStaleUploads(rows []Row, now time.Time) []Row {
 			continue
 		}
 		if now.Sub(r.PushedAt) > StaleUploadMaxAge {
-			due = append(due, mark(r, fmt.Sprintf("partial:older than %s", StaleUploadMaxAge)))
+			due = append(due, mark(r, fmt.Sprintf("partial:older than %s", human.Dur(StaleUploadMaxAge))))
 		}
 	}
 	return due
@@ -128,7 +131,7 @@ func SelectUntagged(rows []Row, catalog map[string][]string, now time.Time) []Ro
 		if r.PushedAt.IsZero() || now.Sub(r.PushedAt) <= UntaggedGrace {
 			continue
 		}
-		due = append(due, mark(r, fmt.Sprintf("untagged:past grace %s", UntaggedGrace)))
+		due = append(due, mark(r, fmt.Sprintf("untagged:past grace %s", human.Dur(UntaggedGrace))))
 	}
 	return due
 }

@@ -10,6 +10,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
@@ -158,7 +159,7 @@ func humanAge(at time.Time) string {
 	if d < 0 {
 		d = 0
 	}
-	return d.Round(time.Second).String() + " ago"
+	return human.Dur(d.Round(time.Second)) + " ago"
 }
 
 // clockSnapshot voices the configured time transport and the live

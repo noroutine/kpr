@@ -3,6 +3,8 @@ package policy
 import (
 	"testing"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 )
 
 var sliceNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
@@ -77,7 +79,7 @@ func TestSelectStaleUploadsNeedsMissingDigestAndAge(t *testing.T) {
 	if len(got) != 1 || got[0].Tag != "wip" {
 		t.Fatalf("selected %v, want [wip]", got)
 	}
-	if !got[0].Due || got[0].Reason != "partial:older than 24h0m0s" {
+	if !got[0].Due || got[0].Reason != "partial:older than "+human.Dur(StaleUploadMaxAge) {
 		t.Errorf("stale upload reason = %q, want the 24h tuning named: %+v", got[0].Reason, got[0])
 	}
 }
@@ -141,7 +143,7 @@ func TestSelectUntaggedNeedsCatalogAbsenceAndGrace(t *testing.T) {
 	if len(got) != 1 || got[0].Tag != "gone" {
 		t.Fatalf("selected %v, want [gone]", got)
 	}
-	if !got[0].Due || got[0].Reason != "untagged:past grace 168h0m0s" {
+	if !got[0].Due || got[0].Reason != "untagged:past grace "+human.Dur(UntaggedGrace) {
 		t.Errorf("untagged reason = %q, want the 168h tuning named: %+v", got[0].Reason, got[0])
 	}
 }

@@ -267,8 +267,8 @@ func TestReapDryRunRendersAllRows(t *testing.T) {
 		t.Fatalf("runReap: %v", err)
 	}
 	body := out.String()
-	aardvark := strings.Index(body, "aardvark:5m — ttl:5m0s elapsed\n")
-	scratch := strings.Index(body, "scratch:10m — ttl:10m0s elapsed\n")
+	aardvark := strings.Index(body, "aardvark:5m — ttl:5m elapsed\n")
+	scratch := strings.Index(body, "scratch:10m — ttl:10m elapsed\n")
 	trailer := strings.Index(body, "(dry-run: nothing marked")
 	if aardvark < 0 || scratch < 0 || trailer < 0 {
 		t.Fatalf("dry-run missing rows or trailer:\n%s", body)
@@ -290,7 +290,7 @@ func TestReapDryRunRendersFullLine(t *testing.T) {
 	if err := runReap(cliCtx(), &out, s, liveRegistryClient(t), nil, nil, cliNow, "all"); err != nil {
 		t.Fatalf("runReap: %v", err)
 	}
-	if !strings.Contains(out.String(), "scratch:10m — ttl:10m0s elapsed\n") {
+	if !strings.Contains(out.String(), "scratch:10m — ttl:10m elapsed\n") {
 		t.Errorf("dry-run line not exact:\n%s", out.String())
 	}
 }
