@@ -96,15 +96,16 @@ func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
 	if s.Edge != nil {
 		k.EdgeOpen = true
 		k.EdgeDeny, k.EdgeHeld = s.Edge.Snapshot()
-		// Would-deny, not just last-denied: a fresh lock with no
-		// traffic yet still reads deny, so the operator sees the
-		// posture before the first refused push, not after. An
+		// Would-deny, not just last-denied: the live lock reading
+		// is the answer whenever a store is present, so a fresh
+		// lock reads deny before the first refused push and a
+		// fresh unlock clears without waiting for traffic. An
 		// unreadable marker reads deny — the fence refuses then
-		// too.
+		// too. The Snapshot value survives only where no store
+		// exists to ask.
 		if s.Store != nil {
-			if unlocked, err := s.Store.IsUnlocked(ctx); err != nil || !unlocked {
-				k.EdgeDeny = true
-			}
+			unlocked, err := s.Store.IsUnlocked(ctx)
+			k.EdgeDeny = err != nil || !unlocked
 		}
 	}
 	k.RegistryURL, k.EdgeAddr = s.RegistryURL, s.EdgeAddr

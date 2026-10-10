@@ -72,8 +72,11 @@ type Gate struct {
 
 	mu          sync.Mutex
 	lastDeny    bool
-	lastHeld    bool
 	lastExpired bool
+	// lastHeld suppresses duplicate engage/release ring events
+	// only — it is not state. Snapshot reads the lease file;
+	// wiring this back into it reintroduces the stale card.
+	lastHeld bool
 }
 
 // lease opens the HOLD lease over the gate's dir: the file
@@ -181,13 +184,17 @@ func (g *Gate) now() time.Time {
 
 // Snapshot reports the fence's current posture for the management
 // console: whether mutating traffic is denied (locked store) and
-// whether a HOLD lease is pinning it. Level-triggered state, not
-// the edge-triggered ring — the console shows what IS, the ring
-// shows what CHANGED.
+// whether a HOLD lease is pinning it. Deny is the last evaluation
+// (the gate learns locks from traffic); held reads the live lease
+// file, never the last flip — a quiet edge must still show a hold
+// gc engaged, and a released hold must read free with no traffic
+// after. The console shows what IS, the ring shows what CHANGED.
 func (g *Gate) Snapshot() (deny, held bool) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.lastDeny, g.lastHeld
+	deny = g.lastDeny
+	g.mu.Unlock()
+	_, held = g.lease().HeldUntil(g.now())
+	return deny, held
 }
 
 // flipHeld/flipDeny emit edge-triggered: one event plus one ring

@@ -512,25 +512,50 @@ func TestGateEmitsOnDenyFlips(t *testing.T) {
 	}
 }
 
-// Snapshot is the console's level reading of the edge-triggered
-// fence: deny/held reflect the last flip, whatever drove it. If
-// this fails, the console reports a posture the fence doesn't hold.
-func TestGateSnapshotTracksFlips(t *testing.T) {
-	g := &Gate{Store: store.NewMemStore()}
+// Snapshot is the console's level reading: deny reflects the last
+// flip, held reads the live lease file — never the last flip. If
+// this fails, a quiet edge reports "no hold lease" mid-collect (or
+// a stale hold after release) while the ring tells the truth.
+func TestGateSnapshotHeldReadsLiveLease(t *testing.T) {
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	g := &Gate{Store: store.NewMemStore(), Dir: dir, Now: func() time.Time { return now }}
 	if deny, held := g.Snapshot(); deny || held {
 		t.Fatalf("fresh Snapshot = (%v,%v), want (false,false)", deny, held)
 	}
+	// Deny still tracks flips: the lease file says nothing about
+	// the lock, so the flip cache stays the deny source.
 	g.flipDeny(true, "locked")
-	if deny, held := g.Snapshot(); !deny || held {
-		t.Fatalf("denied Snapshot = (%v,%v), want (true,false)", deny, held)
-	}
-	g.flipHeld(true, "hold")
-	if deny, held := g.Snapshot(); !deny || !held {
-		t.Fatalf("held Snapshot = (%v,%v), want (true,true)", deny, held)
+	if deny, _ := g.Snapshot(); !deny {
+		t.Fatal("denied Snapshot free, want deny tracking flips")
 	}
 	g.flipDeny(false, "unlocked")
-	if deny, held := g.Snapshot(); deny || !held {
-		t.Fatalf("released Snapshot = (%v,%v), want (false,true)", deny, held)
+	// A flip with no lease file must not read held: flips are
+	// edge events, the lease file is the state.
+	g.flipHeld(true, "hold")
+	if _, held := g.Snapshot(); held {
+		t.Fatal("flip-only Snapshot held, want the lease file to decide")
+	}
+	// The gc case: lease engaged, zero traffic after. The console
+	// must still read held.
+	release, err := store.HoldFile{Dir: dir}.Hold(context.Background(), now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("stage hold: %v", err)
+	}
+	if _, held := g.Snapshot(); !held {
+		t.Fatal("engaged-lease Snapshot free, want held with no traffic")
+	}
+	release()
+	if _, held := g.Snapshot(); held {
+		t.Fatal("released-lease Snapshot held, want free")
+	}
+	// A present-but-past lease reads free: expiry is the bound.
+	_, err = store.HoldFile{Dir: dir}.Hold(context.Background(), now.Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("stage stale hold: %v", err)
+	}
+	if _, held := g.Snapshot(); held {
+		t.Fatal("stale-lease Snapshot held, want free")
 	}
 }
 
