@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -17,13 +17,13 @@ import (
 // rows read identically dry or armed, only the trailer says
 // whether they were marked. Evaluation and marking live in
 // keeper.Reap; this stays printing-only.
-func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, armed bool, excludes []string, now time.Time, policyName string) error {
-	marked, err := keeper.Reap(ctx, s, reg, now, excludes, policyName, armed)
+func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, armed proof.ArmedRun, excludes []string, now time.Time, policyName string) error {
+	marked, err := keeper.Reap(ctx, s, reg, now, excludes, policyName, !proof.Unarmed(armed))
 	if err != nil {
 		return err
 	}
 	if len(marked) == 0 {
-		if armed {
+		if !proof.Unarmed(armed) {
 			_, err := io.WriteString(w, "marked 0 rows due\n")
 			return err
 		}
@@ -35,7 +35,7 @@ func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.Catalog
 			return err
 		}
 	}
-	if armed {
+	if !proof.Unarmed(armed) {
 		_, err = fmt.Fprintf(w, "marked %d rows due\n", len(marked))
 		return err
 	}
@@ -43,9 +43,6 @@ func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.Catalog
 	return err
 }
 
-// sweepPeer is the registry as the sweeper consumes it: deletes
-// plus the sentinel read port. *registry.Client is the production
-// adapter; tests bring stubs, never a loopback server.
 var (
 	reapNoDryRun bool
 	reapExclude  []string
@@ -64,7 +61,7 @@ reasons. Policies: ttl, hash, partial, untagged, keep-n.`,
 		}
 		defer d.Close()
 		cfg, s := d.Cfg, d.Store
-		armed := reapArmed(cfg)
+		armed := proof.Arm(reapNoDryRun, cfg.CLINoDryRun)
 		name := "all"
 		if len(args) == 1 {
 			name = args[0]
@@ -72,14 +69,6 @@ reasons. Policies: ttl, hash, partial, untagged, keep-n.`,
 		return runReap(cmd.Context(), cmd.OutOrStdout(), s,
 			d.Reg, armed, reapExclude, time.Now().UTC(), name)
 	},
-}
-
-// reapArmed is the same wiring as sweepArmed: the flag arms one
-// invocation, KPR_CLI_NO_DRY_RUN arms every one-shot. If this fails,
-// `reap` answers to the wrong var — the blind spot the sweep review
-// found, mirrored here before it bites.
-func reapArmed(cfg *config.Config) bool {
-	return reapNoDryRun || cfg.CLINoDryRun
 }
 
 func init() {

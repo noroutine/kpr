@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 )
 
 // sweep runs the pass in-process and prints its summary: dry-run
@@ -20,7 +21,7 @@ import (
 func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 	s, stub := pairedSweepStore(t)
 	var out bytes.Buffer
-	if err := runSweep(cliCtx(), &out, s, stub, false, ""); err != nil {
+	if err := runSweep(cliCtx(), &out, s, stub, nil, ""); err != nil {
 		t.Fatalf("dry-run sweep: %v", err)
 	}
 	if !strings.Contains(out.String(), "1 performed") || !strings.Contains(out.String(), "1 planned") {
@@ -35,7 +36,7 @@ func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 
 	as, astub := pairedSweepStore(t)
 	var aout bytes.Buffer
-	if err := runSweep(cliCtx(), &aout, as, astub, true, ""); err != nil {
+	if err := runSweep(cliCtx(), &aout, as, astub, proof.Arm(true, false), ""); err != nil {
 		t.Fatalf("armed sweep: %v", err)
 	}
 	if !strings.Contains(aout.String(), "1 performed") || !strings.Contains(aout.String(), "1 planned") {
@@ -56,7 +57,7 @@ func TestSweepRunsDirectDryRunAndArmed(t *testing.T) {
 func TestSweepOutageReportsInsteadOfFailing(t *testing.T) {
 	var out bytes.Buffer
 	stub := sweepStub{stubProofAPI: stubProofAPI{err: errors.New("redis: connection refused")}}
-	if err := runSweep(cliCtx(), &out, deadStore{}, stub, false, ""); err != nil {
+	if err := runSweep(cliCtx(), &out, deadStore{}, stub, nil, ""); err != nil {
 		t.Errorf("sweep on dead state failed: %v", err)
 	}
 	if !strings.Contains(out.String(), "failed:") {
@@ -69,7 +70,7 @@ func TestSweepOutageReportsInsteadOfFailing(t *testing.T) {
 // passes silently.
 func TestSweepSurfacesMidSummaryWriteError(t *testing.T) {
 	s, stub := pairedSweepStore(t)
-	if err := runSweep(cliCtx(), &failAfterWriter{}, s, stub, false, ""); err == nil {
+	if err := runSweep(cliCtx(), &failAfterWriter{}, s, stub, nil, ""); err == nil {
 		t.Error("sweep into failing pipe succeeded, want an error")
 	}
 }
@@ -82,7 +83,7 @@ func TestSweepSurfacesFailureLineWriteError(t *testing.T) {
 	s, stub := pairedSweepStore(t)
 	stub.delErr = errors.New("registry: 500")
 	var ok bytes.Buffer
-	if err := runSweep(cliCtx(), &ok, s, stub, true, ""); err != nil {
+	if err := runSweep(cliCtx(), &ok, s, stub, proof.Arm(true, false), ""); err != nil {
 		t.Fatalf("armed failing sweep: %v", err)
 	}
 	if !strings.Contains(ok.String(), "failed:") {
@@ -90,7 +91,7 @@ func TestSweepSurfacesFailureLineWriteError(t *testing.T) {
 	}
 	fs, fstub := pairedSweepStore(t)
 	fstub.delErr = errors.New("registry: 500")
-	if err := runSweep(cliCtx(), &failAfterWriter{n: 1}, fs, fstub, true, ""); err == nil {
+	if err := runSweep(cliCtx(), &failAfterWriter{n: 1}, fs, fstub, proof.Arm(true, false), ""); err == nil {
 		t.Error("sweep failing on the failures line succeeded, want an error")
 	}
 }
@@ -106,7 +107,7 @@ func TestSweepOutputTeesFailuresToFile(t *testing.T) {
 	stub.delErr = errors.New("registry: 500")
 	stream := filepath.Join(t.TempDir(), "sweep.log")
 	var out bytes.Buffer
-	if err := runSweep(cliCtx(), &out, s, stub, true, stream); err != nil {
+	if err := runSweep(cliCtx(), &out, s, stub, proof.Arm(true, false), stream); err != nil {
 		t.Fatalf("armed failing sweep: %v", err)
 	}
 	raw, err := os.ReadFile(stream)
@@ -124,7 +125,7 @@ func TestSweepOutputTeesFailuresToFile(t *testing.T) {
 	}
 	fs, fstub := pairedSweepStore(t)
 	fstub.delErr = errors.New("registry: 500")
-	if err := runSweep(cliCtx(), io.Discard, fs, fstub, true,
+	if err := runSweep(cliCtx(), io.Discard, fs, fstub, proof.Arm(true, false),
 		filepath.Join(t.TempDir(), "gone", "sweep.log")); err == nil {
 		t.Error("sweep --output into missing dir succeeded, want refusal")
 	}
@@ -138,7 +139,7 @@ func TestSweepOutputCapturesSummary(t *testing.T) {
 	s, stub := pairedSweepStore(t)
 	stream := filepath.Join(t.TempDir(), "sweep.log")
 	var out bytes.Buffer
-	if err := runSweep(cliCtx(), &out, s, stub, true, stream); err != nil {
+	if err := runSweep(cliCtx(), &out, s, stub, proof.Arm(true, false), stream); err != nil {
 		t.Fatalf("armed sweep: %v", err)
 	}
 	raw, err := os.ReadFile(stream)
@@ -158,15 +159,15 @@ func TestSweepOutputCapturesSummary(t *testing.T) {
 
 // The sweep command arms from its own flag or the one-shot env var —
 // never the dead serve loop's. The flag binding and the env half are
-// both wired here: RunE only sees sweepArmed. If this fails, `sweep`
+// both wired here: RunE only sees the proof. If this fails, `sweep`
 // answers to the wrong var and the suite can't see it.
 func TestSweepArmingWiring(t *testing.T) {
 	plain := config.NewBuilder().Build()
-	if sweepArmed(plain) {
+	if armed := proof.Arm(sweepNoDryRun, plain.CLINoDryRun); !proof.Unarmed(armed) {
 		t.Error("sweep armed by default, want implicit dry-run")
 	}
 	envArmed := config.NewBuilder().WithCLINoDryRun(true).Build()
-	if !sweepArmed(envArmed) {
+	if armed := proof.Arm(sweepNoDryRun, envArmed.CLINoDryRun); proof.Unarmed(armed) {
 		t.Error("KPR_CLI_NO_DRY_RUN=true left sweep disarmed, want armed")
 	}
 	// The cobra binding: parsing --no-dry-run must flip the same
@@ -177,7 +178,7 @@ func TestSweepArmingWiring(t *testing.T) {
 	defer func() {
 		_ = sweepCmd.Flags().Set("no-dry-run", "false")
 	}()
-	if !sweepArmed(plain) {
+	if armed := proof.Arm(sweepNoDryRun, plain.CLINoDryRun); proof.Unarmed(armed) {
 		t.Error("--no-dry-run parsed but sweep stayed disarmed, want armed")
 	}
 }
