@@ -55,6 +55,10 @@ func TestDurDropsZeroTails(t *testing.T) {
 		{90 * time.Second, "1m30s"},
 		{0, "0s"},
 		{1*time.Hour + 2*time.Minute + 3*time.Second, "1h2m3s"},
+		{1*time.Hour + 5*time.Second, "1h0m5s"},
+		{-90 * time.Minute, "-1h30m"},
+		{1500 * time.Millisecond, "1.5s"},
+		{500 * time.Millisecond, "500ms"},
 	} {
 		if got := human.Dur(c.in); got != c.want {
 			t.Errorf("Dur(%v) = %q, want %q", c.in, got, c.want)

@@ -71,9 +71,9 @@ func SelectTTL(rows []Row, now time.Time) []Row {
 	return due
 }
 
-// SelectHashes marks bare commit hashes past the hash default: pushes
-// with no TTL encoding at all, eligible after 48h of implied TTL.
-// Unknown
+// SelectHashes marks bare commit hashes past the hash default:
+// pushes with no TTL encoding at all, eligible after 48h of
+// implied TTL. Unknown
 // age defaults keep, exactly like every other age-anchored selector.
 func SelectHashes(rows []Row, now time.Time) []Row {
 	var due []Row

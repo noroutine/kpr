@@ -159,7 +159,7 @@ carries no meaning; bare tags stay hex-scoped.
 
 | Shape | Reason | Tuning | Policy |
 | --- | --- | --- | --- |
-| CI commit builds `abc1234-10m`: alnum-opening stem + `-ttl` suffix (explicit intent; leading hyphens refused) | `ttl:10s elapsed` | `MaxTTL` | `ttl` |
+| CI commit builds `abc1234-10m`: alnum-opening `[A-Za-z0-9-]` stem + `-ttl` suffix (explicit intent; leading hyphens refused, `.`/`_` never match) | `ttl:10m elapsed` | `MaxTTL` | `ttl` |
 | Bare durations `10m`: number + unit, no stem | `ttl:10m elapsed` | `MaxTTL` | `ttl` |
 | Bare hashes `abc1234`: hex 6+ with a letter, or all-digit hex that is not date-like, no suffix (48h implied TTL) | `ttl:48h elapsed` | `HashTTL` | `hash` |
 | Date-like `20240115`: YYYYMMDD in the Docker-era window, +0–2 serial digits — spared, never due | — | — | keep |

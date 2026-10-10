@@ -45,7 +45,7 @@ func Dur(d time.Duration) string {
 		parts = parts[:len(parts)-1]
 	}
 	if len(parts) == 0 {
-		return m[1] + "0s"
+		return out + "0s"
 	}
 	return out + strings.Join(parts, "")
 }

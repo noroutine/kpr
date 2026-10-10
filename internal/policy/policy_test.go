@@ -121,7 +121,9 @@ func TestDateLikeTagsSpared(t *testing.T) {
 			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
 		}
 	}
-	for _, tag := range []string{"19681534", "19990101", "20241301", "20240230", "21130302", "99999999"} {
+	// Longer timestamps (YYYYMMDDHHMM and beyond) are out of scope:
+	// only date + 0-2 serial digits is spared, the rest collects.
+	for _, tag := range []string{"19681534", "19990101", "20241301", "20240230", "21130302", "99999999", "202401151230"} {
 		got, ok := EffectiveTTL(tag)
 		if !ok || got != 48*time.Hour {
 			t.Errorf("EffectiveTTL(%q) = (%v, %v), want (48h, true)", tag, got, ok)

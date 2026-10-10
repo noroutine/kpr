@@ -12,6 +12,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/app"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 )
 
 var (
@@ -195,7 +196,7 @@ func MetricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metrics := metricsData{
-		Uptime:        uptime.Round(time.Second).String(),
+		Uptime:        human.Dur(uptime.Round(time.Second)),
 		UptimeSeconds: int64(uptime.Seconds()),
 		Requests:      app.GetAPIRequestCount(),
 		GoVersion:     config.CurrentRuntime().GoVersion,

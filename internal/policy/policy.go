@@ -36,9 +36,9 @@ const (
 var ttlRe = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9-]*-)?(\d+)([smhdw])` + `$`)
 
 // hashRe matches a bare commit hash: lowercase hex, at least six
-// chars. The letter check lives in isBareHash: hex with a single
-// a-f reads as a hash outright, all-digit hex only when it is not
-// date-like.
+// chars. The letter check lives in isBareHash: hex with at least
+// one a-f letter reads as a hash outright, all-digit hex only
+// when it is not date-like.
 var hashRe = regexp.MustCompile(`^[0-9a-f]{6,}$`)
 
 // dateFloor and dateCeil bound date-like tags: Docker's first public
@@ -57,6 +57,10 @@ func isDateLike(tag string) bool {
 	if len(tag) != 8 && len(tag) != 9 && len(tag) != 10 {
 		return false
 	}
+	// NOTE(mutants): reached only via isBareHash today (hashRe
+	// plus the letter scan already guarantee digits), but the
+	// guard keeps isDateLike correct standalone — dropping it
+	// lets "2024ab15" read as a date for any future caller.
 	for i := 0; i < len(tag); i++ {
 		if tag[i] < '0' || tag[i] > '9' {
 			return false
