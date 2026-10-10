@@ -213,7 +213,9 @@ type recLeaseConn struct {
 func (m *recLeaseConn) Get(_ context.Context, key string) ([]byte, error) {
 	raw, ok := m.rows[key]
 	if !ok {
-		return nil, errLeaseDown
+		// A miss answers (nil, nil): the adapter contract for a
+		// redis Nil. Outage is failLeaseConn's voice, not this.
+		return nil, nil
 	}
 	return raw, nil
 }
@@ -227,4 +229,102 @@ func (m *recLeaseConn) Set(_ context.Context, key string, val []byte, ttl time.D
 func (m *recLeaseConn) Del(_ context.Context, key string) error {
 	delete(m.rows, key)
 	return nil
+}
+
+// A miss reads absent and quiet: no key is no outage, so the log
+// stays empty — only a failing backend earns a line. If this
+// fails, fresh backends spam the log on every collect.
+func TestRedisMissReadsAbsentQuiet(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	l := RedisLease{Conn: &recLeaseConn{rows: map[string][]byte{}, ttls: map[string]time.Duration{}}, Key: HoldLeaseKey}
+	if until, present := l.Read(); present {
+		t.Errorf("miss Read = (%v,true), want absent", until)
+	}
+	if _, held := l.HeldUntil(time.Now()); held {
+		t.Error("miss HeldUntil = true, want false")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("miss logged %q, want silence", buf.String())
+	}
+}
+
+// Hold then Read then release round-trips through the conn: the
+// written horizon reads back equal, the fence reports held, and
+// the release frees it. If this fails, the redis branch cannot
+// carry a take.
+func TestRedisLeaseRoundTrips(t *testing.T) {
+	l := RedisLease{Conn: &recLeaseConn{rows: map[string][]byte{}, ttls: map[string]time.Duration{}}, Key: HoldLeaseKey}
+	until := time.Now().Add(5 * time.Minute).Truncate(time.Millisecond)
+	release, err := l.Hold(context.Background(), until)
+	if err != nil {
+		t.Fatalf("Hold: %v", err)
+	}
+	if got, present := l.Read(); !present || !got.Equal(until) {
+		t.Errorf("Read = (%v, %v), want (%v, true)", got, present, until)
+	}
+	if _, held := l.HeldUntil(time.Now()); !held {
+		t.Error("HeldUntil during term = false, want true")
+	}
+	release()
+	if got, present := l.Read(); present {
+		t.Errorf("Read after release = (%v,true), want absent", got)
+	}
+	if _, held := l.HeldUntil(time.Now()); held {
+		t.Error("HeldUntil after release = true, want false")
+	}
+}
+
+// A horizon already past still lands with the margin TTL: redis
+// needs the key present to voice the overrun, and a zero TTL
+// would reap it before the collect reads it. If this fails,
+// overrun takes vanish instead of reading held-then-past.
+func TestRedisHoldFloorsPastHorizon(t *testing.T) {
+	conn := &recLeaseConn{rows: map[string][]byte{}, ttls: map[string]time.Duration{}}
+	l := RedisLease{Conn: conn, Key: HoldLeaseKey}
+	until := time.Now().Add(-time.Minute)
+	release, err := l.Hold(context.Background(), until)
+	if err != nil {
+		t.Fatalf("Hold: %v", err)
+	}
+	defer release()
+	if ttl := conn.ttls[HoldLeaseKey]; ttl != leaseExpiryMargin {
+		t.Errorf("TTL = %v, want the %v floor", ttl, leaseExpiryMargin)
+	}
+	if _, held := l.HeldUntil(time.Now()); held {
+		t.Error("HeldUntil past term = true, want false")
+	}
+}
+
+// A lease with no conn refuses every verb: nil is a wiring bug,
+// not a backend, and must surface as an error (or absent), never
+// a nil-map panic. If this fails, a miswired lease panics the
+// collect.
+func TestRedisNilConnRefuses(t *testing.T) {
+	l := RedisLease{Key: HoldLeaseKey}
+	if _, err := l.Hold(context.Background(), time.Now().Add(time.Minute)); err == nil {
+		t.Error("nil-conn Hold succeeded, want refusal")
+	}
+	if until, present := l.Read(); present {
+		t.Errorf("nil-conn Read = (%v,true), want absent", until)
+	}
+	if _, held := l.HeldUntil(time.Now()); held {
+		t.Error("nil-conn HeldUntil = true, want false")
+	}
+}
+
+// The store advertises lease hosting on its shared client: the
+// capability the fence decision asserts, constructible (lazy,
+// no dial) without a live server. If this fails, the redis
+// backend cannot fence the gate.
+func TestHoldLeaseConnAdvertises(t *testing.T) {
+	s := NewRedisStore("localhost:6379", "", 0)
+	t.Cleanup(func() { _ = s.Close() })
+	conn, ok := s.HoldLeaseConn()
+	if !ok || conn == nil {
+		t.Errorf("HoldLeaseConn = (%v, %v), want (non-nil, true)", conn, ok)
+	}
 }

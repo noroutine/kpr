@@ -96,8 +96,11 @@ func TestErrIdentityStoreSetPropagates(t *testing.T) {
 func TestMemLeaseConnRoundTrips(t *testing.T) {
 	m := fakes.NewMemLeaseConn()
 	ctx := context.Background()
-	if _, err := m.Get(ctx, "k"); err == nil {
-		t.Error("Get on empty surface succeeded, want the miss")
+	// A miss answers (nil, nil): the adapter contract for a redis
+	// Nil, and a missing file reads the same — an error here
+	// would voice outage where there is none.
+	if raw, err := m.Get(ctx, "k"); err != nil || raw != nil {
+		t.Errorf("Get on empty surface = (%q,%v), want (nil,nil)", raw, err)
 	}
 	if err := m.Set(ctx, "k", []byte("v"), time.Minute); err != nil {
 		t.Fatalf("Set: %v", err)
@@ -111,7 +114,7 @@ func TestMemLeaseConnRoundTrips(t *testing.T) {
 	if err := m.Del(ctx, "k"); err != nil {
 		t.Fatalf("Del: %v", err)
 	}
-	if _, err := m.Get(ctx, "k"); err == nil {
-		t.Error("Get after Del succeeded, want the miss")
+	if raw, err := m.Get(ctx, "k"); err != nil || raw != nil {
+		t.Errorf("Get after Del = (%q,%v), want (nil,nil)", raw, err)
 	}
 }

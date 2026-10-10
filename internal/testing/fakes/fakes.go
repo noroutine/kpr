@@ -191,10 +191,6 @@ func (f FailRows) Delete(ctx context.Context, repo, tag string) error {
 	return f.MemStore.Delete(ctx, repo, tag)
 }
 
-// ErrLeaseAbsent reports a lease key holding nothing: the map
-// fake's miss, standing in for a missing file or a redis Nil.
-var ErrLeaseAbsent = errors.New("lease absent")
-
 // MemLeaseConn is the lease conn surface over a map: the shared
 // conformance's second medium beside the filesystem, and the
 // redis branch without a live server. It records TTLs without
@@ -213,7 +209,10 @@ func NewMemLeaseConn() *MemLeaseConn {
 func (m *MemLeaseConn) Get(_ context.Context, key string) ([]byte, error) {
 	raw, ok := m.rows[key]
 	if !ok {
-		return nil, ErrLeaseAbsent
+		// A miss answers (nil, nil): the adapter contract for a
+		// redis Nil, and a missing file reads the same. An error
+		// here would mean outage, and the read would log it.
+		return nil, nil
 	}
 	return raw, nil
 }
