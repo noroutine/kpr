@@ -146,6 +146,31 @@ type Deps struct {
 // passes warned. A dead post-probe only warns. Flipping readonly
 // stays with the operator; this command never rewrites registry
 // config.
+
+// writePreviewRemovals narrates the removals arming would perform,
+// in the would-tense, through the shared evaluation (findHusks,
+// planPrune) — deleting nothing. Enumeration failures warn inline
+// and never fail the run; only a dead writer fails it.
+func writePreviewRemovals(w io.Writer, root string) error {
+	var lines []string
+	if husks, herr := findHusks(root); herr != nil {
+		lines = append(lines, fmt.Sprintf("Warning: husk preview incomplete (%v)", herr))
+	} else if len(husks) > 0 {
+		lines = append(lines, fmt.Sprintf("would prune %d husks", len(husks)))
+	}
+	if prunable, perr := planPrune(root); perr != nil {
+		lines = append(lines, fmt.Sprintf("Warning: empty-dir preview incomplete (%v)", perr))
+	} else if prunable > 0 {
+		lines = append(lines, fmt.Sprintf("would prune %d empty directories", prunable))
+	}
+	for _, l := range lines {
+		if _, err := fmt.Fprintln(w, l); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts) error {
 	gcStarted := time.Now()
 	if d.Report == nil {
@@ -391,11 +416,17 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	// walks run silent for a while on big roots, so each
 	// narrates its start in the present tense and its count
 	// after the fact — the past-tense verdict never drops from
-	// nowhere. Previews delete nothing, so they remove nothing
-	// either. A husk or prune failure warns, never fails: the
-	// collection already succeeded, and occupancy races resolve
-	// safe — anything else (permissions, I/O) names itself in
-	// the warning.
+	// nowhere. Previews enumerate the same removals in the
+	// would-tense through the shared evaluation (findHusks,
+	// planPrune), deleting nothing. A husk or prune failure
+	// warns, never fails: the collection already succeeded, and
+	// occupancy races resolve safe — anything else (permissions,
+	// I/O) names itself in the warning.
+	if proof.Unarmed(opts.Armed) {
+		if err := writePreviewRemovals(w, root); err != nil {
+			return err
+		}
+	}
 	if !proof.Unarmed(opts.Armed) {
 		if _, werr := fmt.Fprintf(w, "pruning husks...\n"); werr != nil {
 			return werr

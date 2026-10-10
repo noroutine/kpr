@@ -4,6 +4,16 @@ Dry-run is the default mode, not a flag. Every mutating command
 previews unless explicitly armed for that invocation. Future work
 lives in [DRY_RUN_FUTURE.md](DRY_RUN_FUTURE.md).
 
+## Terminology
+
+"Dry-run" is the user-facing word: flags, help text, and
+summaries say dry-run because that is what the operator typed
+(or didn't). Inside the code the language is armed/unarmed — a
+run carries a `proof.ArmedRun` or it doesn't (nil means
+preview); no `DryRun bool` travels anywhere. One exception keeps
+the old word: the stock registry binary's `--dry-run` flag, a
+foreign option we pass through.
+
 ## Principles
 
 - **Safe by default.** No `--dry-run` flag exists anywhere: there
@@ -39,8 +49,3 @@ lives in [DRY_RUN_FUTURE.md](DRY_RUN_FUTURE.md).
 
 `sweep --output` writes the per-row log (would-tense in preview)
 plus the summary into a file; stdout keeps the counters either way.
-
-The sweep pass log carries the mode under the `dry_run` key
-(`proof.Unarmed` of the pass proof). The key stays put even
-though the code speaks armed now: dashboards read it, and
-observability owns its vocabulary.
