@@ -101,6 +101,10 @@ func TestPutFileRefusesBlockedStages(t *testing.T) {
 // the harness itself: any framework write inside the window failed
 // with file-too-large and failed the package with no failed test)
 // and far below the payload. Restored by defer.
+// NOTE(mutants): the write/close refusal shares one leg — only the
+// write side is staged here, the close side has no local failure
+// mode. Dropping the close check would survive mutants yet lose
+// real NFS failures, so it stays.
 func TestPutFileRefusesDiskFullWrite(t *testing.T) {
 	var old syscall.Rlimit
 	if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {

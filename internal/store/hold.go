@@ -31,7 +31,10 @@ type HoldFile struct {
 
 // Hold writes a lease expiring at until and returns its release
 // (best-effort remove — the expiry is the real bound, so a
-// crashed collect can never wedge pushes past it).
+// crashed collect can never wedge pushes past it). The content
+// lands through writeAtomic (temp file plus rename — readers see
+// old or new, never partial); missing dirs refuse instead of
+// being built, so gc hears the failure.
 func (h HoldFile) Hold(_ context.Context, until time.Time) (func(), error) {
 	raw, err := json.Marshal(struct {
 		Until time.Time `json:"until"`
@@ -39,12 +42,35 @@ func (h HoldFile) Hold(_ context.Context, until time.Time) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("edge: marshal hold lease: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(h.Dir, HoldFileName), raw, 0o600); err != nil {
+	h.sweepStaleTemps()
+	if err := writeAtomic(filepath.Join(h.Dir, HoldFileName), raw, ".edge-fence-*.tmp"); err != nil {
 		return nil, fmt.Errorf("edge: write hold lease: %w", err)
 	}
 	return func() {
 		_ = os.Remove(filepath.Join(h.Dir, HoldFileName))
 	}, nil
+}
+
+// sweepStaleTemps removes temp files crashed writers left behind.
+// Hold runs rarely (around gc), so the readdir costs nothing; an
+// empty dir skips it, so marker-only gates never touch the cwd.
+// Names match on the base only, so metacharacters in Dir can't
+// escape the sweep. No age check: a second concurrent Hold would
+// lose its temp and fail the rename loudly, never silently —
+// today gc is the only caller, so that never happens.
+func (h HoldFile) sweepStaleTemps() {
+	if h.Dir == "" {
+		return
+	}
+	entries, err := os.ReadDir(h.Dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if ok, _ := filepath.Match(".edge-fence-*.tmp", e.Name()); ok {
+			_ = os.Remove(filepath.Join(h.Dir, e.Name()))
+		}
+	}
 }
 
 // Read parses the HOLD lease: the expiry plus whether it parses
