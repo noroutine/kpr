@@ -1,12 +1,15 @@
 # Backup/restore (deferred)
 
-Question: how does a kpr store survive its host — and can the
-registry back itself up? Two shapes, one mechanism: tar the
-store dir (rows, locks, identity, current, activity ring),
-then either keep the tarball or push it into the registry
-itself under `noroutine/kpr-` as an OCI artifact, making the
-registry root a self-contained backup target. Verdict: not
-built; this doc keeps the shape so the decision survives.
+Question: how does a kpr store survive its host, move
+between backends — and can the registry back itself up?
+One mechanism, three uses: render any backend as a file
+tree (the interchange format), then keep it as a tarball
+or push it into the registry itself under `noroutine/kpr-`
+as an OCI artifact, making the registry root a
+self-contained backup target. Backup, restore, and
+fs↔redis mobility are the same dump played three ways.
+Verdict: not built; this doc keeps the shape so the
+decision survives.
 
 ## Findings
 
@@ -14,10 +17,15 @@ built; this doc keeps the shape so the decision survives.
   has a file form (rows as JSON, locks as flock files, the
   intent marker as presence). A tarball is a faithful backup
   with zero new format — restore is untar and go.
-- The redis backend is the wrinkle: rows live in a HASH,
-  locks as keys. Backup there means dump-to-files first
-  (the wire already reads every key), restore means
-  replay. File-first keeps one path.
+- The filestore is the interchange format: dump any backend
+  (redis HASH → row files, keys → lock files) to a file tree
+  first, and backup/restore/mobility become one path. Row
+  JSON is already byte-identical across backends, so the
+  dump is a copy, never a conversion.
+- Mobility rides the same path: fs → redis is replay the
+  dump, redis → fs is the dump itself, and whatever backend
+  comes next only needs both directions against files. No
+  backend ever speaks another backend's protocol.
 - Pushing the tarball into `noroutine/kpr-` closes the loop:
   the registry carries kpr's memory of itself, next to the
   images. The existing self-contained story
