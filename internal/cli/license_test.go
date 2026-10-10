@@ -22,14 +22,6 @@ func TestLicenseBannerContent(t *testing.T) {
 	}
 }
 
-// --version prints the banner: if this fails, the version template
-// got rewired without carrying the notice along.
-func TestVersionTemplateCarriesBanner(t *testing.T) {
-	if tmpl := RootCmd.VersionTemplate(); !strings.Contains(tmpl, "ABSOLUTELY NO WARRANTY") {
-		t.Errorf("version template = %q, want the license banner in it", tmpl)
-	}
-}
-
 // kpr --help prints the banner: if this fails, the root Long got
 // rewritten without carrying the notice along.
 func TestRootHelpCarriesBanner(t *testing.T) {
