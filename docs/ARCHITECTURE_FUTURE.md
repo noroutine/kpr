@@ -12,7 +12,6 @@ describes what ships today.
 - [Real partial-upload detection](#real-partial-upload-detection)
 - [Presenters out of command bodies](#presenters-out-of-command-bodies)
 - [Registry metrics as a GC-readiness signal](#registry-metrics-as-a-gc-readiness-signal)
-- [Tag-release flow](#tag-release-flow)
 - [keep-N tuning surface](#keep-n-tuning-surface)
 
 ## Token-auth registries
@@ -84,12 +83,6 @@ bodies follow as touched. Open.
 Storage pressure could gate collection (collect because the
 disk says so, not only because the plan says so). Noted, not
 scheduled.
-
-## Tag-release flow
-
-Image push plus Forgejo release as one flow. Unverified —
-written down so the idea doesn't evaporate, no design behind it
-yet.
 
 ## keep-N tuning surface
 
