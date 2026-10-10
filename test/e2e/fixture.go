@@ -4,12 +4,16 @@ package e2e
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
 // Backend images. Pinned like the compose stack (redis:8-alpine,
@@ -107,10 +111,10 @@ func assembleFixture(t *testing.T, ctx context.Context, redisC, regC testcontain
 	// Container IP: how co-located containers (the toolbox) reach the
 	// registry without touching published ports at all. Modern
 	// engines report it per-network, not top-level.
-	direct := info.NetworkSettings.IPAddress
+	direct := ""
 	for _, net := range info.NetworkSettings.Networks {
-		if net.IPAddress != "" {
-			direct = net.IPAddress
+		if net.IPAddress.IsValid() {
+			direct = net.IPAddress.String()
 			break
 		}
 	}
@@ -203,3 +207,51 @@ func (f *Fixture) RegistryLoopback() string { return f.registryLoopback }
 // running alongside the fixtures (the toolbox), bypassing published
 // ports entirely.
 func (f *Fixture) RegistryDirect() string { return f.registryDirect }
+
+// stageCollectorStub writes a stub collector binary: it runs the
+// prologue (a sleep to hold a lease window, or nothing), then
+// records one finished run per line in runs. The collect seam is
+// package-private, so e2e drives the binary, never the func —
+// callers count lines to assert how many collects finished.
+func stageCollectorStub(t *testing.T, prologue string) (bin, runs string) {
+	t.Helper()
+	runs = filepath.Join(t.TempDir(), "collector-runs.log")
+	bin = filepath.Join(t.TempDir(), "collector-stub")
+	script := "#!/bin/sh\n" + prologue + "\nprintf 'run\\n' >> '" + runs + "'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatalf("stage collector stub: %v", err)
+	}
+	return bin, runs
+}
+
+// collectorRuns counts finished stub collects: the runs log grows
+// one line per exit-0 run, so a refused or crashed collect counts
+// nothing.
+func collectorRuns(t *testing.T, runs string) int {
+	t.Helper()
+	raw, err := os.ReadFile(runs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0
+		}
+		t.Fatalf("read collector runs: %v", err)
+	}
+	return len(strings.Split(strings.TrimSpace(string(raw)), "\n"))
+}
+
+// stageRunConfig points config.Current at one run's world —
+// registry, mount, stub collector, time server — and returns the
+// restore. gc, unlock, and backfill resolve everything else off
+// Current, the way production reads it.
+func stageRunConfig(t *testing.T, url, cfg, bin, timeserver, edgeAddr string) func() {
+	t.Helper()
+	// TimeServer rides env only (no builder knob): set it before
+	// building Current, the way a deployment exports it.
+	t.Setenv(config.EnvTimeServer, timeserver)
+	return config.SetCurrent(config.NewBuilder().FromEnv().
+		WithRegistryURL(url).
+		WithRegistryConfig(cfg).
+		WithRegistryBinPath(bin).
+		WithEdgeAddr(edgeAddr).
+		Build())
+}

@@ -23,10 +23,13 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/edge"
+	"nrtn.dev/catalyst/kpr/internal/event"
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/storeops"
 )
 
 // startEdgeRegistry is startMountedRegistry with relativeurls on:
@@ -106,7 +109,7 @@ func serveEdge(t *testing.T, backend, proofPath string, st *store.FileStore, dir
 	if err != nil {
 		t.Fatalf("edge handler: %v", err)
 	}
-	gate := &edge.Gate{Store: st, Dir: dir, Report: func(gc.Event) {}}
+	gate := &fence.Gate{Store: st, Dir: dir, Report: func(event.Event) {}}
 	srv := httptest.NewServer(gate.Wrap(h))
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -268,15 +271,17 @@ func TestEdgeDeniesMutationsWhenLocked(t *testing.T) {
 }
 
 // recordFence delegates to the real lease file while recording
-// whether gc asked for a HOLD at all.
+// whether gc asked for a HOLD at all. Deny/Allow ride the
+// embedded Control (honest transitions into the ring); only Hold
+// is observed.
 type recordFence struct {
-	inner edge.HoldFile
-	held  atomic.Bool
+	fence.Control
+	held atomic.Bool
 }
 
 func (r *recordFence) Hold(ctx context.Context, until time.Time) (func(), error) {
 	r.held.Store(true)
-	return r.inner.Hold(ctx, until)
+	return r.Control.Hold(ctx, until)
 }
 
 // An armed collect holds manifest PUTs at the proxy until it
@@ -297,32 +302,35 @@ func TestEdgeHoldDelaysManifestPutDuringArmedGC(t *testing.T) {
 
 	api := registry.NewClient(backend)
 	cfg := stageOnlineRegistryConfig(t, root)
-	var unlockOut strings.Builder
-	if err := gc.Unlock(ctx, &unlockOut, api, cfg, st, st, st, st, clock.HTTPS{}, stageTimeServer(t)); err != nil {
-		t.Fatalf("pair sentinel: %v", err)
-	}
-	bin := filepath.Join(t.TempDir(), "collector-stub")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("stage collector stub: %v", err)
-	}
-	collect := func(context.Context, io.Writer, string, []string, gc.Reporter) error {
-		time.Sleep(5 * time.Second)
-		return nil
-	}
+	// The stub sleeps through the collect: the HOLD window the
+	// armed PUT must wait out. The collect seam is
+	// package-private, so the sleep rides the binary.
+	bin, _ := stageCollectorStub(t, "sleep 5\n")
 	// The world proves everything here, so nothing is accepted:
 	// no cache in the edge registry's env, a proven edge
 	// listening, a configured lease dir. The preflight must clear
 	// on evidence alone.
 	edgeAddr := strings.TrimPrefix(edgeURL, "http://")
-	run := func(dryRun bool, fence gc.Fencer) error {
+	restore := stageRunConfig(t, backend, cfg, bin, stageTimeServer(t), edgeAddr)
+	defer restore()
+	var unlockOut strings.Builder
+	if err := storeops.Unlock(ctx, &unlockOut, storeops.UnlockDeps{
+		Rec: st, Ids: st, Rows: st,
+		API: api, Clock: clock.HTTPS{}, Store: st,
+	}); err != nil {
+		t.Fatalf("pair sentinel: %v", err)
+	}
+	run := func(armed proof.ArmedRun, f fence.Controller) error {
 		var out strings.Builder
-		return gc.Run(ctx, &out, gc.ProbeRegistry, st, collect, api, backend, cfg, bin,
-			st, st, st, clock.HTTPS{}, stageTimeServer(t),
-			gc.Options{DryRun: dryRun, Report: func(gc.Event) {}, EdgeAddr: edgeAddr, Fence: fence}, gc.Accepts{})
+		return gc.Run(ctx, &out, gc.Deps{
+			Lock: st, Rec: st, Ids: st, Rows: st,
+			API: api, Clock: clock.HTTPS{}, Report: func(event.Event) {},
+			Store: st, Fence: f,
+		}, gc.Options{Armed: armed}, gc.Accepts{})
 	}
 
-	previewFence := &recordFence{inner: edge.HoldFile{Dir: dir}}
-	if err := run(true, previewFence); err != nil {
+	previewFence := &recordFence{Control: fence.Control{Store: st, HoldFile: store.HoldFile{Dir: dir}}}
+	if err := run(nil, previewFence); err != nil {
 		t.Fatalf("preview gc: %v", err)
 	}
 	if previewFence.held.Load() {
@@ -336,10 +344,10 @@ func TestEdgeHoldDelaysManifestPutDuringArmedGC(t *testing.T) {
 		t.Errorf("PUT after preview took %v, want immediate (no lease)", elapsed)
 	}
 
-	armedFence := &recordFence{inner: edge.HoldFile{Dir: dir}}
+	armedFence := &recordFence{Control: fence.Control{Store: st, HoldFile: store.HoldFile{Dir: dir}}}
 	runErr := make(chan error, 1)
 	go func() {
-		runErr <- run(false, armedFence)
+		runErr <- run(proof.Arm(true, false), armedFence)
 	}()
 	deadline := time.Now().Add(30 * time.Second)
 	for !armedFence.held.Load() && time.Now().Before(deadline) {

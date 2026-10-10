@@ -11,6 +11,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -65,7 +66,7 @@ func TestSentinelGenerationsKeepNReaped(t *testing.T) {
 		t.Fatalf("floater serves %v, want newest gen", err)
 	}
 
-	marked, err := keeper.Reap(ctx, st, api, now.Add(time.Hour), nil, "keep-n", true)
+	marked, err := keeper.Reap(ctx, st, api, now.Add(time.Hour), nil, "keep-n", proof.Arm(true, false))
 	if err != nil {
 		t.Fatalf("Reap keep-n: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestSentinelGenerationsKeepNReaped(t *testing.T) {
 		}
 	}
 
-	sum := (&sweep.Sweeper{Store: st, Registry: api, Sentinel: api, DryRun: false}).RunPass(ctx, "e2e")
+	sum := (&sweep.Sweeper{Store: st, Registry: api, Sentinel: api, Armed: proof.Arm(true, false)}).RunPass(ctx, "e2e")
 	if sum.Performed != 2 || sum.Failed != 0 {
 		t.Fatalf("sweep = %+v, want 2 performed, 0 failed", sum)
 	}

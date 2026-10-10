@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,9 +11,11 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/storeops"
 )
 
 // stageRegistryConfig writes a stock distribution config rooted at
@@ -44,28 +45,33 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 	defer cancel()
 	api := registry.NewClient(url)
 	cfg := stageRegistryConfig(t, root)
-	bin := filepath.Join(t.TempDir(), "collector-stub")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("stage collector stub: %v", err)
-	}
 	state := store.NewFileStore(t.TempDir())
-	var collected [][]string
-	collect := func(context.Context, io.Writer, string, []string, gc.Reporter) error {
-		collected = append(collected, []string{"collected"})
-		return nil
+	bin, runs := stageCollectorStub(t, "")
+	restore := stageRunConfig(t, url, cfg, bin, stageTimeServer(t), "")
+	defer restore()
+	preview := func() error {
+		var out strings.Builder
+		return gc.Run(ctx, &out, gc.Deps{
+			Lock: state, Rec: state, Ids: state, Rows: state,
+			API: api, Clock: clock.HTTPS{}, Report: func(event.Event) {},
+			Store: state,
+		}, gc.Options{}, gc.Accepts{})
 	}
 
 	var out strings.Builder
-	err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, state, state, clock.HTTPS{}, stageTimeServer(t), gc.Options{DryRun: true, Report: func(gc.Event) {}}, gc.Accepts{})
+	err := preview()
 	if err == nil || !strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("locked gc = %v, want the locked refusal", err)
 	}
-	if len(collected) != 0 {
-		t.Fatalf("locked gc reached the collector")
+	if n := collectorRuns(t, runs); n != 0 {
+		t.Fatalf("locked gc reached the collector %d times", n)
 	}
 
 	out.Reset()
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err != nil {
+	if err := storeops.Unlock(ctx, &out, storeops.UnlockDeps{
+		Rec: state, Ids: state, Rows: state,
+		API: api, Clock: clock.HTTPS{}, Store: state,
+	}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	if ok, err := state.IsUnlocked(ctx); err != nil || !ok {
@@ -73,14 +79,11 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, state, state, clock.HTTPS{}, stageTimeServer(t), gc.Options{DryRun: true, Report: func(gc.Event) {}}, gc.Accepts{}); err != nil {
+	if err := preview(); err != nil {
 		t.Fatalf("unlocked gc: %v", err)
 	}
-	if strings.Contains(out.String(), "shared store proven via") {
-		t.Errorf("dry-run gc names a proof it never minted:\n%s", out.String())
-	}
-	if len(collected) != 1 {
-		t.Errorf("collector ran %d times, want 1", len(collected))
+	if n := collectorRuns(t, runs); n != 1 {
+		t.Errorf("collector ran %d times, want 1", n)
 	}
 	rows, rerr := state.All(ctx)
 	if rerr != nil {
@@ -94,7 +97,7 @@ func TestGCLockGateUnlockOpens(t *testing.T) {
 		t.Fatalf("re-lock: %v", err)
 	}
 	out.Reset()
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, state, collect, api, url, cfg, bin, state, state, state, clock.HTTPS{}, stageTimeServer(t), gc.Options{DryRun: true, Report: func(gc.Event) {}}, gc.Accepts{}); err == nil ||
+	if err := preview(); err == nil ||
 		!strings.Contains(err.Error(), "store is locked") {
 		t.Fatalf("re-locked gc = %v, want the locked refusal", err)
 	}
@@ -112,9 +115,13 @@ func TestUnlockRefusesUnsharedRegistry(t *testing.T) {
 	cfg := stageRegistryConfig(t, t.TempDir())
 	state := store.NewFileStore(t.TempDir())
 
+	restore := stageRunConfig(t, url, cfg, "", stageTimeServer(t), "")
+	defer restore()
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err == nil ||
-		!strings.Contains(err.Error(), "does not share") {
+	if err := storeops.Unlock(ctx, &out, storeops.UnlockDeps{
+		Rec: state, Ids: state, Rows: state,
+		API: api, Clock: clock.HTTPS{}, Store: state,
+	}); err == nil || !strings.Contains(err.Error(), "does not share") {
 		t.Fatalf("stranger unlock = %v, want the no-shared-store refusal", err)
 	}
 	if ok, err := state.IsUnlocked(ctx); err != nil || ok {

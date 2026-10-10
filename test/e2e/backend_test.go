@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"nrtn.dev/catalyst/kpr/internal/cli"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/store"
-	"nrtn.dev/catalyst/kpr/internal/storetest"
+	"nrtn.dev/catalyst/kpr/internal/testing/storetest"
 )
 
 // The redis backend implements the shared store contract against the
@@ -66,7 +66,11 @@ func TestOpenStoreAgainstFixture(t *testing.T) {
 		WithRedisDB(fx.RedisDB()).
 		Build()
 
-	s, err := cli.OpenStore(cfg)
+	backend, dir, err := deps.ResolveStoreBackend()
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
+	}
+	s, err := deps.OpenStore(cfg, backend, dir)
 	if err != nil {
 		t.Fatalf("OpenStore with fixture credentials: %v", err)
 	}
@@ -82,7 +86,7 @@ func TestOpenStoreAgainstFixture(t *testing.T) {
 		WithRedisPassword("wrong").
 		WithRedisDB(fx.RedisDB()).
 		Build()
-	rs, err := cli.OpenStore(bad)
+	rs, err := deps.OpenStore(bad, backend, dir)
 	if err == nil {
 		_ = rs.Close()
 		t.Fatal("OpenStore with wrong password succeeded, want refusal")
