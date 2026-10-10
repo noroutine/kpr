@@ -145,10 +145,10 @@ func EffectiveTTL(tag string) (ttl time.Duration, ok bool) {
 		if isBareHash(tag) {
 			return HashTTL, true
 		}
-		if DefaultTTL == 0 {
-			return 0, false
-		}
-		return DefaultTTL, true
+		// DefaultTTL is zero, so anything else never expires. A
+		// nonzero default would return (DefaultTTL, true) here —
+		// spelled out because no test can reach a const-0 branch.
+		return 0, false
 	}
 	// NOTE: no clamp here on purpose — parseTTL saturates at
 	// exactly MaxTTL (overflow and over-bound both return MaxTTL,

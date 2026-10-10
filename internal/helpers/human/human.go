@@ -41,11 +41,11 @@ func Dur(d time.Duration) string {
 	if m[4] != "" {
 		parts = append(parts, m[4]+"s")
 	}
+	// The loop keeps at least one part, and the regex matched at
+	// least one (String never renders ""), so the join is never
+	// empty: all-zero stays "0s" via the single surviving part.
 	for len(parts) > 1 && (parts[len(parts)-1] == "0s" || parts[len(parts)-1] == "0m") {
 		parts = parts[:len(parts)-1]
-	}
-	if len(parts) == 0 {
-		return out + "0s"
 	}
 	return out + strings.Join(parts, "")
 }

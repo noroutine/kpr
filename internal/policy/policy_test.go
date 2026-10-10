@@ -121,6 +121,17 @@ func TestDateLikeTagsSpared(t *testing.T) {
 			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
 		}
 	}
+	// isDateLike direct: the digit guard fires only here — callers
+	// arrive with digits already proven, so EffectiveTTL never
+	// exercises it. If this fails, a non-digit tag reads as a date.
+	if isDateLike("2024ab15") || isDateLike("2024011x") {
+		t.Error("isDateLike accepted a non-digit tag, want false")
+	}
+	for _, tag := range []string{"2024011", "2024011512301"} {
+		if isDateLike(tag) {
+			t.Errorf("isDateLike(%q) = true, want false (length)", tag)
+		}
+	}
 	// Longer timestamps (YYYYMMDDHHMM and beyond) are out of scope:
 	// only date + 0-2 serial digits is spared, the rest collects.
 	for _, tag := range []string{"19681534", "19990101", "20241301", "20240230", "21130302", "99999999", "202401151230"} {
