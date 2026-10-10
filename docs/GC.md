@@ -181,6 +181,10 @@ reap-and-sweep path, so a default collect reclaims their blobs and
 `--delete-untagged` is never required on their account — see
 [SENTINELS.md](SENTINELS.md).
 
+Space returns at collect time, not sweep time: the sweep unlinks
+manifests (soft-delete, and content addressing dedupes re-pushes),
+blob bytes come back only when the collector reaps them.
+
 ## Stage events
 
 Alongside the human-readable output, a run emits structured stage
