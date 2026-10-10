@@ -54,7 +54,6 @@ reference pages above. Each `X.md` states what ships today; its
 |---|---|
 | [ARCHITECTURE_FUTURE](ARCHITECTURE_FUTURE.md) | open and upcoming work |
 | [GC_FUTURE](GC_FUTURE.md) | per-repo collection |
-| [GC_DANGLING](GC_DANGLING.md) | dangling references: classes, dead-tag-link design |
 | [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | filling missing digests on tracked rows |
 | [CLI_FUTURE](CLI_FUTURE.md) | one subpackage per command |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |
@@ -68,3 +67,4 @@ Deferred by decision, kept so the reasoning survives:
 | [STATIC_SERVE](STATIC_SERVE.md) | serving images as static content (not now) |
 | [BACKUP_RESTORE](BACKUP_RESTORE.md) | tarball + registry-pushed store backups (not built) |
 | [OBSERVABILITY](OBSERVABILITY.md) | overlay, basic compose only (not paid attention) |
+| [GC_DANGLING](GC_DANGLING.md) | dangling references: classes, dead-tag-link design |
