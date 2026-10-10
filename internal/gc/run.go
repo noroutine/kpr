@@ -205,7 +205,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 	// every message below reads exactly as before.
 	clk := d.Clock
 	if clk == nil {
-		clk = config.Current().ClockSource()
+		clk = clock.NewSource(config.Current().TimeMethod)
 	}
 	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, config.Current().TimeServer)); cerr != nil {
 		var skew *clock.SkewError

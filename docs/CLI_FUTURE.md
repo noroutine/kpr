@@ -1,27 +1,29 @@
 # CLI — future work
 
 Parked ideas, not built. Shipped layout lives in [CLI.md](CLI.md).
-One subpackage per command was tried (`internal/cli/gc`) and
-reverted: with the run resolving its own reporter, fence, and
-clock, the adapter is one literal — no seam worth a package.
 
-## Config rides no field
+## Console parity: gateway and clock in `store status`
 
-`deps.Deps.Cfg` is gone: `config.Current()` already names
-everything it carried, and tests stage it the same way
-production reads it (`config.SetCurrent` + cleanup).
-Precedent set with `RegistryBinPath`, `ClockSource`,
-`RegistryURL` — resolve at use, never thread. A field that
-carries no per-run variation is a seam wearing a port's
-clothes (W13). `OpenDeps` still builds from env and installs
-exactly once — construction stays, only the carrying went.
+The console's keeper card shows two things the CLI `store
+status` card does not: gateway posture (open/deny/held plus the
+endpoints) and clock (method, server, live skew). The plan is
+parity on the card, not new commands — status is the card, and
+one command lives in its own file already.
 
-Deferred, deliberately: `gc.Deps.Clock`. Production never sets
-it (the `nil` fallback to `config.Current().ClockSource()`
-always fires), but ~10 gc tests inject `fakes.StubClock` for
-skewed (`Off: time.Hour`) and dead (`Err`) clocks — and
-`ClockSource()` only derives NTP/HTTPS/local from `TimeMethod`,
-with no knob for a fixed clock. Removing the field needs a
-config-level test-clock knob (production-reachable time control)
-or real-clock tests; either smell is its own decision, not this
-slice.
+- `gateway:` line voices the live fence posture through the
+  same read the console renders (`fence.Gate` snapshot over the
+  hold dir): open, deny, or held, with `EdgeAddr →
+  RegistryURL` beside it. Disabled or unproven renders closed,
+  never an error — same rule as the console section.
+- `clock:` line voices `method server skew` through
+  `clock.NewSource` + one bounded probe (the HTTPS transport
+  already times out on its own; local never probes and reads
+  "—"). Skew formats with `human` beside the exact offset;
+  unreachable reads "unreachable", never slow.
+- `--json` grows the same fields beside the text lines; probe
+  failure keeps the card (degraded values, loud words), never
+  fails it — status stays a pure read that cannot refuse.
+- Tests stage both through env like production reads them:
+  `TimeMethod=local` pins the no-probe line, an `httptest`
+  date server behind `TimeServer` pins a skew line. No new
+  seam: the factory move is what makes this stagable.

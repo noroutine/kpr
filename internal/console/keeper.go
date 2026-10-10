@@ -138,29 +138,13 @@ const activityTail = 10
 // without the repo:tag prefix, every line with a human age.
 // Friendly only — precise stamps live behind /api/activity.
 func activityLine(a keeper.ActivityEntry) string {
-	age := humanAge(a.At)
+	age := human.Age(a.At)
 	// No leading indent: the CLI pads for the terminal, the card
 	// has its own padding.
 	if a.Repo == "" && a.Tag == "" {
 		return fmt.Sprintf("%s (%s), %s", a.Outcome, a.Reason, age)
 	}
 	return fmt.Sprintf("%s:%s — %s (%s), %s", a.Repo, a.Tag, a.Outcome, a.Reason, age)
-}
-
-// humanAge renders a ring timestamp the way the CLI's shortAge
-// does: glanceable ("5m ago") beside the exact stamp, never
-// instead of it. A zero or future stamp degrades to words.
-func humanAge(at time.Time) string {
-	if at.IsZero() {
-		return "unknown"
-	}
-	d := time.Since(at)
-	// NOTE(mutants): < is equivalent — the two sides differ only
-	// at exactly zero, where the clamp body is identity anyway.
-	if d < 0 {
-		d = 0
-	}
-	return human.Dur(d.Round(time.Second)) + " ago"
 }
 
 // clockSnapshot voices the configured time transport and the live
@@ -175,7 +159,7 @@ func clockSnapshot(ctx context.Context) (method, server, skew, note string) {
 	if cfg.TimeMethod == clock.MethodLocal {
 		return method, "machine clock", "—", "unchecked"
 	}
-	src := clockSourceFor(cfg.TimeMethod)
+	src := clock.NewSource(cfg.TimeMethod)
 	offset, err := src.Offset(ctx, server)
 	if err != nil {
 		return method, server, "unreachable", "tolerance " + clock.Tolerance.String()
@@ -192,19 +176,6 @@ func formatOffset(offset time.Duration) string {
 		sign = "-"
 	}
 	return sign + offset.Round(time.Millisecond).Abs().String()
-}
-
-// clockSourceFor mirrors the CLI composition root (see clockSource
-// in internal/cli): same method, same transport, no second wiring.
-func clockSourceFor(m clock.Method) clock.Source {
-	switch m {
-	case clock.MethodNTP:
-		return clock.NTP{}
-	case clock.MethodHTTPS:
-		return clock.HTTPS{}
-	default:
-		return clock.Local{}
-	}
 }
 
 // activityHandler serves the full precise ring as JSON for download:
