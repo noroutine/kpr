@@ -84,24 +84,26 @@ read-only mounts.
 
 ## What locked means
 
-Locked (marker absent — fresh stores included) means hands off:
-no destructive operations against the registry or the store.
-No collects, no manifest deletes, no row drops. It does *not*
-mean the registry is readonly — writability is enforced only by
-registry config (`maintenance.readonly`); the lock never claims
-that, and a locked store can still serve reads and previews.
+Locked (marker absent — fresh stores included) means hands off
+*for kpr*: no destructive operations against the registry or
+the store. Passes and collects refuse locked even as previews
+(a run is a run, not a read), and the edge backs it while
+locked — manifest PUT/DELETE refuse fast with 423 naming
+`store unlock` ([`docs/EDGE.md`](EDGE.md)). Reads, previews,
+and plan edits ignore the marker — nothing destructive,
+nothing to refuse.
+
+Loud scoping: the lock binds kpr operations only. It does
+*not* make the registry readonly — writability is enforced
+only by registry config (`maintenance.readonly`), and anyone
+reaching the registry past the edge (a direct client, another
+proxy) is unaffected. The sweeper pass and `store rm` stay
+operator-explicit: the hand on the keyboard already decided.
 
 Two aims, from when `adopt` appeared: foreign or stale stores
 must never be garbled quietly (unlock proves sharedness first,
-and every surprise arrives with its warning and remedy), and the
-operator gets a simple maintenance freeze. Reads and plan edits
-ignore the marker — nothing destructive, nothing to refuse.
-Passes and collects refuse locked even as previews: a run is a
-run, not a read.
-
-Enforced where a check exists (`gc` opens via the marker);
-threading the sweeper pass and `rm` through the same gate is the
-Miss 3 slice.
+and every surprise arrives with its warning and remedy), and
+the operator gets a simple maintenance freeze.
 
 ## Invariants
 
