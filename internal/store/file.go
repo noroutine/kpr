@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -104,32 +105,43 @@ func (s *FileStore) rowFile(repo, tag string) (string, error) {
 	return filepath.Join(append(elems, etag+".json")...), nil
 }
 
-// putFile writes data atomically: temp file in the same dir (same
-// filesystem, so the rename can't cross devices), then rename over
-// the target. Readers see old or new, never partial.
-func putFile(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+// writeAtomic stages data through a temp file in the target's dir
+// (same filesystem, so the rename can't cross devices), then
+// renames over the target. Readers see old or new, never partial.
+// No MkdirAll: callers that need the dir (putFile) build it, callers
+// that refuse into missing dirs (HOLD leases) let staging fail.
+// The temp pattern names the owner, so crash residue is
+// recognizable (and sweepable) per caller.
+func writeAtomic(path string, data []byte, pattern string) error {
+	// CreateTemp makes 0600.
+	tmp, err := os.CreateTemp(filepath.Dir(path), pattern)
 	if err != nil {
 		return err
 	}
 	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if werr != nil || cerr != nil {
+		// A close error means the content never landed (NFS),
+		// so it refuses like a write error.
 		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
+		return errors.Join(werr, cerr)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
 		return err
 	}
 	return nil
+}
+
+// putFile writes data atomically: the dir is built, the content
+// lands through writeAtomic. Readers see old or new, never
+// partial.
+func putFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return writeAtomic(path, data, ".tmp-*")
 }
 
 // ensureDir creates the dir, naming the op on failure: a bare
