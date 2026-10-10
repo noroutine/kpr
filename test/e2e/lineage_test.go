@@ -101,9 +101,9 @@ func TestE2ELineageUnlockEstablishesLive(t *testing.T) {
 }
 
 // A foreign generation served to a paired store refuses even accepted:
-// the served bytes read back untouched. `kpr adopt` re-pairs (and
-// prunes the old epoch's rows), and the next run mints under the
-// adopted lineage. If this fails, gc clobbers live registries.
+// the served bytes read back untouched. `kpr adopt` re-pairs (cutting
+// the old epoch: untag, prune, stamp), and the next run mints under
+// the adopted lineage. If this fails, gc clobbers live registries.
 func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 	ctx, api, _, root, _, _, runs, state := stageLineage(t)
 	var out strings.Builder
@@ -133,7 +133,7 @@ func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := storeops.Adopt(ctx, &out, api, state, state, "", ""); err != nil {
+	if err := storeops.Adopt(ctx, &out, api, state, state, api, proof.Arm(true, false), "", ""); err != nil {
 		t.Fatalf("Adopt: %v", err)
 	}
 	ident, _ := state.GetIdentity(ctx)
@@ -163,6 +163,96 @@ func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 	}
 	if n := collectorRuns(t, runs); n != 1 {
 		t.Errorf("collector ran %d times, want one proof pass", n)
+	}
+}
+
+// A re-pair cuts foreign sentinels off the live registry: preview
+// names the fossils and changes nothing (tags stay served, rows
+// stay, identity stays); the armed run untags every served
+// sentinel tag but the served digest's own — the floater and the
+// served generation's tag stay — then prunes the old epoch's rows
+// and stamps the identity. If this fails, tagged garbage outlives
+// the epoch cut.
+func TestE2EAdoptCutsForeignSentinels(t *testing.T) {
+	ctx, api, _, root, _, _, _, state := stageLineage(t)
+	var out strings.Builder
+	if err := storeops.Unlock(ctx, &out, storeops.UnlockDeps{
+		Rec: state, Ids: state, Rows: state,
+		API: api, Clock: clock.HTTPS{}, Store: state,
+	}); err != nil {
+		t.Fatalf("Unlock: %v", err)
+	}
+	paired, err := state.GetIdentity(ctx)
+	if err != nil {
+		t.Fatalf("read identity: %v", err)
+	}
+	foreignGen, foreignID := mustGen(t), mustGen(t)
+	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, freshPayload(foreignGen, foreignID)); err != nil {
+		t.Fatalf("stage foreign generation: %v", err)
+	}
+	fossilGen := mustGen(t)
+	if _, err := sentinel.Write(root, sentinel.Repo, "fossil", freshPayload(fossilGen, foreignID)); err != nil {
+		t.Fatalf("stage fossil tag: %v", err)
+	}
+	servedTags := func() map[string]bool {
+		t.Helper()
+		tags, err := api.Catalog(ctx, sentinel.Repo)
+		if err != nil {
+			t.Fatalf("read catalog: %v", err)
+		}
+		set := map[string]bool{}
+		for _, tag := range tags {
+			set[tag] = true
+		}
+		return set
+	}
+	before := servedTags()
+	for _, tag := range []string{sentinel.Tag, foreignGen, "fossil", fossilGen} {
+		if !before[tag] {
+			t.Fatalf("catalog lacks %q before the cut: %v", tag, before)
+		}
+	}
+
+	out.Reset()
+	if err := storeops.Adopt(ctx, &out, api, state, state, api, nil, "", ""); err != nil {
+		t.Fatalf("previewed re-pair: %v", err)
+	}
+	if !strings.Contains(out.String(), "would untag "+sentinel.Repo+":fossil") {
+		t.Errorf("preview names no fossil untag:\n%s", out.String())
+	}
+	if got := servedTags(); len(got) != len(before) {
+		t.Errorf("preview moved the catalog: %v", got)
+	}
+	if ident, _ := state.GetIdentity(ctx); ident.ID != paired.ID {
+		t.Errorf("preview moved identity to %q", ident.ID)
+	}
+
+	out.Reset()
+	if err := storeops.Adopt(ctx, &out, api, state, state, api, proof.Arm(true, false), "", ""); err != nil {
+		t.Fatalf("armed re-pair: %v", err)
+	}
+	after := servedTags()
+	for _, tag := range []string{sentinel.Tag, foreignGen} {
+		if !after[tag] {
+			t.Errorf("served tag %q untagged: %v", tag, after)
+		}
+	}
+	for _, tag := range []string{"fossil", fossilGen} {
+		if after[tag] {
+			t.Errorf("fossil tag %q still served: %v", tag, after)
+		}
+	}
+	if ident, _ := state.GetIdentity(ctx); ident.ID != foreignID {
+		t.Errorf("paired to %q, serves %q", ident.ID, foreignID)
+	}
+	rows, err := state.All(ctx)
+	if err != nil {
+		t.Fatalf("read rows: %v", err)
+	}
+	for _, r := range rows {
+		if r.Repo == sentinel.Repo {
+			t.Errorf("old-epoch sentinel row survived adopt: %+v", r)
+		}
 	}
 }
 
@@ -207,7 +297,7 @@ func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := storeops.Adopt(ctx, &out, api, state, state, "", gen0.Gen); err != nil {
+	if err := storeops.Adopt(ctx, &out, api, state, state, api, proof.Arm(true, false), "", gen0.Gen); err != nil {
 		t.Fatalf("Adopt --gen: %v", err)
 	}
 	if ident2, _ := state.GetIdentity(ctx); ident2.BaselineGen != gen0.Gen {
@@ -262,7 +352,7 @@ func TestE2ELineageSweeperRefusesForeignPreview(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := storeops.Adopt(ctx, &out, api, state, state, "", ""); err != nil {
+	if err := storeops.Adopt(ctx, &out, api, state, state, api, proof.Arm(true, false), "", ""); err != nil {
 		t.Fatalf("Adopt: %v", err)
 	}
 	sum = sw.RunPass(ctx, "e2e-lineage")

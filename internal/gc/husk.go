@@ -12,16 +12,35 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 )
 
-// removeHusks deletes tagless repo dirs under the registry root:
-// nothing pullable lives there, so removal only orphans blobs the
-// next collect owns (shared layers stay alive through other repos'
-// links). Each candidate is re-verified at removal time — no tag
-// links, no live upload session, never a sentinel-prefix repo, and
-// never an ancestor of a kept repo — so a mid-run push races safe:
-// anything gained since the walk keeps the repo. Names come back
-// sorted for the report. A walk failure or a removal failure
-// refuses loud: half-removed inventory must shout, never guess.
+// removeHusks deletes the tagless repo dirs findHusks lists under
+// the registry root: nothing pullable lives there, so removal only
+// orphans blobs the next collect owns (shared layers stay alive
+// through other repos' links). Names come back sorted for the
+// report. A removal failure refuses loud with what went so far:
+// half-removed inventory must shout, never guess.
 func removeHusks(root string) ([]string, error) {
+	repos := filepath.Join(root, "docker", "registry", "v2", "repositories")
+	remove, err := findHusks(root)
+	if err != nil {
+		return nil, err
+	}
+	var removed []string
+	for _, name := range remove {
+		if err := os.RemoveAll(filepath.Join(repos, filepath.FromSlash(name))); err != nil {
+			return removed, fmt.Errorf("husk remove %s: %w", name, err)
+		}
+		removed = append(removed, name)
+	}
+	return removed, nil
+}
+
+// findHusks lists what removeHusks would take on this state,
+// removing nothing: the shared evaluation behind both the armed
+// removal and the preview count. Walk, classify, then the
+// ancestor guards — a kept descendant vetoes the husk above it,
+// a removed ancestor covers the husk below it (sorted parents
+// first, children skipped as gone).
+func findHusks(root string) ([]string, error) {
 	repos := filepath.Join(root, "docker", "registry", "v2", "repositories")
 	if _, err := os.Stat(repos); err != nil {
 		if os.IsNotExist(err) {
@@ -74,7 +93,7 @@ func removeHusks(root string) ([]string, error) {
 	// Sorted removal: a parent sorts before its children, so a
 	// husk gone with its ancestor is skipped, never re-removed.
 	slices.Sort(husks)
-	var removed []string
+	var remove []string
 outer:
 	for _, name := range husks {
 		for _, k := range kept {
@@ -82,17 +101,14 @@ outer:
 				continue outer
 			}
 		}
-		for _, r := range removed {
+		for _, r := range remove {
 			if strings.HasPrefix(name, r+"/") {
 				continue outer
 			}
 		}
-		if err := os.RemoveAll(filepath.Join(repos, filepath.FromSlash(name))); err != nil {
-			return removed, fmt.Errorf("husk remove %s: %w", name, err)
-		}
-		removed = append(removed, name)
+		remove = append(remove, name)
 	}
-	return removed, nil
+	return remove, nil
 }
 
 // repoKind is what a _manifests dir turned out to be: kept (tags,

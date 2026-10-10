@@ -10,6 +10,7 @@ designs live in [GC_DANGLING.md](GC_DANGLING.md).
 - [Tagged/untagged/orphan blob attribution](#taggeduntaggedorphan-blob-attribution)
 - [GC profit line](#gc-profit-line)
 - [Untagged is arithmetic, not truth](#untagged-is-arithmetic-not-truth)
+- [Foreign inputs: analyze without a kpr setup](#foreign-inputs-analyze-without-a-kpr-setup)
 
 ## Tagged/untagged/orphan blob attribution
 
@@ -105,3 +106,23 @@ find /var/lib/registry/docker/registry/v2/repositories \
 
 If large, superseded versions deserve their own
 `registry ls`-visible count.
+
+## Foreign inputs: analyze without a kpr setup
+
+Analyze today assumes the paired setup: our store plus our
+registry root under the same proofs. The walk itself needs
+neither — it reads a registry layout and joins it against
+store rows when present. So point it at foreign inputs and
+degrade the report honestly:
+
+- A foreign kpr store dir: same join, no pairing proof, the
+  store sections read as observed-not-ours.
+- A bare registry root (no kpr state at all): fs/catalog
+  sections only, store sections print skipped-with-reason.
+- A registry endpoint: catalog-only view, everything fs
+  skipped.
+
+Skipped is a printed reason, never zeros — a missing input
+must not read as an empty registry. Shape undecided: flags
+on `registry analyze` or a sibling command; either way the
+read paths stay shared, only the report narrows.

@@ -54,6 +54,69 @@ func structural(name string) bool {
 	return false
 }
 
+// planPrune counts what pruneEmptyDirs would remove on this
+// state, removing nothing: the preview half of the prune rule.
+// Both halves share structural and the bottom-up emptiness
+// reading; the agreement test pins them together on staged
+// trees, so the preview count is the armed count.
+func planPrune(root string) (int, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return 0, fmt.Errorf("skeleton unreadable at %s: %w", root, err)
+	}
+	var n int
+	for _, e := range entries {
+		c, _, err := planDir(filepath.Join(root, e.Name()))
+		if err != nil {
+			return n, err
+		}
+		n += c
+	}
+	return n, nil
+}
+
+// planDir reports the removals in dir's subtree and whether dir
+// itself would go: a dir goes when it holds nothing but gone
+// children (empty counts as vacuous). Files, symlinks, and
+// structural containers stay — matching pruneDir's removals on a
+// quiet state. An absent dir reads gone for neither side: armed
+// skips it uncounted, so the plan counts nothing for it either.
+func planDir(dir string) (int, bool, error) {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	if !fi.IsDir() {
+		return 0, false, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, false, err
+	}
+	var n int
+	allGone := true
+	for _, e := range entries {
+		c, gone, err := planDir(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return n, false, err
+		}
+		n += c
+		if !gone {
+			allGone = false
+		}
+	}
+	if structural(fi.Name()) {
+		return n, false, nil
+	}
+	if allGone {
+		return n + 1, true, nil
+	}
+	return n, false, nil
+}
+
 // pruneDir empties dir bottom-up and removes it when nothing
 // remains, reporting how many dirs went in its subtree. A non-dir
 // (file, symlink) is left alone; a structural skeleton container is

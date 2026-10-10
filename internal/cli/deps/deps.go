@@ -6,14 +6,15 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// Deps bundles one command's shared wiring: config, the redis state,
-// and the registry client for the commands that need it (status,
-// reap). Every RunE opens from this one place, so a wiring change
-// (auth, dial opts, a second backend) lands everywhere or nowhere.
-// Building the client eagerly is harmless: NewClient dials nothing,
-// it only holds the base URL.
+// Deps bundles one command's shared wiring: the state store and
+// the registry client. Every RunE opens from this one place, so a
+// wiring change (auth, dial opts, a second backend) lands
+// everywhere or nowhere. Config rides no field: OpenDeps builds
+// it from env, installs it as Current, and wires store and client
+// from it — use cases read config.Current() where they need it.
+// Building the client eagerly is harmless: NewClient dials
+// nothing, it only holds the base URL.
 type Deps struct {
-	Cfg   *config.Config
 	Store store.StoreCloser
 	Reg   *registry.Client
 }
@@ -36,7 +37,7 @@ func OpenDeps() (*Deps, error) {
 	}
 	reg := registry.NewClient(cfg.RegistryURL)
 	reg.SetBasicAuth(cfg.RegistryUser, cfg.RegistryPassword)
-	return &Deps{Cfg: cfg, Store: s, Reg: reg}, nil
+	return &Deps{Store: s, Reg: reg}, nil
 }
 
 func (d *Deps) Close() {

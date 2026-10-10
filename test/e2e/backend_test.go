@@ -6,9 +6,11 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/testing/storetest"
 )
@@ -93,5 +95,43 @@ func TestOpenStoreAgainstFixture(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "redis") {
 		t.Errorf("refusal = %q, want it to name redis", err.Error())
+	}
+}
+
+// The redis lease fences a real gate off the fixture redis: Hold
+// engages, Snapshot reads held, release reads free — the file
+// lease's contract, no filesystem. If this fails, the redis
+// backend runs unfenced while the file backend holds.
+func TestE2ERedisLeaseFencesGate(t *testing.T) {
+	fx := NewFixture(t)
+	s := store.NewRedisStore(fx.RedisAddr(), fx.RedisPassword(), fx.RedisDB())
+	ctx, cancel := context.WithTimeout(context.Background(), e2eTimeout)
+	defer cancel()
+	if err := s.Ping(ctx); err != nil {
+		t.Fatalf("fixture redis unreachable: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Flush(ctx); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	conn, ok := s.HoldLeaseConn()
+	if !ok {
+		t.Fatal("redis store advertises no lease conn, want hosted")
+	}
+	now := time.Now().UTC()
+	release, err := store.RedisLease{Conn: conn, Key: store.HoldLeaseKey}.Hold(ctx, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("Hold: %v", err)
+	}
+	gate := &fence.Gate{Store: s, Lease: store.RedisLease{Conn: conn, Key: store.HoldLeaseKey}}
+	if _, held := gate.Snapshot(); !held {
+		t.Error("Snapshot during redis HOLD = free, want held")
+	}
+	release()
+	if _, held := gate.Snapshot(); held {
+		t.Error("Snapshot after redis release = held, want free")
+	}
+	if err := s.Flush(ctx); err != nil {
+		t.Fatalf("Flush lease: %v", err)
 	}
 }

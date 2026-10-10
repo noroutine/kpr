@@ -109,7 +109,7 @@ func serveEdge(t *testing.T, backend, proofPath string, st *store.FileStore, dir
 	if err != nil {
 		t.Fatalf("edge handler: %v", err)
 	}
-	gate := &fence.Gate{Store: st, Dir: dir, Report: func(event.Event) {}}
+	gate := &fence.Gate{Store: st, Lease: store.FileLease{Dir: dir}, Report: func(event.Event) {}}
 	srv := httptest.NewServer(gate.Wrap(h))
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -329,7 +329,7 @@ func TestEdgeHoldDelaysManifestPutDuringArmedGC(t *testing.T) {
 		}, gc.Options{Armed: armed}, gc.Accepts{})
 	}
 
-	previewFence := &recordFence{Control: fence.Control{Store: st, HoldFile: store.HoldFile{Dir: dir}}}
+	previewFence := &recordFence{Control: fence.Control{Store: st, Lease: store.FileLease{Dir: dir}}}
 	if err := run(nil, previewFence); err != nil {
 		t.Fatalf("preview gc: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestEdgeHoldDelaysManifestPutDuringArmedGC(t *testing.T) {
 		t.Errorf("PUT after preview took %v, want immediate (no lease)", elapsed)
 	}
 
-	armedFence := &recordFence{Control: fence.Control{Store: st, HoldFile: store.HoldFile{Dir: dir}}}
+	armedFence := &recordFence{Control: fence.Control{Store: st, Lease: store.FileLease{Dir: dir}}}
 	runErr := make(chan error, 1)
 	go func() {
 		runErr <- run(proof.Arm(true, false), armedFence)

@@ -37,7 +37,7 @@ flowchart LR
     subgraph serve["<b>kpr serve</b> · long-running"]
       direction TB
       edge{{"<b>edge proxy</b> :5000<br/>forwards byte-identical<br/>HOLD / DENY fence"}} ~~~
-      recv{{"<b>receiver</b> :8080<br/>records pushed rows"}} ~~~
+      recv{{"<b>receiver</b> :8080<br/>push records · delete drops"}} ~~~
       console["<b>console</b> :9300<br/>counters · plan · activity"]
     end
 
@@ -87,7 +87,11 @@ The edge is part of `serve`, not a separate command. It forwards
 pushes to the registry byte-identical and fences mutating routes
 — HOLD leases around an armed collect, DENY on the lock marker —
 through the same evaluation the use cases mint from (a boolean
-here, not a mint). `store lock` / `unlock` voice the deny flips
+here, not a mint). The HOLD source is the `fence.Lease` port:
+the file backend hosts it in its own dir, the redis backend on
+its shared conn, capability-less backends read absent
+(marker-only fencing — DENY works over any backend).
+`store lock` / `unlock` voice the deny flips
 at the transition through the fence port, so the ring carries
 them with zero traffic. It opens only on a RelativeURLs proof over the
 registry config: no proof, no edge. `KPR_EDGE=false` opts out,
@@ -99,6 +103,12 @@ Deletes have one owner: the sweeper is the only deleter of
 registry manifests and tracked rows — `store rm` calls into it
 (`Sweeper.Untrack` for rows, `Sweeper.Untag` for manifests, a
 specific sweep going around the plan) instead of deleting past it.
+One documented exception: `store adopt`'s re-pair cut (untagging
+the old epoch's fossil sentinel tags, then pruning its rows).
+Adopt takes on a foreign store, not a foreign registry, and runs
+pre-unlock where the sweeper's proofs cannot exist — the cut is
+operator fiat with no verdict to exercise, so there is nothing
+to delegate. Full story in [ADOPT.md](ADOPT.md).
 The CLI splits along the decision line:
 `reap` marks, `sweep` runs, `plan` edits, `gc` reclaims. `reap`
 evaluates the policies (reading candidates from state, and the catalog
@@ -299,7 +309,7 @@ Registry auth scope: kpr's registry client speaks anonymous or basic
 (one user+password pair, env-supplied) — that covers open and htpasswd
 registries, which is all kpr claims today. Token-issuing registries
 (JWT bearer) are future work: same pair, exchanged at the issuer per
-scope (see [GC_FUTURE.md](GC_FUTURE.md#token-auth-registries)).
+scope (see [ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md#token-auth-registries)).
 The `auth` in
 Deliberately-out below is unrelated — kpr will never be an
 auth provider, only a client of the registry's.

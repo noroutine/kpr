@@ -46,7 +46,7 @@ func TestOpenEdgeRefusesAbsoluteConfig(t *testing.T) {
 // serve boots an unfenced edge thinking it proved one.
 func TestBuildEdgeRelaysProofRefusal(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.yml")
-	gate, h, err := buildEdge(store.NewMemStore(), "http://127.0.0.1:9", missing, "", nil)
+	gate, h, err := buildEdge(store.NewMemStore(), "http://127.0.0.1:9", missing, nil, nil)
 	if err == nil {
 		t.Error("buildEdge(missing) error = nil, want the read error")
 	}

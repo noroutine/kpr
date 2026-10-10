@@ -89,3 +89,32 @@ func TestErrIdentityStoreSetPropagates(t *testing.T) {
 		t.Errorf("SetIdentity = %v, want %v", err, want)
 	}
 }
+
+// The map lease surface round-trips bytes, misses like absence,
+// drops on Del, and records (never honors) TTLs. If this fails,
+// the shared conformance's second medium lies.
+func TestMemLeaseConnRoundTrips(t *testing.T) {
+	m := fakes.NewMemLeaseConn()
+	ctx := context.Background()
+	// A miss answers (nil, nil): the adapter contract for a redis
+	// Nil, and a missing file reads the same — an error here
+	// would voice outage where there is none.
+	if raw, err := m.Get(ctx, "k"); err != nil || raw != nil {
+		t.Errorf("Get on empty surface = (%q,%v), want (nil,nil)", raw, err)
+	}
+	if err := m.Set(ctx, "k", []byte("v"), time.Minute); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if raw, err := m.Get(ctx, "k"); err != nil || string(raw) != "v" {
+		t.Errorf("Get = (%q,%v), want (v,nil)", raw, err)
+	}
+	if got := m.TTL("k"); got != time.Minute {
+		t.Errorf("TTL = %v, want what Hold asked", got)
+	}
+	if err := m.Del(ctx, "k"); err != nil {
+		t.Fatalf("Del: %v", err)
+	}
+	if raw, err := m.Get(ctx, "k"); err != nil || raw != nil {
+		t.Errorf("Get after Del = (%q,%v), want (nil,nil)", raw, err)
+	}
+}
