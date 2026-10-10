@@ -25,6 +25,9 @@ func TestAdoptBootstrapsSilence(t *testing.T) {
 	if !strings.Contains(out, "paired to "+ident) {
 		t.Errorf("adopt output lacks the pairing:\n%s", out)
 	}
+	if !strings.Contains(out, "kpr store unlock") {
+		t.Errorf("adopt output lacks the unlock follow-up:\n%s", out)
+	}
 	backend, storeDir := resolveTestBackend(t)
 	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
 	if err != nil {

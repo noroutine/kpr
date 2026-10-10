@@ -160,7 +160,7 @@ func TestJudgeMatrix(t *testing.T) {
 		{
 			name:   "unpaired store refuses served lineage",
 			served: vserved(vother, vgen3), local: Local{},
-			ask: Ask{Now: vnow}, proceed: false, action: "kpr store adopt",
+			ask: Ask{Now: vnow}, proceed: false, action: "then `kpr store unlock`",
 		},
 		{
 			name:   "id-less served refuses like foreign",

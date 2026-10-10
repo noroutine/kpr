@@ -39,7 +39,7 @@ func Adopt(ctx context.Context, w io.Writer, api sentinel.API, ids lineage.Ident
 		if err := ids.SetIdentity(ctx, store.Identity{ID: identArg, AdoptedAt: time.Now().UTC()}); err != nil {
 			return fmt.Errorf("lineage unrecordable: %w", err)
 		}
-		_, err := fmt.Fprintf(w, "paired to %s with no baseline: the first mint establishes it\n", identArg)
+		_, err := fmt.Fprintf(w, "paired to %s with no baseline: the first mint establishes it; then `kpr store unlock` to open writes\n", identArg)
 		return err
 	}
 	if pay.ID == "" {
@@ -66,19 +66,19 @@ func Adopt(ctx context.Context, w io.Writer, api sentinel.API, ids lineage.Ident
 		if err := ids.SetIdentity(ctx, store.Identity{ID: pay.ID, BaselineGen: wantGen, AdoptedAt: now}); err != nil {
 			return fmt.Errorf("lineage unrecordable: %w", err)
 		}
-		_, err = fmt.Fprintf(w, "re-paired from %s to %s at generation %s: pruned %d rows of the old epoch\n", cur.ID, pay.ID, wantGen, pruned)
+		_, err = fmt.Fprintf(w, "re-paired from %s to %s at generation %s: pruned %d rows of the old epoch; then `kpr store unlock` to open writes\n", cur.ID, pay.ID, wantGen, pruned)
 		return err
 	case cur.ID != "":
 		if err := ids.SetIdentity(ctx, store.Identity{ID: cur.ID, BaselineGen: wantGen, AdoptedAt: cur.AdoptedAt}); err != nil {
 			return fmt.Errorf("lineage unrecordable: %w", err)
 		}
-		_, err = fmt.Fprintf(w, "already paired to %s: baseline refreshed to generation %s\n", cur.ID, wantGen)
+		_, err = fmt.Fprintf(w, "already paired to %s: baseline refreshed to generation %s; then `kpr store unlock` to open writes\n", cur.ID, wantGen)
 		return err
 	default:
 		if err := ids.SetIdentity(ctx, store.Identity{ID: pay.ID, BaselineGen: wantGen, AdoptedAt: now}); err != nil {
 			return fmt.Errorf("lineage unrecordable: %w", err)
 		}
-		_, err = fmt.Fprintf(w, "paired to %s at generation %s\n", pay.ID, wantGen)
+		_, err = fmt.Fprintf(w, "paired to %s at generation %s; then `kpr store unlock` to open writes\n", pay.ID, wantGen)
 		return err
 	}
 }
