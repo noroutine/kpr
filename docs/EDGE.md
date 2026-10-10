@@ -53,12 +53,12 @@ Two modes, both identity-blind (route+method, never
 credentials; auth headers pass through opaque):
 
 - **HOLD** — gc finalize: manifest PUTs wait on a bounded
-  self-expiring lease (5m crash bound), fail-open. Sleepers
-  re-read the lease file, so early release wakes promptly; a
-  lease gc outruns flows unfenced but says `hold_expired`
-  once, never silent. Blob uploads are never held — they
-  reference nothing. A renewing heartbeat is the real answer
-  past the bound; future work.
+  self-expiring lease (file: 5m crash bound; redis: TTL past
+  the term), fail-open. Sleepers re-read the lease, so early
+  release wakes promptly; a lease gc outruns flows unfenced
+  but says `hold_expired` once, never silent. Blob uploads
+  are never held — they reference nothing. A renewing
+  heartbeat is the real answer past the bound; future work.
 - **DENY** — store locked: manifest PUT/DELETE refuse fast
   while the marker is set (423 naming `store unlock`). Blob
   uploads and reads pass — uploads alone create no references
@@ -75,12 +75,13 @@ transitions, not truth. `kpr gc` armed collect drives Hold;
 `store lock` / `unlock` drive Deny/Allow, voicing
 `deny_engage` / `deny_release` at the transition — the ring
 carries the flip with zero traffic. Enforcement stays
-single-sourced (lock marker, lease file) through the same
+single-sourced (lock marker, lease medium) through the same
 evaluation the use cases mint from (a boolean here, not a
 mint), so an announcement can never disagree with the gate.
-`fence.Control` is the adapter (lease file + announcements);
-`fence.Gate` enforces. The shared `Event`/`Reporter` vocabulary
-lives in `event` — narrators import no use case.
+`fence.Lease` is the lease port (`Control` embeds it);
+`store.FileLease` and `store.RedisLease` are the drivers,
+`fence.Gate` enforces. The shared `Event`/`Reporter`
+vocabulary lives in `event` — narrators import no use case.
 
 ### A noted exception
 
@@ -134,17 +135,15 @@ is sufficient.
 ## Ops
 
 - `KPR_EDGE=false` opts out; other servers keep serving.
-- HOLD needs the shared file backend (the lease is a file);
-  anything else collects unfenced with the warning said out
-  loud (`--accept-unfenced` owns that risk on armed runs).
+- HOLD needs a shared lease medium: the file backend holds
+  the lease file, the redis backend the lease key. Anything
+  else collects unfenced with the warning said out loud
+  (`--accept-unfenced` owns that risk on armed runs).
 - No per-identity fencing: internal vs external is told
   topologically (direct vs proxied). Per-identity belongs to
   a tenancy world, out of scope.
 
-## Delivered
-
-Slices 1–3, each proven live before the next — one list, the
-history stays in git:
+## Behavior
 
 - Transparent byte-identical proxy + Location guard (large
   blobs incl. `Range`/resume, no audible overhead; absolute
