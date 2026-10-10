@@ -19,7 +19,7 @@ and quickstart commands are in the [top-level README](../README.md).
 | [STORES](STORES.md) | file and redis backends, layouts, invariants |
 | [GC](GC.md) | reclaiming blob bytes: the proof chain, the two paths |
 | [BACKFILL](BACKFILL.md) | adopting pre-kpr tags into tracked rows |
-| [OBSERVABILITY](OBSERVABILITY.md) | Quickwit/Jaeger/Prometheus/Grafana overlay |
+| [OBSERVABILITY](OBSERVABILITY.md) | compose overlay, basic (follow-ups open) |
 
 ## Understand it
 
