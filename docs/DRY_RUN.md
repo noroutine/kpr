@@ -39,3 +39,8 @@ lives in [DRY_RUN_FUTURE.md](DRY_RUN_FUTURE.md).
 
 `sweep --output` writes the per-row log (would-tense in preview)
 plus the summary into a file; stdout keeps the counters either way.
+
+The sweep pass log carries the mode under the `dry_run` key
+(`proof.Unarmed` of the pass proof). The key stays put even
+though the code speaks armed now: dashboards read it, and
+observability owns its vocabulary.

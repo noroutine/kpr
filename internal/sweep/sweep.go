@@ -59,8 +59,9 @@ type Registry interface {
 	DeleteManifest(ctx context.Context, repo, ref string) (string, error)
 }
 
-// Sweeper deletes due rows. DryRun plans without touching the registry
-// (implicit dry-run: nothing changes unless explicitly armed).
+// Sweeper deletes due rows. Unarmed it plans without touching the
+// registry (implicit dry-run: nothing changes unless explicitly
+// armed). The sweeper never mints — callers pass the proof.
 type Sweeper struct {
 	Store    store.Store
 	Registry Registry
@@ -69,7 +70,7 @@ type Sweeper struct {
 	// alone any delete. The sweeper never mints, so it cannot
 	// establish — silence refuses in both modes.
 	Sentinel sentinel.API
-	DryRun   bool
+	Armed    proof.ArmedRun
 	// Now is a seam for tests; production leaves it nil (wall clock).
 	Now func() time.Time
 	// Log emits activity records: one per resolved row plus a pass
@@ -108,7 +109,9 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	// as "nothing due", not as "sweeper went quiet".
 	defer func() {
 		args := []any{
-			"pass_id", sum.PassID, "trigger", trigger, "dry_run", s.DryRun,
+			// The key stays dry_run: dashboards read it, and
+			// observability owns its vocabulary (see docs/DRY_RUN.md).
+			"pass_id", sum.PassID, "trigger", trigger, "dry_run", proof.Unarmed(s.Armed),
 			"performed", sum.Performed, "planned", sum.Planned,
 			"failed", sum.Failed, "untracked", sum.Untracked,
 			"skipped", sum.Skipped,
@@ -159,7 +162,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	}
 	// One frozen clock for gate and pass alike: the verdict judges
 	// as of pass start, not as of however long the reads took.
-	if _, err := (proof.Prover{Sentinel: s.Sentinel, Store: s.Store, DryRun: s.DryRun, Now: func() time.Time { return now }}.Prove(ctx)); err != nil {
+	if _, err := (proof.Prover{Sentinel: s.Sentinel, Store: s.Store, DryRun: proof.Unarmed(s.Armed), Now: func() time.Time { return now }}.Prove(ctx)); err != nil {
 		setStage(StageFailure, 0, 0)
 		sum.Skipped = true
 		sum.Failures = append(sum.Failures, err.Error())
@@ -206,7 +209,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	// skipVerb narrates holds in the pass's own tense: armed
 	// skips what is, dry-run previews what would be.
 	skipVerb := "skipped"
-	if s.DryRun {
+	if proof.Unarmed(s.Armed) {
 		skipVerb = "would skip"
 	}
 	for _, r := range due {
@@ -265,7 +268,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 		// performed, failed, or untracked (armed) or performed
 		// without deleting (dry-run).
 		sum.Planned++
-		if s.DryRun {
+		if proof.Unarmed(s.Armed) {
 			resolve(r, "planned", nil)
 			// Dry-run performs everything short of the delete: the
 			// row passed the same gate arming would enforce, so it

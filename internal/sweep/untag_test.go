@@ -179,7 +179,7 @@ func TestUntagRefusesLockedStore(t *testing.T) {
 	sw := untagSweeper(s, stub)
 	same, err := proof.Prover{
 		Sentinel: pairGround(s), Store: s,
-		DryRun: false, Now: func() time.Time { return sweepNow },
+		Now: func() time.Time { return sweepNow },
 	}.Prove(testCtx())
 	if err != nil {
 		t.Fatalf("prove on paired ground: %v", err)

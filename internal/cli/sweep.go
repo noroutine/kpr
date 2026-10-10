@@ -53,7 +53,7 @@ func runSweep(ctx context.Context, w io.Writer, s store.Store, peer sweepPeer, a
 		logFile = f
 		failures = io.MultiWriter(failures, f)
 	}
-	sw := &sweep.Sweeper{Store: s, Registry: peer, Sentinel: peer, DryRun: proof.Unarmed(armed)}
+	sw := &sweep.Sweeper{Store: s, Registry: peer, Sentinel: peer, Armed: armed}
 	if logFile != nil {
 		// --output implies per-row: the file carries every
 		// verdict (would sweep/swept, skips, failures), stdout
