@@ -12,6 +12,14 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
+// This file is the joint home of `plan add` and `plan remove`:
+// the reportStage harness both (and plan discard's test) stand
+// on, plus the tests that exercise the pair together (dead-store
+// refusal, end-to-end tails). Single-command tests live with
+// their commands in plan_add_test and plan_remove_test; what
+// cannot be attributed to one command stays here, not duplicated
+// in both.
+
 // reportStage tracks one scratch row: just enough to render a count
 // against. Behavior lives in keeper; here only the messages.
 func reportStage() *store.MemStore {
