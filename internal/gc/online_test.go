@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/testing/fakes"
 )
 
 // stageOnlineConfig stages a registry config with the store root
@@ -40,11 +42,11 @@ func loopbackEdge(t *testing.T) (string, func()) {
 
 func writableProbe() Probe {
 	return Probe(func(context.Context, string) (Mode, string, error) {
-		return ModeWritable, "", nil
+		return modeWritable, "", nil
 	})
 }
 
-// The cleared preflight mints both tokens and reports two oks:
+// The cleared preflight produces both tokens and reports two oks:
 // cache absent, edge proven and listening. If this fails, a clean
 // online run cannot start.
 func TestOnlinePreflightClears(t *testing.T) {
@@ -55,12 +57,12 @@ func TestOnlinePreflightClears(t *testing.T) {
 	edge, done := loopbackEdge(t)
 	defer done()
 
-	cache, fence, report, err := onlinePreflight(ctx, cfg, edge, true, nil, nil)
+	cache, gating, report, err := onlinePreflight(ctx, cfg, edge, true, nil, nil)
 	if err != nil {
 		t.Fatalf("cleared preflight refused: %v", err)
 	}
-	if cache == nil || fence == nil {
-		t.Fatal("cleared preflight minted nil, want both tokens")
+	if cache == nil || gating == nil {
+		t.Fatal("cleared preflight produced nil, want both tokens")
 	}
 	for _, want := range []string{"[ok] blob cache", "[ok] gateway"} {
 		if !strings.Contains(report, want) {
@@ -254,13 +256,14 @@ func TestOnlinePreflightFooterOverridesCacheOnly(t *testing.T) {
 // nothing), but the operator still sees every miss an armed run
 // would demand. If this fails, previews hide the clearance state.
 func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
-	stagePairedGen(t, s, root)
+	cfg, root, s := fakes.ProvenRun(t)
+	fakes.PairedGen(t, s, root)
 	var collected [][]string
 	var out strings.Builder
-	err := Run(context.Background(), &out, writableProbe(), s, okCollector(&collected), fileAPI{root},
-		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Report: func(Event) {}}, Accepts{})
+	fakes.Config(t, "http://registry:5000", cfg)
+	useSeams(t, writableProbe(), okCollector(&collected))
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Report: func(event.Event) {}},
+		Options{}, Accepts{})
 	if err != nil {
 		t.Fatalf("writable preview: %v", err)
 	}
@@ -279,13 +282,14 @@ func TestRunWritableDryRunPrintsPreflight(t *testing.T) {
 // online preflight consults none of them. If this fails, an
 // acceptance leaked across gates and the per-risk split is a lie.
 func TestRunExForceRisksOpenNothingOnline(t *testing.T) {
-	cfg, root, s := stageProvenRun(t)
+	cfg, root, s := fakes.ProvenRun(t)
 	var collected [][]string
 	var out strings.Builder
 	accept := proof.Force(proof.Arm(true, false), true)
-	err := Run(context.Background(), &out, writableProbe(), s, okCollector(&collected), fileAPI{root},
-		"http://registry:5000", cfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: false, Report: func(Event) {}},
+	fakes.Config(t, "http://registry:5000", cfg)
+	useSeams(t, writableProbe(), okCollector(&collected))
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Report: func(event.Event) {}},
+		Options{Armed: flagArmed()},
 		Accepts{ClockSkew: accept, Rollback: accept, ModeFlip: accept})
 	if err == nil {
 		t.Fatal("risk-accepted uncleared run succeeded, want the preflight refusal")
@@ -304,19 +308,20 @@ func TestRunExForceRisksOpenNothingOnline(t *testing.T) {
 func TestRunOnlineCollectsUnderFence(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_, root, s := stageProvenRun(t)
+	_, root, s := fakes.ProvenRun(t)
 	onlineCfg := stageOnlineConfig(t, root, false)
-	stagePairedGen(t, s, root)
+	fakes.PairedGen(t, s, root)
 	edge, done := loopbackEdge(t)
 	defer done()
 
 	var events []string
-	fence := stubFencer{events: &events}
+	fencer := stubFencer{events: &events}
 	var collected [][]string
 	var out strings.Builder
-	err := Run(ctx, &out, writableProbe(), s, okCollector(&collected), fileAPI{root},
-		"http://registry:5000", onlineCfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, Accepts{})
+	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
+	useSeams(t, writableProbe(), okCollector(&collected))
+	err := Run(ctx, &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Fence: fencer, Report: func(event.Event) {}},
+		Options{Armed: flagArmed()}, Accepts{})
 	if err != nil {
 		t.Fatalf("cleared online run: %v", err)
 	}
@@ -348,13 +353,14 @@ func TestRunOnlineCollectsUnderFence(t *testing.T) {
 // uncleared run. If this fails, a preview of a risky run prints
 // nothing and claims nothing.
 func TestRunOnlineRefusalReportWriteFailureSurfaces(t *testing.T) {
-	_, root, s := stageProvenRun(t)
+	_, root, s := fakes.ProvenRun(t)
 	var events []string
-	fence := stubFencer{events: &events}
-	w := errWriter{errTestStoreDown}
-	err := Run(context.Background(), w, writableProbe(), s, okCollector(nil), fileAPI{root},
-		"http://registry:5000", stageOnlineConfig(t, root, false), "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{DryRun: true, Fence: fence, Report: func(Event) {}}, Accepts{})
+	fencer := stubFencer{events: &events}
+	w := fakes.ErrWriter{Err: fakes.ErrTestStoreDown}
+	fakes.Config(t, "http://registry:5000", stageOnlineConfig(t, root, false))
+	useSeams(t, writableProbe(), okCollector(nil))
+	err := Run(context.Background(), w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Fence: fencer, Report: func(event.Event) {}},
+		Options{}, Accepts{})
 	if err == nil {
 		t.Fatal("uncleared preview with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {
@@ -369,18 +375,19 @@ func TestRunOnlineRefusalReportWriteFailureSurfaces(t *testing.T) {
 func TestRunOnlineClearReportWriteFailureSurfaces(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_, root, s := stageProvenRun(t)
+	_, root, s := fakes.ProvenRun(t)
 	onlineCfg := stageOnlineConfig(t, root, false)
-	stagePairedGen(t, s, root)
+	fakes.PairedGen(t, s, root)
 	edge, done := loopbackEdge(t)
 	defer done()
 
 	var events []string
-	fence := stubFencer{events: &events}
-	w := errWriter{errTestStoreDown}
-	err := Run(ctx, w, writableProbe(), s, okCollector(nil), fileAPI{root},
-		"http://registry:5000", onlineCfg, "/bin/sh", s, s, s, stubClock{}, "time.example.com",
-		Options{EdgeAddr: edge, Fence: fence, Report: func(Event) {}}, Accepts{})
+	fencer := stubFencer{events: &events}
+	w := fakes.ErrWriter{Err: fakes.ErrTestStoreDown}
+	stageConfigEdge(t, "http://registry:5000", onlineCfg, edge)
+	useSeams(t, writableProbe(), okCollector(nil))
+	err := Run(ctx, w, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Fence: fencer, Report: func(event.Event) {}},
+		Options{Armed: flagArmed()}, Accepts{})
 	if err == nil {
 		t.Fatal("cleared online run with dead output succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "connection refused") {

@@ -14,10 +14,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/app"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/console"
-	"nrtn.dev/catalyst/kpr/internal/edge"
-	"nrtn.dev/catalyst/kpr/internal/gc"
+	"nrtn.dev/catalyst/kpr/internal/event"
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -26,7 +27,7 @@ import (
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start management console, application server, and registry edge",
-	Long:  `Start the kpr servers: management console on port 9300, application server on port 8080, and the transparent registry edge proxy on the edge address (KPR_EDGE_ADDR, :5000). The edge opens only on a RelativeURLs proof over KPR_REGISTRY_CONFIG: KPR_EDGE=false opts out, a failed proof closes it loudly, and neither stops the other servers.`,
+	Long:  `Start the kpr servers: console, application, and the transparent registry edge proxy. The edge opens only on a RelativeURLs proof; KPR_EDGE=false opts out, and a failed proof closes the edge loudly while the other servers keep running.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		logLicenseBanner()
 		// Resolve configuration once: environment first, explicit flags
@@ -77,11 +78,11 @@ var serveCmd = &cobra.Command{
 		// client. Backend derives like every command; a conflict
 		// refuses boot (guessing state wrong is worse than not
 		// booting).
-		backend, storeDir, err := resolveStoreBackend()
+		backend, storeDir, err := deps.ResolveStoreBackend()
 		if err != nil {
 			log.Fatalf("state backend: %v", err)
 		}
-		keeperStore := buildStore(backend, storeDir, cfg)
+		keeperStore := deps.BuildStore(backend, storeDir, cfg)
 		defer func() { _ = keeperStore.Close() }()
 		if perr := keeperStore.Ping(ctx); perr != nil {
 			log.Printf("Warning: state backend unreachable, keeper sections degrade: %v", perr)
@@ -107,10 +108,10 @@ var serveCmd = &cobra.Command{
 		// switch selects intent, the RelativeURLs proof selects
 		// safety, and a closed edge is a loud line — never a boot
 		// refusal for the servers below.
-		var edgeGate *edge.Gate
+		var edgeGate *fence.Gate
 		var edgeHandler http.Handler
 		if cfg.EdgeEnabled {
-			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, cfg.RegistryConfig, func(e gc.Event) {
+			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, cfg.RegistryConfig, func(e event.Event) {
 				log.Printf("edge fence: %s %s", e.Stage, e.Message)
 			})
 			if gerr != nil {
@@ -240,6 +241,9 @@ func sweepProofFresh(ctx context.Context, api sentinel.API) (bool, string) {
 	if err != nil {
 		return false, fmt.Sprintf("generation %s served but its timestamp is unreadable", p.Gen)
 	}
+	// NOTE(mutants): >= is equivalent — staleness at the exact
+	// age boundary is unhittable outside the clock (age lands
+	// exactly on the constant only by measure).
 	if age > sentinel.ProofStaleAfter {
 		return false, fmt.Sprintf("generation %s %s old, stale — layers accumulate until a volume-side gc", p.Gen, age.Round(time.Second))
 	}

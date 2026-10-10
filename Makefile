@@ -119,17 +119,17 @@ e2e:
 ## coverage: Run tests with coverage (coverprofile + terminal summary + HTML report)
 coverage:
 	@if command -v gotestsum >/dev/null 2>&1; then \
-		gotestsum $(GOTESTSUM_FLAGS) --format pkgname -- -race -coverprofile=coverage.raw.out ./...; \
+		gotestsum $(GOTESTSUM_FLAGS) --format pkgname -- -race -coverprofile=coverage.raw.out -coverpkg=./... ./...; \
 	else \
 		echo "gotestsum not found, using go test..."; \
 		echo "Install gotestsum for a dense pass/fail summary:"; \
 		echo "  go install gotest.tools/gotestsum@latest"; \
 		echo ""; \
-		go test -race -coverprofile=coverage.raw.out ./...; \
+		go test -race -coverprofile=coverage.raw.out -coverpkg=./... ./...; \
 	fi
 	@# storetest/ is shared contract scaffolding (exercised only under docker runs),
 	@# not product code: exclude it from the roll-up the way *_test.go is excluded.
-	grep -v '^nrtn.dev/catalyst/kpr/internal/storetest/' coverage.raw.out > coverage.out
+	grep -v '^nrtn.dev/catalyst/kpr/internal/testing/storetest/' coverage.raw.out > coverage.out
 	rm -f coverage.raw.out
 	@# Sub-90% functions, worst last; total closes the summary.
 	go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | awk '$$3+0 < 90'
@@ -176,7 +176,7 @@ mutation:
 	gremlins unleash --timeout-coefficient=100 --workers=$(WORKERS) \
 		--threshold-efficacy=90 --threshold-mcover=85 \
 		--exclude-files 'test/e2e/(clients|scenario|fixture|toolbox)\.go$$' \
-		--exclude-files 'internal/storetest/contract\.go$$' .
+		--exclude-files 'internal/testing/storetest/contract\.go$$' .
 
 ## mutation-dry: Discover mutation candidates without running any tests
 mutation-dry:

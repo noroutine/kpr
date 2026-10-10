@@ -29,7 +29,7 @@ func (acceptedRisk) sealed() {}
 func acceptedRiskFromFlag(ArmedRun) AcceptedRisk { return acceptedRisk{} }
 
 // Force derives acceptance from intent: the flag on an armed run
-// mints, anything else mints nothing. Force without arming is
+// produces, anything else produces nothing. Force without arming is
 // meaningless, and the signature is where that is said.
 func Force(armed ArmedRun, flag bool) AcceptedRisk {
 	if armed == nil || !flag {

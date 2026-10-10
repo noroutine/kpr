@@ -37,8 +37,8 @@ type Initiator interface {
 	Initiate(ctx context.Context, baseURL string) (status int, err error)
 }
 
-// ProveMode mints exactly one: 202 proves writable, 405 proves
-// readonly, anything else — and any transport failure — mints
+// ProveMode produces exactly one: 202 proves writable, 405 proves
+// readonly, anything else — and any transport failure — produces
 // nothing and returns the cause. Inconclusive is an error, so a
 // caller that ignores it collects blind; a caller that wants the
 // classification takes whichever token came back non-nil.

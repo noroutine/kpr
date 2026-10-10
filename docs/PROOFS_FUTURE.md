@@ -15,11 +15,11 @@ rather than runtime evidence:
 Today those are docs and warnings.
 
 **The shape** would follow the existing pattern: a prover reads the
-mounted config kpr already resolves for gc, and mints only when the
+mounted config kpr already resolves for gc, and produces only when the
 knob says what kpr needs.
 
 **The wrinkle** is lifetime. Config is read at boot, while proofs
-are minted per run — so the evidence would be a boot-time reading
+are produced per run — so the evidence would be a boot-time reading
 re-checked per use, never a fresh one.
 
 **One knob already works this way:** `http.relativeurls`, sealed
@@ -35,9 +35,9 @@ judges a caller-parsed address string, so it sees the `redis:`
 connection half but never the `storage.cache.blobdescriptor`
 selection half — `registryRedis` decides, the proof rubber-stamps.
 The owned shape is `ProveBlobCacheOff(configPath, accept)`: the
-prover reads the config itself, mints when no stanza selects
+prover reads the config itself, produces when no stanza selects
 `redis`, refuses when one does, and the `redis:` block drops to
-connection detail for the message. Decided: mint iff both
+connection detail for the message. Decided: produce iff both
 absent — a bare `redis:` block still refuses (conservative),
 whatever the stanza says.
 
@@ -46,7 +46,7 @@ whatever the stanza says.
 Same drift, stated generally: a prover that takes a pre-parsed
 verdict (`cacheAddr string`, a bare root, a bool) can be told
 anything — the evidence-gathering lives in the caller, outside
-the seal. The rule going forward: minting functions take the
+the seal. The rule going forward: producing functions take the
 source (config path, mount, clock) and parse it themselves, so
 the judgment the proof embodies is the judgment the proof
 performs. `FilesystemStore.Analyze` is the precedent (the stage
@@ -65,3 +65,18 @@ and backfill still prove-then-unpack into a bare root string,
 and the guarantee stops at the call site. The mechanism exists;
 the call shapes don't use it yet. Revise when touching those
 signatures — not now.
+
+## Split proofs per subpackage (not revised yet)
+
+`proof` already depends on much (`lineage` for the same-store
+read, `sentinel`, `config`), and every consumer imports it back —
+so the one package is a loop waiting to happen. The exhibit:
+`lineage.Ask` cannot take `proof.ArmedRun` because
+`proof/same_store.go` imports `lineage` — the token stops at the
+cycle edge and the boundary degrades to `Armed bool`, which any
+caller can light. The direction this wants: proofs live with
+their subject (`lineage.Armed` sealed by the lineage read,
+`registry`-facing proofs with the registry client), and the
+top-level `proof` package keeps only the cross-cutting tokens
+with no subject imports. Split when a second boundary degrades
+the same way — one exhibit is a note, two are a pattern.

@@ -158,7 +158,7 @@ func TestProveStalePreviewCarriesStaleness(t *testing.T) {
 		Digest: "sha256:bbb", PushedAt: proofNow, Actor: "kpr-gc"}); err != nil {
 		t.Fatalf("track newer generation: %v", err)
 	}
-	p, err := (Prover{Sentinel: api, Store: s, DryRun: true,
+	p, err := (Prover{Sentinel: api, Store: s,
 		Now: func() time.Time { return proofNow }}).Prove(ctx)
 	if err != nil {
 		t.Fatalf("stale preview refused: %v", err)

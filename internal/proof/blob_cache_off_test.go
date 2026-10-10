@@ -9,7 +9,7 @@ import (
 // The prover owns both halves of the concert: a bare redis:
 // block and a storage.cache.blobdescriptor stanza (any backend)
 // each refuse, naming what was found and the override; both
-// absent mints. If this fails, online gc collects against a
+// absent produces. If this fails, online gc collects against a
 // vouched cache believing it reclaimed.
 func TestProveBlobCacheOff(t *testing.T) {
 	bare := writeRegistryConfig(t, "storage:\n  filesystem:\n    rootdirectory: /tmp/root\n")

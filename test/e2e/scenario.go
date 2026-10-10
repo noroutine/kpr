@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,8 +22,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"nrtn.dev/catalyst/kpr/internal/backfill"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -69,7 +73,7 @@ func New(t *testing.T, fx *Fixture) *Scenario {
 		fx:      fx,
 		store:   s,
 		reg:     reg,
-		sweeper: &sweep.Sweeper{Store: s, Registry: reg, Sentinel: reg, DryRun: false},
+		sweeper: &sweep.Sweeper{Store: s, Registry: reg, Sentinel: reg, Armed: proof.Arm(true, false)},
 	}
 }
 
@@ -219,11 +223,19 @@ func (s *Scenario) BackfillArmed() backfill.Summary {
 		s.t.Fatal("backfill needs a mount fixture (NewStorageFixture)")
 	}
 	s.establishLineage()
+	// The mount root resolves from config, never from an argument:
+	// point Current at a config reading the fixture's storage dir.
+	cfg := filepath.Join(s.t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfg, []byte("storage:\n  filesystem:\n    rootdirectory: "+s.fx.StorageDir()+"\n"), 0o644); err != nil {
+		s.t.Fatalf("stage registry config: %v", err)
+	}
+	restore := config.SetCurrent(&config.Config{RegistryConfig: cfg})
+	defer restore()
 	ctx, cancel := s.ctx()
 	defer cancel()
-	sum, err := backfill.Run(ctx, io.Discard,
-		s.reg, s.reg, s.store, s.store, s.store, s.store,
-		s.fx.StorageDir(), backfill.Options{}, nil)
+	sum, err := backfill.Run(ctx, io.Discard, backfill.Deps{
+		API: s.reg, Reg: s.reg, Rows: s.store, Rec: s.store, Ids: s.store, Lock: s.store,
+	}, backfill.Options{Armed: proof.Arm(true, false)}, backfill.Accepts{})
 	if err != nil {
 		s.t.Fatalf("backfill: %v", err)
 	}
@@ -346,7 +358,7 @@ func (s *Scenario) ReapArmed() {
 	s.t.Helper()
 	ctx, cancel := s.ctx()
 	defer cancel()
-	if _, err := keeper.Reap(ctx, s.store, s.reg, time.Now(), nil, "all", true); err != nil {
+	if _, err := keeper.Reap(ctx, s.store, s.reg, time.Now(), nil, "all", proof.Arm(true, false)); err != nil {
 		s.t.Fatalf("reap policies: %v", err)
 	}
 }

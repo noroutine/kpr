@@ -32,7 +32,7 @@ The foundation, still true:
   `(rows, catalogs, now)`. `store` and `sweep` import `policy`,
   so dependencies point inward.
 - `store.Store` is a proper outbound port. `RedisStore` +
-  `MemStore` + `FileStore` behind it, `storetest/contract.go`
+  `MemStore` + `FileStore` behind it, `testing/storetest/contract.go`
   pins all three to one contract.
 - `clock.Source` is the one port the core-adjacent code grew
   after the foundation: `local` (trust the machine, default),
@@ -59,7 +59,7 @@ Closed leaks (receipts in [`docs/HEXAGONAL_WISDOMS.md`](HEXAGONAL_WISDOMS.md)):
 Inbound bypass (stays): the mark is the interface. The redis
 hash is a public inbound surface that bypasses use cases by
 design; the sweeper TTL floor (never wipe before promise
-elapses) guards it, and `storetest/contract.go` pins the key
+elapses) guards it, and `testing/storetest/contract.go` pins the key
 layout.
 
 ## Shape
@@ -170,8 +170,9 @@ Two readings worth keeping:
 
 **Driven side: fully.** Every outbound effect in the use cases
 goes through a substitutable port (`sweep.Registry`,
-`keeper.CatalogSource`/`Prober`, `gc.Probe`/`Collector`/`Locker`,
-`clock.Source`, `store.Store` under a contract all adapters honor),
+`keeper.CatalogSource`/`Prober`, `gc.Locker` (probe/collect demoted
+to seams, W13), `clock.Source`, `store.Store` under a contract all
+adapters honor),
 and unit tests prove it — no HTTP server, no binary, no redis,
 no network needed.
 

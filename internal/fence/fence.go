@@ -3,6 +3,8 @@ package fence
 import (
 	"context"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // Controller is the fencing port: HOLD leases around collection
@@ -25,4 +27,13 @@ type Controller interface {
 	Deny(ctx context.Context, reason string)
 	// Allow voices a deny_release transition for reason.
 	Allow(ctx context.Context, reason string)
+}
+
+// GateStore names only what the fence reads: the marker for
+// posture checks and the ring for shared transition history.
+// Every backend satisfies it structurally; the narrow type
+// keeps fence code from reaching past marker and ring.
+type GateStore interface {
+	IsUnlocked(ctx context.Context) (bool, error)
+	PushActivity(ctx context.Context, o store.Outcome) error
 }

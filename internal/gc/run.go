@@ -8,12 +8,15 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
+	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/lineage"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/storeops"
 )
 
 // lockTTL bounds a collector run: a crashed gc releases at expiry
@@ -33,14 +36,14 @@ const lockTTL = 30 * time.Minute
 const holdLease = 5 * time.Minute
 
 // Probe classifies the registry via the write sentinel: writable,
-// readonly, or unknown with the cause. ProbeRegistry is the
-// production implementation; tests substitute a stub. Consumed by
-// Run below.
+// readonly, or unknown with the cause.
 type Probe func(ctx context.Context, baseURL string) (Mode, string, error)
 
-// ProbeRegistry satisfies Probe: the assertion pins the port to the
-// implementation it carries.
-var _ Probe = ProbeRegistry
+// probe is the probe seam: the production implementation, swapped
+// per test via useSeams. A constant function needs no port —
+// nothing varies per run — so the seam carries the substitution
+// alone (W13).
+var probe Probe = probeRegistry
 
 // Locker serializes collector runs on one named single-flight lock
 // and carries the operator's write intent: store.Store satisfies it
@@ -53,34 +56,23 @@ type Locker interface {
 	IsUnlocked(ctx context.Context) (bool, error)
 }
 
-// Recorder tracks minted generations for keep-N: the one method
-// minting needs after a verified proof. store.Store satisfies it;
-// the use case declares only this.
-type Recorder interface {
-	Record(ctx context.Context, r policy.Row) error
-}
+// Recorder lives in storeops: the keep-N write the mint ceremonies
+// share, one vocabulary everywhere.
 
-// Options tunes a gc run: the operator's flags plus the event
-// reporter the CLI renders loud. DryRun previews (the default) —
-// only an explicit --no-dry-run collects for real.
+// Options tunes a gc run, and only that: the operator's flags.
+// Armed carries the proof — nil previews (the fail-closed
+// default), only an explicit --no-dry-run collects for real.
+// Everything the run is wired to (reporter, fence) rides Deps,
+// never here.
 type Options struct {
 	DeleteUntagged bool
-	DryRun         bool
-	Report         Reporter
-	// EdgeAddr is where the edge listens: the gateway prover
-	// dials it for the online preflight.
-	EdgeAddr string
-	// Fence, when non-nil, holds the edge around armed collects
-	// (previews never engage). A fence that fails to engage
-	// refuses the run: collecting unfenced when fencing was
-	// requested is unknown safety.
-	Fence fence.Controller
+	Armed          proof.ArmedRun
 }
 
 // Accepts groups the sealed risk acceptances beside Options, not
 // inside it: evidence is not flags. Named fields, never trailing
 // positionals — five same-typed tokens in a row would compile
-// swapped and silently misattribute risk. The CLI mints each from
+// swapped and silently misattribute risk. The CLI produces each from
 // its --accept-* flag on an armed run (nil otherwise); the online
 // preflight consumes the pair it clears, the clock gate, the
 // lineage judge, and the post-run flip gate one each.
@@ -90,6 +82,45 @@ type Accepts struct {
 	ClockSkew proof.AcceptedRisk
 	Rollback  proof.AcceptedRisk
 	ModeFlip  proof.AcceptedRisk
+}
+
+// Deps carries a run's world beyond its seams: the store in its
+// four roles — lock (intent gate plus single-flight), recorder,
+// identity, rows — each scriptable apart in tests, one object
+// wearing all four hats in production — plus the registry API,
+// the clock the generation mint checks, the event reporter, and the fence.
+// Probe and collect stay seams (package vars, W13): constant
+// functions carry no per-run variation, so they ride no field. A nil clock derives from
+// config.Current() (production never sets it); tests inject
+// fakes for the skew and unreachable paths. Config otherwise
+// never rides along: Current() names the registry wherever the
+// run needs it. The adapter assembles the bundle from its own
+// wiring; named fields, never trailing positionals (see Accepts).
+// Lifecycle stays outside: opening and closing the store is the
+// caller's job.
+type Deps struct {
+	Lock  Locker
+	Rec   storeops.Recorder
+	Ids   lineage.IdentityStore
+	Rows  lineage.Rows
+	API   sentinel.API
+	Clock clock.Source
+	// Report is the event sink. Nil renders to the run's
+	// writer via renderEvent; an injected reporter always wins,
+	// so tests observe stages silently.
+	Report event.Reporter
+	// Store is the whole store behind the split roles above:
+	// the fence resolves from its own capability, never from
+	// backend-name strings threaded through the call.
+	Store fence.GateStore
+	// Fence, when non-nil, holds the edge around armed collects
+	// (previews never engage). Nil resolves from Store's own
+	// capability when a store rides along — an injected fence
+	// always wins, so tests drive stubs; nil with no Store stays
+	// nil and silent. A fence that fails to engage refuses the
+	// run: collecting unfenced when fencing was requested is
+	// unknown safety.
+	Fence fence.Controller
 }
 
 // Run probes the registry writable/readonly, proves the local mount
@@ -115,23 +146,29 @@ type Accepts struct {
 // passes warned. A dead post-probe only warns. Flipping readonly
 // stays with the operator; this command never rewrites registry
 // config.
-func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Collector, api sentinel.API, registryURL, configPath, binPath string, rec Recorder, ids lineage.IdentityStore, rows lineage.Rows, clk clock.Source, timeServer string, opts Options, accepts Accepts) error {
+func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts) error {
 	gcStarted := time.Now()
+	if d.Report == nil {
+		d.Report = renderEvent(w, proof.Unarmed(opts.Armed))
+	}
+	if d.Fence == nil && d.Store != nil {
+		d.Fence = fenceForBackend(d.Store, opts.Armed, w)
+	}
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the
 	// place guaranteeing them moved. The run consumes the gate;
 	// nothing downstream takes the token (re-checking mid-run
 	// belongs to the lock-scope decision, Miss 3).
-	if _, err := proof.ProveUnlockedStore(ctx, lock); err != nil {
+	if _, err := proof.ProveUnlockedStore(ctx, d.Lock); err != nil {
 		if errors.Is(err, proof.ErrLocked) {
 			return err
 		}
 		return fmt.Errorf("store lock unreadable: %w", err)
 	}
-	if err := Ready(binPath, configPath); err != nil {
+	if err := ready(config.Current().RegistryBinPath, config.Current().RegistryConfig); err != nil {
 		return err
 	}
-	fsStore, err := proof.ProveFilesystemStore(configPath)
+	fsStore, err := proof.ProveFilesystemStore(config.Current().RegistryConfig)
 	if err != nil {
 		return err
 	}
@@ -141,22 +178,26 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// proceeds on local time (air-gapped sites stay working). The
 	// run consumes the gate — refusals pass through untouched, so
 	// every message below reads exactly as before.
-	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, timeServer)); cerr != nil {
+	clk := d.Clock
+	if clk == nil {
+		clk = config.Current().ClockSource()
+	}
+	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, config.Current().TimeServer)); cerr != nil {
 		var skew *clock.SkewError
 		if errors.As(cerr, &skew) {
 			if accepts.ClockSkew == nil {
 				return fmt.Errorf("clock skew %s exceeds %s against %s: fix the clock or re-run with --accept-clock-skew",
-					skew.Offset.Round(time.Second), skew.Tolerance, timeServer)
+					skew.Offset.Round(time.Second), skew.Tolerance, config.Current().TimeServer)
 			}
 			if _, err := fmt.Fprintf(w, "Warning: clock skew %s exceeds %s; collecting anyway (--accept-clock-skew)\n",
 				skew.Offset.Round(time.Second), skew.Tolerance); err != nil {
 				return err
 			}
-		} else if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", timeServer, cerr); err != nil {
+		} else if _, err := fmt.Fprintf(w, "Warning: time source %s unreachable (%v); proceeding with local clock\n", config.Current().TimeServer, cerr); err != nil {
 			return err
 		}
 	}
-	held, err := lock.AcquireLock(ctx, store.GCLockKey, lockTTL)
+	held, err := d.Lock.AcquireLock(ctx, store.GCLockKey, lockTTL)
 	if err != nil {
 		return fmt.Errorf("redis unreachable: %w", err)
 	}
@@ -164,23 +205,23 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		return errors.New("another gc run holds the lock (kpr gc or make gc); wait it out or DEL kpr:gc:lock on the kpr redis DB if stale")
 	}
 	defer func() {
-		if rerr := lock.ReleaseLock(ctx, store.GCLockKey); rerr != nil {
+		if rerr := d.Lock.ReleaseLock(ctx, store.GCLockKey); rerr != nil {
 			_, _ = fmt.Fprintf(w, "Warning: gc lock release failed (%v); expires in %v\n", rerr, lockTTL)
 		}
 	}()
-	mode, _, err := probe(ctx, registryURL)
+	mode, _, err := probe(ctx, config.Current().RegistryURL)
 	if err != nil {
 		return err
 	}
-	pre := Timed(StagePreProbe, gcStarted)
-	pre.Message = ModeName(mode)
-	Emit(opts.Report, pre)
+	pre := event.Timed(stagePreProbe, gcStarted)
+	pre.Message = modeName(mode)
+	event.Emit(d.Report, pre)
 	// Cleared by the online preflight on the writable path, nil
 	// everywhere else: only the writable-armed dispatch consumes
 	// them, so a nil here never reaches a delete.
 	var onlineCache proof.BlobCacheOff
-	var onlineFence proof.GatewayFencing
-	if mode == ModeWritable {
+	var onlineFence proof.GatewayFencingAvailable
+	if mode == modeWritable {
 		// The online path: a serving registry collects under the
 		// fence, so writability is the mode, not a risk — the
 		// risks are a vouched cache and a missing fence, each
@@ -188,9 +229,9 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		// point minting a generation the gate will reject. Armed
 		// refuses on unaccepted misses; dry-run prints the same
 		// checklist as information and previews on.
-		cache, fence, report, perr := onlinePreflight(ctx, configPath, opts.EdgeAddr, opts.Fence != nil, accepts.Cache, accepts.Fence)
+		cache, fence, report, perr := onlinePreflight(ctx, config.Current().RegistryConfig, config.Current().EdgeAddr, d.Fence != nil, accepts.Cache, accepts.Fence)
 		if perr != nil {
-			if opts.DryRun {
+			if proof.Unarmed(opts.Armed) {
 				if _, err := io.WriteString(w, report+"\n"); err != nil {
 					return err
 				}
@@ -204,20 +245,20 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	}
 	now := time.Now().UTC()
 	switch mode {
-	case ModeWritable, ModeReadonly:
-		pay, digest, rerr := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
-		allRows, err := rows.All(ctx)
+	case modeWritable, modeReadonly:
+		pay, digest, rerr := sentinel.Read(ctx, d.API, sentinel.Repo, sentinel.Tag)
+		allRows, err := d.Rows.All(ctx)
 		if err != nil {
 			return fmt.Errorf("tracked state unreadable: %w", err)
 		}
-		ident, err := ids.GetIdentity(ctx)
+		ident, err := d.Ids.GetIdentity(ctx)
 		if err != nil {
 			return fmt.Errorf("lineage unreadable: %w", err)
 		}
 		v := lineage.Judge(
 			lineage.Served{Payload: pay, Digest: digest, Err: rerr},
 			lineage.Local{Ident: ident, Rows: allRows},
-			lineage.Ask{DryRun: opts.DryRun, Force: accepts.Rollback != nil, Now: now})
+			lineage.Ask{Armed: !proof.Unarmed(opts.Armed), Force: accepts.Rollback != nil, Now: now})
 		if !v.Proceed && !v.Establish {
 			return fmt.Errorf("%s — %s", v.Reason, v.Action)
 		}
@@ -226,7 +267,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 				return err
 			}
 		}
-		if opts.DryRun {
+		if proof.Unarmed(opts.Armed) {
 			break
 		}
 		useID := ident.ID
@@ -247,7 +288,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 					return err
 				}
 			}
-			if err := ids.SetIdentity(ctx, est); err != nil {
+			if err := d.Ids.SetIdentity(ctx, est); err != nil {
 				return fmt.Errorf("lineage unrecordable: %w", err)
 			}
 		}
@@ -256,15 +297,15 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			return err
 		}
 		payload := sentinel.Payload{V: 1, Gen: gen, ID: useID, TS: now.Format(time.RFC3339), Writer: "kpr-gc"}
-		md, err := writeVerifiedGeneration(ctx, api, root, payload)
+		md, err := sentinel.WriteVerified(ctx, d.API, root, payload)
 		if err != nil {
 			return err
 		}
-		if err := rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
+		if err := d.Rec.Record(ctx, policy.Row{Repo: sentinel.Repo, Tag: gen, Digest: md, MediaType: sentinel.ManifestMediaType, PushedAt: now, Actor: payload.Writer}); err != nil {
 			return fmt.Errorf("proof held but the generation went untracked: %w", err)
 		}
 		if v.Heal != nil {
-			if err := rec.Record(ctx, *v.Heal); err != nil {
+			if err := d.Rec.Record(ctx, *v.Heal); err != nil {
 				return fmt.Errorf("adopted generation went untracked: %w", err)
 			}
 		}
@@ -272,14 +313,14 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 			return err
 		}
 	default:
-		return fmt.Errorf("sentinel inconclusive for %s", registryURL)
+		return fmt.Errorf("sentinel inconclusive for %s", config.Current().RegistryURL)
 	}
 	switch mode {
-	case ModeWritable:
+	case modeWritable:
 		// Uncleared armed runs refused at the preflight, before the
 		// proof: what reaches here is a preview or a cleared online
 		// run (proven or per-risk accepted).
-		if opts.DryRun {
+		if proof.Unarmed(opts.Armed) {
 			if _, err := io.WriteString(w, "Warning: registry is writable; dry-run mode, nothing will be deleted\n"); err != nil {
 				return err
 			}
@@ -288,7 +329,7 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 				return err
 			}
 		}
-	case ModeReadonly:
+	case modeReadonly:
 		// The generation read-back above is the whole gate: no
 		// tracked rows needed, an empty redis proves as well as
 		// a full one.
@@ -306,32 +347,39 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// engage refuses instead of collecting unfenced. The lease
 	// outlives a crashed collect by design — expiry, not release,
 	// bounds it.
-	fenced := func(collect func() error) error {
-		if opts.Fence == nil {
-			return collect()
+	fenced := func(op func() error) error {
+		if d.Fence == nil {
+			return op()
 		}
-		release, err := opts.Fence.Hold(ctx, time.Now().Add(holdLease))
+		release, err := d.Fence.Hold(ctx, time.Now().Add(holdLease))
 		if err != nil {
 			return fmt.Errorf("gc: engage proxy fence: %w", err)
 		}
-		defer release()
-		return collect()
+		// The run voices its own fence lines: the adapter
+		// records to the ring, narration into this stream
+		// belongs here, at the moments this function owns.
+		event.Emit(d.Report, event.Event{Stage: stageHoldEngage, Message: "HOLD lease engaged: manifest writes wait out the armed collect"})
+		defer func() {
+			release()
+			event.Emit(d.Report, event.Event{Stage: stageHoldRelease, Message: "HOLD lease released: manifest writes flow again"})
+		}()
+		return op()
 	}
 
 	switch {
-	case opts.DryRun:
-		if err := collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, true), opts.Report); err != nil {
+	case proof.Unarmed(opts.Armed):
+		if err := collect(ctx, w, config.Current().RegistryBinPath, args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {
 			return err
 		}
-	case mode == ModeWritable:
+	case mode == modeWritable:
 		if err := fenced(func() error {
-			return collectWritableArmed(ctx, w, collect, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report, onlineCache, onlineFence)
+			return collectWritableArmed(ctx, w, collect, config.Current().RegistryBinPath, args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report, onlineCache, onlineFence)
 		}); err != nil {
 			return err
 		}
 	default:
 		if err := fenced(func() error {
-			return collect(ctx, w, binPath, Args(configPath, opts.DeleteUntagged, false), opts.Report)
+			return collect(ctx, w, config.Current().RegistryBinPath, args(config.Current().RegistryConfig, opts.DeleteUntagged, false), d.Report)
 		}); err != nil {
 			return err
 		}
@@ -348,21 +396,21 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 	// collection already succeeded, and occupancy races resolve
 	// safe — anything else (permissions, I/O) names itself in
 	// the warning.
-	if !opts.DryRun {
+	if !proof.Unarmed(opts.Armed) {
 		if _, werr := fmt.Fprintf(w, "pruning husks...\n"); werr != nil {
 			return werr
 		}
-		husked, herr := RemoveHusks(root)
-		hev := Timed(StageHusk, gcStarted)
+		husked, herr := removeHusks(root)
+		hev := event.Timed(stageHusk, gcStarted)
 		if herr != nil {
 			hev.Error = herr.Error()
-			Emit(opts.Report, hev)
+			event.Emit(d.Report, hev)
 			if _, werr := fmt.Fprintf(w, "Warning: husk cleanup incomplete (%v)\n", herr); werr != nil {
 				return werr
 			}
 		} else {
 			hev.Message = fmt.Sprintf("%d repos", len(husked))
-			Emit(opts.Report, hev)
+			event.Emit(d.Report, hev)
 			if len(husked) > 0 {
 				if _, werr := fmt.Fprintf(w, "pruned %d husks\n", len(husked)); werr != nil {
 					return werr
@@ -372,45 +420,45 @@ func Run(ctx context.Context, w io.Writer, probe Probe, lock Locker, collect Col
 		if _, werr := fmt.Fprintf(w, "pruning empty directories...\n"); werr != nil {
 			return werr
 		}
-		pruned, perr := PruneEmptyDirs(root)
-		pev := Timed(StagePrune, gcStarted)
+		pruned, perr := pruneEmptyDirs(root)
+		pev := event.Timed(stagePrune, gcStarted)
 		if perr != nil {
 			pev.Error = perr.Error()
-			Emit(opts.Report, pev)
+			event.Emit(d.Report, pev)
 			if _, werr := fmt.Fprintf(w, "Warning: empty-dir cleanup incomplete (%v)\n", perr); werr != nil {
 				return werr
 			}
 		} else {
 			pev.Message = fmt.Sprintf("%d dirs", pruned)
-			Emit(opts.Report, pev)
+			event.Emit(d.Report, pev)
 			if _, werr := fmt.Fprintf(w, "pruned %d empty directories\n", pruned); werr != nil {
 				return werr
 			}
 		}
 	}
-	post, _, perr := probe(ctx, registryURL)
+	post, _, perr := probe(ctx, config.Current().RegistryURL)
 	if perr != nil {
-		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, ModeName(mode))
+		_, _ = fmt.Fprintf(w, "Warning: post-run probe failed (%v); could not confirm the registry stayed %s\n", perr, modeName(mode))
 		return nil
 	}
-	pev := Timed(StagePostProbe, gcStarted)
-	pev.Message = ModeName(post)
-	Emit(opts.Report, pev)
+	pev := event.Timed(stagePostProbe, gcStarted)
+	pev.Message = modeName(post)
+	event.Emit(d.Report, pev)
 	if post != mode {
-		flip := Timed(StageModeFlip, gcStarted)
-		flip.Message = ModeName(mode) + "→" + ModeName(post)
-		Emit(opts.Report, flip)
-		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", ModeName(mode), ModeName(post)); werr != nil {
+		flip := event.Timed(stageModeFlip, gcStarted)
+		flip.Message = modeName(mode) + "→" + modeName(post)
+		event.Emit(d.Report, flip)
+		if _, werr := fmt.Fprintf(w, "WARNING: registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run\n", modeName(mode), modeName(post)); werr != nil {
 			return werr
 		}
 		if accepts.ModeFlip == nil {
-			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run, or re-run with --accept-mode-flip", ModeName(mode), ModeName(post))
+			return fmt.Errorf("registry mode changed during collection (%s→%s): writes may have raced the mark phase; verify pulls before trusting this run, or re-run with --accept-mode-flip", modeName(mode), modeName(post))
 		}
 	}
 	// The verdict goes last: the marking flood buries everything
 	// above it, so a preview restates its harmlessness here, where
 	// the eye lands.
-	if opts.DryRun {
+	if proof.Unarmed(opts.Armed) {
 		if _, werr := io.WriteString(w, "dry-run complete: nothing was deleted (collect for real with --no-dry-run)\n"); werr != nil {
 			return werr
 		}

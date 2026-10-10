@@ -14,10 +14,10 @@ import (
 // collect would lie about what it reclaimed. Sealed like every
 // evidence; nil never clears.
 //
-// The second minting path is acceptance, not evidence: --accept-
+// The second path to a proof is acceptance, not evidence: --accept-
 // blob-cache on an armed run presumes the operator knows the
 // cache is on (offline follow-up restart planned, or similar).
-// Which path minted is said at the gate, loudly, in its own
+// Which path produced is said at the gate, loudly, in its own
 // message — the token carries only that collection is cleared
 // re: the cache.
 type BlobCacheOff interface {
@@ -48,7 +48,7 @@ func (e Unreadable) Unwrap() error { return e.Err }
 // both halves of the caching concert: the top-level redis:
 // connection block and the storage.cache.blobdescriptor
 // selection stanza (any backend — caching is caching). Only
-// both absent mints; either present refuses naming what was
+// both absent produce; either present refuses naming what was
 // found and the override. Unreadable input refuses as
 // Unreadable, waived by nothing.
 func ProveBlobCacheOff(configPath string, accept AcceptedRisk) (BlobCacheOff, error) {

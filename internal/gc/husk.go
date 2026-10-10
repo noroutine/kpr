@@ -12,7 +12,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 )
 
-// RemoveHusks deletes tagless repo dirs under the registry root:
+// removeHusks deletes tagless repo dirs under the registry root:
 // nothing pullable lives there, so removal only orphans blobs the
 // next collect owns (shared layers stay alive through other repos'
 // links). Each candidate is re-verified at removal time — no tag
@@ -21,7 +21,7 @@ import (
 // anything gained since the walk keeps the repo. Names come back
 // sorted for the report. A walk failure or a removal failure
 // refuses loud: half-removed inventory must shout, never guess.
-func RemoveHusks(root string) ([]string, error) {
+func removeHusks(root string) ([]string, error) {
 	repos := filepath.Join(root, "docker", "registry", "v2", "repositories")
 	if _, err := os.Stat(repos); err != nil {
 		if os.IsNotExist(err) {

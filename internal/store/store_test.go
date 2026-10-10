@@ -8,7 +8,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/store"
-	"nrtn.dev/catalyst/kpr/internal/storetest"
+	"nrtn.dev/catalyst/kpr/internal/testing/storetest"
 )
 
 // The in-memory backend implements the full contract so the sweeper,

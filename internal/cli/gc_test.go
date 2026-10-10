@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -11,82 +12,35 @@ import (
 	"testing"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/edge"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// onlineAccept mints one online acceptance the way the command does
+// onlineAccept produces one online acceptance the way the command does
 // for --accept-* on an armed run: tests that override hold the
 // token.
 func onlineAccept() proof.AcceptedRisk {
 	return proof.Force(proof.Arm(true, false), true)
 }
 
-// Each --accept-* flag mints exactly its own acceptance, nothing
-// else — there is no umbrella flag. If this fails, a shared mint
-// lets one flag clear another risk's gate.
-func TestGcAcceptsMintsPerRisk(t *testing.T) {
-	armed := proof.Arm(true, false)
-	cases := []struct {
-		flag string
-		hold func(gc.Accepts) proof.AcceptedRisk
-	}{
-		{"accept-blob-cache", func(a gc.Accepts) proof.AcceptedRisk { return a.Cache }},
-		{"accept-unfenced", func(a gc.Accepts) proof.AcceptedRisk { return a.Fence }},
-		{"accept-clock-skew", func(a gc.Accepts) proof.AcceptedRisk { return a.ClockSkew }},
-		{"accept-rollback", func(a gc.Accepts) proof.AcceptedRisk { return a.Rollback }},
-		{"accept-mode-flip", func(a gc.Accepts) proof.AcceptedRisk { return a.ModeFlip }},
+// stageConfig installs the Current the run reads: the test
+// registry URL and staged config file, the fixed example time
+// source, and the collector binary (/bin/sh unless the test
+// stages its own). Scoped to the test — SetCurrent restores
+// after.
+func stageConfig(t *testing.T, url, cfgPath string, bin ...string) {
+	t.Helper()
+	binPath := "/bin/sh"
+	if len(bin) > 0 {
+		binPath = bin[0]
 	}
-	for _, tc := range cases {
-		if err := gcCmd.Flags().Set(tc.flag, "true"); err != nil {
-			t.Fatalf("set --%s: %v", tc.flag, err)
-		}
-		got := gcAccepts(armed)
-		if tc.hold(got) == nil {
-			t.Errorf("--%s minted nothing, want its own acceptance", tc.flag)
-		}
-		minted := 0
-		for _, a := range []proof.AcceptedRisk{got.Cache, got.Fence, got.ClockSkew, got.Rollback, got.ModeFlip} {
-			if a != nil {
-				minted++
-			}
-		}
-		if minted != 1 {
-			t.Errorf("--%s minted %d acceptances, want exactly 1", tc.flag, minted)
-		}
-		if err := gcCmd.Flags().Set(tc.flag, "false"); err != nil {
-			t.Fatalf("reset --%s: %v", tc.flag, err)
-		}
-	}
-	// Disarmed mints nothing even with every flag set: acceptance
-	// without intent is meaningless, and the mint says so.
-	for _, tc := range cases {
-		if err := gcCmd.Flags().Set(tc.flag, "true"); err != nil {
-			t.Fatalf("set --%s: %v", tc.flag, err)
-		}
-		defer func() { _ = gcCmd.Flags().Set(tc.flag, "false") }()
-	}
-	if got := gcAccepts(proof.Arm(false, false)); got != (gc.Accepts{}) {
-		t.Errorf("disarmed mint = %+v, want zero", got)
-	}
-}
-
-// Dry-run is the absence of the mint: flag or env arms, silence
-// previews. If this fails, gc collects on nothing or previews when
-// armed.
-func TestGcDryRunFollowsTheMint(t *testing.T) {
-	if !gcDryRun(proof.Arm(false, false)) {
-		t.Error("disarmed gc not dry-run, want preview")
-	}
-	if gcDryRun(proof.Arm(true, false)) {
-		t.Error("flag-armed gc dry-run, want collect")
-	}
-	if gcDryRun(proof.Arm(false, true)) {
-		t.Error("env-armed gc dry-run, want collect")
-	}
+	t.Cleanup(config.SetCurrent(&config.Config{
+		RegistryURL: url, RegistryConfig: cfgPath, TimeServer: "time.example.com",
+		RegistryBinPath: binPath,
+	}))
 }
 
 // stageGCStore writes a registry config pointing at root and returns
@@ -193,12 +147,9 @@ func TestRunGCReleaseFailureWarns(t *testing.T) {
 	cfg := stageGCStore(t, root)
 	s := &releaseFailStore{MemStore: unlockedStore(t)}
 
-	oldBin := registryBinPath
-	registryBinPath = stageBin(t, "exit 0")
-	defer func() { registryBinPath = oldBin }()
-
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err != nil {
+	stageConfig(t, srv.URL, cfg, stageBin(t, "exit 0"))
+	if err := gc.Run(context.Background(), &out, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, gc.Accepts{}); err != nil {
 		t.Fatalf("gc with failing release = %v, want nil (warn only)", err)
 	}
 	if !strings.Contains(out.String(), "lock release failed") {
@@ -227,12 +178,9 @@ func TestRunGCOnlineWarnWriteError(t *testing.T) {
 
 	cfg := stageGCStore(t, root)
 
-	oldBin := registryBinPath
-	registryBinPath = stageBin(t, "exit 0")
-	defer func() { registryBinPath = oldBin }()
-
 	s := unlockedStore(t)
-	if err := gc.Run(context.Background(), errWriter{}, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{Fence: onlineAccept()}); err == nil {
+	stageConfig(t, srv.URL, cfg, stageBin(t, "exit 0"))
+	if err := gc.Run(context.Background(), errWriter{}, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, gc.Accepts{Fence: onlineAccept()}); err == nil {
 		t.Error("accepted gc with broken output succeeded, want the write error")
 	}
 }
@@ -262,20 +210,17 @@ func TestRunGCWritableNeedsOnlineClearance(t *testing.T) {
 	cfg := stageGCStore(t, root)
 	s := unlockedStore(t)
 
-	oldBin := registryBinPath
-	registryBinPath = "/bin/sh"
-	defer func() { registryBinPath = oldBin }()
-
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err == nil {
+	stageConfig(t, srv.URL, cfg, "/bin/sh")
+	if err := gc.Run(context.Background(), &out, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, gc.Accepts{}); err == nil {
 		t.Fatal("gc on writable registry succeeded uncleared, want refusal")
 	} else if !strings.Contains(err.Error(), "gateway") || !strings.Contains(err.Error(), "--accept-unfenced") {
 		t.Errorf("refusal names no miss and override: %v", err)
 	}
 
-	registryBinPath = stageBin(t, "exit 0")
 	out.Reset()
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{Fence: onlineAccept()}); err != nil {
+	stageConfig(t, srv.URL, cfg, stageBin(t, "exit 0"))
+	if err := gc.Run(context.Background(), &out, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, gc.Accepts{Fence: onlineAccept()}); err != nil {
 		t.Fatalf("accepted gc = %v, want nil", err)
 	}
 	if !strings.Contains(out.String(), "Warning") {
@@ -294,14 +239,11 @@ func TestRunGCDifferentStoreRefuses(t *testing.T) {
 	cfg := stageGCStore(t, root)
 	s := unlockedStore(t)
 
-	oldBin := registryBinPath
-	registryBinPath = stageBin(t, "exit 0")
-	defer func() { registryBinPath = oldBin }()
-
 	var out strings.Builder
 	a := onlineAccept()
 	full := gc.Accepts{Cache: a, Fence: a, ClockSkew: a, Rollback: a, ModeFlip: a}
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, full); err == nil {
+	stageConfig(t, srv.URL, cfg, stageBin(t, "exit 0"))
+	if err := gc.Run(context.Background(), &out, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, full); err == nil {
 		t.Fatal("gc on a stranger's store succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "does not share") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -319,16 +261,14 @@ func TestRunGCLockContention(t *testing.T) {
 	ctx := context.Background()
 	cfg := stageGCStore(t, root)
 	s := unlockedStore(t)
-
-	oldBin := registryBinPath
-	registryBinPath = stageBin(t, "exit 0")
-	defer func() { registryBinPath = oldBin }()
+	bin := stageBin(t, "exit 0")
 
 	if ok, err := s.AcquireLock(ctx, store.GCLockKey, time.Minute); err != nil || !ok {
 		t.Fatalf("pre-acquire = (%v, %v), want (true, nil)", ok, err)
 	}
 	var out strings.Builder
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err == nil {
+	stageConfig(t, srv.URL, cfg, bin)
+	if err := gc.Run(ctx, &out, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, gc.Accepts{}); err == nil {
 		t.Fatal("gc under held lock succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "another gc") {
 		t.Errorf("refusal names no cause: %v", err)
@@ -337,7 +277,8 @@ func TestRunGCLockContention(t *testing.T) {
 		t.Fatalf("release: %v", err)
 	}
 	out.Reset()
-	if err := gc.Run(ctx, &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err != nil {
+	stageConfig(t, srv.URL, cfg, bin)
+	if err := gc.Run(ctx, &out, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, gc.Accepts{}); err != nil {
 		t.Fatalf("gc after release = %v, want nil", err)
 	}
 	if ok, _ := s.AcquireLock(ctx, store.GCLockKey, time.Minute); !ok {
@@ -352,9 +293,6 @@ func TestRunGCLockContention(t *testing.T) {
 // the lie. A failed post-probe only warns: unknown is not observed
 // interference. If this fails, gc blesses runs it watched go sideways.
 func TestRunGCPostProbeFlip(t *testing.T) {
-	oldBin := registryBinPath
-	registryBinPath = stageBin(t, "exit 0")
-	defer func() { registryBinPath = oldBin }()
 
 	flipRoot := t.TempDir()
 	flap := serveFlapRegistry(t, flipRoot, http.StatusMethodNotAllowed, http.StatusAccepted)
@@ -362,7 +300,9 @@ func TestRunGCPostProbeFlip(t *testing.T) {
 	flipCfg := stageGCStore(t, flipRoot)
 	var out strings.Builder
 	flipStore := unlockedStore(t)
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, flipStore, gc.RunCollector, registry.NewClient(flap.URL), flap.URL, flipCfg, registryBinPath, flipStore, flipStore, flipStore, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err == nil {
+	bin := stageBin(t, "exit 0")
+	stageConfig(t, flap.URL, flipCfg, bin)
+	if err := gc.Run(context.Background(), &out, gc.Deps{Lock: flipStore, Rec: flipStore, Ids: flipStore, Rows: flipStore, API: registry.NewClient(flap.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, gc.Accepts{}); err == nil {
 		t.Fatal("gc across a readonly→writable flip succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "changed during collection") {
 		t.Errorf("failure names no cause: %v", err)
@@ -374,7 +314,8 @@ func TestRunGCPostProbeFlip(t *testing.T) {
 	deadCfg := stageGCStore(t, deadRoot)
 	out.Reset()
 	downStore := unlockedStore(t)
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, downStore, gc.RunCollector, registry.NewClient(down.URL), down.URL, deadCfg, registryBinPath, downStore, downStore, downStore, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err != nil {
+	stageConfig(t, down.URL, deadCfg, bin)
+	if err := gc.Run(context.Background(), &out, gc.Deps{Lock: downStore, Rec: downStore, Ids: downStore, Rows: downStore, API: registry.NewClient(down.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, gc.Accepts{}); err != nil {
 		t.Fatalf("gc with dead post-probe = %v, want nil (warn only)", err)
 	}
 	if !strings.Contains(out.String(), "post-run probe") {
@@ -418,12 +359,9 @@ func TestRunGCReadonlyRunsBinary(t *testing.T) {
 	cfg := stageGCStore(t, root)
 	s := unlockedStore(t)
 
-	oldBin := registryBinPath
-	registryBinPath = stageBin(t, "echo \"collector args: $@\"")
-	defer func() { registryBinPath = oldBin }()
-
 	var out strings.Builder
-	if err := gc.Run(context.Background(), &out, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{DeleteUntagged: true}, gc.Accepts{}); err != nil {
+	stageConfig(t, srv.URL, cfg, stageBin(t, "echo \"collector args: $@\""))
+	if err := gc.Run(context.Background(), &out, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), Clock: okClock{}}, gc.Options{DeleteUntagged: true, Armed: proof.Arm(true, false)}, gc.Accepts{}); err != nil {
 		t.Fatalf("readonly gc = %v, want nil", err)
 	}
 	for _, want := range []string{"garbage-collect", "--delete-untagged", "config.yml", "shared store proven via noroutine/kpr-sentinel:latest generation "} {
@@ -432,89 +370,75 @@ func TestRunGCReadonlyRunsBinary(t *testing.T) {
 		}
 	}
 
-	registryBinPath = stageBin(t, "exit 3")
 	var fail strings.Builder
-	if err := gc.Run(context.Background(), &fail, gc.ProbeRegistry, s, gc.RunCollector, registry.NewClient(srv.URL), srv.URL, cfg, registryBinPath, s, s, s, okClock{}, "time.example.com", gc.Options{}, gc.Accepts{}); err == nil {
+	stageConfig(t, srv.URL, cfg, stageBin(t, "exit 3"))
+	if err := gc.Run(context.Background(), &fail, gc.Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: registry.NewClient(srv.URL), Clock: okClock{}}, gc.Options{Armed: proof.Arm(true, false)}, gc.Accepts{}); err == nil {
 		t.Error("failing collector returned nil, want the exit surfaced")
 	}
 }
 
-// The event renderer voices each stage loud: probe verdicts, the
-// collector pid (a long mark phase must look alive), the flip
-// WARNING, failures with cause. If this fails, gc runs quiet about
-// exactly the moments the operator watches.
-func TestRenderGCEventVoicesStages(t *testing.T) {
-	var out strings.Builder
-	report := renderGCEvent(&out, true)
-	report(gc.Event{Stage: gc.StagePreProbe, Message: "readonly"})
-	report(gc.Event{Stage: gc.StageStarted, PID: 4242})
-	report(gc.Event{Stage: gc.StagePostProbe, Message: "readonly"})
-	report(gc.Event{Stage: gc.StageModeFlip, Message: "readonly→writable"})
-	report(gc.Event{Stage: gc.StageFailure, Error: "exit status 3: boom"})
-	for _, want := range []string{
-		"sentinel: registry is READONLY",
-		"collector started (pid 4242)",
-		"dry-run, nothing will be deleted",
-		"sentinel: registry still READONLY",
-		"WARNING: registry flipped readonly→writable mid-run",
-		"collector failed: exit status 3: boom",
-	} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("rendered events lack %q:\n%s", want, out.String())
+// Driving the command to a dead registry refuses from inside
+// the run: every RunE line ahead of the call executes (deps,
+// arming, backend, fence, the run call itself). If this fails,
+// the command's own wiring runs uncovered in this binary.
+func TestCmdReachesRunBeforeAnyGate(t *testing.T) {
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
+	t.Setenv(config.EnvRegistryURL, "http://127.0.0.1:1")
+	var buf bytes.Buffer
+	Cmd.SetOut(&buf)
+	defer Cmd.SetOut(nil)
+	Cmd.SetContext(context.Background())
+	if err := Cmd.RunE(Cmd, nil); err == nil {
+		t.Fatal("command against a dead registry succeeded, want refusal from inside the run")
+	}
+}
+
+// Each --accept-* flag produces exactly its own acceptance, nothing
+// else — there is no umbrella flag. If this fails, a shared proof
+// lets one flag clear another risk's gate.
+func TestGcAcceptsProducesPerRisk(t *testing.T) {
+	armed := proof.Arm(true, false)
+	cases := []struct {
+		flag string
+		hold func(gc.Accepts) proof.AcceptedRisk
+	}{
+		{"accept-blob-cache", func(a gc.Accepts) proof.AcceptedRisk { return a.Cache }},
+		{"accept-unfenced", func(a gc.Accepts) proof.AcceptedRisk { return a.Fence }},
+		{"accept-clock-skew", func(a gc.Accepts) proof.AcceptedRisk { return a.ClockSkew }},
+		{"accept-rollback", func(a gc.Accepts) proof.AcceptedRisk { return a.Rollback }},
+		{"accept-mode-flip", func(a gc.Accepts) proof.AcceptedRisk { return a.ModeFlip }},
+	}
+	for _, tc := range cases {
+		if err := Cmd.Flags().Set(tc.flag, "true"); err != nil {
+			t.Fatalf("set --%s: %v", tc.flag, err)
+		}
+		got := gcAccepts(armed)
+		if tc.hold(got) == nil {
+			t.Errorf("--%s produced nothing, want its own acceptance", tc.flag)
+		}
+		produced := 0
+		for _, a := range []proof.AcceptedRisk{got.Cache, got.Fence, got.ClockSkew, got.Rollback, got.ModeFlip} {
+			if a != nil {
+				produced++
+			}
+		}
+		if produced != 1 {
+			t.Errorf("--%s produced %d acceptances, want exactly 1", tc.flag, produced)
+		}
+		if err := Cmd.Flags().Set(tc.flag, "false"); err != nil {
+			t.Fatalf("reset --%s: %v", tc.flag, err)
 		}
 	}
-	var real strings.Builder
-	renderGCEvent(&real, false)(gc.Event{Stage: gc.StageStarted, PID: 7})
-	if strings.Contains(real.String(), "dry-run") {
-		t.Errorf("real-run start claims dry-run:\n%s", real.String())
+	// Disarmed produces nothing even with every flag set: acceptance
+	// without intent is meaningless, and the proof says so.
+	for _, tc := range cases {
+		if err := Cmd.Flags().Set(tc.flag, "true"); err != nil {
+			t.Fatalf("set --%s: %v", tc.flag, err)
+		}
+		defer func() { _ = Cmd.Flags().Set(tc.flag, "false") }()
 	}
-	renderGCEvent(&real, false)(gc.Event{Stage: gc.StageStarted})
-}
-
-// The file backend wires the lease into the shared dir, silently:
-// the edge reads what gc writes. If this fails, the lease
-// stopped reaching the edge.
-func TestFenceForBackendWiresFileStore(t *testing.T) {
-	var out strings.Builder
-	fence := fenceForBackend("file", "/state", nil, nil, nil, false, &out)
-	ctl, ok := fence.(edge.Control)
-	if !ok {
-		t.Fatalf("file backend fence = %T, want edge.Control", fence)
-	}
-	if ctl.Dir != "/state" {
-		t.Errorf("lease dir = %q, want the shared store dir", ctl.Dir)
-	}
-	if out.Len() != 0 {
-		t.Errorf("wired fence warned %q, want silence", out.String())
-	}
-}
-
-// Anything else runs unfenced with the warning said out loud on
-// armed runs — and silent on previews, where nothing holds. If
-// this fails, unfenced collects went quiet or previews warned
-// for no reason.
-func TestFenceForBackendWarnsWhenUnshared(t *testing.T) {
-	var armed strings.Builder
-	if fence := fenceForBackend("redis", "", nil, nil, nil, false, &armed); fence != nil {
-		t.Errorf("redis backend fence = %v, want nil", fence)
-	}
-	if !strings.Contains(armed.String(), "unfenced") {
-		t.Errorf("armed unfenced warning = %q, want it said", armed.String())
-	}
-
-	var preview strings.Builder
-	if fence := fenceForBackend("redis", "", nil, nil, nil, true, &preview); fence != nil {
-		t.Errorf("preview fence = %v, want nil", fence)
-	}
-	if preview.Len() != 0 {
-		t.Errorf("preview warned %q, want silence", preview.String())
-	}
-
-	var broken strings.Builder
-	if fence := fenceForBackend("", "", nil, nil, errors.New("boom"), false, &broken); fence != nil {
-		t.Errorf("broken backend fence = %v, want nil", fence)
-	}
-	if !strings.Contains(broken.String(), "unfenced") {
-		t.Errorf("broken backend warning = %q, want it said", broken.String())
+	if got := gcAccepts(proof.Arm(false, false)); got != (gc.Accepts{}) {
+		t.Errorf("disarmed produce = %+v, want zero", got)
 	}
 }

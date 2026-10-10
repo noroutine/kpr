@@ -11,10 +11,10 @@ lives in [DRY_RUN_FUTURE.md](DRY_RUN_FUTURE.md).
 - **Arming is per invocation.** `--no-dry-run` arms one run;
   `KPR_CLI_NO_DRY_RUN=true` arms every one-shot in the process
   (gc, reap, sweep, backfill alike). Anything else previews.
-- **Dry-run is the absence of a mint, never a boolean of its own.**
-  The adapter mints `proof.ArmedRun` from the flag or the env at
+- **Dry-run is the absence of a produced proof, never a boolean of its own.**
+  The adapter produces `proof.ArmedRun` from the flag or the env at
   its own boundary (`proof.Arm`); downstream reads the mode off
-  the mint (`armed == nil` means preview). No `DryRun bool`
+  the proof (nil means preview). No `DryRun bool`
   travels the call chain.
 - **Preview runs the same path minus the destructive operation.**
   Same gates, same verdicts, same counters — the mutating call
@@ -39,3 +39,8 @@ lives in [DRY_RUN_FUTURE.md](DRY_RUN_FUTURE.md).
 
 `sweep --output` writes the per-row log (would-tense in preview)
 plus the summary into a file; stdout keeps the counters either way.
+
+The sweep pass log carries the mode under the `dry_run` key
+(`proof.Unarmed` of the pass proof). The key stays put even
+though the code speaks armed now: dashboards read it, and
+observability owns its vocabulary.

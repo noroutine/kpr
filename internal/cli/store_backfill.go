@@ -8,101 +8,97 @@ import (
 	"github.com/spf13/cobra"
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
+	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/helpers/words"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
+
+var (
+	backfillNoDryRun       bool
+	backfillAcceptRollback bool
+	backfillOutput         string
+)
+
+// backfillLong is the command's help: what the run adopts, the
+// glob scope, and the stream sink. Flags document their own
+// defaults and refusals — the Long only says what the flags
+// cannot.
+func backfillLong() string {
+	return `Adopt tags the receiver never saw into tracked rows.
+
+Repo-glob scopes the walk, empty means all. Live counters
+report by default; --output routes the per-tag stream
+(- for stdout, a path for a file).`
+}
 
 var storeBackfillCmd = &cobra.Command{
 	Use:   "backfill [repo-glob]",
 	Short: "Adopt pre-kpr tags into tracked rows",
-	Long: `One-shot import for tags the receiver never saw: enumerates
-the catalog (repo-glob scopes it, empty means all), HEADs every
-tag's digest, and records the absent ones with their link mtimes
-— signed kpr-backfill, never due. Tracked rows are no-ops;
-mid-run vanishes skip by count. Gates per run on the served
-generation without minting: stranger stores refuse, a restored
-generation refuses armed unless --accept-rollback (a preview
-warns through). A locked store refuses naming the ceremony.
-Preview by default; --no-dry-run records. Two lines repaint
-live on a terminal (what the catalog names, what the store
-holds against it); mid-run warnings break above them onto
-their own lines. The per-tag stream goes to --output (- for
-stdout, a path for a file) and is otherwise discarded.`,
-	Args: cobra.MaximumNArgs(1),
+	Long:  backfillLong(),
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		d, err := openDeps()
+		d, err := deps.OpenDeps()
 		if err != nil {
 			return err
 		}
-		defer d.close()
-		noDryRun, _ := cmd.Flags().GetBool("no-dry-run")
-		acceptRollback, _ := cmd.Flags().GetBool("accept-rollback")
-		output, _ := cmd.Flags().GetString("output")
-		fsStore, err := proof.ProveFilesystemStore(d.cfg.RegistryConfig)
-		if err != nil {
-			return err
-		}
-		root := fsStore.Root()
-		armed := proof.Arm(noDryRun, d.cfg.CLINoDryRun)
-		glob := ""
-		if len(args) == 1 {
-			glob = args[0]
-		}
+		defer d.Close()
+		armed := proof.Arm(backfillNoDryRun, d.Cfg.CLINoDryRun)
 		out := cmd.OutOrStdout()
 		live := newLiveLines(out)
-		opts := backfill.Options{
-			RepoGlob: glob,
-			DryRun:   gcDryRun(armed),
-		}
-		sink, closeSink, err := resolveBackfillSink(output, out, live)
+		stream, tick, closeSink, err := resolveBackfillSink(backfillOutput, out, live)
 		if err != nil {
 			return err
 		}
 		defer closeSink()
-		opts.Log = sink.Log
-		opts.Progress = sink.Progress
-		// Preview announces itself up front — small view, said
-		// before the run spends API calls, never as a trailing
-		// suffix on the settled lines.
-		if opts.DryRun {
-			if _, err := fmt.Fprintln(out, "dry run — preview only, nothing recorded"); err != nil {
-				return err
-			}
-		}
 		// Warnings share the terminal with the repaint: each
 		// breaks the block onto its own line first.
-		sum, err := backfill.Run(cmd.Context(), breakWriter{w: out, live: live}, d.reg, d.reg,
-			d.store, d.store, d.store, d.store, root,
-			opts,
-			proof.Force(armed, acceptRollback))
+		sum, err := backfill.Run(cmd.Context(), breakWriter{w: out, live: live}, backfill.Deps{
+			API: d.Reg, Reg: d.Reg, Rows: d.Store,
+			Rec: d.Store, Ids: d.Store, Lock: d.Store,
+			Log: stream, Progress: tick,
+		},
+			backfill.Options{RepoGlob: backfillGlob(args), Armed: armed},
+			backfill.Accepts{Rollback: proof.Force(armed, backfillAcceptRollback)})
 		live.doneBlock(backfillLines(sum), 0)
 		return err
 	},
 }
 
-// resolveBackfillSink maps --output to the per-tag stream: "-"
-// streams on stdout (the stream is the feedback, the block stays
-// dark), a path streams into the created file, empty discards
-// (Log stays nil, the live repaint drives the terminal). The file
-// must exist before the run spends API calls, so a bad path
-// refuses here. Returns its closer, if any.
-func resolveBackfillSink(output string, out io.Writer, live *liveLines) (backfill.Options, func(), error) {
-	var sink backfill.Options
+// backfillGlob reads the optional repo glob: `store backfill
+// [repo-glob]` scopes the walk, empty lists all. Cobra caps the
+// args at one, so this is a presence check, never an index.
+func backfillGlob(args []string) string {
+	if len(args) == 1 {
+		return args[0]
+	}
+	return ""
+}
+
+// resolveBackfillSink maps --output to the per-tag stream and the
+// live repaint: "-" streams on stdout (the stream is the feedback,
+// the block stays dark), a path streams into the created file,
+// empty discards the stream (nil log, the live repaint drives the
+// terminal). The file must exist before the run spends API calls,
+// so a bad path refuses here. Returns the stream, the repaint,
+// and the stream's closer, if any.
+func resolveBackfillSink(output string, out io.Writer, live *liveLines) (io.Writer, func(backfill.Summary), func(), error) {
+	var stream io.Writer
+	var tick func(backfill.Summary)
 	if output == "-" {
-		sink.Log = out
+		stream = out
 	} else {
-		sink.Progress = func(sum backfill.Summary) {
+		tick = func(sum backfill.Summary) {
 			live.tickBlock(backfillLines(sum))
 		}
 	}
 	if output != "" && output != "-" {
 		f, ferr := os.Create(output)
 		if ferr != nil {
-			return sink, nil, ferr
+			return nil, nil, nil, ferr
 		}
-		sink.Log = f
-		return sink, func() { _ = f.Close() }, nil
+		return f, tick, func() { _ = f.Close() }, nil
 	}
-	return sink, func() {}, nil
+	return stream, tick, func() {}, nil
 }
 
 // backfillLines renders the three-line block: what the catalog
@@ -121,7 +117,7 @@ func backfillLines(sum backfill.Summary) []string {
 	}
 	return []string{
 		row("catalog", fmt.Sprintf("%s, %s",
-			plural(sum.Repos, "repo", "repos"), plural(sum.Tags, "tag", "tags"))),
+			words.Plural(sum.Repos, "repo", "repos"), words.Plural(sum.Tags, "tag", "tags"))),
 		row("store", fmt.Sprintf("%d tracked, %d %s",
 			sum.Tracked+sum.Sentinels, sum.Sentinels, noun)),
 		row("backfill", fmt.Sprintf("%d recorded, %d skipped, %d husks, %d failed",
@@ -144,8 +140,8 @@ func (b breakWriter) Write(p []byte) (int, error) {
 }
 
 func init() {
-	storeBackfillCmd.Flags().Bool("no-dry-run", false, "Record absent rows for real (default previews)")
-	storeBackfillCmd.Flags().Bool("accept-rollback", false, "Record against a restored older generation (a rollback may have resurrected blobs)")
-	storeBackfillCmd.Flags().String("output", "", "Per-tag stream sink: - for stdout, a path for a file (default discards, counters stay)")
+	storeBackfillCmd.Flags().BoolVar(&backfillNoDryRun, "no-dry-run", false, "Record absent rows for real (default previews)")
+	storeBackfillCmd.Flags().BoolVar(&backfillAcceptRollback, "accept-rollback", false, "Record against a restored older generation (a rollback may have resurrected blobs)")
+	storeBackfillCmd.Flags().StringVar(&backfillOutput, "output", "", "Per-tag stream sink: - for stdout, a path for a file (default discards, counters stay)")
 	storeCmd.AddCommand(storeBackfillCmd)
 }

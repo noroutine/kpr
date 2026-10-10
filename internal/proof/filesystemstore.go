@@ -28,7 +28,7 @@ func (p filesystemStore) Root() string { return p.root }
 func (filesystemStore) sealed()        {}
 
 // ProveFilesystemStore reads the storage driver the registry was
-// configured with and mints only for a filesystem root. Anything
+// configured with and produces only for a filesystem root. Anything
 // else — s3 and friends, a filesystem key with no root, garbage,
 // absent file — refuses with the remedy: local walks only
 // understand the shared directory layout.

@@ -181,7 +181,7 @@ Readings:
 - A belongs in the port contract, not in the use cases. If the
   generation is the store's answer to "which version are you," the
   store advances it, and no mutating method exists that does not.
-  That is one assertion in `storetest/contract.go` — after any
+  That is one assertion in `testing/storetest/contract.go` — after any
   mutation the generation differs — pinned across `RedisStore`,
   `MemStore` and `FileStore` at once. Today the use cases remember
   to mint, which is why minting is concentrated in `gc` by habit

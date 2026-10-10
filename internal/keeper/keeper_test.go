@@ -363,8 +363,8 @@ func TestCatalogGoneMatchesRealClient(t *testing.T) {
 	}
 }
 
-// ghostProof mints on paired ground the way the cli does: the
-// caller proves, ListGhosts checks. If minting fails here, the test
+// ghostProof produces on paired ground the way the cli does: the
+// caller proves, ListGhosts checks. If producing fails here, the test
 // ground (not the guard) is broken.
 func ghostProof(t *testing.T, s *store.MemStore) proof.SameStore {
 	t.Helper()
@@ -407,7 +407,7 @@ func TestReapArmedMarksUnarmedEvaluates(t *testing.T) {
 		return s
 	}
 	s := stage()
-	marked, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "all", true)
+	marked, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "all", proof.Arm(true, false))
 	if err != nil {
 		t.Fatalf("armed reap: %v", err)
 	}
@@ -418,7 +418,7 @@ func TestReapArmedMarksUnarmedEvaluates(t *testing.T) {
 		t.Errorf("armed reap left %d rows due, want 1 marked", len(due))
 	}
 	s = stage()
-	marked, err = Reap(keeperCtx(), s, nil, keeperNow, nil, "all", false)
+	marked, err = Reap(keeperCtx(), s, nil, keeperNow, nil, "all", nil)
 	if err != nil {
 		t.Fatalf("unarmed reap: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestReapArmedMarksUnarmedEvaluates(t *testing.T) {
 // marks. If this fails, a typo reaps the world or errors cryptically.
 func TestReapUnknownPolicyRefuses(t *testing.T) {
 	s := untaggedStage()
-	_, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "bogus", true)
+	_, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "bogus", proof.Arm(true, false))
 	if err == nil {
 		t.Fatal("reap bogus succeeded, want refusal")
 	}
@@ -643,7 +643,7 @@ func TestReapArmedOnDeadStoreFails(t *testing.T) {
 	_ = inner.Record(c, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
 		PushedAt: keeperNow.Add(-time.Hour)})
 	s := markFailStore{inner}
-	if _, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "ttl", true); err == nil {
+	if _, err := Reap(keeperCtx(), s, nil, keeperNow, nil, "ttl", proof.Arm(true, false)); err == nil {
 		t.Error("armed reap on dead store succeeded, want an error")
 	} else if !strings.Contains(err.Error(), "redis unreachable") {
 		t.Errorf("refusal = %q, want redis named", err.Error())

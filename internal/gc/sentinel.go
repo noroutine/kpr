@@ -14,9 +14,9 @@ import (
 	"time"
 )
 
-// ProbeRepo is the throwaway repo the gc sentinel uploads under. A
+// probeRepo is the throwaway repo the gc sentinel uploads under. A
 // cancelled initiate leaves no blob, no manifest, no residue.
-const ProbeRepo = "noroutine/kpr-gc-probe"
+const probeRepo = "noroutine/kpr-gc-probe"
 
 // Mode is what the write sentinel found: the registry takes writes,
 // refuses them (v3 maintenance readonly), or answered something the
@@ -24,57 +24,58 @@ const ProbeRepo = "noroutine/kpr-gc-probe"
 type Mode int
 
 const (
-	ModeUnknown Mode = iota
-	ModeWritable
-	ModeReadonly
+	modeUnknown Mode = iota
+	modeWritable
+	modeReadonly
 )
 
-// ModeName renders the sentinel verdict for messages.
-func ModeName(m Mode) string {
+// modeName renders the sentinel verdict for messages.
+func modeName(m Mode) string {
 	switch m {
-	case ModeWritable:
+	case modeWritable:
 		return "writable"
-	case ModeReadonly:
+	case modeReadonly:
 		return "readonly"
 	default:
 		return "unknown"
 	}
 }
 
-// ProbeRegistryMode reports the sentinel verdict for baseURL as
+// probeRegistryMode reports the sentinel verdict for baseURL as
 // writable, readonly, or unknown (with the error). Exported so the
 // e2e suite drives the same probe collection runs — one path, never
 // a copy.
 //
 // NOTE: no separate inconclusive branch lives here on purpose —
-// ProbeRegistry never returns (Unknown, nil), so its own error
+// probeRegistry never returns (Unknown, nil), so its own error
 // (endpoint + status) IS the inconclusive report. A wrapper message
 // would be dead code guarding a path the probe cannot produce.
-func ProbeRegistryMode(ctx context.Context, baseURL string) (string, error) {
-	mode, _, err := ProbeRegistry(ctx, baseURL)
+func probeRegistryMode(ctx context.Context, baseURL string) (string, error) {
+	mode, _, err := probeRegistry(ctx, baseURL)
 	if err != nil {
 		return "unknown", err
 	}
-	return ModeName(mode), nil
+	return modeName(mode), nil
 }
 
-// ProbeRegistry initiates a blob upload under the probe repo: 202
+// probeRegistry initiates a blob upload under the probe repo: 202
 // means writable (the upload is cancelled at once, leaving nothing),
 // 405 means maintenance readonly. Anything else is inconclusive and
 // an error — gc fails closed rather than collecting blind. The upload
 // id returns with the writable verdict for the same-store proof.
-func ProbeRegistry(ctx context.Context, baseURL string) (Mode, string, error) {
-	endpoint := strings.TrimSuffix(baseURL, "/") + "/v2/" + ProbeRepo + "/blobs/uploads/"
+// Private: the probe seam above carries it, tests swap the seam.
+func probeRegistry(ctx context.Context, baseURL string) (Mode, string, error) {
+	endpoint := strings.TrimSuffix(baseURL, "/") + "/v2/" + probeRepo + "/blobs/uploads/"
 	// NOTE(mutants): timeout arithmetic is equivalent — no test
 	// distinguishes a 5s probe from a 6s one, and none should.
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
-		return ModeUnknown, "", err
+		return modeUnknown, "", err
 	}
 	resp, err := client.Do(req) //nolint:gosec // operator-configured registry peer, no body
 	if err != nil {
-		return ModeUnknown, "", err
+		return modeUnknown, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {
@@ -96,11 +97,11 @@ func ProbeRegistry(ctx context.Context, baseURL string) (Mode, string, error) {
 				}
 			}
 		}
-		return ModeWritable, uuid, nil
+		return modeWritable, uuid, nil
 	case http.StatusMethodNotAllowed:
-		return ModeReadonly, "", nil
+		return modeReadonly, "", nil
 	default:
-		return ModeUnknown, "", fmt.Errorf("sentinel POST %s: status %d, want 202 (writable) or 405 (readonly)", endpoint, resp.StatusCode)
+		return modeUnknown, "", fmt.Errorf("sentinel POST %s: status %d, want 202 (writable) or 405 (readonly)", endpoint, resp.StatusCode)
 	}
 }
 

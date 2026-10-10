@@ -29,7 +29,7 @@ func TestPruneEmptyDirsKeepsLiveState(t *testing.T) {
 		t.Fatalf("stage symlink: %v", err)
 	}
 
-	removed, err := PruneEmptyDirs(root)
+	removed, err := pruneEmptyDirs(root)
 	if err != nil {
 		t.Fatalf("prune: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestPruneEmptyDirsKeepsLiveState(t *testing.T) {
 // An absent root refuses loud, never silent: pruning nothing
 // while reporting success would hide a wrong store path.
 func TestPruneEmptyDirsRefusesAbsentRoot(t *testing.T) {
-	if _, err := PruneEmptyDirs(filepath.Join(t.TempDir(), "nope")); err == nil {
+	if _, err := pruneEmptyDirs(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Error("absent root pruned clean, want refusal")
 	}
 }
@@ -88,7 +88,7 @@ func TestPruneEmptyDirsRefusesUnreadableSubdir(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dark, 0o755) })
-	if _, err := PruneEmptyDirs(root); err == nil {
+	if _, err := pruneEmptyDirs(root); err == nil {
 		t.Error("unreadable subdir pruned clean, want refusal")
 	}
 }
@@ -127,7 +127,7 @@ func TestPruneEmptyDirsSparesRegistrySkeleton(t *testing.T) {
 			t.Fatalf("stage content %s: %v", dir, err)
 		}
 	}
-	if _, err := PruneEmptyDirs(root); err != nil {
+	if _, err := pruneEmptyDirs(root); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
 	for _, dir := range skeleton {
@@ -159,7 +159,7 @@ func TestPruneEmptyDirsRefusesUnwritableSubdir(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-	if _, err := PruneEmptyDirs(root); err == nil {
+	if _, err := pruneEmptyDirs(root); err == nil {
 		t.Error("unwritable subdir pruned clean, want refusal")
 	}
 }

@@ -16,7 +16,7 @@
 Every kpr process programs to the `store.Store` port
 (`internal/store/store.go`): rows, due marks, run state,
 the activity ring, and both single-flight locks. Three
-adapters carry it; the `storetest` contract suite runs
+adapters carry it; the `testing/storetest` contract suite runs
 identical scenarios against all of them — one contract,
 never a copy per backend.
 

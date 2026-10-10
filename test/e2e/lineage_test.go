@@ -4,20 +4,19 @@ package e2e
 
 import (
 	"context"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/storeops"
 	"nrtn.dev/catalyst/kpr/internal/sweep"
 )
 
@@ -29,7 +28,7 @@ import (
 
 // stageLineage boots one registry with its config, a collector stub,
 // and a fresh file store: one isolated lineage per test.
-func stageLineage(t *testing.T) (ctx context.Context, api *registry.Client, url, root, cfg, bin string, state *store.FileStore) {
+func stageLineage(t *testing.T) (ctx context.Context, api *registry.Client, url, root, cfg, bin, runs string, state *store.FileStore) {
 	t.Helper()
 	url, root = startMountedRegistry(t)
 	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -37,34 +36,24 @@ func stageLineage(t *testing.T) (ctx context.Context, api *registry.Client, url,
 	ctx = c
 	api = registry.NewClient(url)
 	cfg = stageRegistryConfig(t, root)
-	bin = filepath.Join(t.TempDir(), "collector-stub")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("stage collector stub: %v", err)
-	}
+	bin, runs = stageCollectorStub(t, "")
+	t.Cleanup(stageRunConfig(t, url, cfg, bin, stageTimeServer(t), ""))
 	state = store.NewFileStore(t.TempDir())
-	return ctx, api, url, root, cfg, bin, state
+	return ctx, api, url, root, cfg, bin, runs, state
 }
 
-func lineageCollect(collected *[][]string) gc.Collector {
-	return func(context.Context, io.Writer, string, []string, gc.Reporter) error {
-		*collected = append(*collected, []string{"collected"})
-		return nil
-	}
-}
-
-func liveRun(t *testing.T, ctx context.Context, out *strings.Builder, collected *[][]string, api *registry.Client, url, cfg, bin string, state *store.FileStore, opts gc.Options) error {
-	t.Helper()
+func liveRun(t *testing.T, ctx context.Context, out *strings.Builder, api *registry.Client, state *store.FileStore, opts gc.Options) error {
 	// Clearance mirrors the CLI: the collector is a stub (nothing
 	// is really deleted) and the staged config carries no cache,
 	// so armed runs prove the cache off the world and carry
 	// explicit acceptance only for the unfenced gateway (no edge
 	// listens here). Previews need neither.
-	var fenceAccept proof.AcceptedRisk
-	if !opts.DryRun {
-		fenceAccept = proof.Force(proof.Arm(true, false), true)
-	}
-	return gc.Run(ctx, out, gc.ProbeRegistry, state, lineageCollect(collected), api, url, cfg, bin,
-		state, state, state, clock.HTTPS{}, stageTimeServer(t), opts, gc.Accepts{Fence: fenceAccept})
+	armed := opts.Armed != nil
+	return gc.Run(ctx, out, gc.Deps{
+		Lock: state, Rec: state, Ids: state, Rows: state,
+		API: api, Clock: clock.HTTPS{}, Report: func(event.Event) {},
+		Store: state,
+	}, opts, gc.Accepts{Fence: proof.Force(opts.Armed, armed)})
 }
 
 func freshPayload(gen, id string) sentinel.Payload {
@@ -84,9 +73,12 @@ func mustGen(t *testing.T) string {
 // Unlock on a fresh registry establishes the pairing: the store
 // holds an identity, the served proof carries it, writes open.
 func TestE2ELineageUnlockEstablishesLive(t *testing.T) {
-	ctx, api, _, _, cfg, _, state := stageLineage(t)
+	ctx, api, _, _, _, _, _, state := stageLineage(t)
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err != nil {
+	if err := storeops.Unlock(ctx, &out, storeops.UnlockDeps{
+		Rec: state, Ids: state, Rows: state,
+		API: api, Clock: clock.HTTPS{}, Store: state,
+	}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	ident, err := state.GetIdentity(ctx)
@@ -113,19 +105,20 @@ func TestE2ELineageUnlockEstablishesLive(t *testing.T) {
 // prunes the old epoch's rows), and the next run mints under the
 // adopted lineage. If this fails, gc clobbers live registries.
 func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
-	ctx, api, url, root, cfg, bin, state := stageLineage(t)
+	ctx, api, _, root, _, _, runs, state := stageLineage(t)
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err != nil {
+	if err := storeops.Unlock(ctx, &out, storeops.UnlockDeps{
+		Rec: state, Ids: state, Rows: state,
+		API: api, Clock: clock.HTTPS{}, Store: state,
+	}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	foreignGen, foreignID := mustGen(t), mustGen(t)
 	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, freshPayload(foreignGen, foreignID)); err != nil {
 		t.Fatalf("stage foreign generation: %v", err)
 	}
-	var collected [][]string
 	out.Reset()
-	err := liveRun(t, ctx, &out, &collected, api, url, cfg, bin, state,
-		gc.Options{Report: func(gc.Event) {}})
+	err := liveRun(t, ctx, &out, api, state, gc.Options{})
 	if err == nil {
 		t.Fatal("gc over a foreign lineage succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "foreign lineage") {
@@ -140,7 +133,7 @@ func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := gc.Adopt(ctx, &out, api, state, state, "", ""); err != nil {
+	if err := storeops.Adopt(ctx, &out, api, state, state, "", ""); err != nil {
 		t.Fatalf("Adopt: %v", err)
 	}
 	ident, _ := state.GetIdentity(ctx)
@@ -158,9 +151,7 @@ func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 	}
 
 	out.Reset()
-	collected = nil
-	if err := liveRun(t, ctx, &out, &collected, api, url, cfg, bin, state,
-		gc.Options{Report: func(gc.Event) {}}); err != nil {
+	if err := liveRun(t, ctx, &out, api, state, gc.Options{Armed: proof.Arm(true, false)}); err != nil {
 		t.Fatalf("gc after adopt: %v", err)
 	}
 	served, _, err := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
@@ -170,8 +161,8 @@ func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 	if served.ID != foreignID {
 		t.Errorf("post-adopt proof carries %q, adopted %q", served.ID, foreignID)
 	}
-	if len(collected) != 1 {
-		t.Errorf("collector ran %d times, want one proof pass", len(collected))
+	if n := collectorRuns(t, runs); n != 1 {
+		t.Errorf("collector ran %d times, want one proof pass", n)
 	}
 }
 
@@ -179,18 +170,19 @@ func TestE2ELineageForeignRefusesThenAdoptHeals(t *testing.T) {
 // via `kpr adopt --gen` lets the next armed run mint past cleanly —
 // no incident language once the operator has owned it.
 func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
-	ctx, api, url, root, cfg, bin, state := stageLineage(t)
+	ctx, api, _, root, _, _, _, state := stageLineage(t)
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err != nil {
+	if err := storeops.Unlock(ctx, &out, storeops.UnlockDeps{
+		Rec: state, Ids: state, Rows: state,
+		API: api, Clock: clock.HTTPS{}, Store: state,
+	}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	gen0, _, err := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
 	if err != nil {
 		t.Fatalf("read baseline: %v", err)
 	}
-	var collected [][]string
-	if err := liveRun(t, ctx, &out, &collected, api, url, cfg, bin, state,
-		gc.Options{Report: func(gc.Event) {}}); err != nil {
+	if err := liveRun(t, ctx, &out, api, state, gc.Options{Armed: proof.Arm(true, false)}); err != nil {
 		t.Fatalf("second mint: %v", err)
 	}
 	gen2, _, err := sentinel.Read(ctx, api, sentinel.Repo, sentinel.Tag)
@@ -207,8 +199,7 @@ func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
 		t.Fatalf("restore baseline: %v", err)
 	}
 	out.Reset()
-	if err := liveRun(t, ctx, &out, &collected, api, url, cfg, bin, state,
-		gc.Options{DryRun: true, Report: func(gc.Event) {}}); err != nil {
+	if err := liveRun(t, ctx, &out, api, state, gc.Options{}); err != nil {
 		t.Fatalf("dry-run over a rollback: %v", err)
 	}
 	if !strings.Contains(out.String(), "older than tracked") {
@@ -216,7 +207,7 @@ func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := gc.Adopt(ctx, &out, api, state, state, "", gen0.Gen); err != nil {
+	if err := storeops.Adopt(ctx, &out, api, state, state, "", gen0.Gen); err != nil {
 		t.Fatalf("Adopt --gen: %v", err)
 	}
 	if ident2, _ := state.GetIdentity(ctx); ident2.BaselineGen != gen0.Gen {
@@ -224,9 +215,7 @@ func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
 	}
 
 	out.Reset()
-	collected = nil
-	if err := liveRun(t, ctx, &out, &collected, api, url, cfg, bin, state,
-		gc.Options{Report: func(gc.Event) {}}); err != nil {
+	if err := liveRun(t, ctx, &out, api, state, gc.Options{Armed: proof.Arm(true, false)}); err != nil {
 		t.Fatalf("gc after accept: %v", err)
 	}
 	if strings.Contains(out.String(), "older than tracked") {
@@ -244,10 +233,13 @@ func TestE2ELineageRollbackAdoptGenHeals(t *testing.T) {
 // The sweeper refuses a foreign registry in preview too (nothing
 // due gets planned); after the adopt it plans normally. Dry-run
 // throughout: nothing is ever deleted.
-func TestE2ELineageSweeperRefusesForeignDryRun(t *testing.T) {
-	ctx, api, _, root, cfg, _, state := stageLineage(t)
+func TestE2ELineageSweeperRefusesForeignPreview(t *testing.T) {
+	ctx, api, _, root, _, _, _, state := stageLineage(t)
 	var out strings.Builder
-	if err := gc.Unlock(ctx, &out, api, cfg, state, state, state, state, clock.HTTPS{}, stageTimeServer(t)); err != nil {
+	if err := storeops.Unlock(ctx, &out, storeops.UnlockDeps{
+		Rec: state, Ids: state, Rows: state,
+		API: api, Clock: clock.HTTPS{}, Store: state,
+	}); err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
 	if err := state.Record(ctx, policy.Row{Repo: "scratch", Tag: "10m", Digest: "sha256:a",
@@ -257,7 +249,7 @@ func TestE2ELineageSweeperRefusesForeignDryRun(t *testing.T) {
 	if _, err := sentinel.Write(root, sentinel.Repo, sentinel.Tag, freshPayload(mustGen(t), mustGen(t))); err != nil {
 		t.Fatalf("stage foreign generation: %v", err)
 	}
-	sw := &sweep.Sweeper{Store: state, Registry: api, Sentinel: api, DryRun: true}
+	sw := &sweep.Sweeper{Store: state, Registry: api, Sentinel: api}
 	sum := sw.RunPass(ctx, "e2e-lineage")
 	if !sum.Skipped {
 		t.Error("sweep over a foreign lineage was not skipped")
@@ -270,7 +262,7 @@ func TestE2ELineageSweeperRefusesForeignDryRun(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := gc.Adopt(ctx, &out, api, state, state, "", ""); err != nil {
+	if err := storeops.Adopt(ctx, &out, api, state, state, "", ""); err != nil {
 		t.Fatalf("Adopt: %v", err)
 	}
 	sum = sw.RunPass(ctx, "e2e-lineage")

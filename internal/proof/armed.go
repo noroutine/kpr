@@ -4,7 +4,7 @@ package proof
 // like every evidence: the only inhabitants come from the
 // constructors below, each naming the boundary that granted it.
 // The adapter reports intent by calling a constructor — it
-// cannot mint intent from nothing, and the zero value is just
+// cannot produce intent from nothing, and the zero value is just
 // nil.
 type ArmedRun interface {
 	// Source reports where the arming came from: "flag" or "env".
@@ -32,13 +32,18 @@ func armedFromFlag() ArmedRun { return armedRun{source: "flag"} }
 // rule: produced, not crafted.
 func armedFromEnv() ArmedRun { return armedRun{source: "env"} }
 
+// Unarmed reports the absence of the proof: dry-run is no
+// ArmedRun, never a boolean of its own. Commands share this
+// instead of comparing to nil at scattered call sites.
+func Unarmed(a ArmedRun) bool { return a == nil }
+
 // Arm evaluates human intent at the adapter boundary: an
-// explicit flag mints from the flag, the env arming mints from
-// the env, anything else mints nothing — dry-run is the absence
-// of the mint, never a boolean of its own.
+// explicit flag produces from the flag, the env arming produces
+// from the env, anything else produces nothing — dry-run is the
+// absence of the proof, never a boolean of its own.
 //
 // The adapter reads its own sources (cobra flag vars, config
-// env) and passes the readings; precedence and minting stay
+// env) and passes the readings; precedence and producing stay
 // here, beside the proof they produce. Callers derive the run
 // mode from the result — an unwired flag previews instead of
 // arming, loudly, by construction.

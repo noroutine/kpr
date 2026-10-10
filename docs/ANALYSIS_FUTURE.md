@@ -8,6 +8,8 @@ designs live in [GC_DANGLING.md](GC_DANGLING.md).
 ## Contents
 
 - [Tagged/untagged/orphan blob attribution](#taggeduntaggedorphan-blob-attribution)
+- [GC profit line](#gc-profit-line)
+- [Untagged is arithmetic, not truth](#untagged-is-arithmetic-not-truth)
 
 ## Tagged/untagged/orphan blob attribution
 
@@ -53,3 +55,53 @@ Slicing, shaped like the walker: (1) manifest-graph builder
 with staged-manifest tests; (2) attribution report plus
 CLI/docs. This stays out of `analyze` — the fast magnitude
 view — and lands as its own detector on the dangling track.
+
+## GC profit line
+
+The attribution's untagged + orphan buckets are the gc
+profit, in bytes: blobs reachable only from untagged
+revisions plus blobs reachable from nothing are exactly
+what `gc --delete-untagged` reaps. So the detector earns a
+one-line rendering next to `size`:
+
+```text
+gc profit: ~113.38 GiB reclaimable (delete-untagged)
+```
+
+(calibrated: 632.18 GiB before gc, 518.80 GiB after, on the
+testbed). The non-naive part is the set difference against
+the tagged closure — shared base layers survive under a
+tagged revision and must not count. Without the flag the
+profit is ~0 by construction; print that too, so the flag's
+effect is visible instead of implied. Stale under concurrent
+pushes, like everything point-in-time; husk/empty-dir
+pruning excluded as noise-level bytes.
+
+## Untagged is arithmetic, not truth
+
+`untagged := fs.Revisions - fs.Tags` counts link files, not
+reachability, and conflates three populations:
+
+1. True orphans — referenced by nothing. ~0 right after
+   `gc --delete-untagged`; gc did its job on these.
+2. Index children — per-arch manifests under a tagged
+   multi-arch index. Reachable, protected, no tag of their
+   own. The bulk at 22,419 revs / 2,950 tags.
+3. Superseded tag versions — old `current` links demoted to
+   `tags/<tag>/index/` on overwrite. The walk doesn't count
+   them, stock gc treats them as roots, so they pin blobs
+   forever: the classic tag-overwrite leak.
+
+A surviving `untagged` count after gc is therefore not
+evidence gc failed — populations 2 and 3 survive it by
+design. The attribution walk splits all three, replacing
+the subtraction with reachability. Diagnostic for
+population 3 on a live box:
+
+```sh
+find /var/lib/registry/docker/registry/v2/repositories \
+  -path '*tags*index*link' | wc -l
+```
+
+If large, superseded versions deserve their own
+`registry ls`-visible count.

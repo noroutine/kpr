@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
-	"nrtn.dev/catalyst/kpr/internal/edge"
+	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
@@ -38,7 +38,7 @@ type Server struct {
 	Sentinel sentinel.API
 	// Edge is the serve-embedded gateway fence. Nil renders the
 	// gateway section closed (disabled or unproven), never 500.
-	Edge *edge.Gate
+	Edge *fence.Gate
 	// RegistryURL names the registry endpoint the cards talk
 	// about: what the edge forwards to, what the keeper probes.
 	// Empty renders no endpoint (unknown, never guessed).

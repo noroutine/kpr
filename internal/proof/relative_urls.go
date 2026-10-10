@@ -33,7 +33,7 @@ type relativeURLs struct{}
 func (relativeURLs) sealed() {}
 
 // ProveRelativeURLs reads the mounted registry config — the
-// same file gc resolves store paths from — and mints only when
+// same file gc resolves store paths from — and produces only when
 // http.relativeurls is true and http.host is empty. Unreadable
 // or unparseable propagates: unknown is not relative.
 func ProveRelativeURLs(configPath string) (RelativeURLs, error) {

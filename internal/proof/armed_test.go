@@ -18,7 +18,7 @@ func TestArmedRunNamesSource(t *testing.T) {
 }
 
 // The zero value is nothing: without a constructor there is no
-// arming. If this fails, intent can be minted from thin air.
+// arming. If this fails, intent can be produced from thin air.
 func TestArmedRunZeroIsNothing(t *testing.T) {
 	var arm ArmedRun
 	if arm != nil {
@@ -27,7 +27,7 @@ func TestArmedRunZeroIsNothing(t *testing.T) {
 }
 
 // The boundary names its source: flag beats env, either beats
-// dry-run, nothing mints nothing. If this fails, intent arrives
+// dry-run, nothing produces nothing. If this fails, intent arrives
 // without provenance — or dry-run stopped being the default.
 func TestArmNamesSource(t *testing.T) {
 	cases := []struct {
@@ -70,4 +70,19 @@ func ExampleArm() {
 
 func collectIfArmedRun(a ArmedRun) {
 	fmt.Println("collecting (armed via " + a.Source() + ")")
+}
+
+// Unarmed is the absence of the proof: flag or env arms, silence
+// previews. If this fails, callers collect on nothing or preview
+// when armed.
+func TestUnarmedFollowsTheProof(t *testing.T) {
+	if !Unarmed(Arm(false, false)) {
+		t.Error("disarmed run not dry-run, want preview")
+	}
+	if Unarmed(Arm(true, false)) {
+		t.Error("flag-armed run dry-run, want collect")
+	}
+	if Unarmed(Arm(false, true)) {
+		t.Error("env-armed run dry-run, want collect")
+	}
 }

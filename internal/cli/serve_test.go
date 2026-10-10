@@ -212,6 +212,8 @@ func TestServeRunReportsEdgeBindFailure(t *testing.T) {
 	}
 	t.Setenv(config.EnvRegistryConfig, proven)
 	t.Setenv("KPR_EDGE_ADDR", "127.0.0.1:18237")
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
 	setServeAddrs(t, 18235, 18236)
 	logs := captureLog(t)
 
@@ -241,6 +243,8 @@ func TestServeRunReportsStartupFailure(t *testing.T) {
 	}
 	defer func() { _ = blocker.Close() }()
 
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
 	setServeAddrs(t, 18234, 18233) // app port already bound above
 	logs := captureLog(t)
 
@@ -269,6 +273,8 @@ func TestServeRunWarnsEveryDegradedDefault(t *testing.T) {
 	t.Setenv("KPR_REDIS_DB", "bogus")
 	t.Setenv("KPR_TIME_METHOD", "bogus")
 	t.Setenv("KPR_EDGE", "false")
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
 	setServeAddrs(t, 18241, 18242)
 	logs := captureLog(t)
 
@@ -291,6 +297,37 @@ func TestServeRunWarnsEveryDegradedDefault(t *testing.T) {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("no %q warning in boot logs:\n%s", want, logs.String())
 		}
+	}
+}
+
+// A serve boot stays hermetic: with only ports set, no kpr dir
+// may appear in the working directory (the default store dir is
+// cwd-relative, so an unisolated boot litters the checkout).
+// If this fails, a boot test lost its store env again.
+func TestServeBootLeavesNoStoreDirBehind(t *testing.T) {
+	_ = os.RemoveAll("kpr")
+	t.Setenv("KPR_EDGE", "false")
+	t.Setenv(config.EnvStore, "file")
+	t.Setenv(config.EnvStoreDir, t.TempDir())
+	setServeAddrs(t, 18251, 18252)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		serveCmd.Run(serveCmd, nil)
+	}()
+
+	waitFor(t, "http://127.0.0.1:18251/health")
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("signal self: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("serve did not stop after SIGTERM")
+	}
+	if _, err := os.Stat("kpr"); !os.IsNotExist(err) {
+		t.Errorf("serve boot left a kpr dir behind, want hermetic env")
 	}
 }
 

@@ -18,12 +18,12 @@ import (
 // without its acceptance leaves its token nil.
 //
 // Lease and edge come from the run's own wiring: leaseReady is
-// whether a HOLD fence was configured (file backend shares the
-// lease dir; redis keeps none), edgeAddr is where the edge
-// listens. The cache prover reads the same config the collector
-// reads and judges both halves itself — no pre-parsed verdict
-// crosses into the proof package.
-func onlinePreflight(ctx context.Context, configPath, edgeAddr string, leaseReady bool, cacheAccept, fenceAccept proof.AcceptedRisk) (proof.BlobCacheOff, proof.GatewayFencing, string, error) {
+// whether a HOLD fence was configured (a non-nil run fence
+// holds a lease dir; redis keeps none), edgeAddr is where the
+// edge listens. The cache prover reads the same config the
+// collector reads and judges both halves itself — no
+// pre-parsed verdict crosses into the proof package.
+func onlinePreflight(ctx context.Context, configPath, edgeAddr string, leaseReady bool, cacheAccept, fenceAccept proof.AcceptedRisk) (proof.BlobCacheOff, proof.GatewayFencingAvailable, string, error) {
 	// World first, acceptance second: the report must tell
 	// proven from accepted — an override that also proves reads
 	// [ok], an override that waives reads [accepted] naming what
@@ -31,9 +31,9 @@ func onlinePreflight(ctx context.Context, configPath, edgeAddr string, leaseRead
 	// for cache; at most one more dial for the gateway, only on
 	// override runs).
 	_, worldCacheErr := proof.ProveBlobCacheOff(configPath, nil)
-	_, worldFenceErr := proof.ProveGatewayFencing(ctx, configPath, edgeAddr, leaseReady, nil)
+	_, worldFenceErr := proof.ProveGatewayFencingAvailable(ctx, configPath, edgeAddr, leaseReady, nil)
 	cache, cacheErr := proof.ProveBlobCacheOff(configPath, cacheAccept)
-	fence, fenceErr := proof.ProveGatewayFencing(ctx, configPath, edgeAddr, leaseReady, fenceAccept)
+	fence, fenceErr := proof.ProveGatewayFencingAvailable(ctx, configPath, edgeAddr, leaseReady, fenceAccept)
 
 	// An unreadable config is broken input, not a missing proof:
 	// no checklist, no override — acceptance cannot fix

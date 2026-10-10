@@ -62,6 +62,7 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	t.Setenv(EnvRegistryUser, "robot")
 	t.Setenv(EnvRegistryPassword, "hunter2")
 	t.Setenv(EnvRegistryConfig, "/etc/registry/config.yml")
+	t.Setenv(EnvRegistryBinPath, "/opt/registry/bin/registry")
 	t.Setenv(EnvOTELEnabled, "true")
 	t.Setenv(EnvOTELEndpoint, "https://tempo:4318")
 	t.Setenv(EnvOTELServiceName, "kpr-prod")
@@ -89,6 +90,9 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	}
 	if cfg.RegistryConfig != "/etc/registry/config.yml" {
 		t.Errorf("RegistryConfig = %q, want the env value", cfg.RegistryConfig)
+	}
+	if cfg.RegistryBinPath != "/opt/registry/bin/registry" {
+		t.Errorf("RegistryBinPath = %q, want the env value", cfg.RegistryBinPath)
 	}
 	if !cfg.OTELEnabled || cfg.OTLPEndpoint != "tempo:4318" {
 		t.Errorf("otel = enabled:%v endpoint:%q", cfg.OTELEnabled, cfg.OTLPEndpoint)
@@ -249,6 +253,7 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 		WithRegistryUser("u").
 		WithRegistryPassword("p").
 		WithRegistryConfig("/r.yml").
+		WithRegistryBinPath("/b/reg").
 		WithCLINoDryRun(true).
 		WithOTELEnabled(true).
 		WithOTLPEndpoint("e:1").
@@ -274,6 +279,9 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 	}
 	if cfg.RegistryConfig != "/r.yml" {
 		t.Errorf("RegistryConfig = %q, want /r.yml", cfg.RegistryConfig)
+	}
+	if cfg.RegistryBinPath != "/b/reg" {
+		t.Errorf("RegistryBinPath = %q, want /b/reg", cfg.RegistryBinPath)
 	}
 	if cfg.OTELServiceName != "s" || cfg.OTELServiceVersion != "v" || cfg.OTELEnvironment != "env" {
 		t.Error("otel identity not applied")
@@ -344,7 +352,7 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 		EnvConsoleBasePath, EnvAppBasePath,
 		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
 		EnvRegistryURL, EnvRegistryUser, EnvRegistryPassword,
-		EnvRegistryConfig,
+		EnvRegistryConfig, EnvRegistryBinPath,
 		EnvEdgeAddr, EnvEdge, EnvCLINoDryRun,
 		EnvOTELEnabled, EnvOTELEndpoint, EnvOTELServiceName,
 		EnvOTELServiceVersion, EnvOTELEnvironment,
@@ -466,6 +474,29 @@ func TestDBWarningNamesRawAndDefault(t *testing.T) {
 	for _, want := range []string{`"bogus"`, "using default"} {
 		if !strings.Contains(err, want) {
 			t.Errorf("DBWarning = %q, lacks %q", err, want)
+		}
+	}
+}
+
+// The method knob becomes exactly one transport: unknown values
+// can only arrive from hand-built configs (FromEnv falls soft),
+// and they must land on the harmless default, not crash. If this
+// fails, mints check time through a different transport than the
+// one the operator configured.
+func TestClockSourceMapsMethods(t *testing.T) {
+	for _, tc := range []struct {
+		method clock.Method
+		want   clock.Source
+	}{
+		{clock.MethodLocal, clock.Local{}},
+		{clock.MethodHTTPS, clock.HTTPS{}},
+		{clock.MethodNTP, clock.NTP{}},
+		{"sundial", clock.Local{}},
+	} {
+		cfg := NewBuilder().Build()
+		cfg.TimeMethod = tc.method
+		if got := cfg.ClockSource(); got != tc.want {
+			t.Errorf("method %q -> %T, want %T", tc.method, got, tc.want)
 		}
 	}
 }

@@ -87,6 +87,10 @@ func ListRepos(store proof.FilesystemStore) (map[string]bool, error) {
 			// NOTE(mutants): == is equivalent — returning the
 			// nil error early lands where falling through
 			// lands (the return nil below).
+			// NOTE(mutants): skipping the stat error instead is
+			// untestable green — stat fails here only on
+			// mid-walk races (readable parents stat fine),
+			// and staging a race proves the staging.
 		} else if merr != nil && !os.IsNotExist(merr) {
 			return merr
 		}
@@ -139,6 +143,9 @@ func ListHusks(store proof.FilesystemStore) ([]string, error) {
 				// NOTE(mutants): == is equivalent — returning
 				// the nil error early lands where falling
 				// through lands (the return nil below).
+				// NOTE(mutants): skipping the stat error instead
+				// is untestable green — same mid-walk-race-only
+				// leg as the repos walk above.
 			} else if merr != nil && !os.IsNotExist(merr) {
 				return merr
 			}

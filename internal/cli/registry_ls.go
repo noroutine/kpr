@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/registryfs"
@@ -24,18 +25,10 @@ var registryLsCmd = &cobra.Command{
 	Short: "List machinery tags or tagless repos as the registry sees them",
 	Long: `Two registry-side listings. sentinels is the API view of
 machinery: every tag under the sentinel repo with the identity
-its manifest carries — generation, age, writer. The store view
-(` + "`store ls sentinels`" + `) shows what kpr tracks; diffing the
-two names unadopted tags and stale rows. Tag payloads only mean
-something for machinery, so sentinels is the one API target. A
-tag whose manifest won't parse warns past on stderr and skips —
-one dangling tag never vetoes the listing. Pure API read: no
-store, no proof.
+its manifest carries. Pure API read: no store, no proof.
 
-husks is the filesystem view of tagless repos: one name per
-line, sorted, sentinel machinery excluded — the fast answer when
-analyze only counts them. A filestore proof gates it, like
-analyze; --json emits the array, --long refuses (names only).`,
+husks is the filesystem view of tagless repos: one name per line,
+sentinel machinery excluded.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.NewBuilder().FromEnv().Build()
@@ -165,7 +158,7 @@ func lsAge(now time.Time, ts string) string {
 	if err != nil {
 		return "unknown ts"
 	}
-	return shortAge(now, stamp)
+	return human.ShortAge(now, stamp)
 }
 
 func init() {

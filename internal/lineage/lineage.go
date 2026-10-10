@@ -53,18 +53,21 @@ type IdentityStore interface {
 }
 
 // Ask is the operation shape: preview or armed, overridden or not,
-// at what time.
+// at what time. Zero is preview — acting needs Armed lit loud at
+// the call site, never inherited from a default. (The token form,
+// proof.ArmedRun, cannot cross here: proof imports lineage, so the
+// boundary carries the bool and the token stays outside.)
 type Ask struct {
-	DryRun bool
-	Force  bool
-	Now    time.Time
+	Armed bool
+	Force bool
+	Now   time.Time
 }
 
 // Verdict is one decided case. Exactly one of the paths holds:
 // Refuse (Proceed false, Establish false), Establish (armed
 // silence — mint with the pairing, generating it when unpaired), or
 // Proceed (act; Stale warns; Heal proposes an adopt-record row, nil
-// in dry runs so previews stay read-only).
+// unless armed so previews stay read-only).
 type Verdict struct {
 	Proceed   bool
 	Reason    string
@@ -86,7 +89,7 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 	}
 	if s.Err != nil {
 		if sentinel.Absent(s.Err) {
-			if ask.DryRun {
+			if !ask.Armed {
 				return refuse(
 					fmt.Sprintf("no sentinel served: %v", s.Err),
 					"run an armed `kpr gc` or `kpr store unlock` first to establish pairing (or check the volume mount)")
@@ -160,7 +163,7 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 				Action: "none (armed runs mint past it)"}
 		}
 		reason := fmt.Sprintf("serves generation %s older than tracked %s (rollback?)", p.Gen, max.Tag)
-		if ask.DryRun || ask.Force {
+		if !ask.Armed || ask.Force {
 			return Verdict{Proceed: true, Stale: true, Reason: reason,
 				Action: "run `kpr store adopt --gen " + p.Gen + "` to accept the rollback as baseline"}
 		}
@@ -174,7 +177,7 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 		v := Verdict{Proceed: true,
 			Reason: fmt.Sprintf("serves untracked generation %s of our lineage; adopting", p.Gen),
 			Action: "adopt-recorded for keep-N (armed runs only)"}
-		if !ask.DryRun {
+		if ask.Armed {
 			v.Heal = &policy.Row{Repo: sentinel.Repo, Tag: p.Gen, Digest: s.Digest,
 				MediaType: sentinel.ManifestMediaType, PushedAt: ts, Actor: actor}
 		}

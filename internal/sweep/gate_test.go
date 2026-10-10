@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/policy"
+	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -61,7 +62,7 @@ func pairGround(s store.Store) stubSentinel {
 	}}
 }
 
-func pairedSweeper(s store.Store, stub *stubRegistry, id, gen string, dryRun bool) *Sweeper {
+func pairedSweeper(s store.Store, stub *stubRegistry, id, gen string, armed proof.ArmedRun) *Sweeper {
 	if err := s.SetIdentity(context.Background(), store.Identity{ID: id, BaselineGen: gen}); err != nil {
 		panic(err)
 	}
@@ -75,8 +76,8 @@ func pairedSweeper(s store.Store, stub *stubRegistry, id, gen string, dryRun boo
 			V: 1, Gen: gen, ID: id,
 			TS: sweepNow.Format(time.RFC3339), Writer: "kpr-gc",
 		}},
-		DryRun: dryRun,
-		Now:    func() time.Time { return sweepNow },
+		Armed: armed,
+		Now:   func() time.Time { return sweepNow },
 	}
 }
 
@@ -85,10 +86,10 @@ func pairedSweeper(s store.Store, stub *stubRegistry, id, gen string, dryRun boo
 // previews included (a pass is a run, not a read). If this fails,
 // the freeze has a hole where the loop sweeps.
 func TestRunPassRefusesLockedStore(t *testing.T) {
-	for _, dry := range []bool{true, false} {
+	for _, armed := range []proof.ArmedRun{nil, proof.Arm(true, false)} {
 		s := store.NewMemStore()
 		stub := &stubRegistry{}
-		sw := pairedSweeper(s, stub, "local-lineage", "gen-local", dry)
+		sw := pairedSweeper(s, stub, "local-lineage", "gen-local", armed)
 		if err := s.SetUnlocked(testCtx(), false); err != nil {
 			t.Fatalf("stage lock: %v", err)
 		}
@@ -97,13 +98,13 @@ func TestRunPassRefusesLockedStore(t *testing.T) {
 		}
 		sum := sw.RunPass(testCtx(), "test")
 		if !sum.Skipped {
-			t.Errorf("dry=%v locked pass was not skipped", dry)
+			t.Errorf("locked pass was not skipped (armed=%v)", !proof.Unarmed(armed))
 		}
 		if len(sum.Failures) != 1 || !strings.Contains(sum.Failures[0], "store is locked") {
-			t.Errorf("dry=%v failures = %v, want the locked refusal", dry, sum.Failures)
+			t.Errorf("(armed=%v) failures = %v, want the locked refusal", !proof.Unarmed(armed), sum.Failures)
 		}
 		if got := stubDeletes(stub); got != 0 {
-			t.Errorf("dry=%v locked pass attempted %d deletes", dry, got)
+			t.Errorf("(armed=%v) locked pass attempted %d deletes", !proof.Unarmed(armed), got)
 		}
 	}
 }
@@ -115,7 +116,7 @@ func TestRunPassRefusesLockedStore(t *testing.T) {
 func TestRunPassRefusesForeignLineage(t *testing.T) {
 	s := store.NewMemStore()
 	stub := &stubRegistry{}
-	sw := pairedSweeper(s, stub, "local-lineage", "gen-local", false)
+	sw := pairedSweeper(s, stub, "local-lineage", "gen-local", proof.Arm(true, false))
 	sw.Sentinel = stubSentinel{pay: sentinel.Payload{
 		V: 1, Gen: "gen-foreign", ID: "foreign-lineage",
 		TS: sweepNow.Format(time.RFC3339),
@@ -143,7 +144,7 @@ func TestRunPassRefusesForeignLineage(t *testing.T) {
 func TestRunPassRefusalLogsFailures(t *testing.T) {
 	s := store.NewMemStore()
 	stub := &stubRegistry{}
-	sw := pairedSweeper(s, stub, "local-lineage", "gen-local", false)
+	sw := pairedSweeper(s, stub, "local-lineage", "gen-local", proof.Arm(true, false))
 	sw.Sentinel = stubSentinel{pay: sentinel.Payload{
 		V: 1, Gen: "gen-foreign", ID: "foreign-lineage",
 		TS: sweepNow.Format(time.RFC3339),
@@ -165,10 +166,10 @@ func TestRunPassRefusalLogsFailures(t *testing.T) {
 }
 
 // Silence refuses too: with nothing served the tracked rows prove
-// nothing, armed or not. The sweeper never mints, so it cannot
+// nothing, armed or not. The sweeper proves nothing, so it cannot
 // establish — only unlock or gc can.
 func TestRunPassRefusesSilence(t *testing.T) {
-	for _, dry := range []bool{true, false} {
+	for _, armed := range []proof.ArmedRun{nil, proof.Arm(true, false)} {
 		s := store.NewMemStore()
 		// Unlocked: this test isolates silence, not the marker.
 		if err := s.SetUnlocked(testCtx(), true); err != nil {
@@ -179,7 +180,7 @@ func TestRunPassRefusesSilence(t *testing.T) {
 			Store:    s,
 			Registry: stub,
 			Sentinel: stubSentinel{err: fs.ErrNotExist},
-			DryRun:   dry,
+			Armed:    armed,
 			Now:      func() time.Time { return sweepNow },
 		}
 		if err := s.Record(testCtx(), duerow("app", "10m", time.Hour)); err != nil {
@@ -187,13 +188,13 @@ func TestRunPassRefusesSilence(t *testing.T) {
 		}
 		sum := sw.RunPass(testCtx(), "test")
 		if !sum.Skipped {
-			t.Errorf("dry=%v silent pass was not skipped", dry)
+			t.Errorf("silent pass was not skipped (armed=%v)", !proof.Unarmed(armed))
 		}
 		if len(sum.Failures) != 1 || !strings.Contains(sum.Failures[0], "no sentinel served") {
-			t.Errorf("dry=%v failures = %v, want the silence refusal", dry, sum.Failures)
+			t.Errorf("(armed=%v) failures = %v, want the silence refusal", !proof.Unarmed(armed), sum.Failures)
 		}
 		if got := stubDeletes(stub); got != 0 {
-			t.Errorf("dry=%v refused pass attempted %d deletes", dry, got)
+			t.Errorf("(armed=%v) refused pass attempted %d deletes", !proof.Unarmed(armed), got)
 		}
 	}
 }
@@ -228,7 +229,8 @@ func TestRunPassRefusesStaleArmed(t *testing.T) {
 			V: 1, Gen: "gen-old", ID: id,
 			TS: sweepNow.Add(-2 * time.Hour).Format(time.RFC3339),
 		}},
-		Now: func() time.Time { return sweepNow },
+		Armed: proof.Arm(true, false),
+		Now:   func() time.Time { return sweepNow },
 	}
 	sum := sw.RunPass(ctx, "test")
 	if !sum.Skipped {

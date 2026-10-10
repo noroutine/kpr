@@ -20,6 +20,8 @@ it. The rule, then the receipt. Two megawisdoms up top, then the checklist.
 - [W13: Seams are proto-ports](#w13-seams-are-proto-ports)
 - [W14: A declined port can earn its way back](#w14-a-declined-port-can-earn-its-way-back)
 - [W15: Core takes readings, never readers](#w15-core-takes-readings-never-readers)
+- [W16: One field per splittable role](#w16-one-field-per-splittable-role)
+- [W17: Narration is local, history is shared](#w17-narration-is-local-history-is-shared)
 
 ## W1: Ports hide partners, not steps
 
@@ -199,10 +201,18 @@ real thing explicitly. Start with the seam — it's one line and it
 proves the substitution matters. Promote to a port when the second
 consumer arrives (gc-4's orchestration consuming it); a seam used
 in one test file stays a seam. Ports don't eliminate seams, they
-push them to the boundary: `RunCollector` still bottoms out in the
+push them to the boundary: `runCollector` still bottoms out in the
 seam, because something must finally call `exec`.
 
-— [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
+Demotion (the static-vs-computed rule): `Probe`/`Collect` went back
+from `Deps` fields to package vars. Their production values are
+constant — `probeRegistry`/`runCollector` on every run, no inputs —
+so the fields carried no per-run variation, only test substitution,
+which a seam does in one line. `Report`/`Fence`/`Clock` stayed
+ports: each computes from the run (writer, store+armed, config).
+Ports carry what varies; seams carry what merely substitutes.
+
+— [7ac2020](https://nrtn.dev/catalyst/kpr/commit/7ac2020ec4c25cde304b0abd23064cbd146c862d), [15058c6](https://nrtn.dev/catalyst/kpr/commit/15058c6e8cd2824d517a2302a0fa6444ded3eef4)
 
 ## W14: A declined port can earn its way back
 
@@ -234,3 +244,32 @@ so the "automatic" call needs parameters for which sources —
 saving nothing over two bools. The automatic part comes from the other side: stages
 take `ArmedRun`, so a command that forgets the one line doesn't
 compile.
+
+## W16: One field per splittable role
+
+`gc.Deps` carries one store four times — `Lock`, `Rec`,
+`Ids`, `Rows` — and production passes the same object into all
+four, so the temptation is a single `Store` field. Resisted: the
+tests script each role apart (unreadable lock marker, failing
+keep-N log, unreadable/unrecordable lineage, untracked rows),
+and one field would force every fake to implement the whole
+store just to break one role. One object N times is not
+duplication — it is the call-site literal saying the four hats
+sit on one head. Collapse fields only when no test tells the
+roles apart.
+
+— [656b1a4](https://nrtn.dev/catalyst/kpr/commit/656b1a447dd26ed2ab19f110849cf6c16c58111f)
+
+## W17: Narration is local, history is shared
+
+The fence adapter voiced transitions into the use case's event
+stream, coupling `edge` to `gc` for lines nobody rendered:
+Deny/Allow pass nil, Hold's stages fall through the renderer.
+The shared sink was always the ring — state can't time-travel,
+so transitions must be recorded where both worlds read. Each
+process now voices its own output (the run its hold lines, the
+Gate serve's log) and shares only history. An announce path
+with no rendering consumer is not a channel, it's a habit:
+prove the consumer before keeping the type.
+
+— [d7f9f6d](https://nrtn.dev/catalyst/kpr/commit/d7f9f6df047bdf632f9ffd85d63ca49bb39ea92e)

@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/proof"
+	"nrtn.dev/catalyst/kpr/internal/testing/fakes"
 )
 
 // Killing a never-started command is a silent no-op: the cancel path
@@ -28,14 +30,14 @@ func stubCollector(script string) func(context.Context, string, []string) *exec.
 	}
 }
 
-func collectEvents() (*[]Event, Reporter) {
-	var events []Event
-	return &events, func(e Event) { events = append(events, e) }
+func collectEvents() (*[]event.Event, event.Reporter) {
+	var emitted []event.Event
+	return &emitted, func(e event.Event) { emitted = append(emitted, e) }
 }
 
-func stages(events []Event) []string {
+func stages(emitted []event.Event) []string {
 	var out []string
-	for _, e := range events {
+	for _, e := range emitted {
 		out = append(out, e.Stage)
 	}
 	return out
@@ -50,22 +52,32 @@ func TestCollectorStreamsLinesAndReportsStages(t *testing.T) {
 	collectorCommand = stubCollector("echo out-line; echo err-line >&2")
 	defer func() { collectorCommand = old }()
 
-	events, report := collectEvents()
+	emitted, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
-		t.Fatalf("RunCollector: %v", err)
+	// Bounded: without the drain a broken collector hangs here
+	// instead of failing — the timeout turns that hang into a
+	// verdict instead of a suite timeout.
+	done := make(chan error, 1)
+	go func() { done <- runCollector(context.Background(), &out, "/bin/sh", nil, report) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runCollector: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("runCollector hung: the drain never released the scanner")
 	}
 	for _, want := range []string{"out-line", "err-line"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("collector output lacks %q:\n%s", want, out.String())
 		}
 	}
-	wantStages := []string{StageStart, StageSpawn, StageStarted, StageCollectBegin, StageCollectExit}
-	if got := stages(*events); !equalStages(got, wantStages) {
+	wantStages := []string{stageStart, stageSpawn, stageStarted, stageCollectBegin, stageCollectExit}
+	if got := stages(*emitted); !equalStages(got, wantStages) {
 		t.Errorf("stages = %v, want %v", got, wantStages)
 	}
-	for _, e := range *events {
-		if e.Stage == StageStarted && e.PID <= 0 {
+	for _, e := range *emitted {
+		if e.Stage == stageStarted && e.PID <= 0 {
 			t.Errorf("started event carries pid %d, want the live child", e.PID)
 		}
 	}
@@ -89,10 +101,6 @@ type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 
-type errWriter struct{ err error }
-
-func (w errWriter) Write([]byte) (int, error) { return 0, w.err }
-
 // A cancelled context refuses before spawning: no child outlives
 // the caller that gave up. If this fails, a cancelled gc still
 // forks the collector.
@@ -101,8 +109,8 @@ func TestCollectorCancelledContextSpawnsNothing(t *testing.T) {
 	cancel()
 	_, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(ctx, &out, "/bin/sh", nil, report); err == nil {
-		t.Fatal("RunCollector on cancelled context succeeded, want refusal")
+	if err := runCollector(ctx, &out, "/bin/sh", nil, report); err == nil {
+		t.Fatal("runCollector on cancelled context succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "context canceled") {
 		t.Errorf("refusal names no cause: %v", err)
 	}
@@ -114,8 +122,8 @@ func TestCollectorCancelledContextSpawnsNothing(t *testing.T) {
 func TestCollectorMissingBinaryFailsAtSpawn(t *testing.T) {
 	_, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(context.Background(), &out, "/nonexistent-collector", nil, report); err == nil {
-		t.Fatal("RunCollector on missing binary succeeded, want failure")
+	if err := runCollector(context.Background(), &out, "/nonexistent-collector", nil, report); err == nil {
+		t.Fatal("runCollector on missing binary succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "collector:") {
 		t.Errorf("failure names no spawn cause: %v", err)
 	}
@@ -131,9 +139,9 @@ func TestCollectorDeadListenerKillsChild(t *testing.T) {
 	defer func() { collectorCommand = old }()
 
 	_, report := collectEvents()
-	if err := RunCollector(context.Background(), errWriter{errors.New("status pipe closed")},
+	if err := runCollector(context.Background(), fakes.ErrWriter{Err: errors.New("status pipe closed")},
 		"/bin/sh", nil, report); err == nil {
-		t.Fatal("RunCollector with dead listener succeeded, want failure")
+		t.Fatal("runCollector with dead listener succeeded, want failure")
 	} else if !strings.Contains(err.Error(), "collector output:") {
 		t.Errorf("failure names no output cause: %v", err)
 	}
@@ -150,8 +158,8 @@ func TestCollectorQuietChildDrainsClean(t *testing.T) {
 
 	_, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
-		t.Fatalf("RunCollector: %v", err)
+	if err := runCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("runCollector: %v", err)
 	}
 	if !strings.Contains(out.String(), "parting-word") {
 		t.Errorf("drained output lacks the line:\n%s", out.String())
@@ -181,10 +189,10 @@ func TestCollectorDrainsEveryLine(t *testing.T) {
 	collectorCommand = stubCollector("i=1; while [ $i -le 5000 ]; do echo line-$i; i=$((i+1)); done")
 	defer func() { collectorCommand = old }()
 
-	events, report := collectEvents()
+	emitted, report := collectEvents()
 	var out strings.Builder
-	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
-		t.Fatalf("RunCollector: %v", err)
+	if err := runCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("runCollector: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != 5000 {
@@ -193,9 +201,9 @@ func TestCollectorDrainsEveryLine(t *testing.T) {
 	if lines[0] != "line-1" || lines[4999] != "line-5000" {
 		t.Errorf("drain endpoints = %q..%q, want line-1..line-5000", lines[0], lines[4999])
 	}
-	got := stages(*events)
-	if len(got) == 0 || got[len(got)-1] != StageCollectExit {
-		t.Errorf("last stage = %v, want %q", got, StageCollectExit)
+	got := stages(*emitted)
+	if len(got) == 0 || got[len(got)-1] != stageCollectExit {
+		t.Errorf("last stage = %v, want %q", got, stageCollectExit)
 	}
 }
 
@@ -220,18 +228,18 @@ func TestCollectorFailureCarriesLastLine(t *testing.T) {
 	collectorCommand = stubCollector("echo first; echo 'blob eligible for deletion: boom' >&2; exit 3")
 	defer func() { collectorCommand = old }()
 
-	events, report := collectEvents()
+	emitted, report := collectEvents()
 	var out strings.Builder
-	err := RunCollector(context.Background(), &out, "/bin/sh", nil, report)
+	err := runCollector(context.Background(), &out, "/bin/sh", nil, report)
 	if err == nil {
 		t.Fatal("failing collector returned nil, want the exit surfaced")
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Errorf("error lacks the last line: %v", err)
 	}
-	got := stages(*events)
-	if len(got) == 0 || got[len(got)-1] != StageFailure {
-		t.Errorf("last stage = %v, want %q", got, StageFailure)
+	got := stages(*emitted)
+	if len(got) == 0 || got[len(got)-1] != stageFailure {
+		t.Errorf("last stage = %v, want %q", got, stageFailure)
 	}
 }
 
@@ -245,24 +253,24 @@ func TestCollectorCancelStops(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	events, inner := collectEvents()
-	report := func(e Event) {
+	emitted, inner := collectEvents()
+	report := func(e event.Event) {
 		inner(e)
-		if e.Stage == StageStarted {
+		if e.Stage == stageStarted {
 			cancel()
 		}
 	}
 	var out strings.Builder
 	done := make(chan error, 1)
-	go func() { done <- RunCollector(ctx, &out, "/bin/sh", nil, report) }()
+	go func() { done <- runCollector(ctx, &out, "/bin/sh", nil, report) }()
 	select {
 	case err := <-done:
 		if err == nil {
 			t.Error("cancelled collect returned nil, want the cancellation")
 		}
-		got := stages(*events)
-		if len(got) == 0 || got[len(got)-1] != StageStopped {
-			t.Errorf("last stage = %v, want %q", got, StageStopped)
+		got := stages(*emitted)
+		if len(got) == 0 || got[len(got)-1] != stageStopped {
+			t.Errorf("last stage = %v, want %q", got, stageStopped)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("cancelled collect hung, want a prompt stop")
@@ -273,11 +281,11 @@ func TestCollectorCancelStops(t *testing.T) {
 // composes with it. If this fails, dry-run never asked the collector
 // for a preview.
 func TestArgsDryRun(t *testing.T) {
-	dry := Args("/etc/distribution/config.yml", false, true)
+	dry := args("/etc/distribution/config.yml", false, true)
 	if !hasArg(dry, "--dry-run") {
 		t.Errorf("dry gc args = %v, want --dry-run", dry)
 	}
-	real := Args("/etc/distribution/config.yml", true, false)
+	real := args("/etc/distribution/config.yml", true, false)
 	if hasArg(real, "--dry-run") {
 		t.Errorf("real gc args = %v, want no --dry-run", real)
 	}
@@ -301,13 +309,13 @@ func hasArg(args []string, want string) bool {
 // stopped deciding.
 func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 	called := false
-	collect := func(context.Context, io.Writer, string, []string, Reporter) error {
+	collect := func(context.Context, io.Writer, string, []string, event.Reporter) error {
 		called = true
 		return nil
 	}
 	var out strings.Builder
 	err := collectWritableArmed(context.Background(), &out, collect,
-		"/bin/sh", []string{"garbage-collect"}, func(Event) {}, nil, nil)
+		"/bin/sh", []string{"garbage-collect"}, func(event.Event) {}, nil, nil)
 	if err == nil {
 		t.Fatal("writable collect without clearance succeeded, want the blind refusal")
 	} else if !strings.Contains(err.Error(), "--accept-blob-cache") {
@@ -316,7 +324,7 @@ func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 	if called {
 		t.Error("refused collect reached the collector port")
 	}
-	// Acceptance mints the kind without the world: the boundary
+	// Acceptance produces the kind without the world: the boundary
 	// cannot tell proven from accepted, and must not need to.
 	accept := proof.Force(proof.Arm(true, false), true)
 	cache, err := proof.ProveBlobCacheOff(stageOnlineConfig(t, t.TempDir(), true), accept)
@@ -324,7 +332,7 @@ func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 		t.Fatalf("stage cache clearance: %v", err)
 	}
 	err = collectWritableArmed(context.Background(), &out, collect,
-		"/bin/sh", []string{"garbage-collect"}, func(Event) {}, cache, nil)
+		"/bin/sh", []string{"garbage-collect"}, func(event.Event) {}, cache, nil)
 	if err == nil {
 		t.Fatal("writable collect with half clearance succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "--accept-unfenced") {
@@ -340,7 +348,7 @@ func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 // fails, the variant edits the run it only gates.
 func TestCollectWritableArmedDelegatesWhenCleared(t *testing.T) {
 	var got [][]string
-	collect := func(_ context.Context, _ io.Writer, _ string, args []string, _ Reporter) error {
+	collect := func(_ context.Context, _ io.Writer, _ string, args []string, _ event.Reporter) error {
 		got = append(got, args)
 		return nil
 	}
@@ -348,12 +356,12 @@ func TestCollectWritableArmedDelegatesWhenCleared(t *testing.T) {
 	args := []string{"garbage-collect", "/etc/distribution/config.yml"}
 	accept := proof.Force(proof.Arm(true, false), true)
 	cache, cacheErr := proof.ProveBlobCacheOff(stageOnlineConfig(t, t.TempDir(), true), accept)
-	fence, fenceErr := proof.ProveGatewayFencing(context.Background(), "/nonexistent.yml", "127.0.0.1:1", false, accept)
+	gating, fenceErr := proof.ProveGatewayFencingAvailable(context.Background(), "/nonexistent.yml", "127.0.0.1:1", false, accept)
 	if cacheErr != nil || fenceErr != nil {
 		t.Fatalf("stage clearance: %v %v", cacheErr, fenceErr)
 	}
 	if err := collectWritableArmed(context.Background(), &out, collect,
-		"/bin/sh", args, func(Event) {}, cache, fence); err != nil {
+		"/bin/sh", args, func(event.Event) {}, cache, gating); err != nil {
 		t.Fatalf("writable collect when cleared: %v", err)
 	}
 	if len(got) != 1 || strings.Join(got[0], " ") != strings.Join(args, " ") {
@@ -373,11 +381,11 @@ func TestCollectorBurstDrainsAfterExit(t *testing.T) {
 	collectorCommand = stubCollector("i=1; while [ $i -le 200 ]; do echo burst-$i; i=$((i+1)); done")
 	defer func() { collectorCommand = old }()
 
-	events, report := collectEvents()
+	emitted, report := collectEvents()
 	var buf strings.Builder
 	out := slowWriter{w: &buf, delay: time.Millisecond}
-	if err := RunCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
-		t.Fatalf("RunCollector: %v", err)
+	if err := runCollector(context.Background(), &out, "/bin/sh", nil, report); err != nil {
+		t.Fatalf("runCollector: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	if len(lines) != 200 {
@@ -388,9 +396,9 @@ func TestCollectorBurstDrainsAfterExit(t *testing.T) {
 			t.Fatalf("line %d = %q, want %q (order broke across the drain)", i, line, want)
 		}
 	}
-	got := stages(*events)
-	if len(got) == 0 || got[len(got)-1] != StageCollectExit {
-		t.Errorf("last stage = %v, want %q", got, StageCollectExit)
+	got := stages(*emitted)
+	if len(got) == 0 || got[len(got)-1] != stageCollectExit {
+		t.Errorf("last stage = %v, want %q", got, stageCollectExit)
 	}
 }
 
