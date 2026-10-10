@@ -60,7 +60,7 @@ type Locker interface {
 // share, one vocabulary everywhere.
 
 // Options tunes a gc run, and only that: the operator's flags.
-// Armed carries the mint — nil previews (the fail-closed
+// Armed carries the proof — nil previews (the fail-closed
 // default), only an explicit --no-dry-run collects for real.
 // Everything the run is wired to (reporter, fence) rides Deps,
 // never here.
@@ -72,7 +72,7 @@ type Options struct {
 // Accepts groups the sealed risk acceptances beside Options, not
 // inside it: evidence is not flags. Named fields, never trailing
 // positionals — five same-typed tokens in a row would compile
-// swapped and silently misattribute risk. The CLI mints each from
+// swapped and silently misattribute risk. The CLI produces each from
 // its --accept-* flag on an armed run (nil otherwise); the online
 // preflight consumes the pair it clears, the clock gate, the
 // lineage judge, and the post-run flip gate one each.
@@ -88,7 +88,7 @@ type Accepts struct {
 // four roles — lock (intent gate plus single-flight), recorder,
 // identity, rows — each scriptable apart in tests, one object
 // wearing all four hats in production — plus the registry API,
-// the clock the mint checks, the event reporter, and the fence.
+// the clock the generation mint checks, the event reporter, and the fence.
 // Probe and collect stay seams (package vars, W13): constant
 // functions carry no per-run variation, so they ride no field. A nil clock derives from
 // config.Current() (production never sets it); tests inject

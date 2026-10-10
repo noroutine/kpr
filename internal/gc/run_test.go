@@ -25,7 +25,7 @@ var (
 	errProbeDead     = errors.New("probe dead")
 )
 
-// acceptRisk mints one acceptance the way the command does for an
+// acceptRisk produces one acceptance the way the command does for an
 // --accept-* flag on an armed run. Each test holds only the token
 // its gate needs — a fully-accepted run spells all five fields,
 // never a shared umbrella.
@@ -33,7 +33,7 @@ func acceptRisk() proof.AcceptedRisk {
 	return proof.Force(proof.Arm(true, false), true)
 }
 
-// flagArmed mints the armed run the way the command does for
+// flagArmed produces the armed run the way the command does for
 // --no-dry-run. Tests that collect for real say so out loud: a
 // bare Options{Armed: flagArmed()} previews, never collects.
 func flagArmed() proof.ArmedRun {
@@ -161,7 +161,7 @@ func TestRunBehindStubPorts(t *testing.T) {
 		t.Errorf("collector got %v, want one --dry-run invocation", collected)
 	}
 	if strings.Contains(out.String(), "shared store proven via") {
-		t.Errorf("dry-run names a proof it never minted:\n%s", out.String())
+		t.Errorf("dry-run names a proof it never produced:\n%s", out.String())
 	}
 	if !strings.HasSuffix(strings.TrimRight(out.String(), "\n"), "dry-run complete: nothing was deleted (collect for real with --no-dry-run)") {
 		t.Errorf("dry-run verdict is not the last line:\n%s", out.String())
@@ -586,7 +586,7 @@ func TestRunDryRunSkipsProof(t *testing.T) {
 		t.Fatalf("dry-run: %v", err)
 	}
 	if strings.Contains(out.String(), "shared store proven via") {
-		t.Errorf("dry-run names a proof it never minted:\n%s", out.String())
+		t.Errorf("dry-run names a proof it never produced:\n%s", out.String())
 	}
 	if len(collected) != 1 || !hasArg(collected[0], "--dry-run") {
 		t.Errorf("collector got %v, want one --dry-run invocation", collected)

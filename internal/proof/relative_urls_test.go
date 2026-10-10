@@ -7,16 +7,16 @@ import (
 	"testing"
 )
 
-// A config with relativeurls and no host mints: the edge cannot
+// A config with relativeurls and no host produces: the edge cannot
 // bypass. If this fails, proven configs stopped opening.
-func TestProveRelativeURLsMintsWhenRelative(t *testing.T) {
+func TestProveRelativeURLsProducesWhenRelative(t *testing.T) {
 	path := writeRegistryConfig(t, "http:\n  addr: :5000\n  relativeurls: true\n")
 	p, err := ProveRelativeURLs(path)
 	if err != nil {
-		t.Fatalf("relative config = %v, want mint", err)
+		t.Fatalf("relative config = %v, want the proof", err)
 	}
 	if p == nil {
-		t.Fatal("relative config minted nil, want RelativeURLs")
+		t.Fatal("relative config produced nil, want RelativeURLs")
 	}
 }
 
@@ -27,7 +27,7 @@ func TestProveRelativeURLsRefusesWhenAbsolute(t *testing.T) {
 	path := writeRegistryConfig(t, "http:\n  addr: :5000\n")
 	p, err := ProveRelativeURLs(path)
 	if p != nil {
-		t.Errorf("absolute config minted %v, want nothing", p)
+		t.Errorf("absolute config produced %v, want nothing", p)
 	}
 	if !errors.Is(err, ErrRelativeURLsOff) {
 		t.Errorf("absolute config error = %v, want ErrRelativeURLsOff", err)
@@ -41,7 +41,7 @@ func TestProveRelativeURLsRefusesWhenHostSet(t *testing.T) {
 	path := writeRegistryConfig(t, "http:\n  addr: :5000\n  relativeurls: true\n  host: https://registry.example.com\n")
 	p, err := ProveRelativeURLs(path)
 	if p != nil {
-		t.Errorf("hosted config minted %v, want nothing", p)
+		t.Errorf("hosted config produced %v, want nothing", p)
 	}
 	if !errors.Is(err, ErrHostOverridesURLs) {
 		t.Errorf("hosted config error = %v, want ErrHostOverridesURLs", err)
@@ -49,12 +49,12 @@ func TestProveRelativeURLsRefusesWhenHostSet(t *testing.T) {
 }
 
 // An unreadable config propagates: unknown is not relative. If
-// this fails, missing files started minting.
+// this fails, missing files started producing.
 func TestProveRelativeURLsPropagatesUnreadable(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.yml")
 	p, err := ProveRelativeURLs(missing)
 	if p != nil {
-		t.Errorf("missing config minted %v, want nothing", p)
+		t.Errorf("missing config produced %v, want nothing", p)
 	}
 	if err == nil {
 		t.Error("missing config error = nil, want the read error")
@@ -62,12 +62,12 @@ func TestProveRelativeURLsPropagatesUnreadable(t *testing.T) {
 }
 
 // Unparseable YAML propagates: guessing is not proving. If this
-// fails, broken configs started minting.
+// fails, broken configs started producing.
 func TestProveRelativeURLsPropagatesUnparseable(t *testing.T) {
 	path := writeRegistryConfig(t, "http:\n  relativeurls: [true,\n")
 	p, err := ProveRelativeURLs(path)
 	if p != nil {
-		t.Errorf("broken config minted %v, want nothing", p)
+		t.Errorf("broken config produced %v, want nothing", p)
 	}
 	if err == nil {
 		t.Error("broken config error = nil, want the parse error")

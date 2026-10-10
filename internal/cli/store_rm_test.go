@@ -73,7 +73,7 @@ func TestStoreRmUntagDeletesThenDropsRow(t *testing.T) {
 }
 
 // The untag path without a token refuses before the first
-// manifest: runStoreRm threads the proof through, it never mints
+// manifest: runStoreRm threads the proof through, it never produces
 // one. If this fails, the command layer can delete unproven.
 func TestStoreRmUntagWithoutProofRefuses(t *testing.T) {
 	s := store.NewMemStore()
@@ -98,7 +98,7 @@ func TestStoreRmUntagWithoutProofRefuses(t *testing.T) {
 
 // Locked refuses before resolution: a locked store forgets nothing
 // and deletes nothing. The nil unlocked token IS the locked store
-// here — the command mints it via ProveUnlockedStore, which fails
+// here — the command produces it via ProveUnlockedStore, which fails
 // on a locked marker, so no caller can hold a token for one. If
 // this fails, the freeze has a hole at the command layer.
 func TestStoreRmLockedRefuses(t *testing.T) {
@@ -106,7 +106,7 @@ func TestStoreRmLockedRefuses(t *testing.T) {
 		s := store.NewMemStore()
 		seedRows(s)
 		// Paired but locked: identity reads need no marker, so the
-		// same-token mints and only intent is missing.
+		// same-token produces and only intent is missing.
 		if err := s.SetIdentity(cliCtx(), store.Identity{ID: "test-id"}); err != nil {
 			t.Fatalf("stage identity: %v", err)
 		}

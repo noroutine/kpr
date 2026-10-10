@@ -91,7 +91,7 @@ func TestEventsHandlerActorNamesComponent(t *testing.T) {
 	}
 }
 
-// Pulls, deletes, and mounts are not ingest: recording them would mint
+// Pulls, deletes, and mounts are not ingest: recording them would create
 // rows for tags nobody pushed (or re-anchor live ones). If this fails,
 // read traffic pollutes the tracked set.
 func TestEventsHandlerIgnoresNonPush(t *testing.T) {
@@ -111,7 +111,7 @@ func TestEventsHandlerIgnoresNonPush(t *testing.T) {
 
 // A digest-only push (no tag) has no TTL identity to track: it is
 // accepted and skipped, not recorded as an empty-tag row. If this
-// fails, blob pushes mint phantom rows reap cannot reason about.
+// fails, blob pushes create phantom rows reap cannot reason about.
 func TestEventsHandlerSkipsTaglessPush(t *testing.T) {
 	s := store.NewMemStore()
 	body := `{"events":[{

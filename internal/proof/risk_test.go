@@ -23,7 +23,7 @@ func TestAcceptedRiskZeroIsNothing(t *testing.T) {
 }
 
 // Leave needs both intent and the flag: a flag on a preview,
-// or arming without the flag, mints nothing. If this fails,
+// or arming without the flag, produces nothing. If this fails,
 // acceptance stopped composing with intent.
 func TestForceNeedsArmedAndFlag(t *testing.T) {
 	armed := Arm(true, false)

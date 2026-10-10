@@ -324,7 +324,7 @@ func TestCollectWritableArmedRefusesWithoutClearance(t *testing.T) {
 	if called {
 		t.Error("refused collect reached the collector port")
 	}
-	// Acceptance mints the kind without the world: the boundary
+	// Acceptance produces the kind without the world: the boundary
 	// cannot tell proven from accepted, and must not need to.
 	accept := proof.Force(proof.Arm(true, false), true)
 	cache, err := proof.ProveBlobCacheOff(stageOnlineConfig(t, t.TempDir(), true), accept)

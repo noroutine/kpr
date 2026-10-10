@@ -213,7 +213,7 @@ is meaningless, so the token is never produced.
 | Flag | Waives | What you are accepting |
 | --- | --- | --- |
 | `--accept-clock-skew` | gate 4 | Mint timestamps may misorder, so generation comparison can lie about which is newer. |
-| `--accept-blob-cache` | gate 7, writable | The descriptor cache keeps vouching for deleted blobs until it drops, so a re-push can mint a dead tag. |
+| `--accept-blob-cache` | gate 7, writable | The descriptor cache keeps vouching for deleted blobs until it drops, so a re-push can re-create a dead tag. |
 | `--accept-unfenced` | gate 7, writable | No HOLD lease pins pushes, so a push landing mid-collect can be corrupted by it. |
 | `--accept-rollback` | gate 8 | The served generation is older than what kpr tracks. A restore may have resurrected blobs the tracked state thinks are gone. |
 | `--accept-mode-flip` | post-probe | The registry changed mode mid-run, so writes may have raced the mark phase. Verify pulls before trusting the result. |
@@ -265,4 +265,4 @@ remedy needed there.
 
 kpr does not restart the registry itself — the collector's proof
 ends at the store boundary. A re-push between gc and restart
-mints a dead tag; a restart plus a fresh push self-heals.
+re-creates a dead tag; a restart plus a fresh push self-heals.

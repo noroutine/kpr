@@ -61,7 +61,7 @@ type Registry interface {
 
 // Sweeper deletes due rows. Unarmed it plans without touching the
 // registry (implicit dry-run: nothing changes unless explicitly
-// armed). The sweeper never mints — callers pass the proof.
+// armed). The sweeper proves nothing — callers pass the proof.
 type Sweeper struct {
 	Store    store.Store
 	Registry Registry

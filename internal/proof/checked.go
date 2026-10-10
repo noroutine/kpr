@@ -8,8 +8,8 @@ import (
 )
 
 // BoundedClock is a clock the bound was proven on: the exchange
-// ran and skew sits inside tolerance, so minted timestamps mean
-// something. Sealed like every evidence: the only inhabitant
+// ran and skew sits inside tolerance, so timestamps mean
+// something when minted. Sealed like every evidence: the only inhabitant
 // comes from the Checker, and the zero value is nil.
 type BoundedClock interface {
 	sealed()
@@ -22,14 +22,14 @@ func (boundedClock) sealed() {}
 // Checker proves the clock bound once per run. Refusals pass
 // through untouched — clock.Check's own contract (skew refuses,
 // dead source warns-and-proceeds) stays with the callers that
-// interpret it; only a clean check mints.
+// interpret it; only a clean check produces.
 type Checker struct {
 	// Tolerance bounds acceptable skew; clock.Tolerance is the
 	// production value.
 	Tolerance time.Duration
 }
 
-// Check runs the bound: nil error mints, anything else returns
+// Check runs the bound: nil error produces, anything else returns
 // as-is with no BoundedClock.
 func (c Checker) Check(ctx context.Context, src clock.Source, server string) (BoundedClock, error) {
 	if err := clock.Check(ctx, src, server, c.Tolerance); err != nil {

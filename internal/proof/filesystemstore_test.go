@@ -15,17 +15,17 @@ func writeStoreConfig(t *testing.T, body string) string {
 	return path
 }
 
-// A filesystem root mints carrying the root it names, so a walk
+// A filesystem root produces carrying the root it names, so a walk
 // reads the proven path, never a second parse. If this fails,
 // local walks stopped proving local.
-func TestProveFilesystemStoreMints(t *testing.T) {
+func TestProveFilesystemStoreProduces(t *testing.T) {
 	path := writeStoreConfig(t, "storage:\n  filesystem:\n    rootdirectory: /var/lib/registry\n")
 	fs, err := ProveFilesystemStore(path)
 	if err != nil {
-		t.Fatalf("filesystem config = %v, want mint", err)
+		t.Fatalf("filesystem config = %v, want the proof", err)
 	}
 	if fs == nil {
-		t.Fatal("minted nil FilesystemStore, want token")
+		t.Fatal("produced nil FilesystemStore, want token")
 	}
 	if fs.Root() != "/var/lib/registry" {
 		t.Errorf("Root() = %q, want the configured root", fs.Root())
@@ -37,7 +37,7 @@ func TestProveFilesystemStoreMints(t *testing.T) {
 func TestProveFilesystemStoreRefusesS3(t *testing.T) {
 	path := writeStoreConfig(t, "storage:\n  s3:\n    bucket: kpr\n")
 	if _, err := ProveFilesystemStore(path); err == nil {
-		t.Error("s3 config minted, want refusal")
+		t.Error("s3 config produced, want refusal")
 	}
 }
 
@@ -47,7 +47,7 @@ func TestProveFilesystemStoreRefusesS3(t *testing.T) {
 func TestProveFilesystemStoreRefusesEmptyFilesystem(t *testing.T) {
 	path := writeStoreConfig(t, "storage:\n  filesystem: {}\n")
 	if _, err := ProveFilesystemStore(path); err == nil {
-		t.Error("rootless filesystem config minted, want refusal")
+		t.Error("rootless filesystem config produced, want refusal")
 	}
 }
 
@@ -56,14 +56,14 @@ func TestProveFilesystemStoreRefusesEmptyFilesystem(t *testing.T) {
 func TestProveFilesystemStoreRefusesGarbage(t *testing.T) {
 	path := writeStoreConfig(t, "storage: [unclosed\n")
 	if _, err := ProveFilesystemStore(path); err == nil {
-		t.Error("garbage config minted, want refusal")
+		t.Error("garbage config produced, want refusal")
 	}
 }
 
-// A missing file errors (not mints): the refusal names the
+// A missing file errors (not produces): the refusal names the
 // absence. If this fails, an absent config proves local.
 func TestProveFilesystemStoreMissingFile(t *testing.T) {
 	if _, err := ProveFilesystemStore(filepath.Join(t.TempDir(), "absent.yml")); err == nil {
-		t.Error("absent config minted, want refusal")
+		t.Error("absent config produced, want refusal")
 	}
 }

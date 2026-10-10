@@ -79,7 +79,7 @@ type Accepts struct {
 }
 
 // Options tunes a backfill run: which repos, preview or armed.
-// Armed carries the mint — nil previews (the fail-closed
+// Armed carries the proof — nil previews (the fail-closed
 // default), only an explicit --no-dry-run records for real.
 // Reporting rides Deps, never here.
 type Options struct {

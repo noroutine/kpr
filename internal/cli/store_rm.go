@@ -99,7 +99,7 @@ only on confirm.`,
 		}
 		// Identity rides the second token, untag only: bare rm forgets
 		// tracking (proof-free), but --untag deletes from the registry,
-		// so it mints first — a foreign or stale store refuses here,
+		// so it proves first — a foreign or stale store refuses here,
 		// before the first manifest.
 		var same proof.SameStore
 		if untag {

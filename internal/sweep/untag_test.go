@@ -31,8 +31,8 @@ func unlockedProof(t *testing.T, s store.Store) proof.UnlockedStore {
 	return unlocked
 }
 
-// untagProof mints on paired ground the way the cli does: the
-// caller proves, Untag checks. If minting fails here, the test
+// untagProof produces on paired ground the way the cli does: the
+// caller proves, Untag checks. If producing fails here, the test
 // ground (not Untag) is broken.
 func untagProof(t *testing.T, s store.Store, dryRun bool) proof.SameStore {
 	t.Helper()
@@ -80,7 +80,7 @@ func staleProof(t *testing.T, s store.Store) proof.SameStore {
 		t.Fatalf("prove stale ground: %v", err)
 	}
 	if !same.Stale() {
-		t.Fatal("stale ground minted a fresh token, want Stale")
+		t.Fatal("stale ground produced a fresh token, want Stale")
 	}
 	return same
 }

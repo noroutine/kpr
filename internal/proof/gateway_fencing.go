@@ -14,7 +14,7 @@ import (
 // gc exists to prevent. Sealed like every evidence; nil never
 // clears.
 //
-// The second minting path is acceptance: --accept-unfenced on an
+// The second path to a proof is acceptance: --accept-unfenced on an
 // armed run presumes the operator accepts collecting without the
 // fence (quiesced writers, or similar). Said at the gate, loudly.
 type GatewayFencingAvailable interface {
@@ -36,9 +36,9 @@ const edgeDialTimeout = 2 * time.Second
 // there is nothing for the edge to watch even if it listens.
 // This is capability, not posture — the lock marker and the
 // lease file are never read here. Beside it travels the
-// acceptance the flag minted. Any half failing with nothing
+// acceptance the flag produced. Any half failing with nothing
 // accepted refuses naming which half and the override;
-// anything else mints.
+// anything else produces.
 func ProveGatewayFencingAvailable(ctx context.Context, configPath, edgeAddr string, leaseReady bool, accept AcceptedRisk) (GatewayFencingAvailable, error) {
 	if !leaseReady {
 		if accept != nil {

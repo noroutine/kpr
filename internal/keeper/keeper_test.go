@@ -363,8 +363,8 @@ func TestCatalogGoneMatchesRealClient(t *testing.T) {
 	}
 }
 
-// ghostProof mints on paired ground the way the cli does: the
-// caller proves, ListGhosts checks. If minting fails here, the test
+// ghostProof produces on paired ground the way the cli does: the
+// caller proves, ListGhosts checks. If producing fails here, the test
 // ground (not the guard) is broken.
 func ghostProof(t *testing.T, s *store.MemStore) proof.SameStore {
 	t.Helper()

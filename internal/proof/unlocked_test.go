@@ -19,15 +19,15 @@ func (s stubLocker) IsUnlocked(context.Context) (bool, error) {
 	return s.open, s.err
 }
 
-// An open marker mints: unlock proved the store, intent stands.
+// An open marker produces: unlock proved the store, intent stands.
 // If this fails, proven intent stopped opening.
-func TestProveUnlockedStoreMintsWhenOpen(t *testing.T) {
+func TestProveUnlockedStoreProducesWhenOpen(t *testing.T) {
 	u, err := ProveUnlockedStore(context.Background(), stubLocker{open: true})
 	if err != nil {
-		t.Fatalf("open marker = %v, want mint", err)
+		t.Fatalf("open marker = %v, want the proof", err)
 	}
 	if u == nil {
-		t.Fatal("open marker minted nil, want UnlockedStore")
+		t.Fatal("open marker produced nil, want UnlockedStore")
 	}
 }
 
@@ -37,7 +37,7 @@ func TestProveUnlockedStoreMintsWhenOpen(t *testing.T) {
 func TestProveUnlockedStoreRefusesWhenShut(t *testing.T) {
 	u, err := ProveUnlockedStore(context.Background(), stubLocker{})
 	if u != nil {
-		t.Errorf("shut marker minted %v, want nothing", u)
+		t.Errorf("shut marker produced %v, want nothing", u)
 	}
 	if !errors.Is(err, ErrLocked) {
 		t.Errorf("shut marker error = %v, want ErrLocked", err)
@@ -45,12 +45,12 @@ func TestProveUnlockedStoreRefusesWhenShut(t *testing.T) {
 }
 
 // An unreadable marker propagates: unknown is not intent. If
-// this fails, outages started minting.
+// this fails, outages started producing.
 func TestProveUnlockedStorePropagatesUnreadable(t *testing.T) {
 	boom := errors.New("boom")
 	u, err := ProveUnlockedStore(context.Background(), stubLocker{err: boom})
 	if u != nil {
-		t.Errorf("unreadable marker minted %v, want nothing", u)
+		t.Errorf("unreadable marker produced %v, want nothing", u)
 	}
 	if !errors.Is(err, boom) {
 		t.Errorf("unreadable marker error = %v, want the store error", err)
@@ -58,7 +58,7 @@ func TestProveUnlockedStorePropagatesUnreadable(t *testing.T) {
 }
 
 // The zero value is nothing: without the marker there is no
-// intent. If this fails, intent can be minted from thin air.
+// intent. If this fails, intent can be produced from thin air.
 func TestUnlockedStoreZeroIsNothing(t *testing.T) {
 	var u UnlockedStore
 	if u != nil {

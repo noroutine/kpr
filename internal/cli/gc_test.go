@@ -19,7 +19,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// onlineAccept mints one online acceptance the way the command does
+// onlineAccept produces one online acceptance the way the command does
 // for --accept-* on an armed run: tests that override hold the
 // token.
 func onlineAccept() proof.AcceptedRisk {
@@ -394,10 +394,10 @@ func TestCmdReachesRunBeforeAnyGate(t *testing.T) {
 	}
 }
 
-// Each --accept-* flag mints exactly its own acceptance, nothing
-// else — there is no umbrella flag. If this fails, a shared mint
+// Each --accept-* flag produces exactly its own acceptance, nothing
+// else — there is no umbrella flag. If this fails, a shared proof
 // lets one flag clear another risk's gate.
-func TestGcAcceptsMintsPerRisk(t *testing.T) {
+func TestGcAcceptsProducesPerRisk(t *testing.T) {
 	armed := proof.Arm(true, false)
 	cases := []struct {
 		flag string
@@ -415,23 +415,23 @@ func TestGcAcceptsMintsPerRisk(t *testing.T) {
 		}
 		got := gcAccepts(armed)
 		if tc.hold(got) == nil {
-			t.Errorf("--%s minted nothing, want its own acceptance", tc.flag)
+			t.Errorf("--%s produced nothing, want its own acceptance", tc.flag)
 		}
-		minted := 0
+		produced := 0
 		for _, a := range []proof.AcceptedRisk{got.Cache, got.Fence, got.ClockSkew, got.Rollback, got.ModeFlip} {
 			if a != nil {
-				minted++
+				produced++
 			}
 		}
-		if minted != 1 {
-			t.Errorf("--%s minted %d acceptances, want exactly 1", tc.flag, minted)
+		if produced != 1 {
+			t.Errorf("--%s produced %d acceptances, want exactly 1", tc.flag, produced)
 		}
 		if err := Cmd.Flags().Set(tc.flag, "false"); err != nil {
 			t.Fatalf("reset --%s: %v", tc.flag, err)
 		}
 	}
-	// Disarmed mints nothing even with every flag set: acceptance
-	// without intent is meaningless, and the mint says so.
+	// Disarmed produces nothing even with every flag set: acceptance
+	// without intent is meaningless, and the proof says so.
 	for _, tc := range cases {
 		if err := Cmd.Flags().Set(tc.flag, "true"); err != nil {
 			t.Fatalf("set --%s: %v", tc.flag, err)
@@ -439,6 +439,6 @@ func TestGcAcceptsMintsPerRisk(t *testing.T) {
 		defer func() { _ = Cmd.Flags().Set(tc.flag, "false") }()
 	}
 	if got := gcAccepts(proof.Arm(false, false)); got != (gc.Accepts{}) {
-		t.Errorf("disarmed mint = %+v, want zero", got)
+		t.Errorf("disarmed produce = %+v, want zero", got)
 	}
 }

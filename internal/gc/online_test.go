@@ -46,7 +46,7 @@ func writableProbe() Probe {
 	})
 }
 
-// The cleared preflight mints both tokens and reports two oks:
+// The cleared preflight produces both tokens and reports two oks:
 // cache absent, edge proven and listening. If this fails, a clean
 // online run cannot start.
 func TestOnlinePreflightClears(t *testing.T) {
@@ -62,7 +62,7 @@ func TestOnlinePreflightClears(t *testing.T) {
 		t.Fatalf("cleared preflight refused: %v", err)
 	}
 	if cache == nil || gating == nil {
-		t.Fatal("cleared preflight minted nil, want both tokens")
+		t.Fatal("cleared preflight produced nil, want both tokens")
 	}
 	for _, want := range []string{"[ok] blob cache", "[ok] gateway"} {
 		if !strings.Contains(report, want) {

@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// A proven config with a listener mints; either half failing
-// refuses naming which and the override; acceptance mints either
+// A proven config with a listener produces; either half failing
+// refuses naming which and the override; acceptance produces either
 // way. If this fails, gc believes an unfenced registry is fenced.
 func TestProveGatewayFencingAvailable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

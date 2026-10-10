@@ -166,7 +166,7 @@ func TestRunPassRefusalLogsFailures(t *testing.T) {
 }
 
 // Silence refuses too: with nothing served the tracked rows prove
-// nothing, armed or not. The sweeper never mints, so it cannot
+// nothing, armed or not. The sweeper proves nothing, so it cannot
 // establish — only unlock or gc can.
 func TestRunPassRefusesSilence(t *testing.T) {
 	for _, armed := range []proof.ArmedRun{nil, proof.Arm(true, false)} {

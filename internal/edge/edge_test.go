@@ -35,7 +35,7 @@ func TestProxyForwardsUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New = %v, want proxy", err)
 	}
-	h, err := p.Handler(mintRelative(t))
+	h, err := p.Handler(proveRelative(t))
 	if err != nil {
 		t.Fatalf("Handler = %v, want handler", err)
 	}
@@ -211,14 +211,14 @@ func guarded(t *testing.T, backend string, logged *[]string) http.Handler {
 	p.Logf = func(format string, args ...any) {
 		*logged = append(*logged, format)
 	}
-	h, err := p.Handler(mintRelative(t))
+	h, err := p.Handler(proveRelative(t))
 	if err != nil {
 		t.Fatalf("Handler = %v, want handler", err)
 	}
 	return h
 }
 
-func mintRelative(t *testing.T) proof.RelativeURLs {
+func proveRelative(t *testing.T) proof.RelativeURLs {
 	t.Helper()
 	dir := t.TempDir()
 	path := dir + "/config.yml"

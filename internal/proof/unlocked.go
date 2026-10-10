@@ -29,7 +29,7 @@ type Locker interface {
 }
 
 // ProveUnlockedStore reads the marker once: unreadable
-// propagates, absent refuses with ErrLocked, present mints.
+// propagates, absent refuses with ErrLocked, present produces.
 func ProveUnlockedStore(ctx context.Context, l Locker) (UnlockedStore, error) {
 	ok, err := l.IsUnlocked(ctx)
 	if err != nil {

@@ -49,7 +49,7 @@ func unlockedProof(t *testing.T, s *store.MemStore) proof.UnlockedStore {
 	return unlocked
 }
 
-// untagProof mints the way the rm command does: paired store,
+// untagProof produces the way the rm command does: paired store,
 // served generation of our lineage. If minting fails here, the
 // test ground (not the rm path) is broken.
 func untagProof(t *testing.T, s *store.MemStore) proof.SameStore {

@@ -31,9 +31,9 @@ armed runs also fence pushes and prune husks and empty dirs.`,
 		defer d.Close()
 		cfg := d.Cfg
 		out := cmd.OutOrStdout()
-		// The run mode flows from the mint: dry-run is the absence
-		// of Armed. The adapter feeds raw readings (flag var,
-		// config value); minting stays in proof.
+		// The run mode flows from the produced proof: dry-run is the
+		// absence of Armed. The adapter feeds raw readings (flag var,
+		// config value); producing stays in proof.
 		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
 		return gc.Run(cmd.Context(), out, gc.Deps{
 			// One store wearing all four hats (lock, recorder,
@@ -59,11 +59,11 @@ func init() {
 	Cmd.Flags().BoolVar(&gcNoDryRun, "no-dry-run", false, "Collect for real (default previews with the collector's --dry-run)")
 }
 
-// gcAccepts mints one acceptance per named risk from the same
+// gcAccepts produces one acceptance per named risk from the same
 // armed run: each --accept-* flag clears exactly its own gate,
 // nothing else. There is no umbrella — a test below pins that no
-// single flag mints the whole set. If this fails, an umbrella
-// re-entered through a shared mint.
+// single flag produces the whole set. If this fails, an umbrella
+// re-entered through a shared proof.
 func gcAccepts(armed proof.ArmedRun) gc.Accepts {
 	return gc.Accepts{
 		Cache:     proof.Force(armed, gcAcceptBlobCache),

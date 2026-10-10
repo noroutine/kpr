@@ -19,51 +19,51 @@ func (s stubInitiator) Initiate(context.Context, string) (int, error) {
 	return s.status, s.err
 }
 
-// 202 mints writable and nothing else: exactly one inhabitant.
+// 202 produces writable and nothing else: exactly one inhabitant.
 // If this fails, writable registries stopped proving writable.
-func TestProveModeMintsWritable(t *testing.T) {
+func TestProveModeProducesWritable(t *testing.T) {
 	ro, wo, err := ProveMode(context.Background(), stubInitiator{status: http.StatusAccepted}, "x")
 	if err != nil {
-		t.Fatalf("202 = %v, want mint", err)
+		t.Fatalf("202 = %v, want the proof", err)
 	}
 	if wo == nil {
-		t.Error("202 minted nil writable, want RegistryWritable")
+		t.Error("202 produced nil writable, want RegistryWritable")
 	}
 	if ro != nil {
-		t.Errorf("202 minted readonly %v, want nothing", ro)
+		t.Errorf("202 produced readonly %v, want nothing", ro)
 	}
 }
 
-// 405 mints readonly and nothing else. If this fails, readonly
+// 405 produces readonly and nothing else. If this fails, readonly
 // registries stopped proving readonly.
-func TestProveModeMintsReadonly(t *testing.T) {
+func TestProveModeProducesReadonly(t *testing.T) {
 	ro, wo, err := ProveMode(context.Background(), stubInitiator{status: http.StatusMethodNotAllowed}, "x")
 	if err != nil {
-		t.Fatalf("405 = %v, want mint", err)
+		t.Fatalf("405 = %v, want the proof", err)
 	}
 	if ro == nil {
-		t.Error("405 minted nil readonly, want RegistryReadonly")
+		t.Error("405 produced nil readonly, want RegistryReadonly")
 	}
 	if wo != nil {
-		t.Errorf("405 minted writable %v, want nothing", wo)
+		t.Errorf("405 produced writable %v, want nothing", wo)
 	}
 }
 
-// Anything else mints nothing: inconclusive fails closed, never
+// Anything else produces nothing: inconclusive fails closed, never
 // collects blind. If this fails, unclassifiable peers started
-// minting.
+// producing.
 func TestProveModeRefusesInconclusive(t *testing.T) {
 	ro, wo, err := ProveMode(context.Background(), stubInitiator{status: http.StatusTeapot}, "x")
 	if err == nil {
-		t.Error("418 minted no error, want inconclusive")
+		t.Error("418 produced no error, want inconclusive")
 	}
 	if ro != nil || wo != nil {
-		t.Errorf("418 minted (%v, %v), want nothing", ro, wo)
+		t.Errorf("418 produced (%v, %v), want nothing", ro, wo)
 	}
 }
 
 // A dead peer passes through: unreachable is an error, not a
-// mode. If this fails, outages started minting.
+// mode. If this fails, outages started producing.
 func TestProveModePassesTransportFailure(t *testing.T) {
 	boom := errors.New("boom")
 	ro, wo, err := ProveMode(context.Background(), stubInitiator{err: boom}, "x")
@@ -71,12 +71,12 @@ func TestProveModePassesTransportFailure(t *testing.T) {
 		t.Errorf("dead peer error = %v, want the transport error", err)
 	}
 	if ro != nil || wo != nil {
-		t.Errorf("dead peer minted (%v, %v), want nothing", ro, wo)
+		t.Errorf("dead peer produced (%v, %v), want nothing", ro, wo)
 	}
 }
 
 // The zero values are nothing: without the exchange there is no
-// classification. If this fails, modes can be minted from thin
+// classification. If this fails, modes can be produced from thin
 // air.
 func TestModeZeroIsNothing(t *testing.T) {
 	var ro RegistryReadonly
