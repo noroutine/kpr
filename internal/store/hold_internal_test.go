@@ -1,7 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +41,7 @@ func assertOnly(t *testing.T, dir string, what string, want ...string) {
 // the write path litters the dir or the release leaks.
 func TestHoldLandsSingleFile(t *testing.T) {
 	dir := t.TempDir()
-	h := HoldFile{Dir: dir}
+	h := FileLease{Dir: dir}
 	until := time.Now().Add(time.Minute)
 	release, err := h.Hold(context.Background(), until)
 	if err != nil {
@@ -74,7 +77,7 @@ func TestHoldRefusesFailedRename(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, HoldFileName), 0o755); err != nil {
 		t.Fatalf("stage blocking dir: %v", err)
 	}
-	if _, err := (HoldFile{Dir: dir}).Hold(context.Background(), time.Now().Add(time.Minute)); err == nil {
+	if _, err := (FileLease{Dir: dir}).Hold(context.Background(), time.Now().Add(time.Minute)); err == nil {
 		t.Error("Hold over a blocked rename succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "write hold lease") {
 		t.Errorf("refusal = %q, want the write named", err.Error())
@@ -91,7 +94,7 @@ func TestHoldSweepsStaleTemps(t *testing.T) {
 	if err := os.WriteFile(stale, []byte("half a lease"), 0o600); err != nil {
 		t.Fatalf("stage stale temp: %v", err)
 	}
-	release, err := (HoldFile{Dir: dir}).Hold(context.Background(), time.Now().Add(time.Minute))
+	release, err := (FileLease{Dir: dir}).Hold(context.Background(), time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatalf("Hold: %v", err)
 	}
@@ -108,7 +111,7 @@ func TestHoldEmptyDirSkipsSweep(t *testing.T) {
 	if err := os.WriteFile(stale, []byte("half a lease"), 0o600); err != nil {
 		t.Fatalf("stage stale temp: %v", err)
 	}
-	release, err := (HoldFile{}).Hold(context.Background(), time.Now().Add(time.Minute))
+	release, err := (FileLease{}).Hold(context.Background(), time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatalf("Hold: %v", err)
 	}
@@ -120,10 +123,108 @@ func TestHoldEmptyDirSkipsSweep(t *testing.T) {
 // failure instead of collecting unfenced. If this fails, a gc
 // collects while believing pushes are held.
 func TestHoldRefusesBadDir(t *testing.T) {
-	h := HoldFile{Dir: filepath.Join(t.TempDir(), "no-such-dir")}
+	h := FileLease{Dir: filepath.Join(t.TempDir(), "no-such-dir")}
 	if _, err := h.Hold(context.Background(), time.Now().Add(time.Minute)); err == nil {
 		t.Error("Hold into a missing dir succeeded, want refusal")
 	} else if !strings.Contains(err.Error(), "write hold lease") {
 		t.Errorf("refusal = %q, want the write named", err.Error())
 	}
+}
+
+// A corrupt lease file reads absent: fail open, leases are not
+// evidence. If this fails, garbage in the fence dir holds or
+// denies traffic.
+func TestHoldCorruptReadsAbsent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, HoldFileName), []byte("{nope"), 0o600); err != nil {
+		t.Fatalf("stage corrupt lease: %v", err)
+	}
+	if until, present := (FileLease{Dir: dir}).Read(); present {
+		t.Errorf("corrupt Read = (%v,true), want absent", until)
+	}
+}
+
+// failLeaseConn is a redis that answers nothing: every command
+// fails, standing in for a blip mid-collect.
+type failLeaseConn struct{}
+
+func (failLeaseConn) Get(context.Context, string) ([]byte, error) {
+	return nil, errLeaseDown
+}
+
+func (failLeaseConn) Set(context.Context, string, []byte, time.Duration) error {
+	return errLeaseDown
+}
+
+func (failLeaseConn) Del(context.Context, string) error { return errLeaseDown }
+
+var errLeaseDown = errors.New("redis: connection refused")
+
+// A backend blip reads absent but loud: the edge fails open
+// (leases are not evidence) yet the outage must surface in the
+// log, never pass silent. If this fails, a redis timeout mid-
+// collect opens the fence with no event.
+func TestRedisBlipReadsAbsentAndLoud(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	l := RedisLease{Conn: failLeaseConn{}, Key: HoldLeaseKey}
+	if until, present := l.Read(); present {
+		t.Errorf("blip Read = (%v,true), want absent", until)
+	}
+	if !strings.Contains(buf.String(), HoldLeaseKey) {
+		t.Errorf("log = %q, want the key named", buf.String())
+	}
+	if _, err := l.Hold(context.Background(), time.Now().Add(time.Minute)); err == nil {
+		t.Error("Hold over a down backend succeeded, want refusal")
+	}
+}
+
+// Hold carries a hygiene TTL past the term: the key outlives
+// `{until}` by the margin so overrun reads survive, then redis
+// reaps it. If this fails, dead keys linger past every collect.
+func TestRedisHoldCarriesHygieneTTL(t *testing.T) {
+	conn := &recLeaseConn{rows: map[string][]byte{}, ttls: map[string]time.Duration{}}
+	l := RedisLease{Conn: conn, Key: HoldLeaseKey}
+	until := time.Now().Add(5 * time.Minute)
+	release, err := l.Hold(context.Background(), until)
+	if err != nil {
+		t.Fatalf("Hold: %v", err)
+	}
+	defer release()
+	ttl, ok := conn.ttls[HoldLeaseKey]
+	if !ok {
+		t.Fatalf("no TTL asked for %q", HoldLeaseKey)
+	}
+	if ttl < 5*time.Minute || ttl > 10*time.Minute+time.Second {
+		t.Errorf("TTL = %v, want term plus margin", ttl)
+	}
+}
+
+// recLeaseConn records the horizons Hold asks for: the TTL the
+// map fake deliberately does not honor.
+type recLeaseConn struct {
+	rows map[string][]byte
+	ttls map[string]time.Duration
+}
+
+func (m *recLeaseConn) Get(_ context.Context, key string) ([]byte, error) {
+	raw, ok := m.rows[key]
+	if !ok {
+		return nil, errLeaseDown
+	}
+	return raw, nil
+}
+
+func (m *recLeaseConn) Set(_ context.Context, key string, val []byte, ttl time.Duration) error {
+	m.rows[key] = val
+	m.ttls[key] = ttl
+	return nil
+}
+
+func (m *recLeaseConn) Del(_ context.Context, key string) error {
+	delete(m.rows, key)
+	return nil
 }

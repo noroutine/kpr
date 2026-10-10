@@ -71,6 +71,12 @@ so compose always sets it absolute (the file stack mounts the
 - `identity.json` — the lineage pairing (redis: `kpr:identity`
   key): which registry lineage this store belongs to. Absent
   means unpaired; `kpr store adopt` is the only writer.
+- `edge-fence.json` — the HOLD lease (redis: `kpr:edge:hold`
+  key): gc writes it around armed collects, the edge reads it
+  per manifest PUT. Same `{until}` payload both media, through
+  the `fence.Lease` port — the redis TTL is a hygiene horizon
+  past the term, never the bound; readers fail open, writers
+  refuse loudly.
 
 `Ping` proves the dir exists *and* writable with a probe
 file (banner red, sweeper skips) — a Stat would lie about

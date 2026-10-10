@@ -89,3 +89,29 @@ func TestErrIdentityStoreSetPropagates(t *testing.T) {
 		t.Errorf("SetIdentity = %v, want %v", err, want)
 	}
 }
+
+// The map lease surface round-trips bytes, misses like absence,
+// drops on Del, and records (never honors) TTLs. If this fails,
+// the shared conformance's second medium lies.
+func TestMemLeaseConnRoundTrips(t *testing.T) {
+	m := fakes.NewMemLeaseConn()
+	ctx := context.Background()
+	if _, err := m.Get(ctx, "k"); err == nil {
+		t.Error("Get on empty surface succeeded, want the miss")
+	}
+	if err := m.Set(ctx, "k", []byte("v"), time.Minute); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if raw, err := m.Get(ctx, "k"); err != nil || string(raw) != "v" {
+		t.Errorf("Get = (%q,%v), want (v,nil)", raw, err)
+	}
+	if got := m.TTL("k"); got != time.Minute {
+		t.Errorf("TTL = %v, want what Hold asked", got)
+	}
+	if err := m.Del(ctx, "k"); err != nil {
+		t.Fatalf("Del: %v", err)
+	}
+	if _, err := m.Get(ctx, "k"); err == nil {
+		t.Error("Get after Del succeeded, want the miss")
+	}
+}

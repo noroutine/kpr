@@ -177,7 +177,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		d.Report = renderEvent(w, proof.Unarmed(opts.Armed))
 	}
 	if d.Fence == nil && d.Store != nil {
-		d.Fence = fenceForBackend(d.Store, opts.Armed, w)
+		d.Fence = fence.ControllerForStore(d.Store, opts.Armed, w)
 	}
 	// Intent opens the run: the marker read through the prover, so
 	// a locked store refuses with the identical words — only the

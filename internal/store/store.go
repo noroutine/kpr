@@ -33,6 +33,12 @@ const (
 	// and opened it. Absent (fresh stores included) reads locked —
 	// default-deny, never default-allow.
 	UnlockedKey = "kpr:store:unlocked"
+	// HoldLeaseKey is the HOLD lease: gc writes it around armed
+	// collects, the edge reads it per manifest PUT. Its TTL is a
+	// hygiene horizon only (term plus margin) — the `{until}`
+	// content stays the real bound, so overrun reads survive the
+	// term but never the horizon.
+	HoldLeaseKey = "kpr:edge:hold"
 	// IdentityKey holds the lineage pairing as JSON: which registry
 	// lineage this store belongs to. Absent means unpaired.
 	IdentityKey = "kpr:identity"

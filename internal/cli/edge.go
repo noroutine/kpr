@@ -15,29 +15,26 @@ import (
 // proxy in the HOLD/DENY gate without binding: proof failure
 // returns the error for a loud skip (no proof, no edge), the
 // listener stays a thin tail in serve. The gate reads the lock
-// marker per mutating request and the HOLD lease off the shared
-// file store — no shared file store means marker-only fencing
-// (DENY works over any backend; HOLD needs the lease file).
-func buildEdge(st fence.GateStore, backendURL, configPath, holdDir string, report event.Reporter) (*fence.Gate, http.Handler, error) {
+// marker per mutating request and the HOLD lease through the
+// store's advertised capability — no capability means
+// marker-only fencing (DENY works over any backend).
+func buildEdge(st fence.GateStore, backendURL, configPath string, lease fence.Lease, report event.Reporter) (*fence.Gate, http.Handler, error) {
 	h, err := openEdge(backendURL, configPath, log.Printf)
 	if err != nil {
 		return nil, nil, err
 	}
-	gate := &fence.Gate{Store: st, Dir: holdDir, Report: report}
+	gate := &fence.Gate{Store: st, Lease: lease, Report: report}
 	return gate, gate.Wrap(h), nil
 }
 
 // assembleEdge is serve's edge wiring, factored for test: the HOLD
-// lease dir follows the backend (the file store's dir, nothing on
-// redis — HOLD needs the lease file), and proof refusal comes back
-// as nils for the loud skip. If this fails, HOLD leases land in the
-// wrong dir, or serve boots an unfenced edge thinking it proved one.
-func assembleEdge(cfg *config.Config, backend, storeDir string, st fence.GateStore, configPath string, report event.Reporter) (*fence.Gate, http.Handler, error) {
-	holdDir := ""
-	if backend == "file" {
-		holdDir = storeDir
-	}
-	return buildEdge(st, cfg.RegistryURL, configPath, holdDir, report)
+// lease follows the store's advertised capability (its dir, its
+// redis conn, or nothing), never a backend string — and proof
+// refusal comes back as nils for the loud skip. If this fails,
+// HOLD leases land in the wrong medium, or serve boots an
+// unfenced edge thinking it proved one.
+func assembleEdge(cfg *config.Config, backend string, st fence.GateStore, configPath string, report event.Reporter) (*fence.Gate, http.Handler, error) {
+	return buildEdge(st, cfg.RegistryURL, configPath, fence.LeaseForStore(st), report)
 }
 
 // openEdge proves RelativeURLs over the registry config and builds

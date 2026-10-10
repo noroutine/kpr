@@ -17,6 +17,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/store"
+	"nrtn.dev/catalyst/kpr/internal/testing/fakes"
 )
 
 // captureLog redirects the standard logger into a buffer for the test's
@@ -430,38 +431,64 @@ func (s stubProofAPI) Reachable(context.Context) error {
 	return s.err
 }
 
-// The edge assembly pins the HOLD lease dir to the backend — the
-// file store's dir, nothing on redis — and relays proof refusal as
-// nils for serve's loud skip. If this fails, HOLD leases land in the
-// wrong dir, or serve boots an unfenced edge thinking it proved one.
-func TestAssembleEdgeHoldDirFollowsBackend(t *testing.T) {
+// The edge assembly resolves the HOLD lease from the store's
+// advertised capability — its dir, its redis conn, or nothing —
+// and relays proof refusal as nils for serve's loud skip. If this
+// fails, HOLD leases land in the wrong medium, or serve boots an
+// unfenced edge thinking it proved one.
+func TestAssembleEdgeLeaseFollowsCapability(t *testing.T) {
 	proven := filepath.Join(t.TempDir(), "config.yml")
 	if err := os.WriteFile(proven, []byte("http:\n  relativeurls: true\n"), 0o600); err != nil {
 		t.Fatalf("stage config: %v", err)
 	}
 	cfg := config.NewBuilder().WithRegistryURL("http://127.0.0.1:9").Build()
-	fileGate, _, err := assembleEdge(cfg, "file", "/state", store.NewMemStore(), proven, nil)
+	fileGate, _, err := assembleEdge(cfg, "http://127.0.0.1:9", store.NewFileStore("/state"), proven, nil)
 	if err != nil {
 		t.Fatalf("assembleEdge(file): %v", err)
 	}
-	if fileGate.Dir != "/state" {
-		t.Errorf("file gate dir = %q, want the store dir", fileGate.Dir)
+	fl, ok := fileGate.Lease.(store.FileLease)
+	if !ok {
+		t.Fatalf("file gate lease = %T, want a store.FileLease", fileGate.Lease)
 	}
-	redisGate, _, err := assembleEdge(cfg, "redis", "", store.NewMemStore(), proven, nil)
+	if fl.Dir != "/state" {
+		t.Errorf("file gate dir = %q, want the store dir", fl.Dir)
+	}
+	redisGate, _, err := assembleEdge(cfg, "http://127.0.0.1:9", &leaseConnStore{MemStore: store.NewMemStore()}, proven, nil)
 	if err != nil {
-		t.Fatalf("assembleEdge(redis): %v", err)
+		t.Fatalf("assembleEdge(redis-capable): %v", err)
 	}
-	if redisGate.Dir != "" {
-		t.Errorf("redis gate dir = %q, want empty (no lease file)", redisGate.Dir)
+	rl, ok := redisGate.Lease.(store.RedisLease)
+	if !ok {
+		t.Fatalf("redis gate lease = %T, want a store.RedisLease", redisGate.Lease)
+	}
+	if rl.Key != store.HoldLeaseKey {
+		t.Errorf("redis gate key = %q, want the kpr-prefixed contract name", rl.Key)
+	}
+	bareGate, _, err := assembleEdge(cfg, "http://127.0.0.1:9", store.NewMemStore(), proven, nil)
+	if err != nil {
+		t.Fatalf("assembleEdge(capability-less): %v", err)
+	}
+	if bareGate.Lease != nil {
+		t.Errorf("capability-less gate lease = %T, want nil (marker-only)", bareGate.Lease)
 	}
 	missing := filepath.Join(t.TempDir(), "absent.yml")
-	gate, h, err := assembleEdge(cfg, "file", "/state", store.NewMemStore(), missing, nil)
+	gate, h, err := assembleEdge(cfg, "http://127.0.0.1:9", store.NewMemStore(), missing, nil)
 	if err == nil {
 		t.Error("assembleEdge(missing) error = nil, want the proof refusal")
 	}
 	if gate != nil || h != nil {
 		t.Error("assembleEdge(missing) built a gate, want nothing")
 	}
+}
+
+// leaseConnStore is a MemStore advertising redis lease hosting:
+// the redis branch without a live server.
+type leaseConnStore struct {
+	*store.MemStore
+}
+
+func (s *leaseConnStore) HoldLeaseConn() (store.LeaseConn, bool) {
+	return fakes.NewMemLeaseConn(), true
 }
 
 // serve runs no automatic passes: booting the servers must leave the
