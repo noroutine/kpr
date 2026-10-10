@@ -856,3 +856,72 @@ func TestAnalyzeUnreadableDirAborts(t *testing.T) {
 		t.Errorf("refusal = %q, want it to name the path", err.Error())
 	}
 }
+
+// ListRepos classifies on presence, not readability: a blinded
+// _manifests dir still stats as a dir through the readable
+// parent, so the repo lists. If this fails, listing second-
+// guesses readability the walk cannot see.
+func TestListReposListsBlindManifests(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	root := t.TempDir()
+	manifests := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", "_manifests")
+	if err := os.MkdirAll(manifests, 0o755); err != nil {
+		t.Fatalf("stage repo: %v", err)
+	}
+	if err := os.Chmod(manifests, 0o000); err != nil {
+		t.Fatalf("blind manifests: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(manifests, 0o755) })
+	got, err := ListRepos(proveRoot(t, root))
+	if err != nil {
+		t.Fatalf("ListRepos: %v", err)
+	}
+	if !got["app"] {
+		t.Errorf("ListRepos = %v, want app (presence, not readability)", got)
+	}
+}
+
+// A blinded _manifests dir fails the husk verdict at the tags
+// descent: the candidate stands, its tags don't, and that is an
+// error, never a silent clean. If this fails, permission loss on
+// machinery reads as tagless.
+func TestListHusksBlindManifestsFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	root := t.TempDir()
+	manifests := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", "_manifests")
+	if err := os.MkdirAll(manifests, 0o755); err != nil {
+		t.Fatalf("stage repo: %v", err)
+	}
+	if err := os.Chmod(manifests, 0o000); err != nil {
+		t.Fatalf("blind manifests: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(manifests, 0o755) })
+	if _, err := ListHusks(proveRoot(t, root)); err == nil {
+		t.Error("ListHusks over blinded _manifests succeeded, want failure")
+	}
+}
+
+// A blinded _manifests dir fails the full walk too: analyze names
+// the outage instead of counting the repo short. If this fails, a
+// permission loss reads as a smaller registry.
+func TestAnalyzeBlindManifestsFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	root := t.TempDir()
+	manifests := filepath.Join(root, "docker", "registry", "v2", "repositories", "app", "_manifests")
+	if err := os.MkdirAll(manifests, 0o755); err != nil {
+		t.Fatalf("stage repo: %v", err)
+	}
+	if err := os.Chmod(manifests, 0o000); err != nil {
+		t.Fatalf("blind manifests: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(manifests, 0o755) })
+	if _, err := Analyze(proveRoot(t, root), nil); err == nil {
+		t.Error("Analyze over blinded _manifests succeeded, want failure")
+	}
+}

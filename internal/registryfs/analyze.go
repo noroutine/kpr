@@ -331,6 +331,10 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 					// NOTE(mutants): == is equivalent — returning
 					// the nil error early lands where falling
 					// through lands (the return nil below).
+					// NOTE(mutants): skipping the stat error instead
+					// is untestable green — same mid-walk-race-only
+					// leg as the light walks (readable parents
+					// stat fine).
 				} else if merr != nil && !os.IsNotExist(merr) {
 					return merr
 				}

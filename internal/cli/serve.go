@@ -241,6 +241,9 @@ func sweepProofFresh(ctx context.Context, api sentinel.API) (bool, string) {
 	if err != nil {
 		return false, fmt.Sprintf("generation %s served but its timestamp is unreadable", p.Gen)
 	}
+	// NOTE(mutants): >= is equivalent — staleness at the exact
+	// age boundary is unhittable outside the clock (age lands
+	// exactly on the constant only by measure).
 	if age > sentinel.ProofStaleAfter {
 		return false, fmt.Sprintf("generation %s %s old, stale — layers accumulate until a volume-side gc", p.Gen, age.Round(time.Second))
 	}
