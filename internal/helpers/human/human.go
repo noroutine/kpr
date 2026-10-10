@@ -68,6 +68,16 @@ func ShortAge(now, then time.Time) string {
 	return Ago(now.Sub(then))
 }
 
+// Age renders a timestamp the way ShortAge does — glanceable
+// ("5m ago") beside the exact stamp, never instead of it. A zero
+// stamp reads "unknown"; future stamps clamp like every Ago.
+func Age(at time.Time) string {
+	if at.IsZero() {
+		return "unknown"
+	}
+	return ShortAge(time.Now(), at)
+}
+
 // Bytes renders bytes in the largest binary unit that keeps the
 // value at one or more whole units, two decimals: bytes stay
 // bytes, gibibytes stay gibibytes. Exact bytes stay in --json,

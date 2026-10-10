@@ -5,45 +5,42 @@ Unbuilt backfill extensions. Shipped behavior lives in
 
 ## Contents
 
-- [Shadow reader](#shadow-reader)
-- [Smaller follow-ups](#smaller-follow-ups)
+- [Filling missing digests on tracked rows](#filling-missing-digests-on-tracked-rows)
 
-## Shadow reader
+## Filling missing digests on tracked rows
 
-A fallback read path for registries whose `_catalog` backfill
-cannot reach.
+Backfill adds rows for catalog tags the store does not track,
+and skips everything already tracked. It resolves each added
+row's digest on the way in and refuses to record a tag whose
+digest it cannot read. So backfill never creates a digest-less
+row — but it never fixes one either.
 
-The gc image already COPYs the stock `registry` binary, and that
-same binary can serve as a local read path: run a second copy
-against the same shared store and the same redis DB, with
-`maintenance.readonly` on, a loopback-only listener, and its own
-trivial auth — then point backfill's enumeration at it instead of
-the main registry.
+Tracked rows without a digest still occur:
 
-**What it buys:** independence from the main registry's access
-policy. A blocked `_catalog` and auth-gated namespaces both
-disappear without touching main auth or handing kpr credentials.
-Reads stay pure (catalog, tag lists, HEADs) against a live view,
-readonly mode makes mutation impossible, and sharing the redis DB
-keeps blobdescriptor answers consistent.
+- The receiver records a push before the manifest PUT finishes;
+  if the completion never updates the row, the digest stays
+  empty.
+- Anything changing registry data past kpr: a stock gc run
+  directly, tag deletes, restores. Rows then point at moved or
+  missing data.
 
-**Rules:**
+Two cases, different handling:
 
-- Loopback-only is non-negotiable. An unauthenticated registry must
-  never be reachable off-host.
-- Config is storage-identical to the main registry, with auth
-  replaced.
-- It stays an opt-in fallback, never a default — it is one more
-  mouth to feed (process, port, config drift), and our own stack
-  should simply let kpr reach the main `_catalog` internally.
+1. The tag never existed or is already gone (interrupted
+   push). The `partial` policy marks the row at 24h and the
+   sweep resolves it gone on the registry's 404. Self-cleaning;
+   nothing to build.
+2. The tag exists but the row has no digest. Selectors still
+   mark it due (by tag, or `partial` at 24h), but the sweep
+   deletes by digest and only falls back to the tag — stock
+   `registry:3` rejects tag deletes, so the row fails on every
+   pass and stays failed. Worse, without a digest the "digest
+   moved" skip-check has nothing to compare against, so a
+   repushed tag silently changes what the row refers to.
 
-Not to be confused with `docker-compose.shadow.yml`, which already
-exists: that is a *test* overlay producing receiver-blind tags on
-demand, not a read path for blocked catalogs.
-
-## Smaller follow-ups
-
-- **Digest-less enrichment.** Backfill fills absence only today; a
-  tracked row missing its digest stays missing.
-- **GET-with-body-discard fallback** for registries that answer
-  HEAD with 405. Possible follow-up, deliberately not in v1.
+The work is a contract extension on backfill, from add-only to
+fill: visit tracked rows with empty digests (not just absent
+tags) and resolve each through the same `ManifestDigest` HEAD
+backfill already makes, updating the row. Done when a tracked
+digest-less row with a live tag gets its digest on the next
+backfill, and the sweep for it goes by digest and succeeds.

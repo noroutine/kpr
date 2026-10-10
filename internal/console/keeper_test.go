@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/policy"
@@ -117,23 +116,6 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 	}
 	if body := render(&Server{Edge: &fence.Gate{Store: open}, Store: open}); !strings.Contains(body, "pass") || strings.Contains(body, "deny") {
 		t.Error("dashboard with an unlocked store must read pass, not deny")
-	}
-}
-
-// Activity ages read human beside the exact stamp: the operator
-// glances ("5m ago") without losing precision. Zero and future
-// stamps degrade to words, never a huge duration. If this fails,
-// the console sends the operator back to timestamp arithmetic.
-func TestHumanAgeReadsLikeCLI(t *testing.T) {
-	now := time.Now().UTC()
-	if got := humanAge(now.Add(-90 * time.Second)); got != "1m30s ago" {
-		t.Errorf("humanAge(-90s) = %q, want 1m30s ago", got)
-	}
-	if got := humanAge(now.Add(time.Hour)); got != "0s ago" {
-		t.Errorf("humanAge(future) = %q, want clamped 0s ago", got)
-	}
-	if got := humanAge(time.Time{}); got != "unknown" {
-		t.Errorf("humanAge(zero) = %q, want unknown", got)
 	}
 }
 
@@ -505,24 +487,6 @@ func TestFsSizesMultipliesByUnit(t *testing.T) {
 	if total != uint64(fs.Blocks)*unit || free != uint64(fs.Bavail)*unit {
 		t.Errorf("fsSizes = %d/%d, want blocks×unit %d/%d",
 			total, free, uint64(fs.Blocks)*unit, uint64(fs.Bavail)*unit)
-	}
-}
-
-// clockSourceFor mirrors the CLI composition root: same method,
-// same transport, no second wiring. If this fails, the console
-// checks time through a different transport than the mints.
-func TestClockSourceForMirrorsMethods(t *testing.T) {
-	if _, ok := clockSourceFor(clock.MethodNTP).(clock.NTP); !ok {
-		t.Errorf("ntp source = %T, want clock.NTP", clockSourceFor(clock.MethodNTP))
-	}
-	if _, ok := clockSourceFor(clock.MethodHTTPS).(clock.HTTPS); !ok {
-		t.Errorf("https source = %T, want clock.HTTPS", clockSourceFor(clock.MethodHTTPS))
-	}
-	if _, ok := clockSourceFor(clock.MethodLocal).(clock.Local); !ok {
-		t.Errorf("local source = %T, want clock.Local", clockSourceFor(clock.MethodLocal))
-	}
-	if _, ok := clockSourceFor(clock.Method("bogus")).(clock.Local); !ok {
-		t.Errorf("unknown method source = %T, want clock.Local fallback", clockSourceFor(clock.Method("bogus")))
 	}
 }
 

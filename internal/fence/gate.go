@@ -62,9 +62,9 @@ func announce(st GateStore, report event.Reporter, now time.Time, stage, msg, ou
 // drift apart.
 type Gate struct {
 	Store GateStore
-	// Dir holds the HOLD lease file; "" means no HOLD source
-	// (leases need the shared file store).
-	Dir string
+	// Lease is the HOLD source; nil reads absent everywhere
+	// (marker-only fencing — DENY works over any backend).
+	Lease Lease
 	// Report receives flip events; nil discards.
 	Report event.Reporter
 	// Now sources time; nil means time.Now (tests pin it).
@@ -79,12 +79,27 @@ type Gate struct {
 	lastHeld bool
 }
 
-// lease opens the HOLD lease over the gate's dir: the file
-// backend owns the lease it already hosts, the gate only reads
-// it. Empty dir reads absent — marker-only fencing.
-func (g *Gate) lease() store.HoldFile {
-	return store.HoldFile{Dir: g.Dir}
+// lease opens the HOLD source: the backend owns the lease it
+// already hosts, the gate only reads it. A nil lease reads
+// absent — marker-only fencing.
+func (g *Gate) lease() Lease {
+	if g.Lease == nil {
+		return nilLease{}
+	}
+	return g.Lease
 }
+
+// nilLease reads absent everywhere: the marker-only gate's
+// stand-in, so callers never branch on the lease.
+type nilLease struct{}
+
+func (nilLease) Hold(context.Context, time.Time) (func(), error) {
+	return nil, errors.New("hold without a lease")
+}
+
+func (nilLease) Read() (time.Time, bool) { return time.Time{}, false }
+
+func (nilLease) HeldUntil(time.Time) (time.Time, bool) { return time.Time{}, false }
 
 // Wrap gates reference-bearing writes: HOLD delays to lease
 // expiry (fail open), DENY refuses fast while locked. Blob
@@ -96,16 +111,18 @@ func (g *Gate) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		now := g.now()
-		if until, held := g.lease().HeldUntil(now); held {
+		// One read, evaluated locally: a second read could see a
+		// fresh lease the first missed and misreport it as stale.
+		if until, present := g.lease().Read(); present && until.After(now) {
 			g.flipHeld(true, "gc finalize holds manifest writes")
 			g.flipExpired(false, "")
 			if g.waitRelease(r, until) {
 				g.flipExpired(true, "HOLD lease expired mid-collect: pushes flowing unfenced")
 			}
-		} else if _, present := g.lease().Read(); present {
-			// Present but past at arrival (the live check already said
-			// no): a stale lease gc never released. Loud once,
-			// then flow — same hole as mid-wait expiry.
+		} else if present {
+			// Present but past at arrival: a stale lease gc never
+			// released. Loud once, then flow — same hole as
+			// mid-wait expiry.
 			g.flipExpired(true, "HOLD lease expired mid-collect: pushes flowing unfenced")
 		} else {
 			g.flipExpired(false, "")
@@ -141,8 +158,8 @@ func isManifestWrite(r *http.Request) bool {
 	return manifestRef.MatchString(r.URL.Path)
 }
 
-// waitRelease holds to the lease expiry, re-reading the file:
-// an early release (file gone) wakes sleepers instead of serving
+// waitRelease holds to the lease expiry, re-reading the lease:
+// an early release (lease gone) wakes sleepers instead of serving
 // the full nominal term. It reports whether the lease was still
 // present-but-past at wake — gc outran its bound — so the caller
 // can say the hole out loud. Client disconnect stops waiting: a
@@ -185,9 +202,9 @@ func (g *Gate) now() time.Time {
 // Snapshot reports the fence's current posture for the management
 // console: whether mutating traffic is denied (locked store) and
 // whether a HOLD lease is pinning it. Deny is the last evaluation
-// (the gate learns locks from traffic); held reads the live lease
-// file, never the last flip — a quiet edge must still show a hold
-// gc engaged, and a released hold must read free with no traffic
+// (the gate learns locks from traffic); held reads the live lease,
+// never the last flip — a quiet edge must still show a hold gc
+// engaged, and a released hold must read free with no traffic
 // after. The console shows what IS, the ring shows what CHANGED.
 func (g *Gate) Snapshot() (deny, held bool) {
 	g.mu.Lock()

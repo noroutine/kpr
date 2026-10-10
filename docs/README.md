@@ -3,23 +3,28 @@
 Every page, grouped by what you came here to do. Project overview
 and quickstart commands are in the [top-level README](../README.md).
 
+- [Get on board](#get-on-board)
 - [Run it](#run-it)
 - [Understand it](#understand-it)
 - [Hack on it](#hack-on-it)
 - [Unbuilt work](#unbuilt-work)
 
-## Run it
+## Get on board
 
 | Doc | Answers |
 |---|---|
 | [QUICKSTART](QUICKSTART.md) | fresh setup: two containers, one volume, first expiring tag |
-| [ADOPT](ADOPT.md) | pairing a store to a lineage (`store adopt`) |
 | [ADOPT_KPR](ADOPT_KPR.md) | bolting kpr onto your own registry + Traefik |
+
+## Run it
+
+| Doc | Answers |
+|---|---|
+| [ADOPT](ADOPT.md) | pairing a store to a lineage (`store adopt`) |
 | [CONFIG](CONFIG.md) | every environment variable, and how they resolve |
 | [STORES](STORES.md) | file and redis backends, layouts, invariants |
 | [GC](GC.md) | reclaiming blob bytes: the proof chain, the two paths |
 | [BACKFILL](BACKFILL.md) | adopting pre-kpr tags into tracked rows |
-| [OBSERVABILITY](OBSERVABILITY.md) | Quickwit/Jaeger/Prometheus/Grafana overlay |
 
 ## Understand it
 
@@ -54,12 +59,10 @@ reference pages above. Each `X.md` states what ships today; its
 | Doc | Answers |
 |---|---|
 | [ARCHITECTURE_FUTURE](ARCHITECTURE_FUTURE.md) | open and upcoming work |
-| [GC_FUTURE](GC_FUTURE.md) | token-auth registries |
-| [GC_DANGLING](GC_DANGLING.md) | dangling references: classes, dead-tag-link design |
-| [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | shadow reader, digest-less enrichment |
+| [GC_FUTURE](GC_FUTURE.md) | per-repo collection |
+| [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | filling missing digests on tracked rows |
 | [CLI_FUTURE](CLI_FUTURE.md) | one subpackage per command |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |
-| [SENTINELS_FUTURE](SENTINELS_FUTURE.md) | backfill snapshot detection |
 
 Deferred by decision, kept so the reasoning survives:
 
@@ -67,3 +70,7 @@ Deferred by decision, kept so the reasoning survives:
 |---|---|
 | [BLOBCACHE](BLOBCACHE.md) | should kpr speak the descriptor-cache protocol? (not now) |
 | [CHILD_REGISTRY](CHILD_REGISTRY.md) | a kpr-launched registry (not started) |
+| [STATIC_SERVE](STATIC_SERVE.md) | serving images as static content (not now) |
+| [BACKUP_RESTORE](BACKUP_RESTORE.md) | tarball + registry-pushed store backups (not built) |
+| [OBSERVABILITY](OBSERVABILITY.md) | overlay, basic compose only (not paid attention) |
+| [GC_DANGLING](GC_DANGLING.md) | dangling references: classes, dead-tag-link design |

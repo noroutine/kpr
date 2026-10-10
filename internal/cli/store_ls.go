@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/helpers/words"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
@@ -256,7 +257,7 @@ answers still exit 0.`,
 			if serr != nil {
 				return serr
 			}
-			fsStore, ferr := proof.ProveFilesystemStore(d.Cfg.RegistryConfig)
+			fsStore, ferr := proof.ProveFilesystemStore(config.Current().RegistryConfig)
 			if ferr != nil {
 				return fmt.Errorf("ghosts need the fs second opinion: %w", ferr)
 			}

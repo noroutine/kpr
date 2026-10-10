@@ -492,6 +492,39 @@ func TestRedisSingletonsDecode(t *testing.T) {
 	}
 }
 
+// The lease conn over the real driver: a miss answers (nil, nil)
+// (the $-1 the adapter translates, never an error), and Hold,
+// Read, and release round-trip through the wire byte-identical.
+// If this fails, the adapter invents state the wire never sent
+// (or drops the take the store wrote).
+func TestRedisLeaseWireRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := wireStore(t, &wireScript{})
+	conn, ok := s.HoldLeaseConn()
+	if !ok {
+		t.Fatal("HoldLeaseConn advertised false over a live wire")
+	}
+	l := store.RedisLease{Conn: conn, Key: store.HoldLeaseKey}
+	if until, present := l.Read(); present {
+		t.Fatalf("wire miss Read = (%v,true), want absent", until)
+	}
+	until := time.Now().Add(5 * time.Minute).Truncate(time.Millisecond)
+	release, err := l.Hold(ctx, until)
+	if err != nil {
+		t.Fatalf("wire Hold: %v", err)
+	}
+	if got, present := l.Read(); !present || !got.Equal(until) {
+		t.Errorf("wire Read = (%v, %v), want (%v, true)", got, present, until)
+	}
+	if _, held := l.HeldUntil(time.Now()); !held {
+		t.Error("wire HeldUntil during term = false, want true")
+	}
+	release()
+	if got, present := l.Read(); present {
+		t.Errorf("wire Read after release = (%v,true), want absent", got)
+	}
+}
+
 // A calm stored row unmarks to (false, nil): nothing due, nothing
 // to do, no error. If this fails, calm rows error on unmark.
 func TestRedisUnmarkCalmIsFalseNil(t *testing.T) {

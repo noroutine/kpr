@@ -3,6 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/gc"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
@@ -29,12 +30,11 @@ armed runs also fence pushes and prune husks and empty dirs.`,
 			return err
 		}
 		defer d.Close()
-		cfg := d.Cfg
 		out := cmd.OutOrStdout()
 		// The run mode flows from the produced proof: dry-run is the
 		// absence of Armed. The adapter feeds raw readings (flag var,
 		// config value); producing stays in proof.
-		armedRun := proof.Arm(gcNoDryRun, cfg.CLINoDryRun)
+		armedRun := proof.Arm(gcNoDryRun, config.Current().CLINoDryRun)
 		return gc.Run(cmd.Context(), out, gc.Deps{
 			// One store wearing all four hats (lock, recorder,
 			// identity, rows), the whole store behind them, and

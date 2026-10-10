@@ -111,7 +111,7 @@ var serveCmd = &cobra.Command{
 		var edgeGate *fence.Gate
 		var edgeHandler http.Handler
 		if cfg.EdgeEnabled {
-			gate, h, gerr := assembleEdge(cfg, backend, storeDir, keeperStore, cfg.RegistryConfig, func(e event.Event) {
+			gate, h, gerr := assembleEdge(cfg, backend, keeperStore, cfg.RegistryConfig, func(e event.Event) {
 				log.Printf("edge fence: %s %s", e.Stage, e.Message)
 			})
 			if gerr != nil {

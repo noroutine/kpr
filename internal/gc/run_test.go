@@ -295,6 +295,137 @@ func TestRunHuskVerdictNamesRemovals(t *testing.T) {
 	}
 }
 
+// The preview promises the armed removals in the would-tense: a
+// husked root previews "would prune 1 husks" through the same
+// evaluation arming removes through, deleting nothing. If this
+// fails, the preview is silent about removals arming performs.
+func TestRunPreviewPromisesHuskRemovals(t *testing.T) {
+	cfg, root, s := fakes.ProvenRun(t)
+	v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
+	p := filepath.Join(v2, "husk", "_manifests", "revisions", "sha256", "bbb", "link")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("stage husk dir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("sha256:bbb"), 0o644); err != nil {
+		t.Fatalf("stage husk link: %v", err)
+	}
+	fakes.PairedGen(t, s, root)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return modeReadonly, "", nil
+	})
+	var collected [][]string
+	var out strings.Builder
+	fakes.Config(t, "http://registry:5000", cfg)
+	useSeams(t, probe, okCollector(&collected))
+	err := Run(context.Background(), &out, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Report: func(event.Event) {}},
+		Options{}, Accepts{})
+	if err != nil {
+		t.Fatalf("stub-port preview run: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "would prune 1 husks\n") {
+		t.Errorf("preview hides its husk removal:\n%s", got)
+	}
+	if got := out.String(); strings.Contains(got, "pruned 1 husks\n") {
+		t.Errorf("preview narrates past-tense removals:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(v2, "husk")); err != nil {
+		t.Errorf("preview removed the husk: %v", err)
+	}
+}
+
+// Enumeration failures warn inline, never fail the preview: a
+// blinded root warns twice (husks, dirs) and returns nil. If this
+// fails, a struggling preview fails the run it was only
+// narrating.
+func TestWritePreviewRemovalsWarnsOnBlindRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o000); err != nil {
+		t.Fatalf("blind root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
+	var out strings.Builder
+	if err := writePreviewRemovals(&out, root); err != nil {
+		t.Fatalf("preview over blinded root: %v", err)
+	}
+	for _, want := range []string{"Warning: husk preview incomplete", "Warning: empty-dir preview incomplete"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("preview misses %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// previewFailWriter passes every write except the preview
+// narration, which fails: the run must reach the enumeration
+// before the writer dies, or the test proves nothing about the
+// narration's own failure leg.
+type previewFailWriter struct {
+	buf strings.Builder
+	err error
+}
+
+func (w *previewFailWriter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "would prune") {
+		if w.err == nil {
+			w.err = errors.New("preview write failed")
+		}
+		return 0, w.err
+	}
+	return w.buf.Write(p)
+}
+
+// A dead preview narration fails the run: the enumeration
+// succeeded, but reporting it to nobody is not success. If this
+// fails, preview write errors vanish into nil.
+func TestRunPreviewFailsDeadWriter(t *testing.T) {
+	cfg, root, s := fakes.ProvenRun(t)
+	v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
+	p := filepath.Join(v2, "husk", "_manifests", "revisions", "sha256", "bbb", "link")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("stage husk dir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("sha256:bbb"), 0o644); err != nil {
+		t.Fatalf("stage husk link: %v", err)
+	}
+	fakes.PairedGen(t, s, root)
+	probe := Probe(func(context.Context, string) (Mode, string, error) {
+		return modeReadonly, "", nil
+	})
+	var collected [][]string
+	fakes.Config(t, "http://registry:5000", cfg)
+	useSeams(t, probe, okCollector(&collected))
+	err := Run(context.Background(), &previewFailWriter{}, Deps{Lock: s, Rec: s, Ids: s, Rows: s, API: fakes.FileAPI{Root: root}, Clock: fakes.StubClock{}, Report: func(event.Event) {}},
+		Options{}, Accepts{})
+	if err == nil {
+		t.Error("preview over dead narration succeeded, want the write failure")
+	}
+}
+
+// A dead writer fails the preview: swallowing it would report a
+// narration nobody saw. If this fails, preview output errors go
+// quiet.
+func TestWritePreviewRemovalsFailsDeadWriter(t *testing.T) {
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
+	p := filepath.Join(v2, "husk", "_manifests", "revisions", "sha256", "bbb", "link")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("stage husk dir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("sha256:bbb"), 0o644); err != nil {
+		t.Fatalf("stage husk link: %v", err)
+	}
+	fail := funcWriter(func([]byte) (int, error) { return 0, errors.New("writer dead") })
+	if err := writePreviewRemovals(fail, root); err == nil {
+		t.Error("preview over dead writer succeeded, want the write failure")
+	}
+}
+
+type funcWriter func([]byte) (int, error)
+
+func (f funcWriter) Write(p []byte) (int, error) { return f(p) }
+
 // A failing armed collect fails the run: the readonly-armed branch
 // surfaces the collector error like the preview does. If this fails,
 // real-run collection errors vanish into a nil return.

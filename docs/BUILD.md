@@ -224,12 +224,13 @@ Workflows in `.forgejo/workflows/` (all `make`-based):
 **CI** (`ci.yml`):
 - Runs on every push/PR: verify, format check, lint, coverage, build,
   Docker image build + smoke test
-- `build-all` (multiplatform binaries) runs on `v*` tags only —
-  per-push multiplatform builds are pure heat
+- `dev-image` pushes a hash-tagged multiplatform image to
+  `cr.noroutine.me/catalyst/kpr` on every branch push that passes
+  the gates — no binaries, no Forgejo packages
 
-**Release** (the `release` job in `ci.yml`):
-- Runs on git tags (`v*`), after `build-all`
-- Rebuilds all platforms and pushes multiplatform Docker images
+**Release image** (the `release` job in `ci.yml`):
+- Runs on git tags (`v*`), same shape as dev (image only, no
+  formal release); a version tag additionally moves `latest`
   (needs the org `DOCKER_CFG` secret)
 
 **GitHub mirror** (`.github/workflows/`, coexists with Forgejo):

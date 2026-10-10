@@ -67,7 +67,7 @@ func TestControlAllowUsesInjectedClock(t *testing.T) {
 // collect holds pushes silently on a quiet store.
 func TestControlHoldRecordsTransitions(t *testing.T) {
 	st := store.NewMemStore()
-	c := Control{HoldFile: store.HoldFile{Dir: t.TempDir()}, Store: st}
+	c := Control{Lease: store.FileLease{Dir: t.TempDir()}, Store: st}
 	ctx := context.Background()
 	release, err := c.Hold(ctx, time.Now().Add(time.Minute))
 	if err != nil {
@@ -89,7 +89,7 @@ func TestControlHoldRecordsTransitions(t *testing.T) {
 // failed fence records a lease that was never written.
 func TestControlHoldFailureRecordsNothing(t *testing.T) {
 	st := store.NewMemStore()
-	c := Control{HoldFile: store.HoldFile{Dir: filepath.Join(t.TempDir(), "no-such-dir")}, Store: st}
+	c := Control{Lease: store.FileLease{Dir: filepath.Join(t.TempDir(), "no-such-dir")}, Store: st}
 	if _, err := c.Hold(context.Background(), time.Now().Add(time.Minute)); err == nil {
 		t.Fatal("Hold into a missing dir succeeded, want refusal")
 	}

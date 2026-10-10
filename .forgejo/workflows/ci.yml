@@ -60,14 +60,15 @@ jobs:
         make docker-build
         make test-docker
 
-  build-all:
-    name: Build All Platforms
+  # Dev images: every branch push that passes `test` ships a
+  # hash-tagged multiplatform image to cr.noroutine.me — no
+  # release bureaucracy, no binaries, no Forgejo packages. Hash
+  # tags never match the version regex, so `latest` never moves.
+  dev-image:
+    name: Dev image
     runs-on: ubuntu-latest
     needs: test
-    # Tags only: ordinary pushes build and verify in `test`, and the
-    # release job rebuilds dist/ itself (no artifact handoff on these
-    # runners) — per-push multiplatform builds are pure heat.
-    if: startsWith(github.ref, 'refs/tags/')
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
     steps:
     - name: Check out code
@@ -79,48 +80,6 @@ jobs:
       uses: actions/setup-go@v7
       with:
         go-version: '1.27'
-
-    - name: Extract build info
-      id: build_info
-      run: |
-        echo "version=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" >> $GITHUB_OUTPUT
-        echo "commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-        echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
-
-    - name: Build for all platforms
-      run: make build-all
-      env:
-        VERSION: ${{ steps.build_info.outputs.version }}
-        COMMIT: ${{ steps.build_info.outputs.commit }}
-        BUILD_TIME: ${{ steps.build_info.outputs.build_time }}
-
-    # No artifact upload: the runners lack the GHES artifact service
-    # (upload-artifact v4+ does not work there); build-all prints its own
-    # report (listing + checksums) to the job log. No image push here
-    # either: publishing happens on tags in the release job below, so
-    # ordinary pushes only build and verify.
-
-  release:
-    name: Release
-    runs-on: ubuntu-latest
-    needs: build-all
-    if: startsWith(github.ref, 'refs/tags/')
-
-    steps:
-    - name: Check out code
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
-
-    - name: Set up Go
-      uses: actions/setup-go@v7
-      with:
-        go-version: '1.27'
-
-    # Rebuilt here: no artifact service on the runners, so build-all
-    # does not pass dist/ between jobs.
-    - name: Build for all platforms
-      run: make build-all
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
@@ -131,69 +90,37 @@ jobs:
         echo "${{ secrets.DOCKER_CFG }}" | base64 -d > ~/.docker/config.json
         chmod 600 ~/.docker/config.json
 
-    # Publishing happens only on tags. Requires the org DOCKER_CFG
-    # secret to grant package write on this repo.
-    - name: Build and push multiplatform Docker images
-      run: make docker-build-multiplatform
-      env:
-        VERSION: ${{ github.ref_name }}
-        REGISTRY: nrtn.dev/catalyst
+    - name: Build and push hash-tagged image
+      run: make docker-build-multiplatform DOCKER_REGISTRY=cr.noroutine.me/catalyst VERSION=$(git rev-parse --short HEAD)
 
-    # NOTE: If this step fails with "404 page not found" or "release already exists",
-    # delete the existing release in the Forgejo UI first, then re-run the workflow.
-    - name: Create Release
-      uses: https://github.com/softprops/action-gh-release@v3
+  # Release images: tags only, same shape as dev (image to
+  # cr.noroutine.me, no binaries, no formal release). A version
+  # tag additionally moves `latest`.
+  release:
+    name: Release image
+    runs-on: ubuntu-latest
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v7
       with:
-        prerelease: true
-        files: |
-          dist/kpr-linux-amd64
-          dist/kpr-linux-arm64
-          dist/kpr-linux-arm
-          dist/kpr-darwin-amd64
-          dist/kpr-darwin-arm64
-          dist/checksums.txt
-        body: |
-          ## kpr ${{ github.ref_name }}
+        fetch-depth: 0
 
-          kpr (keeper) — lightweight gateway and keeper for an OCI
-          distribution registry: ephemeral images and lightweight
-          retention cleanups. See `docs/GOALS.md`.
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version: '1.27'
 
-          ### Docker (Recommended)
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
 
-          Multiplatform Docker images are available:
+    - name: Setup Docker config
+      run: |
+        mkdir -p ~/.docker
+        echo "${{ secrets.DOCKER_CFG }}" | base64 -d > ~/.docker/config.json
+        chmod 600 ~/.docker/config.json
 
-          ```bash
-          # Run with Docker
-          docker run --rm -p 8080:8080 -p 9300:9300 nrtn.dev/catalyst/kpr:${{ github.ref_name }}
-
-          # Or use docker-compose
-          docker-compose up
-          ```
-
-          **Supported platforms:** linux/amd64, linux/arm64, linux/arm/v7
-
-          ### Binary Installation
-
-          Download the binary for your platform:
-
-          ```bash
-          # Linux amd64
-          curl -LO https://nrtn.dev/catalyst/kpr/releases/download/${{ github.ref_name }}/kpr-linux-amd64
-          chmod +x kpr-linux-amd64
-          sudo mv kpr-linux-amd64 /usr/local/bin/kpr
-
-          # macOS Apple Silicon
-          curl -LO https://nrtn.dev/catalyst/kpr/releases/download/${{ github.ref_name }}/kpr-darwin-arm64
-          chmod +x kpr-darwin-arm64
-          sudo mv kpr-darwin-arm64 /usr/local/bin/kpr
-          ```
-
-          ### Usage
-
-          ```bash
-          kpr serve
-          ```
-
-          - Management console: http://localhost:9300
-          - Application: http://localhost:8080
+    - name: Build and push tag image
+      run: make docker-build-multiplatform DOCKER_REGISTRY=cr.noroutine.me/catalyst VERSION=${{ github.ref_name }}

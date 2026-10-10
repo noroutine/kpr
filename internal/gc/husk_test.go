@@ -3,6 +3,7 @@ package gc
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,49 @@ func TestRemoveHusksSkipsRemovedChildren(t *testing.T) {
 	}
 }
 
+// The preview lists exactly what arming removes: findHusks on a
+// staged tree must equal the removal report on the same state
+// (find mutates nothing, so sequential agreement is the promise).
+// If this fails, the preview counts husks arming wouldn't take.
+func TestFindHusksMatchesRemoveHusks(t *testing.T) {
+	stage := func(t *testing.T) string {
+		t.Helper()
+		root := t.TempDir()
+		v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
+		for _, rel := range []string{
+			"gone/_manifests/revisions/sha256/a/link",
+			"live/_manifests/tags/v1/current/link",
+			"live/_manifests/revisions/sha256/b/link",
+			"outer/_manifests/revisions/sha256/c/link",
+			"outer/inner/_manifests/revisions/sha256/d/link",
+		} {
+			p := filepath.Join(v2, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatalf("stage dir: %v", err)
+			}
+			if err := os.WriteFile(p, []byte("sha256:x"), 0o644); err != nil {
+				t.Fatalf("stage file: %v", err)
+			}
+		}
+		return root
+	}
+	root := stage(t)
+	want, err := findHusks(root)
+	if err != nil {
+		t.Fatalf("findHusks: %v", err)
+	}
+	got, err := removeHusks(root)
+	if err != nil {
+		t.Fatalf("removeHusks: %v", err)
+	}
+	if !slices.Equal(want, got) {
+		t.Errorf("findHusks = %v, removeHusks = %v, want agreement", want, got)
+	}
+	if len(want) != 2 {
+		t.Errorf("agreement on %v, want [gone outer] (live spared)", want)
+	}
+}
+
 // Unreadable layout refuses instead of classifying blind: a
 // blinded uploads tree hides live pushes, a blinded tags tree
 // hides live tags. Root reads through permissions, so it sits
@@ -124,6 +168,73 @@ func TestRemoveHusksUnreadableRefuses(t *testing.T) {
 		if _, err := removeHusks(stage(t, blind)); err == nil {
 			t.Errorf("removeHusks over blinded %s succeeded, want refusal", blind)
 		}
+	}
+}
+
+// An unwritable repos dir fails the removal loud with what went
+// nowhere: half-removed inventory must shout, never guess. If
+// this fails, permission errors vanish into a nil return.
+func TestRemoveHusksRefusesUnwritableRepo(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root removes through file permissions")
+	}
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
+	p := filepath.Join(v2, "husk", "_manifests", "revisions", "sha256", "a", "link")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("stage dir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("sha256:x"), 0o644); err != nil {
+		t.Fatalf("stage file: %v", err)
+	}
+	if err := os.Chmod(v2, 0o555); err != nil {
+		t.Fatalf("blind repos: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(v2, 0o755) })
+	if _, err := removeHusks(root); err == nil {
+		t.Error("remove over unwritable repos succeeded, want refusal")
+	}
+}
+
+// A blinded parent refuses the find: statting through a
+// permission wall is unknown, never empty. If this fails, blind
+// spots list as husk-free.
+func TestFindHusksRefusesBlindParent(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root stats through file permissions")
+	}
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2")
+	if err := os.MkdirAll(v2, 0o755); err != nil {
+		t.Fatalf("stage dir: %v", err)
+	}
+	if err := os.Chmod(v2, 0o000); err != nil {
+		t.Fatalf("blind parent: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(v2, 0o755) })
+	if _, err := findHusks(root); err == nil {
+		t.Error("find over blinded parent succeeded, want refusal")
+	}
+}
+
+// A blinded repos dir refuses the walk: listing through a
+// permission wall is unknown, never done. If this fails, blind
+// spots walk as empty.
+func TestFindHusksRefusesBlindRepos(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	root := t.TempDir()
+	v2 := filepath.Join(root, "docker", "registry", "v2", "repositories")
+	if err := os.MkdirAll(v2, 0o755); err != nil {
+		t.Fatalf("stage dir: %v", err)
+	}
+	if err := os.Chmod(v2, 0o000); err != nil {
+		t.Fatalf("blind repos: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(v2, 0o755) })
+	if _, err := findHusks(root); err == nil {
+		t.Error("find over blinded repos succeeded, want refusal")
 	}
 }
 

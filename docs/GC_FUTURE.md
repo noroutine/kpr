@@ -7,7 +7,6 @@ Designs for gc work that is **not built**. Shipped behavior lives in
 ## Contents
 
 - [Per-repo collection](#per-repo-collection)
-- [Token-auth registries](#token-auth-registries)
 
 ## Per-repo collection
 
@@ -33,24 +32,3 @@ Whether that generalises — per-repo retention driving a global
 collect, rather than a scoped collect — is the open question. A
 genuinely scoped collect would need our own mark phase, which is
 the same objection that keeps online GC out.
-
-## Token-auth registries
-
-kpr is scoped to anonymous and basic registries today. Against a
-token-issuing registry, every kpr-owned call — enumeration,
-sentinel, proofs — 401s.
-
-The fix is client-side only; kpr never verifies JWT:
-
-1. Read the issuer realm from the 401 `Bearer` challenge.
-2. Present the same user+password pair to it.
-3. Fetch per-scope tokens (`registry:catalog:*`, per-repo `pull`).
-4. Retry with `Bearer`.
-
-One credential form covers both schemes, and the stock collector
-binary is unaffected — it takes its own auth from registry config.
-
-**Sharp edge:** the sentinel classifies mode via upload-initiate,
-which needs a *push*-scoped token on the probe repo. Without one,
-classification must refuse rather than guess. Likewise a loud
-refusal when the issuer won't grant catalog scope.

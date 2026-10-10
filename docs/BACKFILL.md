@@ -38,8 +38,9 @@ Unbuilt extensions live in [BACKFILL_FUTURE.md](BACKFILL_FUTURE.md).
 
 1. Enumerates the catalog (`_catalog` paging, then per-repo tag
    lists). A positional repo-glob scopes it; empty means all.
-   `noroutine/kpr-*` is skipped — sentinel and probe repos are
-   machinery, not inventory.
+   Only the floater tag (`latest` under `noroutine/kpr-*`) is
+   skipped — a pointer, not inventory. Sentinel fossils adopt
+   like any tag.
 2. HEADs each tag for its digest.
 3. Checks the served generation (below), and refuses or warns.
 4. Reads each tag-link's mtime off the shared mount as `PushedAt`.
@@ -110,11 +111,11 @@ Cases that don't backfill but need no operator action:
   repo. `gc` removes husk dirs armed; their blobs go with the
   next collect.
 - **Catalog unreachable or gated.** Backfill requires a reachable
-  `_catalog` and a kpr user that can read everything, both
+  `_catalog` and credentials that can read everything (anonymous
+  or the `KPR_REGISTRY_USER`/`KPR_REGISTRY_PASSWORD` pair), both
   validated up front. Any gap refuses loudly by name rather than
-  running empty. What falls outside that — a blocked catalog,
-  foreign auth — is the [shadow
-  reader](BACKFILL_FUTURE.md#shadow-reader)'s job.
+  running empty. There is no fallback read path: token-issuing
+  registries are out of scope entirely.
 
 ## Owned elsewhere
 
@@ -124,7 +125,6 @@ Cases that sound like backfill's problem but aren't:
 | --- | --- |
 | Uploads in flight | the `partial` policy — a half-pushed tag has no manifest, so enumeration can't see it |
 | Untagged manifests | `gc` — no tag points at them, so tag enumeration cannot see them by definition |
-| Space not returning after cleanup | nothing: deletes soft-delete, and blobs dedupe re-pushes until online GC (out of scope) |
 | Manifest without a usable digest | skipped, untracked until re-pushed — the next push re-enters through the receiver |
 | Dangling tag (listed, unresolvable) | skipped with a count; detection is [GC_DANGLING](GC_DANGLING.md#dead-tag-links-designed) work |
 
@@ -167,10 +167,10 @@ proven mtimes make old rows *legitimate* victims mixed in with
 fresh ones. Correct, still surprising — review the plan and
 `--exclude` release lines.
 
-**`_catalog` and HEAD quirks across distributions.** Pagination
-Link-header flavors, catalog auth, registries answering HEAD with
-405. Backfill terminates on short or empty pages and treats missing
-digests and failed HEADs as skip-with-count, never fatal.
+**`_catalog` paging.** Follows `rel="next"` links until a page
+arrives without one; a repeated page errors, a short or empty
+page terminates. A 401 names the credential vars. Missing
+digests and failed HEADs are skip-with-count, never fatal.
 
 **Store swap between proof and mtime reads** mis-stamps push times.
 Same exposure class as gc's mid-run flip, bounded to age skew on
@@ -189,7 +189,9 @@ deletes nothing.
 3. **No zero-time rows.** Every recorded row carries a proven
    mtime, so keep-N needs no zero-time skip and backfilled rows
    flow through all policies as real age.
-4. **Absence only.** Enriching digest-less rows is a follow-up.
+4. **Absence only.** Tracked rows are never touched — filling
+   their missing digests is a follow-up
+   ([BACKFILL_FUTURE.md](BACKFILL_FUTURE.md)).
 5. **Dry-run by default.**
 6. **Failures skip with counts**, matching catalog failures in
    `EvaluatePolicies`.
@@ -198,8 +200,9 @@ Rejected: a persisted runtime-config gate (stale opinions across
 processes), mtime without proof, and backfilling due marks (marks
 need a policy or a human).
 
-**Non-goals:** any persisted gate state, digest-less enrichment,
-backfill-then-sweep automation, an API-only mode.
+**Non-goals:** any persisted gate state, filling missing digests
+on tracked rows, backfill-then-sweep automation, an API-only
+mode.
 
 Verified by unit tests in `internal/backfill`, and end to end by
 `TestBackfillAdoptsPreKprTag` (`test/e2e/backfill_test.go`). The

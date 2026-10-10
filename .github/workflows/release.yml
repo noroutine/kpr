@@ -3,7 +3,8 @@ name: Release
 # Tag releases for GitHub: multiplatform images to GHCR plus a
 # GitHub release with the dist binaries. Runs beside CI on the
 # same tag push (CI gates the code, this ships it) and beside the
-# Forgejo release job, which publishes the same tag to nrtn.dev.
+# Forgejo release job, which publishes the same tag to
+# cr.noroutine.me.
 on:
   push:
     tags:

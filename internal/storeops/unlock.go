@@ -65,7 +65,7 @@ func Unlock(ctx context.Context, w io.Writer, d UnlockDeps) error {
 	// exactly as before. The ceremony consumes the gate.
 	clk := d.Clock
 	if clk == nil {
-		clk = cfg.ClockSource()
+		clk = clock.NewSource(cfg.TimeMethod)
 	}
 	if _, cerr := (proof.Checker{Tolerance: clock.Tolerance}.Check(ctx, clk, cfg.TimeServer)); cerr != nil {
 		var skew *clock.SkewError

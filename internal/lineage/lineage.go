@@ -111,12 +111,12 @@ func Judge(s Served, l Local, ask Ask) Verdict {
 	if l.Ident.ID == "" {
 		return refuse(
 			fmt.Sprintf("store unpaired and the registry serves identity %s", p.ID),
-			"run `kpr store adopt` to pair this store (or `kpr store adopt <identity>` to pin the expected one)")
+			"run `kpr store adopt` to pair this store (or `kpr store adopt <identity>` to pin the expected one), then `kpr store unlock`")
 	}
 	if p.ID != l.Ident.ID {
 		return refuse(
 			fmt.Sprintf("foreign lineage: serves %s, store paired to %s", p.ID, l.Ident.ID),
-			"run `kpr store adopt` to re-pair with the served lineage (or check the volume mount if unintended)")
+			"run `kpr store adopt` to re-pair with the served lineage (or check the volume mount if unintended), then `kpr store unlock`")
 	}
 	ts, err := time.Parse(time.RFC3339, p.TS)
 	if err != nil {

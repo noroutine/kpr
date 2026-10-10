@@ -138,7 +138,7 @@ age, lineage pairing, and the activity tail.`,
 		}
 		defer d.Close()
 		asJSON, _ := cmd.Flags().GetBool("json")
-		return runStoreStatus(cmd.Context(), cmd.OutOrStdout(), d.Store, d.Reg, describeStore(d.Store, d.Cfg), asJSON)
+		return runStoreStatus(cmd.Context(), cmd.OutOrStdout(), d.Store, d.Reg, describeStore(d.Store), asJSON)
 	},
 }
 

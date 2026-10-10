@@ -547,3 +547,23 @@ func TestCheckPassesTransportThrough(t *testing.T) {
 		t.Errorf("transport failure = %v, want it passed through", err)
 	}
 }
+
+// The method knob becomes exactly one transport: unknown values
+// land on the harmless default, never a crash. If this fails,
+// mints check time through a different transport than the one
+// the operator configured.
+func TestNewSourceMapsMethods(t *testing.T) {
+	for _, tc := range []struct {
+		method Method
+		want   Source
+	}{
+		{MethodLocal, Local{}},
+		{MethodHTTPS, HTTPS{}},
+		{MethodNTP, NTP{}},
+		{"sundial", Local{}},
+	} {
+		if got := NewSource(tc.method); got != tc.want {
+			t.Errorf("method %q -> %T, want %T", tc.method, got, tc.want)
+		}
+	}
+}

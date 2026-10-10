@@ -76,12 +76,15 @@ func proofState(ctx context.Context, api sentinel.API) string {
 }
 
 // describeStore names the wired backend with its address for the
-// banner: file with its dir, redis with addr and DB. Mirrors the
-// console's store card; both stay dumb views over the same facts.
-func describeStore(s store.Store, cfg *config.Config) string {
+// banner: file with its dir, redis with addr and DB. The redis
+// half reads the installed config at use; the store half is the
+// caller's. Mirrors the console's store card; both stay dumb views
+// over the same facts.
+func describeStore(s store.Store) string {
 	if st, ok := s.(*store.FileStore); ok {
 		return "file (" + st.Dir() + ")"
 	}
+	cfg := config.Current()
 	return "redis (" + cfg.RedisAddr + " db " + strconv.Itoa(cfg.RedisDB) + ")"
 }
 

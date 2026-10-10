@@ -87,3 +87,20 @@ func TestBytesScalesUnits(t *testing.T) {
 		}
 	}
 }
+
+// Stamps read human beside the exact value: the operator glances
+// ("5m ago") without losing precision. Zero degrades to a word,
+// future clamps like every Ago. If this fails, displays fall back
+// to timestamp arithmetic.
+func TestAgeReadsLikeShortAge(t *testing.T) {
+	now := time.Now().UTC()
+	if got := human.Age(now.Add(-90 * time.Second)); got != "1m30s ago" {
+		t.Errorf("Age(-90s) = %q, want 1m30s ago", got)
+	}
+	if got := human.Age(now.Add(time.Hour)); got != "0s ago" {
+		t.Errorf("Age(future) = %q, want clamped 0s ago", got)
+	}
+	if got := human.Age(time.Time{}); got != "unknown" {
+		t.Errorf("Age(zero) = %q, want unknown", got)
+	}
+}

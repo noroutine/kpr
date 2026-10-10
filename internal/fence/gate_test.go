@@ -138,7 +138,7 @@ func TestGateForwardsManifestPutWhenUnlocked(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	g := &Gate{Store: st, Dir: t.TempDir()}
+	g := &Gate{Store: st, Lease: store.FileLease{Dir: t.TempDir()}}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -161,7 +161,7 @@ func TestGateRefusesWhenMarkerUnreadable(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	g := &Gate{Store: errLocker{err: errors.New("boom")}, Dir: t.TempDir()}
+	g := &Gate{Store: errLocker{err: errors.New("boom")}, Lease: store.FileLease{Dir: t.TempDir()}}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -189,14 +189,14 @@ func TestGateDelaysManifestPutDuringHold(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := store.HoldFile{Dir: dir}
+	hf := store.FileLease{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(150*time.Millisecond))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
 	}
 	defer release()
 
-	g := &Gate{Store: st, Dir: dir}
+	g := &Gate{Store: st, Lease: store.FileLease{Dir: dir}}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -224,7 +224,7 @@ func TestGateHoldThenDenyWhenLocked(t *testing.T) {
 	defer backend.Close()
 
 	dir := t.TempDir()
-	hf := store.HoldFile{Dir: dir}
+	hf := store.FileLease{Dir: dir}
 	// The stopwatch starts at the hold, not at the PUT: server
 	// setup sits between them, and measuring from the PUT turns
 	// that jitter into flakes.
@@ -266,14 +266,14 @@ func TestGateIgnoresExpiredHold(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := store.HoldFile{Dir: dir}
+	hf := store.FileLease{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
 	}
 	defer release()
 
-	g := &Gate{Store: st, Dir: dir}
+	g := &Gate{Store: st, Lease: store.FileLease{Dir: dir}}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -306,12 +306,12 @@ func TestGateWakesWhenHoldReleased(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := store.HoldFile{Dir: dir}
+	hf := store.FileLease{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(30*time.Second))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
 	}
-	g := &Gate{Store: st, Dir: dir}
+	g := &Gate{Store: st, Lease: store.FileLease{Dir: dir}}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -355,7 +355,7 @@ func TestGateLoudOnceOnExpiredHold(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := store.HoldFile{Dir: dir}
+	hf := store.FileLease{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
@@ -363,7 +363,7 @@ func TestGateLoudOnceOnExpiredHold(t *testing.T) {
 	defer release()
 
 	var stages []string
-	g := &Gate{Store: st, Dir: dir, Report: func(e event.Event) { stages = append(stages, e.Stage) }}
+	g := &Gate{Store: st, Lease: store.FileLease{Dir: dir}, Report: func(e event.Event) { stages = append(stages, e.Stage) }}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -403,7 +403,7 @@ func TestGateLoudOnMidWaitExpiry(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	hf := store.HoldFile{Dir: dir}
+	hf := store.FileLease{Dir: dir}
 	release, err := hf.Hold(context.Background(), time.Now().Add(150*time.Millisecond))
 	if err != nil {
 		t.Fatalf("engage hold: %v", err)
@@ -411,7 +411,7 @@ func TestGateLoudOnMidWaitExpiry(t *testing.T) {
 	defer release()
 
 	var stages []string
-	g := &Gate{Store: st, Dir: dir, Report: func(e event.Event) { stages = append(stages, e.Stage) }}
+	g := &Gate{Store: st, Lease: store.FileLease{Dir: dir}, Report: func(e event.Event) { stages = append(stages, e.Stage) }}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -450,7 +450,7 @@ func TestGateIgnoresCorruptHold(t *testing.T) {
 	if err := st.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("stage unlock: %v", err)
 	}
-	g := &Gate{Store: st, Dir: dir}
+	g := &Gate{Store: st, Lease: store.FileLease{Dir: dir}}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -475,7 +475,7 @@ func TestGateEmitsOnDenyFlips(t *testing.T) {
 
 	var stages []string
 	st := store.NewMemStore()
-	g := &Gate{Store: st, Dir: t.TempDir(), Report: func(e event.Event) { stages = append(stages, e.Stage) }}
+	g := &Gate{Store: st, Lease: store.FileLease{Dir: t.TempDir()}, Report: func(e event.Event) { stages = append(stages, e.Stage) }}
 	front := httptest.NewServer(gateHandler(t, backend.URL, g))
 	defer front.Close()
 
@@ -519,7 +519,7 @@ func TestGateEmitsOnDenyFlips(t *testing.T) {
 func TestGateSnapshotHeldReadsLiveLease(t *testing.T) {
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
-	g := &Gate{Store: store.NewMemStore(), Dir: dir, Now: func() time.Time { return now }}
+	g := &Gate{Store: store.NewMemStore(), Lease: store.FileLease{Dir: dir}, Now: func() time.Time { return now }}
 	if deny, held := g.Snapshot(); deny || held {
 		t.Fatalf("fresh Snapshot = (%v,%v), want (false,false)", deny, held)
 	}
@@ -538,7 +538,7 @@ func TestGateSnapshotHeldReadsLiveLease(t *testing.T) {
 	}
 	// The gc case: lease engaged, zero traffic after. The console
 	// must still read held.
-	release, err := store.HoldFile{Dir: dir}.Hold(context.Background(), now.Add(time.Minute))
+	release, err := store.FileLease{Dir: dir}.Hold(context.Background(), now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("stage hold: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestGateSnapshotHeldReadsLiveLease(t *testing.T) {
 		t.Fatal("released-lease Snapshot held, want free")
 	}
 	// A present-but-past lease reads free: expiry is the bound.
-	_, err = store.HoldFile{Dir: dir}.Hold(context.Background(), now.Add(-time.Minute))
+	_, err = store.FileLease{Dir: dir}.Hold(context.Background(), now.Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("stage stale hold: %v", err)
 	}
@@ -609,7 +609,7 @@ func TestGateWithoutHoldSourceSkipsLease(t *testing.T) {
 // instead of serving the term. If this fails, disconnects pile up
 // behind dead leases.
 func TestWaitReleaseStopsOnDisconnect(t *testing.T) {
-	g := &Gate{Dir: t.TempDir()}
+	g := &Gate{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	r, err := http.NewRequestWithContext(ctx, http.MethodPut, "/v2/x/manifests/latest", nil)
@@ -628,13 +628,13 @@ func TestWaitReleaseStopsOnDisconnect(t *testing.T) {
 // phantom overruns.
 func TestWaitReleaseRereadsAtExpiry(t *testing.T) {
 	dir := t.TempDir()
-	h := store.HoldFile{Dir: dir}
+	h := store.FileLease{Dir: dir}
 	release, err := h.Hold(context.Background(), time.Now().Add(50*time.Millisecond))
 	if err != nil {
 		t.Fatalf("Hold: %v", err)
 	}
 	defer release()
-	g := &Gate{Dir: dir, Now: func() time.Time { return time.Now().Add(-time.Hour) }}
+	g := &Gate{Lease: store.FileLease{Dir: dir}, Now: func() time.Time { return time.Now().Add(-time.Hour) }}
 	r, err := http.NewRequest(http.MethodPut, "/v2/x/manifests/latest", nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
@@ -670,7 +670,7 @@ func lockedGate(dir string, report func(e event.Event)) *Gate {
 	if err := st.SetUnlocked(context.Background(), false); err != nil {
 		panic(err)
 	}
-	g := &Gate{Store: st, Dir: dir}
+	g := &Gate{Store: st, Lease: store.FileLease{Dir: dir}}
 	if report != nil {
 		g.Report = report
 	}

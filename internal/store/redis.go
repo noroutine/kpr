@@ -32,7 +32,7 @@ func (s *RedisStore) Close() error { return s.rdb.Close() }
 // Flush drops every kpr key. Tests only: a clean slate per subtest so
 // contract cases never see each other's rows.
 func (s *RedisStore) Flush(ctx context.Context) error {
-	return s.rdb.Del(ctx, RowsKey, CurrentKey, ActivityKey, LockKey, UnlockedKey, IdentityKey).Err()
+	return s.rdb.Del(ctx, RowsKey, CurrentKey, ActivityKey, LockKey, UnlockedKey, IdentityKey, HoldLeaseKey).Err()
 }
 
 func (s *RedisStore) Ping(ctx context.Context) error {

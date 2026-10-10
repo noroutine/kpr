@@ -190,3 +190,46 @@ func (f FailRows) Delete(ctx context.Context, repo, tag string) error {
 	}
 	return f.MemStore.Delete(ctx, repo, tag)
 }
+
+// MemLeaseConn is the lease conn surface over a map: the shared
+// conformance's second medium beside the filesystem, and the
+// redis branch without a live server. It records TTLs without
+// honoring them — overrun reads stay testable without a clock,
+// while TTL assertions read back what Hold asked for.
+type MemLeaseConn struct {
+	rows map[string][]byte
+	ttls map[string]time.Duration
+}
+
+// NewMemLeaseConn stages an empty lease surface.
+func NewMemLeaseConn() *MemLeaseConn {
+	return &MemLeaseConn{rows: map[string][]byte{}, ttls: map[string]time.Duration{}}
+}
+
+func (m *MemLeaseConn) Get(_ context.Context, key string) ([]byte, error) {
+	raw, ok := m.rows[key]
+	if !ok {
+		// A miss answers (nil, nil): the adapter contract for a
+		// redis Nil, and a missing file reads the same. An error
+		// here would mean outage, and the read would log it.
+		return nil, nil
+	}
+	return raw, nil
+}
+
+func (m *MemLeaseConn) Set(_ context.Context, key string, val []byte, ttl time.Duration) error {
+	m.rows[key] = val
+	m.ttls[key] = ttl
+	return nil
+}
+
+func (m *MemLeaseConn) Del(_ context.Context, key string) error {
+	delete(m.rows, key)
+	delete(m.ttls, key)
+	return nil
+}
+
+// TTL reports the last hygiene horizon Hold asked for.
+func (m *MemLeaseConn) TTL(key string) time.Duration {
+	return m.ttls[key]
+}

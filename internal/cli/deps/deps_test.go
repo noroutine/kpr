@@ -11,6 +11,10 @@ import (
 // and closes without error: the one call every command starts
 // with. If this fails, commands boot half-wired.
 func TestOpenDepsWiresFileStore(t *testing.T) {
+	// OpenDeps installs its build as Current and drops the
+	// restore: snapshot the pre-test value so the env-built
+	// config does not leak into later tests in this package.
+	t.Cleanup(config.SetCurrent(config.Current()))
 	clearStoreEnv(t)
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
@@ -19,11 +23,11 @@ func TestOpenDepsWiresFileStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDeps: %v", err)
 	}
-	if d.Cfg == nil || d.Store == nil || d.Reg == nil {
-		t.Fatalf("deps = %+v, want config, store, and registry client", d)
+	if d.Store == nil || d.Reg == nil {
+		t.Fatalf("deps = %+v, want store and registry client", d)
 	}
-	if config.Current() != d.Cfg {
-		t.Fatal("OpenDeps did not install its config as Current: use cases would read defaults")
+	if cur := config.Current(); cur == nil || cur.RegistryURL != "http://127.0.0.1:1" {
+		t.Fatalf("OpenDeps did not install its config as Current: use cases would read defaults (got %+v)", cur)
 	}
 	d.Close()
 }

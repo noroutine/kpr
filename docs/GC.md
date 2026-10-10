@@ -29,7 +29,7 @@ underneath.
 - [After an armed run: stale blob descriptors](#after-an-armed-run-stale-blob-descriptors)
 
 Unbuilt gc designs live in [GC_FUTURE.md](GC_FUTURE.md)
-(token-auth registries) and [GC_DANGLING.md](GC_DANGLING.md)
+(per-repo collection) and [GC_DANGLING.md](GC_DANGLING.md)
 (dangling references).
 
 ## The shape of a run
@@ -180,6 +180,10 @@ generations are bounded by keep-N and removed through the ordinary
 reap-and-sweep path, so a default collect reclaims their blobs and
 `--delete-untagged` is never required on their account — see
 [SENTINELS.md](SENTINELS.md).
+
+Space returns at collect time, not sweep time: the sweep unlinks
+manifests (soft-delete, and content addressing dedupes re-pushes),
+blob bytes come back only when the collector reaps them.
 
 ## Stage events
 

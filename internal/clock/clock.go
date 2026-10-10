@@ -50,6 +50,21 @@ type Source interface {
 	Offset(ctx context.Context, server string) (time.Duration, error)
 }
 
+// NewSource builds the transport a method knob names: the one
+// place method becomes behavior, so every minter checks against
+// the same source. Unknown methods land on the harmless local
+// default, never a crash.
+func NewSource(m Method) Source {
+	switch m {
+	case MethodNTP:
+		return NTP{}
+	case MethodHTTPS:
+		return HTTPS{}
+	default:
+		return Local{}
+	}
+}
+
 const (
 	// DFNServer is the default time source host, either transport.
 	DFNServer = "zeitstempel.dfn.de"

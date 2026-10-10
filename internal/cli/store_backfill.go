@@ -9,6 +9,7 @@ import (
 
 	"nrtn.dev/catalyst/kpr/internal/backfill"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/helpers/words"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 )
@@ -42,7 +43,7 @@ var storeBackfillCmd = &cobra.Command{
 			return err
 		}
 		defer d.Close()
-		armed := proof.Arm(backfillNoDryRun, d.Cfg.CLINoDryRun)
+		armed := proof.Arm(backfillNoDryRun, config.Current().CLINoDryRun)
 		out := cmd.OutOrStdout()
 		live := newLiveLines(out)
 		stream, tick, closeSink, err := resolveBackfillSink(backfillOutput, out, live)

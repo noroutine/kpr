@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -107,9 +108,9 @@ files the per-row log.`,
 			return err
 		}
 		defer d.Close()
-		cfg, s := d.Cfg, d.Store
+		s := d.Store
 		output, _ := cmd.Flags().GetString("output")
-		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, d.Reg, proof.Arm(sweepNoDryRun, cfg.CLINoDryRun), output)
+		return runSweep(cmd.Context(), cmd.OutOrStdout(), s, d.Reg, proof.Arm(sweepNoDryRun, config.Current().CLINoDryRun), output)
 	},
 }
 

@@ -8,14 +8,14 @@ import (
 )
 
 // Control implements Controller beside the Gate: Hold
-// delegates to the lease file, Deny/Allow record posture
-// transitions to the ring (signed kpr-edge). Enforcement itself
-// never moves — the marker and the lease stay the only truth —
-// so drivers record without the power to disagree. Ephemeral
+// delegates to the lease, Deny/Allow record posture transitions
+// to the ring (signed kpr-edge). Enforcement itself never
+// moves — the marker and the lease stay the only truth — so
+// drivers record without the power to disagree. Ephemeral
 // narration belongs to the caller: drivers voice their own
 // output, the ring keeps shared history.
 type Control struct {
-	store.HoldFile
+	Lease
 	Store GateStore
 	// Now sources time; nil means time.Now (tests pin it).
 	Now func() time.Time
@@ -23,12 +23,12 @@ type Control struct {
 
 var _ Controller = Control{}
 
-// Hold engages the lease file and records hold_engage; the
-// wrapped release records hold_release. A Hold that fails to
-// engage records nothing — no lease, no record — and the caller
+// Hold engages the lease and records hold_engage; the wrapped
+// release records hold_release. A Hold that fails to engage
+// records nothing — no lease, no record — and the caller
 // refuses instead of collecting unfenced.
 func (c Control) Hold(ctx context.Context, until time.Time) (func(), error) {
-	release, err := c.HoldFile.Hold(ctx, until)
+	release, err := c.Lease.Hold(ctx, until)
 	if err != nil {
 		return nil, err
 	}

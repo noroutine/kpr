@@ -3,6 +3,7 @@ package gc
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -54,6 +55,100 @@ func TestPruneEmptyDirsRefusesAbsentRoot(t *testing.T) {
 	if _, err := pruneEmptyDirs(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Error("absent root pruned clean, want refusal")
 	}
+}
+
+// The preview counts exactly what arming removes: planPrune on a
+// staged skeleton must equal the removal count on the same state
+// (plan mutates nothing), and the tree must stand untouched after
+// the plan. If this fails, the preview counts dirs arming
+// wouldn't take, or takes them early.
+func TestPlanPruneMatchesPruneEmptyDirs(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "a", "b", "c"), 0o755); err != nil {
+		t.Fatalf("stage skeleton: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "x", "y"), 0o755); err != nil {
+		t.Fatalf("stage skeleton: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "x", "y", "blob"), []byte("live"), 0o644); err != nil {
+		t.Fatalf("stage blob: %v", err)
+	}
+	before := walkNames(t, root)
+	got, err := planPrune(root)
+	if err != nil {
+		t.Fatalf("planPrune: %v", err)
+	}
+	if got != 3 {
+		t.Errorf("planPrune = %d, want 3 (a/b/c; x/y blocked by the blob)", got)
+	}
+	if after := walkNames(t, root); !slices.Equal(before, after) {
+		t.Errorf("plan mutated the tree:\nbefore %v\nafter %v", before, after)
+	}
+	removed, err := pruneEmptyDirs(root)
+	if err != nil {
+		t.Fatalf("pruneEmptyDirs: %v", err)
+	}
+	if removed != got {
+		t.Errorf("pruneEmptyDirs = %d, planPrune said %d", removed, got)
+	}
+}
+
+// An absent root refuses the plan loud, like the removal: a
+// preview over a wrong store path must shout, never count zero.
+// A missing subdir plans as nothing uncounted, like the removal
+// skipping it.
+func TestPlanPruneRefusesAbsentRoot(t *testing.T) {
+	if _, err := planPrune(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Error("plan over absent root succeeded, want refusal")
+	}
+	if n, gone, err := planDir(filepath.Join(t.TempDir(), "nope")); err != nil || n != 0 || gone {
+		t.Errorf("planDir missing = (%d, %v, %v), want (0, false, nil)", n, gone, err)
+	}
+}
+
+// A blinded tree fails the plan loud at every level: a blinded
+// parent breaks the stat, a blinded child breaks the parent's
+// walk. Unreadable is unknown, never empty. If this fails, blind
+// spots plan as prunable.
+func TestPlanPruneRefusesBlindTree(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	root := t.TempDir()
+	parent := filepath.Join(root, "parent")
+	if err := os.MkdirAll(filepath.Join(parent, "blind"), 0o755); err != nil {
+		t.Fatalf("stage dir: %v", err)
+	}
+	bp := filepath.Join(parent, "blind")
+	if err := os.Chmod(bp, 0o000); err != nil {
+		t.Fatalf("blind child: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(bp, 0o755) })
+	if _, err := planPrune(root); err == nil {
+		t.Error("plan over blinded child succeeded, want refusal")
+	}
+	if err := os.Chmod(parent, 0o000); err != nil {
+		t.Fatalf("blind parent: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
+	if _, _, err := planDir(filepath.Join(parent, "blind")); err == nil {
+		t.Error("plan through blinded parent succeeded, want refusal")
+	}
+}
+
+func walkNames(t *testing.T, root string) []string {
+	t.Helper()
+	var names []string
+	if err := filepath.Walk(root, func(p string, _ os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		names = append(names, p)
+		return nil
+	}); err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	return names
 }
 
 // Missing roots and plain files prune clean: nothing to list is
