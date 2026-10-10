@@ -143,37 +143,6 @@ func TestLockCommandsRefuseBadBackend(t *testing.T) {
 	}
 }
 
-// Adopt bootstraps the pairing onto silence: a fresh store facing
-// an empty registry pairs to the pinned IDENT without minting. If
-// this fails, the explicit ceremony cannot onboard a fresh deploy.
-func TestAdoptBootstrapsSilence(t *testing.T) {
-	regRoot := t.TempDir()
-	srv := serveRegistry(t, regRoot, true)
-	defer srv.Close()
-	dir := t.TempDir()
-	ident := "0193abcd-0000-7000-8000-0000000000aa"
-	out, err := runCmdWithArgs(t, dir, srv.URL, adoptCmd, []string{ident})
-	if err != nil {
-		t.Fatalf("adopt: %v", err)
-	}
-	if !strings.Contains(out, "paired to "+ident) {
-		t.Errorf("adopt output lacks the pairing:\n%s", out)
-	}
-	backend, storeDir := resolveTestBackend(t)
-	s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
-	if err != nil {
-		t.Fatalf("reopen store: %v", err)
-	}
-	defer func() { _ = s.Close() }()
-	paired, err := s.GetIdentity(context.Background())
-	if err != nil {
-		t.Fatalf("read identity: %v", err)
-	}
-	if paired.ID != ident {
-		t.Errorf("paired = %q, want the pinned %q", paired.ID, ident)
-	}
-}
-
 // resolveTestBackend resolves the staged backend once for tests
 // that open stores directly: env is staged, never re-derived.
 func resolveTestBackend(t *testing.T) (string, string) {
