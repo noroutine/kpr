@@ -733,6 +733,34 @@ type stubProbe struct{ err error }
 
 func (f stubProbe) Reachable(ctx context.Context) error { return f.err }
 
+// A stale deny flip must not survive a live unlock: the store
+// reading is the answer wherever a store exists. A refused push
+// while locked flips deny true; unlocking after must clear the
+// card with no further traffic. If this fails, unlock moves
+// nothing on the dashboard until someone pushes.
+func TestKeeperSnapshotLiveUnlockClearsStaleDeny(t *testing.T) {
+	testConfig(t)
+	ctx := context.Background()
+	st := store.NewMemStore()
+	if err := st.SetUnlocked(ctx, false); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	g := &fence.Gate{Store: st}
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	rr := httptest.NewRecorder()
+	g.Wrap(next).ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/v2/repo/manifests/tag", nil))
+	if rr.Code != http.StatusLocked {
+		t.Fatalf("locked push = %d, want 423 to stage the deny flip", rr.Code)
+	}
+	if err := st.SetUnlocked(ctx, true); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	s := &Server{Store: st, Edge: g, Registry: stubProbe{}}
+	if d := s.keeperSnapshot(ctx); d.EdgeDeny {
+		t.Error("snapshot denies after unlock, want the live reading to clear the stale flip")
+	}
+}
+
 // A reachable registry greens the banner through the port alone: the
 // stub never dials, so no loopback server is bound. If this fails,
 // the console probes the concrete client instead of its port.
