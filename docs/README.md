@@ -19,7 +19,6 @@ and quickstart commands are in the [top-level README](../README.md).
 | [STORES](STORES.md) | file and redis backends, layouts, invariants |
 | [GC](GC.md) | reclaiming blob bytes: the proof chain, the two paths |
 | [BACKFILL](BACKFILL.md) | adopting pre-kpr tags into tracked rows |
-| [OBSERVABILITY](OBSERVABILITY.md) | compose overlay, basic (follow-ups open) |
 
 ## Understand it
 
@@ -68,3 +67,4 @@ Deferred by decision, kept so the reasoning survives:
 | [CHILD_REGISTRY](CHILD_REGISTRY.md) | a kpr-launched registry (not started) |
 | [STATIC_SERVE](STATIC_SERVE.md) | serving images as static content (not now) |
 | [BACKUP_RESTORE](BACKUP_RESTORE.md) | tarball + registry-pushed store backups (not built) |
+| [OBSERVABILITY](OBSERVABILITY.md) | overlay, basic compose only (not paid attention) |
