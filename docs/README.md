@@ -67,3 +67,4 @@ Deferred by decision, kept so the reasoning survives:
 | [BLOBCACHE](BLOBCACHE.md) | should kpr speak the descriptor-cache protocol? (not now) |
 | [CHILD_REGISTRY](CHILD_REGISTRY.md) | a kpr-launched registry (not started) |
 | [STATIC_SERVE](STATIC_SERVE.md) | serving images as static content (not now) |
+| [BACKUP_RESTORE](BACKUP_RESTORE.md) | tarball + registry-pushed store backups (not built) |
