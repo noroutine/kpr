@@ -262,12 +262,12 @@ func EvaluatePolicies(ctx context.Context, s store.Store, reg CatalogSource, now
 // it only evaluates (the caller prints the plan): dry-run is implicit,
 // --no-dry-run explicit. excludes spares keep-N for matching repo:tag
 // names. It returns the evaluated rows either way, marked or not.
-func Reap(ctx context.Context, s store.Store, reg CatalogSource, now time.Time, keepNExclude []string, policyName string, armed bool) ([]policy.Row, error) {
+func Reap(ctx context.Context, s store.Store, reg CatalogSource, now time.Time, keepNExclude []string, policyName string, armed proof.ArmedRun) ([]policy.Row, error) {
 	marked, err := EvaluatePolicy(ctx, s, reg, now, keepNExclude, policyName)
 	if err != nil {
 		return nil, err
 	}
-	if !armed {
+	if proof.Unarmed(armed) {
 		return marked, nil
 	}
 	for _, r := range marked {

@@ -18,7 +18,7 @@ import (
 // whether they were marked. Evaluation and marking live in
 // keeper.Reap; this stays printing-only.
 func runReap(ctx context.Context, w io.Writer, s store.Store, reg keeper.CatalogSource, armed proof.ArmedRun, excludes []string, now time.Time, policyName string) error {
-	marked, err := keeper.Reap(ctx, s, reg, now, excludes, policyName, !proof.Unarmed(armed))
+	marked, err := keeper.Reap(ctx, s, reg, now, excludes, policyName, armed)
 	if err != nil {
 		return err
 	}
