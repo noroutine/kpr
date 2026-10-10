@@ -29,7 +29,7 @@ underneath.
 - [After an armed run: stale blob descriptors](#after-an-armed-run-stale-blob-descriptors)
 
 Unbuilt gc designs live in [GC_FUTURE.md](GC_FUTURE.md)
-(token-auth registries) and [GC_DANGLING.md](GC_DANGLING.md)
+(per-repo collection) and [GC_DANGLING.md](GC_DANGLING.md)
 (dangling references).
 
 ## The shape of a run

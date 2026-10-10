@@ -299,7 +299,7 @@ Registry auth scope: kpr's registry client speaks anonymous or basic
 (one user+password pair, env-supplied) — that covers open and htpasswd
 registries, which is all kpr claims today. Token-issuing registries
 (JWT bearer) are future work: same pair, exchanged at the issuer per
-scope (see [GC_FUTURE.md](GC_FUTURE.md#token-auth-registries)).
+scope (see [ARCHITECTURE_FUTURE.md](ARCHITECTURE_FUTURE.md#token-auth-registries)).
 The `auth` in
 Deliberately-out below is unrelated — kpr will never be an
 auth provider, only a client of the registry's.
