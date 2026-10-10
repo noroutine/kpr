@@ -69,13 +69,13 @@ jobs:
 
     # Hosted runners share egress IPs, so anonymous pulls burn the
     # per-IP quota on other repos' traffic — the login lifts CI onto
-    # the account's own budget (DOCKER_USERNAME + DOCKER_PASSWORD
-    # carrying a PAT, both repo secrets).
+    # the account's own budget. One credential mechanism everywhere:
+    # DOCKER_CFG carries a base64'd docker config.json (same org
+    # secret Forgejo publishes with), no username/password pair.
     - name: Log in to Docker Hub
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      run: |
+        mkdir -p ~/.docker
+        echo "${{ secrets.DOCKER_CFG }}" | base64 -d > ~/.docker/config.json
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
