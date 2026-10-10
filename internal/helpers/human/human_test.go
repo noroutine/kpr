@@ -18,7 +18,8 @@ func TestAgoRendersCompactAges(t *testing.T) {
 		d    time.Duration
 		want string
 	}{
-		{"hours", 2*time.Hour + 5*time.Minute, "2h5m0s ago"},
+		{"hours", 2*time.Hour + 5*time.Minute, "2h5m ago"},
+		{"exact hours", 48 * time.Hour, "48h ago"},
 		{"zero", 0, "0s ago"},
 		{"future clamps", -time.Hour, "0s ago"},
 	} {
@@ -26,11 +27,42 @@ func TestAgoRendersCompactAges(t *testing.T) {
 			t.Errorf("Ago(%s) = %q, want %q", tc.name, got, tc.want)
 		}
 	}
-	if got := human.ShortAge(now, now.Add(-90*time.Minute)); got != "1h30m0s ago" {
-		t.Errorf("ShortAge(90m) = %q, want 1h30m0s ago", got)
+	if got := human.ShortAge(now, now.Add(-90*time.Minute)); got != "1h30m ago" {
+		t.Errorf("ShortAge(90m) = %q, want 1h30m ago", got)
 	}
 	if got := human.ShortAge(now, now.Add(time.Hour)); got != "0s ago" {
 		t.Errorf("ShortAge(future) = %q, want 0s ago", got)
+	}
+}
+
+// Dur drops trailing zero units ("48h0m0s" reads "48h", "10m0s"
+// reads "10m") while a bare "0s" and a seconds-only "10s" stay
+// whole — trimming those would eat real digits. If this fails,
+// reasons and ages print Go-String tails again.
+func TestDurDropsZeroTails(t *testing.T) {
+	for _, c := range []struct {
+		in   time.Duration
+		want string
+	}{
+		{48 * time.Hour, "48h"},
+		{24 * time.Hour, "24h"},
+		{168 * time.Hour, "168h"},
+		{10 * time.Minute, "10m"},
+		{2*time.Hour + 5*time.Minute, "2h5m"},
+		{90 * time.Minute, "1h30m"},
+		{30 * time.Second, "30s"},
+		{10 * time.Second, "10s"},
+		{90 * time.Second, "1m30s"},
+		{0, "0s"},
+		{1*time.Hour + 2*time.Minute + 3*time.Second, "1h2m3s"},
+		{1*time.Hour + 5*time.Second, "1h0m5s"},
+		{-90 * time.Minute, "-1h30m"},
+		{1500 * time.Millisecond, "1.5s"},
+		{500 * time.Millisecond, "500ms"},
+	} {
+		if got := human.Dur(c.in); got != c.want {
+			t.Errorf("Dur(%v) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 

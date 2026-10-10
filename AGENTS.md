@@ -182,3 +182,11 @@ regression history; do not replace detailed background with a generic
 use-case summary. Rephrase that context into this style where
 necessary: explain why the behavior matters, but still avoid
 field-by-field code narration, filler openings, and full test names.
+
+## Prose style (all comments and docs)
+
+Write plain words, never ornate ones. Name the actor, the duration,
+and the consequence directly — "48h of implied TTL" instead of
+"covers next-day triage". If a comment needs a dictionary, rewrite
+it. And never invent a ritual to justify a number: no one inspects
+anything, the TTL is just the TTL.

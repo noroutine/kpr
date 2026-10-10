@@ -145,7 +145,7 @@ residual — see [Limitations](#limitations).
 | Policy | Reason (marks a row eligible) | Tuning (in code) |
 | --- | --- | --- |
 | `ttl` | `ttl:<d> elapsed` — explicit TTL (bare `10m`, suffixed `myapp-10m`) elapsed since push | `MaxTTL` |
-| `hash` | `ttl:<d> elapsed` — bare hash past the default (next-day triage) | `HashTTL` |
+| `hash` | `ttl:<d> elapsed` — bare hash past the 48h implied default | `HashTTL` |
 | `partial` | `partial:older than <age>` — digest-less row older than the max age (a push that never completed) | `StaleUploadMaxAge` |
 | `untagged` | `untagged:past grace <grace>` — tracked tag gone from the live catalog past the grace period | `UntaggedGrace` |
 | `keep-n` | `keep-n:exceeds <n>` — everything past the freshest N tags per repo | `KeepN` |
@@ -159,9 +159,10 @@ carries no meaning; bare tags stay hex-scoped.
 
 | Shape | Reason | Tuning | Policy |
 | --- | --- | --- | --- |
-| CI commit builds `abc1234-10m`: any stem + `-ttl` suffix (explicit intent) | `ttl:10s elapsed` | `MaxTTL` | `ttl` |
-| Bare durations `10m`: number + unit, no stem | `ttl:10m0s elapsed` | `MaxTTL` | `ttl` |
-| Bare hashes `abc1234`: hex 6+ with a letter, no suffix (next-day triage) | `ttl:48h0m0s elapsed` | `HashTTL` | `hash` |
+| CI commit builds `abc1234-10m`: alnum-opening `[A-Za-z0-9-]` stem + `-ttl` suffix (explicit intent; leading hyphens refused, `.`/`_` never match) | `ttl:10m elapsed` | `MaxTTL` | `ttl` |
+| Bare durations `10m`: number + unit, no stem | `ttl:10m elapsed` | `MaxTTL` | `ttl` |
+| Bare hashes `abc1234`: hex 6+ with a letter, or all-digit hex that is not date-like, no suffix (48h implied TTL) | `ttl:48h elapsed` | `HashTTL` | `hash` |
+| Date-like `20240115`: YYYYMMDD in the Docker-era window, +0–2 serial digits — spared, never due | — | — | keep |
 
 keep-N is intentionally fixed: N is a const (10), include is unset,
 excludes arrive via the reap flag. Per-repo tuning stays out by

@@ -196,7 +196,7 @@ the suite catches loudly:
   blocks for `const` lines, so every mutant on one reads NOT
   COVERED even when tests pin the value. Check for literal pins
   instead: reason strings rendering the tuning (`partial:older
-  than 24h0m0s`, `untagged:past grace 168h0m0s`), staged
+  than 24h`, `untagged:past grace 168h`), staged
   literals around the window (3-day/8-day proofs, 2h rows),
   wire text asserting the constant (the manifest Accept list).
   When the value renders nowhere observable, ±1 steps are
@@ -283,7 +283,8 @@ one earned, none by neglect):
   collapse is observable — it dies on the order pins, each
   proven by hand-flip; finer steps change nothing a test
   should observe. Rendered tunings need no NOTE: the dashboard
-  pins `tolerance 30s`, the reasons pin `24h0m0s`/`168h0m0s`.
+  pins `tolerance 30s`, the reasons pin `24h`/`168h` (rendered
+  through `human.Dur`, wired to the consts, never literals).
 - Bounds, not budgets: sweep `LockTTL` (minute steps
   unobservable — same family as gc's `lockTTL`/`holdLease`);
   collapse to zero dies on the positivity pin (redis PX).

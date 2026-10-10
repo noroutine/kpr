@@ -37,7 +37,7 @@ func TestRenderOutcomeShowsHumanAge(t *testing.T) {
 	}
 	flip := renderOutcome(cliNow, store.Outcome{Outcome: "deny_engage",
 		Reason: "store locked", At: cliNow.Add(-time.Hour)})
-	if flip != "  deny_engage (store locked), 1h0m0s ago" {
+	if flip != "  deny_engage (store locked), 1h ago" {
 		t.Errorf("row-less outcome = %q, want the human age trailed", flip)
 	}
 	zero := renderOutcome(cliNow, store.Outcome{Outcome: "deleted", Reason: "untag"})

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/registry"
@@ -308,7 +309,7 @@ func TestListGhostsKeepsRowState(t *testing.T) {
 	c := keeperCtx()
 	_ = s.Record(c, policy.Row{Repo: "gone", Tag: "v1", Digest: "sha256:a",
 		PushedAt: keeperNow.Add(-200 * 24 * time.Hour)})
-	if err := s.MarkDue(c, "gone", "v1", "ttl:2160h0m0s elapsed"); err != nil {
+	if err := s.MarkDue(c, "gone", "v1", "ttl:"+human.Dur(policy.MaxTTL)+" elapsed"); err != nil {
 		t.Fatalf("stage due mark: %v", err)
 	}
 	reg := ghostCatalog{gone: map[string]bool{"gone": true}}
@@ -319,7 +320,7 @@ func TestListGhostsKeepsRowState(t *testing.T) {
 	if len(ghosts) != 1 {
 		t.Fatalf("ghosts = %v, want [gone:v1]", ghosts)
 	}
-	if !ghosts[0].Row.Due || ghosts[0].Row.Reason != "ttl:2160h0m0s elapsed" {
+	if !ghosts[0].Row.Due || ghosts[0].Row.Reason != "ttl:"+human.Dur(policy.MaxTTL)+" elapsed" {
 		t.Errorf("row = %+v, want the stored mark untouched", ghosts[0].Row)
 	}
 	if ghosts[0].Evidence == "" {

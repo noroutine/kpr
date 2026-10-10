@@ -125,10 +125,10 @@ func TestRegistryLsSentinels(t *testing.T) {
 	if join(fields(lines[0])) != "REPO:TAG AGE WRITER" {
 		t.Errorf("header = %q, want tag/age/writer columns", lines[0])
 	}
-	if got := join(fields(lines[1])); got != "noroutine/kpr-sentinel:gen-1 1h30m0s ago kpr-unlock" {
+	if got := join(fields(lines[1])); got != "noroutine/kpr-sentinel:gen-1 1h30m ago kpr-unlock" {
 		t.Errorf("gen-1 = %q, want evaluated age and writer", got)
 	}
-	if got := join(fields(lines[3])); got != "noroutine/kpr-sentinel:latest 1h30m0s ago kpr-gc" {
+	if got := join(fields(lines[3])); got != "noroutine/kpr-sentinel:latest 1h30m ago kpr-gc" {
 		t.Errorf("latest = %q, want floater listed like any tag", got)
 	}
 	if !strings.Contains(errW.String(), "broken") {

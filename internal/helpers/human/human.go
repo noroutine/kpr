@@ -7,10 +7,50 @@ package human
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 )
 
-// Ago renders a duration as a compact age ("2h5m0s ago"). A
+// durRe splits a Go duration rendering into its h/m/s parts so
+// Dur can drop trailing zero components structurally: suffix
+// trimming cannot tell the 0 of "0m" from the 0 of "10m".
+var durRe = regexp.MustCompile(`^(-)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?$`)
+
+// Dur renders a duration without trailing zero units: "48h0m0s"
+// reads "48h", "10m0s" reads "10m". Components rebuild from the
+// parsed parts, so a real zero inside seconds ("1m30s", "10s")
+// survives. All-zero stays "0s"; anything unparseable passes
+// through untouched, never empty.
+// NOTE(mutants): suffix-trimming ("m0s", "0s") passes round-hour
+// cases yet eats "2h0m0s" into "2h0" and "1m30s" into "1m3" —
+// the zero-minute and thirty-second cases pin the structure.
+func Dur(d time.Duration) string {
+	m := durRe.FindStringSubmatch(d.String())
+	if m == nil {
+		return d.String()
+	}
+	out := m[1]
+	parts := []string{}
+	if m[2] != "" {
+		parts = append(parts, m[2]+"h")
+	}
+	if m[3] != "" {
+		parts = append(parts, m[3]+"m")
+	}
+	if m[4] != "" {
+		parts = append(parts, m[4]+"s")
+	}
+	// The loop keeps at least one part, and the regex matched at
+	// least one (String never renders ""), so the join is never
+	// empty: all-zero stays "0s" via the single surviving part.
+	for len(parts) > 1 && (parts[len(parts)-1] == "0s" || parts[len(parts)-1] == "0m") {
+		parts = parts[:len(parts)-1]
+	}
+	return out + strings.Join(parts, "")
+}
+
+// Ago renders a duration as a compact age ("2h5m ago"). A
 // negative duration clamps to zero — the measurement is odd,
 // the rendering must not be.
 // NOTE(mutants): <= is equivalent — clamping an exactly-zero
@@ -19,11 +59,11 @@ func Ago(d time.Duration) string {
 	if d < 0 {
 		d = 0
 	}
-	return d.Round(time.Second).String() + " ago"
+	return Dur(d.Round(time.Second)) + " ago"
 }
 
 // ShortAge renders the age of then at now as a compact
-// duration ("2h5m0s ago").
+// duration ("2h5m ago").
 func ShortAge(now, then time.Time) string {
 	return Ago(now.Sub(then))
 }

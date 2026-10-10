@@ -33,8 +33,8 @@ func TestStoreLsListsRowsShort(t *testing.T) {
 	if err := runStoreLs(cliCtx(), &out, s, storeLsOpts{now: cliNow}); err != nil {
 		t.Fatalf("runStoreLs: %v", err)
 	}
-	for _, want := range []string{"REPO:TAG", "AGE", "DUE", "app:v1", "2h0m0s ago",
-		"scratch:10m", "1h0m0s ago", "ttl:10m elapsed", "not due", "noroutine/kpr-web:v2"} {
+	for _, want := range []string{"REPO:TAG", "AGE", "DUE", "app:v1", "2h ago",
+		"scratch:10m", "1h ago", "ttl:10m elapsed", "not due", "noroutine/kpr-web:v2"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("ls missing %q:\n%s", want, out.String())
 		}

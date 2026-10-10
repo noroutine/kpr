@@ -86,13 +86,13 @@ func TestEffectiveTTLCommitHashSuffix(t *testing.T) {
 	}
 }
 
-// A bare commit hash (no -ttl suffix) gets the hash default: 48h is
-// enough for next-day triage, 24h proved too short. The default needs
-// at least one a-f letter — an all-digit tag is a build number until
-// proven otherwise, and unknown intent defaults to keep. If this
-// fails, commit builds pile up forever or build numbers get eaten.
+// A bare commit hash (no -ttl suffix) gets the hash default: 48h of
+// implied TTL, 24h expired builds too fast. All-digit tags
+// read as hashes too unless they are date-like — unknown intent
+// defaults to collect, dates default to keep. If this fails, commit
+// builds pile up forever or date tags get eaten.
 func TestEffectiveTTLHashDefault48h(t *testing.T) {
-	for _, tag := range []string{"abc1234", "abcdef", "deadbee", "fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e"} {
+	for _, tag := range []string{"abc1234", "abcdef", "deadbee", "fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e", "123456", "1234567", "1754123456"} {
 		got, ok := EffectiveTTL(tag)
 		if !ok {
 			t.Errorf("EffectiveTTL(%q) not matched, want 48h", tag)
@@ -102,9 +102,42 @@ func TestEffectiveTTLHashDefault48h(t *testing.T) {
 			t.Errorf("EffectiveTTL(%q) = %v, want 48h", tag, got)
 		}
 	}
-	for _, tag := range []string{"123456", "20240115", "myapp", "latest", "ABC1234", "abc12", "12345"} {
+	for _, tag := range []string{"20240115", "myapp", "latest", "ABC1234", "abc12", "12345"} {
 		if ttl, ok := EffectiveTTL(tag); ok {
 			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
+		}
+	}
+}
+
+// Date-like all-digit tags are spared from the hash default:
+// YYYYMMDD with a real calendar date inside the Docker-era
+// window, plus up to two DNS-serial counter digits. Anything
+// else all-digit — out-of-range years, impossible months,
+// build counters — reads as a hash. If this fails, date-tagged
+// releases get eaten or number soup piles up forever.
+func TestDateLikeTagsSpared(t *testing.T) {
+	for _, tag := range []string{"20240115", "20240229", "20130301", "21130301", "202401151", "2024011512"} {
+		if ttl, ok := EffectiveTTL(tag); ok {
+			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
+		}
+	}
+	// isDateLike direct: the digit guard fires only here — callers
+	// arrive with digits already proven, so EffectiveTTL never
+	// exercises it. If this fails, a non-digit tag reads as a date.
+	if isDateLike("2024ab15") || isDateLike("2024011x") {
+		t.Error("isDateLike accepted a non-digit tag, want false")
+	}
+	for _, tag := range []string{"2024011", "2024011512301"} {
+		if isDateLike(tag) {
+			t.Errorf("isDateLike(%q) = true, want false (length)", tag)
+		}
+	}
+	// Longer timestamps (YYYYMMDDHHMM and beyond) are out of scope:
+	// only date + 0-2 serial digits is spared, the rest collects.
+	for _, tag := range []string{"19681534", "19990101", "20241301", "20240230", "21130302", "99999999", "202401151230"} {
+		got, ok := EffectiveTTL(tag)
+		if !ok || got != 48*time.Hour {
+			t.Errorf("EffectiveTTL(%q) = (%v, %v), want (48h, true)", tag, got, ok)
 		}
 	}
 }
@@ -138,6 +171,19 @@ func TestParseTTLToleratesShortSubmatch(t *testing.T) {
 	}
 }
 
+// A leading hyphen is not a negative TTL and not an empty stem:
+// "-14m" and friends default to keep. Docker tags cannot open
+// with a hyphen either, so nothing reachable parses this way —
+// the rule just refuses to read intent into stray hyphens. If
+// this fails, a stray-hyphen tag silently becomes a live TTL.
+func TestLeadingHyphenTagsDefaultKeep(t *testing.T) {
+	for _, tag := range []string{"-14m", "--14m", "-10s", "--1h-30m"} {
+		if ttl, ok := EffectiveTTL(tag); ok {
+			t.Errorf("EffectiveTTL(%q) = (%v, true), want (0, false)", tag, ttl)
+		}
+	}
+}
+
 // A TTL larger than the colocated max must clamp to the max, and a
 // numeric part that overflows int64 must saturate instead of wrapping
 // negative (a wrapped duration would expire immediately — the opposite
@@ -149,6 +195,10 @@ func TestEffectiveTTLClampsToMax(t *testing.T) {
 	const max = 30 * 24 * time.Hour
 	if ttl, ok := EffectiveTTL("100000h"); !ok || ttl != max {
 		t.Errorf("EffectiveTTL(100000h) = (%v, %v), want (%v, true)", ttl, ok, max)
+	}
+	// 100 weeks is 700 days: the clamp, not the calendar, wins.
+	if ttl, ok := EffectiveTTL("100w"); !ok || ttl != max {
+		t.Errorf("EffectiveTTL(100w) = (%v, %v), want (%v, true)", ttl, ok, max)
 	}
 	if ttl, ok := EffectiveTTL("99999999999999999999w"); !ok || ttl != max {
 		t.Errorf("EffectiveTTL(huge) = (%v, %v), want (%v, true)", ttl, ok, max)

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
+	"nrtn.dev/catalyst/kpr/internal/policy"
 )
 
 // Suffix is intent: any stem + -ttl expires (commit builds and
@@ -22,27 +25,31 @@ func TestCommitHashSuffixSwept(t *testing.T) {
 	// expire — the scenario never sleeps on a clock.
 	s.Push("test/ci", "abc1234-30s", time.Hour)
 	s.Push("test/ci", "deadbee", 49*time.Hour)
+	s.Push("test/ci", "123456", 49*time.Hour)
 	s.Push("test/ci", "myapp-30s", time.Hour)
 	s.Push("test/ci", "myapp", 30*24*time.Hour)
 	s.Push("test/ci", "20240115", 30*24*time.Hour)
 
 	s.ReapArmed()
 	s.ExpectDue("test/ci", "abc1234-30s", "ttl:30s elapsed")
-	s.ExpectDue("test/ci", "deadbee", "ttl:48h0m0s elapsed")
+	s.ExpectDue("test/ci", "deadbee", "ttl:"+human.Dur(policy.HashTTL)+" elapsed")
+	s.ExpectDue("test/ci", "123456", "ttl:"+human.Dur(policy.HashTTL)+" elapsed")
 	s.ExpectDue("test/ci", "myapp-30s", "ttl:30s elapsed")
 	s.ExpectNotDue("test/ci", "myapp")
 	s.ExpectNotDue("test/ci", "20240115")
-	s.ExpectDueCount(3)
+	s.ExpectDueCount(4)
 
 	sum := s.SweepArmed()
-	if sum.Performed != 3 || sum.Failed != 0 {
-		t.Fatalf("sweep = %+v, want 3 performed, 0 failed", sum)
+	if sum.Performed != 4 || sum.Failed != 0 {
+		t.Fatalf("sweep = %+v, want 4 performed, 0 failed", sum)
 	}
 
 	s.ExpectAbsentFromCatalog("test/ci", "abc1234-30s")
 	s.ExpectRowGone("test/ci", "abc1234-30s")
 	s.ExpectAbsentFromCatalog("test/ci", "deadbee")
 	s.ExpectRowGone("test/ci", "deadbee")
+	s.ExpectAbsentFromCatalog("test/ci", "123456")
+	s.ExpectRowGone("test/ci", "123456")
 	s.ExpectAbsentFromCatalog("test/ci", "myapp-30s")
 	s.ExpectRowGone("test/ci", "myapp-30s")
 	s.ExpectTagPresent("test/ci", "myapp")
