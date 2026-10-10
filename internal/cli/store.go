@@ -6,19 +6,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"nrtn.dev/catalyst/kpr/internal/cli/deps"
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/policy"
-	"nrtn.dev/catalyst/kpr/internal/store"
 )
-
-func OpenStore(cfg *config.Config) (store.StoreCloser, error) {
-	backend, dir, err := deps.ResolveStoreBackend()
-	if err != nil {
-		return nil, err
-	}
-	return deps.OpenStore(cfg, backend, dir)
-}
 
 // splitRef cuts an exact repo:tag, sharing the split with
 // policy.ParseExactImage (one parser for the concept —

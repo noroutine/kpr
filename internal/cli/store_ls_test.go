@@ -485,3 +485,190 @@ func TestStoreLsSplitsSentinels(t *testing.T) {
 		t.Errorf("ls sentinels leaks inventory:\n%s", mach.String())
 	}
 }
+
+// An empty store into a breaking pipe refuses on the notice
+// itself: "no tracked rows" writes straight to w, past the
+// tabwriter the row writes hide behind. If this fails, empty
+// listings read clean over a dead pipe.
+func TestStoreLsEmptyWriteFailureSurfaces(t *testing.T) {
+	s := store.NewMemStore()
+	if err := runStoreLs(cliCtx(), errWriter{}, s, storeLsOpts{now: cliNow}); err == nil {
+		t.Error("ls empty into breaking pipe succeeded, want an error")
+	}
+}
+
+// Empty ghosts encode as empty arrays, never null — the ghosts
+// twin of the husks array contract. If this fails, clean stores
+// emit null buckets scripts must branch on.
+func TestStoreGhostsEmptyIsArray(t *testing.T) {
+	s := store.NewMemStore()
+	same := untagProof(t, s)
+	var buf bytes.Buffer
+	if err := runStoreGhosts(cliCtx(), &buf, s, ghostReg{}, map[string]bool{},
+		same, storeLsOpts{now: cliNow, json: true}); err != nil {
+		t.Fatalf("ghosts json on empty store: %v", err)
+	}
+	if got, want := strings.TrimSpace(buf.String()),
+		`{"ghosts":[],"conflicts":[],"unreadable":[]}`; got != want {
+		t.Errorf("ghosts empty = %s, want %s", got, want)
+	}
+}
+
+// An empty ghost hunt still reports what it skipped: zero
+// agreed-gone with an unreadable repo prints the notice plus the
+// footer, never the notice alone. If this fails, degraded-empty
+// views read clean.
+func TestStoreGhostsEmptyNamesFooter(t *testing.T) {
+	s := store.NewMemStore()
+	if err := s.Record(cliCtx(), policy.Row{Repo: "flaky", Tag: "v1",
+		Digest: "sha256:d", PushedAt: cliNow}); err != nil {
+		t.Fatalf("stage row: %v", err)
+	}
+	same := untagProof(t, s)
+	var buf bytes.Buffer
+	// The fs view stays live (non-empty) so the hunt runs: flaky
+	// catalog-500s into unreadable, nothing 404s into a ghost.
+	if err := runStoreGhosts(cliCtx(), &buf, s, ghostReg{}, map[string]bool{"flaky": true},
+		same, storeLsOpts{now: cliNow}); err != nil {
+		t.Fatalf("ghosts empty with unreadable: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "no ghost rows") ||
+		!strings.Contains(out, "skipped 1 repo (catalog unreadable)") {
+		t.Errorf("ghosts degraded-empty = %q, want notice plus skipped footer", out)
+	}
+}
+
+// A degraded-empty hunt into a breaking pipe refuses on the
+// footer: the notice already printed, the footer write fails loud
+// instead of truncating the degradation report. If this fails, a
+// dead pipe reads as a clean hunt that skipped nothing.
+func TestStoreGhostsEmptyFooterWriteFailureSurfaces(t *testing.T) {
+	s := store.NewMemStore()
+	if err := s.Record(cliCtx(), policy.Row{Repo: "flaky", Tag: "v1",
+		Digest: "sha256:d", PushedAt: cliNow}); err != nil {
+		t.Fatalf("stage row: %v", err)
+	}
+	same := untagProof(t, s)
+	// The notice lands, the footer breaks: one success then failure.
+	if err := runStoreGhosts(cliCtx(), &failAfterWriter{n: 1}, s, ghostReg{},
+		map[string]bool{"flaky": true}, same, storeLsOpts{now: cliNow}); err == nil {
+		t.Error("ghosts degraded-empty into breaking pipe succeeded, want an error")
+	}
+}
+
+// stageGhostProcurement pairs a file store to a served generation:
+// the ground the ghosts procurement tests refuse from. Returns the
+// data dir, the registry speaking for it, and the config reading
+// it — each refusal test then blinds exactly one witness.
+func stageGhostProcurement(t *testing.T, dir string) (data string, srvURL, cfgPath string, gen, id string) {
+	t.Helper()
+	data = t.TempDir()
+	var err error
+	if gen, err = sentinel.NewGen(); err != nil {
+		t.Fatalf("mint gen: %v", err)
+	}
+	if id, err = sentinel.NewGen(); err != nil {
+		t.Fatalf("mint id: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := sentinel.Write(data, sentinel.Repo, sentinel.Tag,
+		sentinel.Payload{V: 1, Gen: gen, ID: id, TS: now}); err != nil {
+		t.Fatalf("stage served generation: %v", err)
+	}
+	srv := serveDiskRegistry(t, data, `{"repositories":[]}`)
+	t.Cleanup(srv.Close)
+	cfgPath = filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfgPath, []byte("storage:\n  filesystem:\n    rootdirectory: "+data+"\n"), 0o644); err != nil {
+		t.Fatalf("stage registry config: %v", err)
+	}
+	func() {
+		t.Setenv(config.EnvStore, "file")
+		t.Setenv(config.EnvStoreDir, dir)
+		backend, storeDir := resolveTestBackend(t)
+		s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
+		if err != nil {
+			t.Fatalf("open file store: %v", err)
+		}
+		defer func() { _ = s.Close() }()
+		c := context.Background()
+		if err := s.SetUnlocked(c, true); err != nil {
+			t.Fatalf("stage unlock: %v", err)
+		}
+		if err := s.SetIdentity(c, store.Identity{ID: id, BaselineGen: gen}); err != nil {
+			t.Fatalf("pair store: %v", err)
+		}
+	}()
+	return data, srv.URL, cfgPath, gen, id
+}
+
+func resetStoreLsFlags(t *testing.T) {
+	t.Helper()
+	for _, f := range [][2]string{{"long", "false"}, {"json", "false"}} {
+		if err := storeLsCmd.Flags().Set(f[0], f[1]); err != nil {
+			t.Fatalf("reset --%s: %v", f[0], err)
+		}
+	}
+}
+
+// An unpaired store refuses the ghost hunt before any witness is
+// read: judging rows from a foreign store is the ambiguity proofs
+// exist to refuse. If this fails, ghosts list blind over strangers.
+func TestStoreLsGhostsUnpairedRefuses(t *testing.T) {
+	dir := t.TempDir()
+	func() {
+		t.Setenv(config.EnvStore, "file")
+		t.Setenv(config.EnvStoreDir, dir)
+		backend, storeDir := resolveTestBackend(t)
+		s, err := deps.OpenStore(config.NewBuilder().FromEnv().Build(), backend, storeDir)
+		if err != nil {
+			t.Fatalf("open file store: %v", err)
+		}
+		defer func() { _ = s.Close() }()
+		if err := s.SetUnlocked(context.Background(), true); err != nil {
+			t.Fatalf("stage unlock: %v", err)
+		}
+	}()
+	resetStoreLsFlags(t)
+	if _, err := runCmdWithArgs(t, dir, "http://registry:5000", storeLsCmd, []string{"ghosts"}); err == nil {
+		t.Error("ls ghosts on unpaired store succeeded, want refusal")
+	}
+}
+
+// A missing registry config refuses the ghost hunt after the
+// proof: the fs second opinion cannot be procured blind. If this
+// fails, ghosts judge rows on one witness while claiming two.
+func TestStoreLsGhostsMissingConfigRefuses(t *testing.T) {
+	dir := t.TempDir()
+	_, srvURL, _, _, _ := stageGhostProcurement(t, dir)
+	t.Setenv(config.EnvRegistryConfig, filepath.Join(t.TempDir(), "missing.yml"))
+	resetStoreLsFlags(t)
+	if _, err := runCmdWithArgs(t, dir, srvURL, storeLsCmd, []string{"ghosts"}); err == nil {
+		t.Error("ls ghosts off missing config succeeded, want refusal")
+	}
+}
+
+// An unreadable mount refuses the ghost hunt after the proof: the
+// fs walk names its outage instead of listing blind. Root reads
+// through permissions, so it sits this one out. If this fails, a
+// blinded registry lists partial ghosts as all.
+func TestStoreLsGhostsBlindMountRefuses(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through file permissions")
+	}
+	dir := t.TempDir()
+	data, srvURL, cfgPath, _, _ := stageGhostProcurement(t, dir)
+	blinded := filepath.Join(data, "docker", "registry", "v2", "repositories", "blinded")
+	if err := os.MkdirAll(blinded, 0o755); err != nil {
+		t.Fatalf("stage blind repo: %v", err)
+	}
+	if err := os.Chmod(blinded, 0o000); err != nil {
+		t.Fatalf("blind repo: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blinded, 0o755) })
+	t.Setenv(config.EnvRegistryConfig, cfgPath)
+	resetStoreLsFlags(t)
+	if _, err := runCmdWithArgs(t, dir, srvURL, storeLsCmd, []string{"ghosts"}); err == nil {
+		t.Error("ls ghosts over blinded mount succeeded, want refusal")
+	}
+}

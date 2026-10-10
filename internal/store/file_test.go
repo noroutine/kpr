@@ -715,3 +715,28 @@ func TestFileStoreAcquireLockOnReadonlyLocksFails(t *testing.T) {
 		t.Error("AcquireLock into readonly locks succeeded, want refusal")
 	}
 }
+
+// A due row whose name no longer maps to a file refuses the sweep:
+// ClearDue names the un-mappable row instead of skipping it (a
+// hand-planted or hostile name must stay loud, never silently kept
+// due). If this fails, corrupt rows dirs clear around the rot.
+func TestFileStoreClearDueOnUnmappableRowRefuses(t *testing.T) {
+	dir := t.TempDir()
+	rows := filepath.Join(dir, "rows")
+	if err := os.MkdirAll(rows, 0o755); err != nil {
+		t.Fatalf("stage rows dir: %v", err)
+	}
+	raw, err := json.Marshal(policy.Row{Repo: "..", Tag: "x", Due: true})
+	if err != nil {
+		t.Fatalf("stage row: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rows, "evil.json"), raw, 0o644); err != nil {
+		t.Fatalf("plant row: %v", err)
+	}
+	s := store.NewFileStore(dir)
+	if _, err := s.ClearDue(t.Context()); err == nil {
+		t.Error("ClearDue over un-mappable row succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "bad path element") {
+		t.Errorf("refusal = %q, want it to name the bad path element", err)
+	}
+}

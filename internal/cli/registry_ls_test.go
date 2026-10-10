@@ -442,3 +442,54 @@ func TestRegistryLsHusks(t *testing.T) {
 		t.Error("ls husks --long succeeded, want refusal (names only)")
 	}
 }
+
+// The sentinels target dispatches through the command: `registry
+// ls sentinels` evaluates tags off the API behind the configured
+// URL, not the mount. If this fails, the target dispatch drifted
+// from the listing.
+func TestRegistryLsSentinelsCommandDispatches(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 10, 3, 22, 0, 0, 0, time.UTC)
+	ts := now.Add(-90 * time.Minute).UTC().Format(time.RFC3339)
+	stageSentinelTag(t, root, "gen-1", sentinel.Payload{V: 1, Gen: "gen-1",
+		ID: "id-1", TS: ts, Writer: "kpr-gc"})
+	disk := mountAPI{root: root}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(r.URL.Path, "/v2/"+sentinel.Repo)
+		switch {
+		case p == "/tags/list":
+			_, _ = w.Write([]byte(`{"tags":["gen-1"]}`))
+		case strings.HasPrefix(p, "/manifests/"):
+			raw, err := disk.GetManifest(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/manifests/"))
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_, _ = w.Write(raw)
+		case strings.HasPrefix(p, "/blobs/"):
+			raw, err := disk.GetBlob(r.Context(), sentinel.Repo, strings.TrimPrefix(p, "/blobs/"))
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_, _ = w.Write(raw)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	// Cobra keeps parsed flag values on the shared command: start
+	// from defaults so no earlier invocation leaks in.
+	for _, f := range [][2]string{{"long", "false"}, {"json", "false"}} {
+		if err := registryLsCmd.Flags().Set(f[0], f[1]); err != nil {
+			t.Fatalf("reset --%s: %v", f[0], err)
+		}
+	}
+	out, err := runCmdWithArgs(t, t.TempDir(), srv.URL, registryLsCmd, []string{"sentinels"})
+	if err != nil {
+		t.Fatalf("ls sentinels: %v", err)
+	}
+	if !strings.Contains(out, "noroutine/kpr-sentinel:gen-1") || !strings.Contains(out, "kpr-gc") {
+		t.Errorf("ls sentinels = %q, want the staged tag with its writer", out)
+	}
+}

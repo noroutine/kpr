@@ -100,13 +100,27 @@ doubles) the store-ceremony suites borrow instead of copying.
 
 Named residue stays below 80% on purpose — error returns that
 cannot fire without contorting the test: `json.Marshal` on
-plain structs (store `SetIdentity`/`SetCurrent`/`writeRow`,
-lock-claim marshal), `os.Hostname` (`holder`), `uuid.NewV7`
-randomness (`NewGen`), `fs.Sub` on embedded static
-(`GetStaticFS`), and the lock-acquire leftovers (claim
-truncate/write, stale-fd close). Forcing these means
-monkeypatching the stdlib or faulting disks; a test that
-fakes the failure proves the fake, not the code.
+plain structs (store `SetIdentity`/`SetCurrent`/`writeRow`/
+`PushActivity`, `HoldFile.Hold`, redis `SetIdentity`/`SetCurrent`/
+`PushActivity`, lock-claim marshal), `os.Hostname` (`holder`),
+`uuid.NewV7` randomness (`NewGen`), `fs.Sub` on embedded static
+(`GetStaticFS`), the atomic-write and flock leftovers (tmp-write
+cleanup in `putFile`, `dirLock` flock loss, claim truncate/write,
+stale-fd close), and the `tabwriter` error bodies in the ls
+renderers (`registry ls`, `store ls`, ghosts long/short
+headers+rows — `tabwriter` buffers everything until `Flush`, so
+an intermediate write never fails; only `Flush` and direct-`w`
+writes carry error pins). The proof `sealed()` witnesses sit at
+0% by construction — uncallable except by their prover, which is
+the property. The `EffectiveTTL` non-zero-default branch is dead
+by `const`, not by neglect (pinned by the NOTE in
+`policy_test.go`; flipping the const re-arms it the same day).
+Staging `t.Fatalf` guards (`ProvenRun`/`NewGenID`/`PairedGen`)
+and contract violation bodies (`storetest`) fire only on broken
+ground — covering them means staging broken ground, which proves
+the staging. Forcing any of these means monkeypatching the
+stdlib or faulting disks; a test that fakes the failure proves
+the fake, not the code.
 
 ## CI Integration
 

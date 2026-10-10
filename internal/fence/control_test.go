@@ -43,6 +43,23 @@ func TestControlStorelessDenySkipsSilently(t *testing.T) {
 	c.Deny(context.Background(), "locked for test")
 }
 
+// An injected clock lands in the ring: the recorded At is the
+// seam's time, not the wall's. If this fails, deterministic
+// timestamps are decorative and transitions float on wall time.
+func TestControlAllowUsesInjectedClock(t *testing.T) {
+	st := store.NewMemStore()
+	fixed := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	c := Control{Store: st, Now: func() time.Time { return fixed }}
+	c.Allow(context.Background(), "store unlocked for test")
+	activity, err := st.Activity(context.Background())
+	if err != nil {
+		t.Fatalf("activity: %v", err)
+	}
+	if len(activity) != 1 || !activity[0].At.Equal(fixed) {
+		t.Fatalf("ring = %v, want one record stamped %v", activity, fixed)
+	}
+}
+
 // Hold records its own transitions: hold_engage at engage time,
 // hold_release on release — to the ring, like the deny
 // transitions. A Hold that fails to engage records
