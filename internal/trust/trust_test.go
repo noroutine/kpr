@@ -103,7 +103,7 @@ func TestName(t *testing.T) {
 	paired := store.Identity{ID: "id-a", BaselineGen: "gen-new"}
 	rows := []policy.Row{row("gen-old", 2*time.Hour), row("gen-new", time.Hour)}
 	judge := func(s lineage.Served) lineage.Verdict {
-		return lineage.Judge(s, lineage.Local{Ident: paired, Rows: rows}, lineage.Ask{DryRun: true, Now: now})
+		return lineage.Judge(s, lineage.Local{Ident: paired, Rows: rows}, lineage.Ask{Now: now})
 	}
 	for _, c := range []struct {
 		name  string

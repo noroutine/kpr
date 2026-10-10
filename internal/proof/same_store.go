@@ -56,12 +56,13 @@ func (p sameStore) Stale() bool        { return p.stale }
 func (p sameStore) sealed()            {}
 
 // Prover reads same-store proof. Sentinel is the served side, Store
-// the paired side; DryRun renders silence the way previews need
-// (refuse — nothing may establish from a read-only path).
+// the paired side; Armed decides whether the read may establish
+// (refuse unarmed — nothing may establish from a read-only path).
+// Zero is preview: producers light Armed loud, never by default.
 type Prover struct {
 	Sentinel sentinel.API
 	Store    Store
-	DryRun   bool
+	Armed    bool
 	// Now is a seam for tests; production leaves it nil (wall clock).
 	Now func() time.Time
 }
@@ -93,7 +94,7 @@ func (p Prover) Prove(ctx context.Context) (SameStore, error) {
 	v := lineage.Judge(
 		lineage.Served{Payload: pay, Digest: digest, Err: rerr},
 		lineage.Local{Ident: ident, Rows: rows},
-		lineage.Ask{DryRun: p.DryRun, Now: p.now()})
+		lineage.Ask{Armed: p.Armed, Now: p.now()})
 	if !v.Proceed || v.Establish {
 		return nil, fmt.Errorf("%s — %s", v.Reason, v.Action)
 	}

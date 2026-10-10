@@ -162,7 +162,7 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	}
 	// One frozen clock for gate and pass alike: the verdict judges
 	// as of pass start, not as of however long the reads took.
-	if _, err := (proof.Prover{Sentinel: s.Sentinel, Store: s.Store, DryRun: proof.Unarmed(s.Armed), Now: func() time.Time { return now }}.Prove(ctx)); err != nil {
+	if _, err := (proof.Prover{Sentinel: s.Sentinel, Store: s.Store, Armed: !proof.Unarmed(s.Armed), Now: func() time.Time { return now }}.Prove(ctx)); err != nil {
 		setStage(StageFailure, 0, 0)
 		sum.Skipped = true
 		sum.Failures = append(sum.Failures, err.Error())

@@ -104,7 +104,10 @@ only on confirm.`,
 		var same proof.SameStore
 		if untag {
 			var err error
-			same, err = proof.Prover{Sentinel: d.Reg, Store: d.Store}.Prove(cmd.Context())
+			// Armed lit loud: a stale rollback refuses here (rm has no
+			// --accept-rollback), and the zero-value preview would
+			// let it through warned.
+			same, err = proof.Prover{Sentinel: d.Reg, Store: d.Store, Armed: true}.Prove(cmd.Context())
 			if err != nil {
 				return err
 			}

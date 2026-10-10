@@ -90,7 +90,9 @@ func Unlock(ctx context.Context, w io.Writer, d UnlockDeps) error {
 	v := lineage.Judge(
 		lineage.Served{Payload: pay, Digest: digest, Err: rerr},
 		lineage.Local{Ident: ident, Rows: allRows},
-		lineage.Ask{Now: now})
+		// Armed lit loud: unlock heals the pairing write, so the
+		// zero-value preview would silently drop the adopt row.
+		lineage.Ask{Armed: true, Now: now})
 	if !v.Proceed && !v.Establish {
 		return fmt.Errorf("%s — %s", v.Reason, v.Action)
 	}

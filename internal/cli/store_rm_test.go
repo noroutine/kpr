@@ -112,7 +112,7 @@ func TestStoreRmLockedRefuses(t *testing.T) {
 		}
 		same, err := proof.Prover{
 			Sentinel: stubProofAPI{id: "test-id", ts: cliNow.Format(time.RFC3339)},
-			Store:    s, DryRun: false,
+			Store:    s, Armed: true,
 			Now: func() time.Time { return cliNow },
 		}.Prove(cliCtx())
 		if err != nil {

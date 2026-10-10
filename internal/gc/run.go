@@ -258,7 +258,7 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		v := lineage.Judge(
 			lineage.Served{Payload: pay, Digest: digest, Err: rerr},
 			lineage.Local{Ident: ident, Rows: allRows},
-			lineage.Ask{DryRun: proof.Unarmed(opts.Armed), Force: accepts.Rollback != nil, Now: now})
+			lineage.Ask{Armed: !proof.Unarmed(opts.Armed), Force: accepts.Rollback != nil, Now: now})
 		if !v.Proceed && !v.Establish {
 			return fmt.Errorf("%s — %s", v.Reason, v.Action)
 		}

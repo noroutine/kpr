@@ -65,3 +65,18 @@ and backfill still prove-then-unpack into a bare root string,
 and the guarantee stops at the call site. The mechanism exists;
 the call shapes don't use it yet. Revise when touching those
 signatures — not now.
+
+## Split proofs per subpackage (not revised yet)
+
+`proof` already depends on much (`lineage` for the same-store
+read, `sentinel`, `config`), and every consumer imports it back —
+so the one package is a loop waiting to happen. The exhibit:
+`lineage.Ask` cannot take `proof.ArmedRun` because
+`proof/same_store.go` imports `lineage` — the token stops at the
+cycle edge and the boundary degrades to `Armed bool`, which any
+caller can light. The direction this wants: proofs live with
+their subject (`lineage.Armed` sealed by the lineage read,
+`registry`-facing proofs with the registry client), and the
+top-level `proof` package keeps only the cross-cutting tokens
+with no subject imports. Split when a second boundary degrades
+the same way — one exhibit is a note, two are a pattern.

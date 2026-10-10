@@ -49,11 +49,11 @@ func TestJudgeTieBreaksOnTag(t *testing.T) {
 		{vrow(vgen3, time.Hour), vrow(vgen1, time.Hour)},
 	} {
 		local := Local{Ident: store.Identity{ID: vident}, Rows: rows}
-		got := Judge(vserved(vident, vgen1), local, Ask{Now: vnow})
+		got := Judge(vserved(vident, vgen1), local, Ask{Armed: true, Now: vnow})
 		if got.Proceed {
 			t.Errorf("rows %v: serving the tied-older gen proceeded (%q)", rows, got.Reason)
 		}
-		if got := Judge(vserved(vident, vgen3), local, Ask{Now: vnow}); !got.Proceed {
+		if got := Judge(vserved(vident, vgen3), local, Ask{Armed: true, Now: vnow}); !got.Proceed {
 			t.Errorf("rows %v: serving the tied-newest gen refused (%q)", rows, got.Reason)
 		}
 	}
@@ -68,7 +68,7 @@ func TestJudgeIgnoresFloaterRow(t *testing.T) {
 		MediaType: sentinel.ManifestMediaType, PushedAt: vnow, Actor: "kpr-backfill"}
 	local := Local{Ident: store.Identity{ID: vident},
 		Rows: []policy.Row{vrow(vgen3, time.Hour), floater}}
-	if got := Judge(vserved(vident, vgen3), local, Ask{Now: vnow}); !got.Proceed || got.Stale {
+	if got := Judge(vserved(vident, vgen3), local, Ask{Armed: true, Now: vnow}); !got.Proceed || got.Stale {
 		t.Errorf("serving the tracked newest with a fresher floater row = %+v, want clean proceed", got)
 	}
 }
@@ -80,7 +80,7 @@ func TestJudgeHealKeepsWriter(t *testing.T) {
 	got := Judge(
 		vserved(vident, "0193abcd-0000-7000-8000-000000000009"),
 		Local{Ident: store.Identity{ID: vident}},
-		Ask{Now: vnow})
+		Ask{Armed: true, Now: vnow})
 	if got.Heal == nil {
 		t.Fatalf("untracked own generation proposed no heal (%q)", got.Reason)
 	}
@@ -105,29 +105,29 @@ func TestJudgeMatrix(t *testing.T) {
 		reason, action string
 	}{
 		{
-			name:   "fresh match proceeds dry and armed",
-			served: vserved(vident, vgen3), local: paired,
-			ask: Ask{DryRun: true, Now: vnow}, proceed: true,
-		},
-		{
-			name:   "fresh match proceeds armed",
+			name:   "fresh match proceeds preview and armed",
 			served: vserved(vident, vgen3), local: paired,
 			ask: Ask{Now: vnow}, proceed: true,
 		},
 		{
-			name:   "stale warns dry",
+			name:   "fresh match proceeds armed",
+			served: vserved(vident, vgen3), local: paired,
+			ask: Ask{Armed: true, Now: vnow}, proceed: true,
+		},
+		{
+			name:   "stale warns preview",
 			served: vserved(vident, vgen1), local: paired,
-			ask: Ask{DryRun: true, Now: vnow}, proceed: true, stale: true,
+			ask: Ask{Now: vnow}, proceed: true, stale: true,
 		},
 		{
 			name:   "stale refuses armed",
 			served: vserved(vident, vgen1), local: paired,
-			ask: Ask{Now: vnow}, proceed: false, action: "--accept-rollback",
+			ask: Ask{Armed: true, Now: vnow}, proceed: false, action: "--accept-rollback",
 		},
 		{
 			name:   "stale rollback-accepted proceeds warned",
 			served: vserved(vident, vgen1), local: paired,
-			ask: Ask{Force: true, Now: vnow}, proceed: true, stale: true,
+			ask: Ask{Armed: true, Force: true, Now: vnow}, proceed: true, stale: true,
 		},
 		{
 			name:   "adopted baseline proceeds armed",
@@ -135,64 +135,64 @@ func TestJudgeMatrix(t *testing.T) {
 			local: Local{Ident: store.Identity{ID: vident, BaselineGen: vgen1}, Rows: []policy.Row{
 				vrow(vgen1, 3*time.Hour), vrow(vgen3, time.Hour),
 			}},
-			ask: Ask{Now: vnow}, proceed: true,
+			ask: Ask{Armed: true, Now: vnow}, proceed: true,
 		},
 		{
 			name:   "unknown gen heals armed",
 			served: vserved(vident, "0193abcd-0000-7000-8000-000000000009"), local: paired,
-			ask: Ask{Now: vnow}, proceed: true, heal: true,
+			ask: Ask{Armed: true, Now: vnow}, proceed: true, heal: true,
 		},
 		{
-			name:   "unknown gen proposes no heal dry",
+			name:   "unknown gen proposes no heal preview",
 			served: vserved(vident, "0193abcd-0000-7000-8000-000000000009"), local: paired,
-			ask: Ask{DryRun: true, Now: vnow}, proceed: true, heal: false,
+			ask: Ask{Now: vnow}, proceed: true, heal: false,
 		},
 		{
 			name:   "foreign refuses both",
 			served: vserved(vother, vgen3), local: paired,
-			ask: Ask{DryRun: true, Now: vnow}, proceed: false, action: "kpr store adopt",
+			ask: Ask{Now: vnow}, proceed: false, action: "kpr store adopt",
 		},
 		{
 			name:   "foreign refuses armed force",
 			served: vserved(vother, vgen3), local: paired,
-			ask: Ask{Force: true, Now: vnow}, proceed: false, action: "kpr store adopt",
+			ask: Ask{Armed: true, Force: true, Now: vnow}, proceed: false, action: "kpr store adopt",
 		},
 		{
 			name:   "unpaired store refuses served lineage",
 			served: vserved(vother, vgen3), local: Local{},
-			ask: Ask{DryRun: true, Now: vnow}, proceed: false, action: "kpr store adopt",
+			ask: Ask{Now: vnow}, proceed: false, action: "kpr store adopt",
 		},
 		{
 			name:   "id-less served refuses like foreign",
 			served: vserved("", vgen3), local: paired,
-			ask: Ask{DryRun: true, Now: vnow}, proceed: false,
+			ask: Ask{Now: vnow}, proceed: false,
 		},
 		{
-			name:   "silence refuses dry",
+			name:   "silence refuses preview",
 			served: vsilence(), local: paired,
-			ask: Ask{DryRun: true, Now: vnow}, proceed: false,
+			ask: Ask{Now: vnow}, proceed: false,
 		},
 		{
 			name:   "silence establishes armed",
 			served: vsilence(), local: paired,
-			ask: Ask{Now: vnow}, proceed: false, establish: true,
+			ask: Ask{Armed: true, Now: vnow}, proceed: false, establish: true,
 		},
 		{
 			name:   "garbage refuses both",
 			served: Served{Err: errors.New("payload unparseable")}, local: paired,
-			ask: Ask{DryRun: true, Now: vnow}, proceed: false,
+			ask: Ask{Now: vnow}, proceed: false,
 		},
 		{
 			name: "future timestamp refuses",
 			served: Served{Payload: sentinel.Payload{V: 1, Gen: vgen3, ID: vident,
 				TS: vnow.Add(time.Hour).Format(time.RFC3339)}, Digest: "sha256:x"},
-			local: paired, ask: Ask{DryRun: true, Now: vnow}, proceed: false,
+			local: paired, ask: Ask{Now: vnow}, proceed: false,
 		},
 		{
 			name: "unparseable timestamp refuses",
 			served: Served{Payload: sentinel.Payload{V: 1, Gen: vgen3, ID: vident, TS: "not-a-time"},
 				Digest: "sha256:x"},
-			local: paired, ask: Ask{DryRun: true, Now: vnow}, proceed: false,
+			local: paired, ask: Ask{Now: vnow}, proceed: false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

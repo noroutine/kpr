@@ -1024,3 +1024,60 @@ func TestBackfillDigestWarnWriteFails(t *testing.T) {
 		t.Error("digest warning over dead pipe succeeded, want the write failure")
 	}
 }
+
+// A preview over mixed ground skips loud in preview language:
+// the tracked tag "would skip", the husk repo "would skip" —
+// never the armed verbs. If this fails, previews read as runs.
+func TestBackfillDryRunSkipsInPreviewLanguage(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	stageTagDir(t, root, "app", "v1")
+	if err := s.Record(ctx, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:old", Actor: "kpr-receiver"}); err != nil {
+		t.Fatalf("pre-track: %v", err)
+	}
+	reg := &stubRegistry{
+		repos:   []string{"app", "bare"},
+		tags:    map[string][]string{"app": {"v1"}},
+		digests: map[string]string{"app\x00v1": "sha256:abc"},
+	}
+	var out strings.Builder
+	sum, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s, Rec: s, Ids: s, Lock: s, Log: &out}, Options{}, Accepts{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	log := out.String()
+	if !strings.Contains(log, "would skip app:v1 (tracked)") {
+		t.Errorf("preview names no would-skip tracked:\\n%s", log)
+	}
+	if !strings.Contains(log, "would skip bare (husk: no tags)") {
+		t.Errorf("preview names no would-skip husk:\\n%s", log)
+	}
+	// Husks count apart from skips: the husk names the repo, the
+	// skip closure counts the tag.
+	if sum.Skipped != 1 || sum.Husks != 1 {
+		t.Errorf("sum = %+v, want {Skipped:1 Husks:1}", sum)
+	}
+}
+
+// A dead recorder fails the run naming the row: the adopt is
+// unwritten, the error says which write. If this fails, record
+// outages read as clean runs or nameless errors.
+func TestBackfillRecordOutageNamesRow(t *testing.T) {
+	ctx := context.Background()
+	root, s, _, _ := stagePaired(t)
+	stageTagDir(t, root, "app", "v1")
+	reg := &stubRegistry{
+		repos:   []string{"app"},
+		tags:    map[string][]string{"app": {"v1"}},
+		digests: map[string]string{"app\x00v1": "sha256:abc"},
+	}
+	_, err := Run(ctx, io.Discard, Deps{API: fileAPI{root}, Reg: reg, Rows: s,
+		Rec: fakes.ErrRecorder{Err: fakes.ErrTestStoreDown}, Ids: s, Lock: s, Log: io.Discard},
+		Options{Armed: proof.Arm(true, false)}, Accepts{})
+	if err == nil {
+		t.Fatal("Run over dead recorder succeeded, want refusal")
+	}
+	if !strings.Contains(err.Error(), "backfill record app:v1") {
+		t.Errorf("refusal = %q, want it to name the row", err)
+	}
+}

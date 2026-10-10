@@ -250,7 +250,9 @@ answers still exit 0.`,
 			// Identity first: judging rows from a foreign store is
 			// the ambiguity proofs exist to refuse. The fs view
 			// follows — an unprovable root refuses just as loudly.
-			same, serr := proof.Prover{Sentinel: d.Reg, Store: d.Store}.Prove(cmd.Context())
+			// Armed lit loud: judging rows from a moved registry must
+			// refuse, and the zero-value preview would proceed warned.
+			same, serr := proof.Prover{Sentinel: d.Reg, Store: d.Store, Armed: true}.Prove(cmd.Context())
 			if serr != nil {
 				return serr
 			}

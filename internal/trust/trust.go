@@ -35,7 +35,7 @@ func Word(ctx context.Context, api sentinel.API, ident store.Identity, rows []po
 		served = lineage.Served{Payload: pay, Err: rerr}
 	}
 	v := lineage.Judge(served, lineage.Local{Ident: ident, Rows: rows},
-		lineage.Ask{DryRun: true, Now: time.Now().UTC()})
+		lineage.Ask{Now: time.Now().UTC()})
 	return name(served, ident, rows, v)
 }
 
