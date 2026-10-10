@@ -3,6 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/config"
 
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/storeops"
@@ -31,7 +32,7 @@ Identity-less payloads refuse.`,
 		if len(args) == 1 {
 			ident = args[0]
 		}
-		armed := proof.Arm(adoptNoDryRun, d.Cfg.CLINoDryRun)
+		armed := proof.Arm(adoptNoDryRun, config.Current().CLINoDryRun)
 		return storeops.Adopt(cmd.Context(), cmd.OutOrStdout(), d.Reg, d.Store, d.Store, d.Reg, armed, ident, adoptGen)
 	},
 }

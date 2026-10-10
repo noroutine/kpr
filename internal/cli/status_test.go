@@ -113,12 +113,12 @@ func TestProofStateVoicesUnproven(t *testing.T) {
 // redis with addr and DB. If this fails, the store card names the
 // wrong backend — the operator fixes the wrong state.
 func TestDescribeStoreNamesBackend(t *testing.T) {
-	cfg := config.NewBuilder().WithRedisAddr("r:6379").WithRedisDB(4).Build()
-	if got := describeStore(store.NewMemStore(), cfg); got != "redis (r:6379 db 4)" {
+	t.Cleanup(config.SetCurrent(config.NewBuilder().WithRedisAddr("r:6379").WithRedisDB(4).Build()))
+	if got := describeStore(store.NewMemStore()); got != "redis (r:6379 db 4)" {
 		t.Errorf("mem store described as %q, want the redis line", got)
 	}
 	fs := store.NewFileStore(t.TempDir())
-	if got := describeStore(fs, cfg); got != "file ("+fs.Dir()+")" {
+	if got := describeStore(fs); got != "file ("+fs.Dir()+")" {
 		t.Errorf("file store described as %q, want file with dir", got)
 	}
 }

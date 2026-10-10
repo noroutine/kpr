@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/proof"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -60,8 +61,8 @@ reasons. Policies: ttl, hash, partial, untagged, keep-n.`,
 			return err
 		}
 		defer d.Close()
-		cfg, s := d.Cfg, d.Store
-		armed := proof.Arm(reapNoDryRun, cfg.CLINoDryRun)
+		s := d.Store
+		armed := proof.Arm(reapNoDryRun, config.Current().CLINoDryRun)
 		name := "all"
 		if len(args) == 1 {
 			name = args[0]
