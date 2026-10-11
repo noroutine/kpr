@@ -1,10 +1,10 @@
-# Garbage collection — future work
+# Garbage collection — future work <!-- omit in toc -->
 
 Designs for gc work that is **not built**. Shipped behavior lives in
 [GC.md](GC.md). Dangling-reference designs live in
 [GC_DANGLING.md](GC_DANGLING.md).
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Per-repo collection](#per-repo-collection)
 

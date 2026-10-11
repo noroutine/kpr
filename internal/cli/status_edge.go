@@ -16,7 +16,7 @@ import (
 )
 
 // renderEdgeCard prints the fence posture from the shared
-// model: open/deny/held with the endpoints beside it. Closed
+// model: open/deny/hold with the endpoints beside it. Closed
 // (no edge) renders as a state, never an error — same rule as
 // the console section.
 func renderEdgeCard(w io.Writer, card keeper.EdgeCard, asJSON bool) error {
@@ -71,7 +71,7 @@ the gateway in front of the registry.`,
 		if cfg.EdgeEnabled {
 			// A read gate over the store's own lease medium:
 			// the lock override in the fetch voices deny,
-			// the lease read voices held. Fresh flips are
+			// the lease read voices hold. Fresh flips are
 			// traffic's news, not a one-shot's.
 			gate = &fence.Gate{Store: d.Store, Lease: fence.LeaseForStore(d.Store)}
 		}

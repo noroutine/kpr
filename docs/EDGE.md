@@ -1,4 +1,4 @@
-# Edge proxy
+# Edge Proxy <!-- omit in toc -->
 
 kpr in front of the registry: `serve` listens on `:5000` and
 forwards pushes byte-identical to a private registry, fencing
@@ -6,6 +6,20 @@ mutating routes — HOLD leases around an armed collect, DENY on
 the lock marker. The edge is part of `serve`, not a separate
 command. `KPR_EDGE=false` opts out; a failed RelativeURLs proof
 closes the edge loudly, never a boot refusal.
+
+## Contents <!-- omit in toc -->
+
+- [Purpose](#purpose)
+- [Shape](#shape)
+- [Fencing](#fencing)
+  - [Port and drivers](#port-and-drivers)
+  - [A noted exception](#a-noted-exception)
+  - [Proofs](#proofs)
+  - [Console](#console)
+  - [Location guard — fence-critical](#location-guard--fence-critical)
+- [Ops](#ops)
+- [Behavior](#behavior)
+- [Elsewhere, not here](#elsewhere-not-here)
 
 ## Purpose
 

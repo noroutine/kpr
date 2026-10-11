@@ -9,8 +9,8 @@ type Standing string
 const (
 	// StandingOK reads calm everywhere.
 	StandingOK Standing = "ok"
-	// StandingHeld pins writes under a hold lease.
-	StandingHeld Standing = "held"
+	// StandingHold pins writes under a hold lease.
+	StandingHold Standing = "hold"
 	// StandingDenied is the fence refusing traffic (edge DENY).
 	// The store card never sets it — operator intent there is
 	// StandingLocked.

@@ -1,14 +1,17 @@
-# Proofs
+# Proofs <!-- omit in toc -->
 
 Every claim kpr acts on is backed by a proof. Each
 establishes something different; they compose by weakening only.
 
-## Contents
+## Contents <!-- omit in toc -->
 
+- [Proofs Overview](#proofs-overview)
 - [Armed means proven](#armed-means-proven)
 - [Evidence flows inward](#evidence-flows-inward)
 - [How a proof is built](#how-a-proof-is-built)
 - [Proof as a compiler-enforced dependency](#proof-as-a-compiler-enforced-dependency)
+
+## Proofs Overview
 
 | Proof | Establishes | Cost | Used by | Provided by | Sealed as |
 |---|---|---|---|---|---|

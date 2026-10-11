@@ -1,19 +1,26 @@
-# Build Guide
+# Build Guide <!-- omit in toc -->
 
 kpr supports multiarch builds for Linux and macOS on amd64 and arm64.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Quick Start](#quick-start)
 - [Build Tools](#build-tools)
+  - [Using just](#using-just)
+  - [Using make](#using-make)
 - [Build Outputs](#build-outputs)
 - [Version Information](#version-information)
 - [Release Process](#release-process)
+  - [Manual Release](#manual-release)
 - [Cross-Compilation](#cross-compilation)
 - [Build Flags](#build-flags)
 - [Docker Build (Optional)](#docker-build-optional)
 - [Binary Size](#binary-size)
 - [Troubleshooting](#troubleshooting)
+  - [Build fails with "command not found"](#build-fails-with-command-not-found)
+  - [Version shows "dev" instead of tag](#version-shows-dev-instead-of-tag)
+  - [Cross-compilation fails](#cross-compilation-fails)
+  - [Binary too large](#binary-too-large)
 - [CI/CD Integration](#cicd-integration)
 
 ## Quick Start

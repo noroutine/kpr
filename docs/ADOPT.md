@@ -1,4 +1,4 @@
-# `kpr store adopt`
+# `kpr store adopt` <!-- omit in toc -->
 
 > Not to be confused with [Adopting kpr](ADOPT_KPR.md) — that
 > guide bolts kpr onto an existing registry; this command pairs a
@@ -13,7 +13,7 @@ kpr store adopt --gen 01a10428-...  # accept a rollback as baseline
 Pairing without minting: the only writer of the store identity,
 for every pairing the verdict refuses to do on its own.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [The cases](#the-cases)
 - [When not to use it](#when-not-to-use-it)

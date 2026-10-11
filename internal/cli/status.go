@@ -86,13 +86,6 @@ func runStatus(w io.Writer, reg keeper.RegistryCard, card keeper.StoreCard, st k
 	return err
 }
 
-// proofState voices the live generation with its age, or unproven
-// when the registry serves none. Nil registry reads unproven;
-// an unreadable timestamp still names the generation.
-func proofState(ctx context.Context, api sentinel.API) string {
-	return voiceProof(keeper.FetchProofCard(ctx, api))
-}
-
 // voiceProof voices one fetched proof card, so text and json
 // share a single fetch instead of each proving the registry
 // again (manifest + blob read per voice). The card decides

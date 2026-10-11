@@ -1,4 +1,4 @@
-# Timestamps: a checked clock, not trusted time
+# Timestamps: a checked clock, not trusted time <!-- omit in toc -->
 
 Mint timestamps have to mean something: stale-snapshot detection
 compares the served generation against expectations, and a clock
@@ -6,7 +6,7 @@ tens of seconds off turns that comparison into false verdicts.
 So mints carry checked timestamps — server time compared against
 the local clock at mint time — instead of blind ones.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [The port](#the-port)
 - [Transports](#transports)

@@ -1,4 +1,4 @@
-# Adopting kpr: bolting the keeper onto an existing registry
+# Adopting kpr: bolting the keeper onto an existing registry <!-- omit in toc -->
 
 > Not to be confused with `kpr store adopt` — the lineage-pairing
 > ceremony ([SENTINELS.md](SENTINELS.md): whose registry is this).
@@ -13,7 +13,7 @@ Start disarmed — it only plans until you say otherwise.
 
 No registry yet? Start at [QUICKSTART.md](QUICKSTART.md) instead.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [What gets wired](#what-gets-wired)
 - [Step 0 — pin the image](#step-0--pin-the-image)

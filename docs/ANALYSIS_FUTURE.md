@@ -1,11 +1,11 @@
-# Registry analysis — future work
+# Registry analysis — future work <!-- omit in toc -->
 
 Designs for magnitude work that is **not built**. Shipped behavior
 lives in `kpr registry analyze` and the layout it walks,
 [REGISTRY_LAYOUT.md](REGISTRY_LAYOUT.md). Dangling-reference
 designs live in [GC_DANGLING.md](GC_DANGLING.md).
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Tagged/untagged/orphan blob attribution](#taggeduntaggedorphan-blob-attribution)
 - [GC profit line](#gc-profit-line)

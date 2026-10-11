@@ -1,8 +1,9 @@
-# kpr documentation
+# kpr documentation <!-- omit in toc -->
 
 Every page, grouped by what you came here to do. Project overview
 and quickstart commands are in the [top-level README](../README.md).
 
+## Contents <!-- omit in toc -->
 - [Get on board](#get-on-board)
 - [Run it](#run-it)
 - [Understand it](#understand-it)

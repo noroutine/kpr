@@ -1,9 +1,9 @@
-# Architecture — future work
+# Architecture — future work <!-- omit in toc -->
 
 What is open or coming. [ARCHITECTURE.md](ARCHITECTURE.md)
 describes what ships today.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Token-auth registries](#token-auth-registries)
 - [Bind the fs proof to the served endpoint](#bind-the-fs-proof-to-the-served-endpoint)

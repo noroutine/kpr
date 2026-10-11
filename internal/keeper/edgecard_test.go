@@ -14,10 +14,19 @@ type stubGate struct{ deny, held bool }
 
 func (g stubGate) Snapshot() (bool, bool) { return g.deny, g.held }
 
+// The hold standing voices present tense on the wire: it
+// matches the card's Hold field, never the past-tense held.
+// If this fails, --json drifts from the model's own words.
+func TestStandingHoldIsPresentTense(t *testing.T) {
+	if string(keeper.StandingHold) != "hold" {
+		t.Errorf("StandingHold = %q, want %q", string(keeper.StandingHold), "hold")
+	}
+}
+
 // The edge card voices the live fence posture: open when an
 // edge serves, deny on the lock (would-deny, not just
-// last-denied), held on the lease, closed with no edge. Deny
-// wins over held — the refusal is the news. If this fails, the
+// last-denied), hold on the lease, closed with no edge. Deny
+// wins over hold — the refusal is the news. If this fails, the
 // dashboard and the CLI read different fences.
 func TestEdgeCardVoicesPosture(t *testing.T) {
 	ctx := context.Background()
@@ -36,7 +45,7 @@ func TestEdgeCardVoicesPosture(t *testing.T) {
 	}{
 		{"no edge", nil, open, false, false, keeper.StandingClosed},
 		{"open pass", stubGate{}, open, false, false, keeper.StandingOK},
-		{"held", stubGate{held: true}, open, false, true, keeper.StandingHeld},
+		{"hold", stubGate{held: true}, open, false, true, keeper.StandingHold},
 		{"deny", stubGate{deny: true}, nil, true, false, keeper.StandingDenied},
 		{"deny wins", stubGate{deny: true, held: true}, nil, true, true, keeper.StandingDenied},
 		{"locked denies", stubGate{}, locked, true, false, keeper.StandingDenied},

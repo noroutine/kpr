@@ -1,4 +1,4 @@
-# Sentinels: proof the store is ours
+# Sentinels: proof the store is ours <!-- omit in toc -->
 
 The gc sentinel answers one question — is the store kpr sees the
 store the registry serves — in both modes (writable and
@@ -7,7 +7,7 @@ A live sentinel image doubles as a snapshot marker (shared store
 but old content = stale snapshot) and a generic diagnostic
 vehicle.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Registry facts the design leans on](#registry-facts-the-design-leans-on)
 - [Why not a crafted image](#why-not-a-crafted-image)

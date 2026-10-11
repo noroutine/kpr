@@ -1,9 +1,9 @@
-# Backfill — future work
+# Backfill — future work <!-- omit in toc -->
 
 Unbuilt backfill extensions. Shipped behavior lives in
 [BACKFILL.md](BACKFILL.md).
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Filling missing digests on tracked rows](#filling-missing-digests-on-tracked-rows)
 

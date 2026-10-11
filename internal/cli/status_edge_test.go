@@ -12,7 +12,7 @@ import (
 )
 
 // status edge prints the fence posture from the shared
-// model: open/deny/held with the endpoints beside it. If this
+// model: open/deny/hold with the endpoints beside it. If this
 // fails, the CLI and the console read different fences.
 func TestStatusEdgePrintsPosture(t *testing.T) {
 	s := store.NewMemStore()
@@ -86,8 +86,8 @@ func TestStatusEdgeVoicesEffect(t *testing.T) {
 
 // A pinned hold lease reads beside the fence verdict: the
 // operator sees which writes the lease pins, not just the
-// bare hold bit. If this fails, a held edge reads like an
-// unheld one.
+// bare hold bit. If this fails, an edge under hold reads like
+// one released.
 func TestStatusEdgeVoicesHold(t *testing.T) {
 	card := keeper.EdgeCard{Standing: keeper.StandingDenied, Open: true, Deny: true, Hold: true}
 	var buf bytes.Buffer
@@ -120,7 +120,7 @@ func TestStatusEdgeJSONIsCardVerbatim(t *testing.T) {
 	}
 }
 
-// stubGateposture pins deny/held without a serve loop.
+// stubGateposture pins deny/hold without a serve loop.
 type stubGateposture struct{}
 
 func (stubGateposture) Snapshot() (bool, bool) { return false, false }

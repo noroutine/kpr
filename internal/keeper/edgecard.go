@@ -7,9 +7,9 @@ import (
 )
 
 // EdgeCard is the live fence posture through the same read
-// the console renders: open, deny, or held, with the endpoints
+// the console renders: open, deny, or hold, with the endpoints
 // beside it. Disabled renders closed, never an error. Standing
-// is decided here, at assembly — deny wins over held, and the
+// is decided here, at assembly — deny wins over hold, and the
 // lock read overrides the snapshot (would-deny, not just
 // last-denied).
 type EdgeCard struct {
@@ -28,7 +28,7 @@ type GatePosture interface {
 }
 
 // FetchEdgeCard voices the fence posture: the snapshot's
-// deny/held, overridden by the live lock reading whenever a
+// deny/hold, overridden by the live lock reading whenever a
 // store is present — so a fresh lock reads deny before the
 // first refused push and a fresh unlock clears without waiting
 // for traffic. An unreadable marker reads deny — the fence
@@ -49,7 +49,7 @@ func FetchEdgeCard(ctx context.Context, gate GatePosture, s store.Store, edgeAdd
 	case deny:
 		card.Standing = StandingDenied
 	case held:
-		card.Standing = StandingHeld
+		card.Standing = StandingHold
 	default:
 		card.Standing = StandingOK
 	}

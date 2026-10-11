@@ -1,7 +1,14 @@
-# Dry-run
+# Dry-run <!-- omit in toc -->
 
 Dry-run is the default mode, not a flag. Every mutating command
 previews unless explicitly armed for that invocation.
+
+## Contents <!-- omit in toc -->
+
+- [Rule](#rule)
+- [Terminology](#terminology)
+- [Principles](#principles)
+- [Overrides](#overrides)
 
 ## Rule
 

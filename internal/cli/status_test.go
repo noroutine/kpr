@@ -151,17 +151,17 @@ func TestStatusNilRegistry(t *testing.T) {
 // An unreadable proof voices unproven, and an undated generation
 // voices its name without an age: presence without timing is still
 // presence. If this fails, outages read as proofs (or proofs hide).
-func TestProofStateVoicesUnproven(t *testing.T) {
-	if got := proofState(cliCtx(), nil); got != "unproven" {
-		t.Errorf("proofState(nil) = %q, want unproven", got)
+func TestProofVoicesUnproven(t *testing.T) {
+	if got := voiceProof(keeper.FetchProofCard(cliCtx(), nil)); got != "unproven" {
+		t.Errorf("voiceProof(nil) = %q, want unproven", got)
 	}
 	broken := stubProofAPI{err: errors.New("connection refused")}
-	if got := proofState(cliCtx(), broken); got != "unproven" {
-		t.Errorf("proofState(outage) = %q, want unproven", got)
+	if got := voiceProof(keeper.FetchProofCard(cliCtx(), broken)); got != "unproven" {
+		t.Errorf("voiceProof(outage) = %q, want unproven", got)
 	}
 	undated := stubProofAPI{ts: "not-a-time", id: "id-1"}
-	if got := proofState(cliCtx(), undated); got != "019-proof" {
-		t.Errorf("proofState(undated) = %q, want the gen without age", got)
+	if got := voiceProof(keeper.FetchProofCard(cliCtx(), undated)); got != "019-proof" {
+		t.Errorf("voiceProof(undated) = %q, want the gen without age", got)
 	}
 }
 

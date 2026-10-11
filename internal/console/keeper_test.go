@@ -523,7 +523,7 @@ func TestBulbClassTruthTable(t *testing.T) {
 		want     string
 	}{
 		{keeper.StandingDenied, "bulb-deny"},
-		{keeper.StandingHeld, "bulb-warn"},
+		{keeper.StandingHold, "bulb-warn"},
 		{keeper.StandingDegraded, "bulb-warn"},
 		{keeper.StandingOK, "bulb-ok"},
 		{keeper.StandingClosed, ""},

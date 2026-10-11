@@ -1,13 +1,15 @@
-# Testing Guide
+# Testing Guide <!-- omit in toc -->
 
 Unit suite plus container-backed end-to-end scenarios (`test/e2e`,
 `e2e` build tag) plus periodic mutation runs. What each layer
 covers, and the gates each must pass.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Quick Start](#quick-start)
 - [Test Tools](#test-tools)
+  - [Using just](#using-just)
+  - [Using make](#using-make)
 - [Coverage](#coverage)
 - [CI Integration](#ci-integration)
 - [Mutation testing](#mutation-testing)

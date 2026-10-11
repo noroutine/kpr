@@ -90,7 +90,7 @@ type pageData struct {
 }
 
 // bulbClass paints a card's left border from its standing: deny
-// red, held and degraded amber, ok teal. Anything else gets no
+// red, hold and degraded amber, ok teal. Anything else gets no
 // class (the default border) rather than a wrong color — the
 // words carry those states. The template calls it; the CLI
 // voices the same rule in words beside its own cards.
@@ -98,7 +98,7 @@ func bulbClass(standing keeper.Standing) string {
 	switch standing {
 	case keeper.StandingDenied:
 		return "bulb-deny"
-	case keeper.StandingHeld, keeper.StandingDegraded:
+	case keeper.StandingHold, keeper.StandingDegraded:
 		return "bulb-warn"
 	case keeper.StandingOK:
 		return "bulb-ok"
