@@ -78,6 +78,45 @@ func Age(at time.Time) string {
 	return ShortAge(time.Now(), at)
 }
 
+// SignedOffset voices a clock skew with its sign: ahead reads
+// +, behind reads -. The clock card's verdict words live with
+// the card model; this is only the signed number.
+func SignedOffset(offset time.Duration) string {
+	sign := "+"
+	if offset < 0 {
+		sign = "-"
+	}
+	return sign + offset.Round(time.Millisecond).Abs().String()
+}
+
+// Capacity renders byte counts in operator glance bands: whole
+// TB/GB above ten, one decimal below, MB under a gig. Beside
+// Bytes' precise binary units, never instead — capacity
+// planning, not precision.
+func Capacity(n uint64) string {
+	const tb = 1024 * 1024 * 1024 * 1024
+	const gb = 1024 * 1024 * 1024
+	const mb = 1024 * 1024
+	switch {
+	case n >= 10*tb:
+		return fmt.Sprintf("%d TB", n/tb)
+	case n >= tb:
+		return fmt.Sprintf("%.1f TB", float64(n)/tb)
+	case n >= 10*gb:
+		return fmt.Sprintf("%d GB", n/gb)
+	case n >= gb:
+		return fmt.Sprintf("%.1f GB", float64(n)/gb)
+	default:
+		return fmt.Sprintf("%d MB", n/mb)
+	}
+}
+
+// UsedPercent is the glance math behind the capacity card:
+// whole percent used.
+func UsedPercent(total, free uint64) uint64 {
+	return 100 * (total - free) / total
+}
+
 // Bytes renders bytes in the largest binary unit that keeps the
 // value at one or more whole units, two decimals: bytes stay
 // bytes, gibibytes stay gibibytes. Exact bytes stay in --json,

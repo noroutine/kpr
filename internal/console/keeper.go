@@ -164,18 +164,8 @@ func clockSnapshot(ctx context.Context) (method, server, skew, note string) {
 	if err != nil {
 		return method, server, "unreachable", "tolerance " + clock.Tolerance.String()
 	}
-	return method, server, formatOffset(offset),
+	return method, server, human.SignedOffset(offset),
 		"tolerance " + clock.Tolerance.String()
-}
-
-// formatOffset voices a clock skew with its sign: ahead reads +,
-// behind reads -. If this fails, the card flips behind/ahead.
-func formatOffset(offset time.Duration) string {
-	sign := "+"
-	if offset < 0 {
-		sign = "-"
-	}
-	return sign + offset.Round(time.Millisecond).Abs().String()
 }
 
 // activityHandler serves the full precise ring as JSON for download:

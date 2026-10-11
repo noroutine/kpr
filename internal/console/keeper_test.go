@@ -384,50 +384,11 @@ func TestFileStoreFsNoteGatedOnProof(t *testing.T) {
 	}
 }
 
-// Byte tiers stay operator-shaped: whole units above ten, one
-// decimal below, MB under a gig — boundaries included, so a tier
-// edge never flips units. If this fails, the capacity glance reads
-// like a raw byte count.
-func TestFmtBytesTiers(t *testing.T) {
-	const kb = 1024
-	for _, tc := range []struct {
-		n    uint64
-		want string
-	}{
-		{500 * 1024 * 1024, "500 MB"},
-		{1024 * 1024 * 1024, "1.0 GB"},
-		{5 * 1024 * 1024 * 1024, "5.0 GB"},
-		{10 * 1024 * 1024 * 1024, "10 GB"},
-		{91 * 1024 * 1024 * 1024, "91 GB"},
-		{1024 * 1024 * 1024 * 1024, "1.0 TB"},
-		{10 * 1024 * 1024 * 1024 * 1024, "10 TB"},
-		{6300 * 1024 * 1024 * 1024, "6.2 TB"},
-		{10*1024*1024*1024*1024 - kb, "10.0 TB"},
-	} {
-		if got := fmtBytes(tc.n); got != tc.want {
-			t.Errorf("fmtBytes(%d) = %q, want %q", tc.n, got, tc.want)
-		}
-	}
-}
+// Byte tiers now live in human.Capacity (spike milestone 0);
+// the cases moved with the function, not dropped.
 
-// The percent math is the only unprobed part of the capacity card:
-// whole percent used, free==total reading zero. If this fails, the
-// card's percent lies while free and total read true.
-func TestUsedPercent(t *testing.T) {
-	for _, tc := range []struct {
-		total, free uint64
-		want        uint64
-	}{
-		{100, 30, 70},
-		{100, 100, 0},
-		{100, 0, 100},
-		{3, 1, 66},
-	} {
-		if got := usedPercent(tc.total, tc.free); got != tc.want {
-			t.Errorf("usedPercent(%d, %d) = %d, want %d", tc.total, tc.free, got, tc.want)
-		}
-	}
-}
+// Percent math now lives in human.UsedPercent (spike milestone
+// 0); the cases moved with the function, not dropped.
 
 // Nonsense sizes never reach the card: zero total, or free above
 // total — including the free==total edge a looser check would let
@@ -534,19 +495,8 @@ func TestClockSnapshotUnreachableSource(t *testing.T) {
 	}
 }
 
-// Skew voices its sign: ahead +, behind -. If this fails, the card
-// flips behind/ahead.
-func TestFormatOffset(t *testing.T) {
-	if got := formatOffset(5 * time.Second); got != "+5s" {
-		t.Errorf("formatOffset(+5s) = %q, want +5s", got)
-	}
-	if got := formatOffset(-5 * time.Second); got != "-5s" {
-		t.Errorf("formatOffset(-5s) = %q, want -5s", got)
-	}
-	if got := formatOffset(0); got != "+0s" {
-		t.Errorf("formatOffset(0) = %q, want +0s", got)
-	}
-}
+// Skew sign now lives in human.SignedOffset (spike milestone
+// 0); the cases moved with the function, not dropped.
 
 // The app-status link keeps the browser's host and swaps the port
 // (the endpoint lives on the other listener — a relative href

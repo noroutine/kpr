@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
@@ -89,14 +90,7 @@ func fsStats(dir string) string {
 	if !ok {
 		return ""
 	}
-	return fmt.Sprintf("%s free of %s (%d%% used)", fmtBytes(free), fmtBytes(total), usedPercent(total, free))
-}
-
-// usedPercent is the glance math behind the capacity card: whole
-// percent used. If this fails, the card's percent lies while free
-// and total read true.
-func usedPercent(total, free uint64) uint64 {
-	return 100 * (total - free) / total
+	return fmt.Sprintf("%s free of %s (%d%% used)", human.Capacity(free), human.Capacity(total), human.UsedPercent(total, free))
 }
 
 // fsSizes returns the filesystem's total and free bytes for dir.
@@ -129,27 +123,6 @@ func sizesFromBlocks(blocks, bavail, unit uint64) (total, free uint64, ok bool) 
 // voices petabytes as capacity.
 func saneSizes(total, free uint64) bool {
 	return total != 0 && free <= total
-}
-
-// fmtBytes renders byte counts in operator units: whole TB/GB
-// above ten, one decimal below, MB under a gig. Precision stays in
-// /api/activity and the CLI — this is a glance.
-func fmtBytes(n uint64) string {
-	const tb = 1024 * 1024 * 1024 * 1024
-	const gb = 1024 * 1024 * 1024
-	const mb = 1024 * 1024
-	switch {
-	case n >= 10*tb:
-		return fmt.Sprintf("%d TB", n/tb)
-	case n >= tb:
-		return fmt.Sprintf("%.1f TB", float64(n)/tb)
-	case n >= 10*gb:
-		return fmt.Sprintf("%d GB", n/gb)
-	case n >= gb:
-		return fmt.Sprintf("%.1f GB", float64(n)/gb)
-	default:
-		return fmt.Sprintf("%d MB", n/mb)
-	}
 }
 
 // sentinelSnapshot reads the live sentinel generation for the
