@@ -68,10 +68,11 @@ stamp their own render time.
 | Store | `Store{Name, Detail, Healthy, Standing, LockNote, FsNote}` | `status store` |
 | Sentinel | `Proof{Standing, Gen, TS}` | proof line on `status` (already lives there) |
 | Activity | `Activity{Lines, Total}` (tail; full ring keeps `/api/activity` shape) | `status activity` |
+| Observability | `Obs{Links}` (configured UI backends; empty reads unavailable) | `status observability` |
 
 Console-only, no model: Metrics (`/metrics` serves both),
-Observability (URL launchpad, not state), Configuration
-(`kpr config`'s job), API Endpoints (static list).
+Configuration (`kpr config`'s job), API Endpoints (static
+list).
 
 Standing rules: deny wins over held; lock note promotes from
 meta to standing; local clock is `unchecked`, never `ok`;

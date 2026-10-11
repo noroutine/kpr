@@ -52,10 +52,11 @@ type pageData struct {
 	// would 404 against the console. Built off the request host —
 	// the only address known dialable from this browser.
 	AppStatusURL string
-	// Links holds the configured observability launchpad entries. A
-	// link appears only when its URL is configured — empty means the
-	// backend is absent and the template hides the whole section.
-	Links []consoleLink
+	// Obs holds the configured observability launchpad entries —
+	// the same card `status observability` prints. A link appears
+	// only when its URL is configured; an empty card hides the
+	// whole section.
+	Obs keeper.ObsCard
 	// Status is what kpr tracks (banner, counters) — the same
 	// model `status` reads. Plan and Activity are its
 	// template-shaped views; ActivityTotal is the uncapped ring
@@ -134,27 +135,14 @@ func appStatusURL(hostport string, appPort int) string {
 	return "http://" + bracketHost(host) + ":" + strconv.Itoa(appPort) + "/api/status"
 }
 
-// consoleLink is one observability UI entry on the console.
-type consoleLink struct {
-	Name  string
-	URL   string
-	Blurb string
-}
-
-// observabilityLinks resolves the configured UI base URLs into
-// launchpad entries, skipping every backend without a URL.
-func observabilityLinks(cfg *config.Config) []consoleLink {
-	var links []consoleLink
-	add := func(url, name, blurb string) {
-		if url != "" {
-			links = append(links, consoleLink{Name: name, URL: url, Blurb: blurb})
-		}
-	}
-	add(cfg.QuickwitURL, "Quickwit", "Searchable logs, kept across dev runs")
-	add(cfg.JaegerURL, "Jaeger", "Distributed traces, stored in Quickwit")
-	add(cfg.GrafanaURL, "Grafana", "Metrics dashboards for this service")
-	add(cfg.PrometheusURL, "Prometheus", "Raw metrics and scrape targets")
-	return links
+// obsCard resolves the configured UI base URLs into the shared
+// launchpad card: the same entries `status observability`
+// prints, decided in keeper, never recomputed here.
+func obsCard(cfg *config.Config) keeper.ObsCard {
+	return keeper.FetchObsCard(keeper.ObsURLs{
+		Quickwit: cfg.QuickwitURL, Jaeger: cfg.JaegerURL,
+		Grafana: cfg.GrafanaURL, Prometheus: cfg.PrometheusURL,
+	})
 }
 
 type metricsData struct {
@@ -225,7 +213,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppPort:        strconv.Itoa(cfg.AppPort),
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
 		AppStatusURL:   appStatusURL(r.Host, cfg.AppPort),
-		Links:          observabilityLinks(cfg),
+		Obs:            obsCard(cfg),
 		Status:         st,
 		Plan:           planRows(st.Plan),
 		Activity:       activityRows(st.Activity, now),
