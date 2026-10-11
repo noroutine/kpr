@@ -29,8 +29,9 @@ type StoreCard struct {
 	// unlocked: the common open state needs no ink.
 	LockNote string `json:"lockNote,omitempty"`
 	// Identity voices the lineage pairing verdicts judge the
-	// served generation against, with the accepted baseline
-	// when one was recorded. "unpaired" names itself; "unknown"
+	// served generation against: the id alone. The accepted
+	// baseline is adopt-time detail, irrelevant afterwards, so
+	// the card leaves it out. "unpaired" names itself; "unknown"
 	// on a read failure, never a guess. Empty on no store:
 	// nothing to pair, so renderers skip the line.
 	Identity string `json:"identity,omitempty"`
@@ -75,8 +76,6 @@ func FetchStoreCard(ctx context.Context, s store.Store, healthy bool, redisAddr 
 		ident = "unknown"
 	} else if id.ID == "" {
 		ident = "unpaired"
-	} else if id.BaselineGen != "" {
-		ident = id.ID + " (baseline " + id.BaselineGen + ")"
 	} else {
 		ident = id.ID
 	}

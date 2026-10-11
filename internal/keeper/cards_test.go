@@ -43,19 +43,16 @@ func TestStoreCardStandingMatrix(t *testing.T) {
 }
 
 // The card voices the lineage pairing beside the backend: the
-// id verdicts judge the served generation against, with the
-// accepted baseline when one was recorded. Unpaired names
-// itself; a read failure is unknown, never a guess. If this
-// fails, the store view hides the identity trust judges.
+// id verdicts judge the served generation against, and nothing
+// else — the accepted baseline is adopt-time detail,
+// irrelevant afterwards. Unpaired names itself; a read failure
+// is unknown, never a guess. If this fails, the store view
+// hides the identity trust judges.
 func TestStoreCardVoicesIdentity(t *testing.T) {
 	ctx := context.Background()
 	paired := store.NewMemStore()
-	if err := paired.SetIdentity(ctx, store.Identity{ID: "019-abc"}); err != nil {
+	if err := paired.SetIdentity(ctx, store.Identity{ID: "019-abc", BaselineGen: "018-xyz"}); err != nil {
 		t.Fatalf("pair: %v", err)
-	}
-	baselined := store.NewMemStore()
-	if err := baselined.SetIdentity(ctx, store.Identity{ID: "019-abc", BaselineGen: "018-xyz"}); err != nil {
-		t.Fatalf("baseline: %v", err)
 	}
 	for _, tc := range []struct {
 		name string
@@ -63,7 +60,6 @@ func TestStoreCardVoicesIdentity(t *testing.T) {
 		want string
 	}{
 		{"paired", paired, "019-abc"},
-		{"baselined", baselined, "019-abc (baseline 018-xyz)"},
 		{"fresh", store.NewMemStore(), "unpaired"},
 		{"no store", nil, ""},
 	} {
