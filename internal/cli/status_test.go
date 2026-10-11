@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/keeper"
+	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // status is the high-level posture, one line per section: the
@@ -53,6 +54,27 @@ func TestStatusShowsSectionPostures(t *testing.T) {
 		if strings.Contains(out.String(), gone) {
 			t.Errorf("status leaks %q (detail the cards own):\n%s", gone, out.String())
 		}
+	}
+}
+
+// Two backends read plural: the aggregate counts links, it
+// never hardcodes the singular. If this fails, the second
+// backend reads "2 backend".
+func TestStatusCountsPluralBackends(t *testing.T) {
+	var out bytes.Buffer
+	err := runStatus(&out,
+		keeper.RegistryCard{Standing: keeper.StandingOK, Reachable: true},
+		keeper.StoreCard{Standing: keeper.StandingOK, Name: "file"},
+		keeper.Status{StoreOK: true},
+		keeper.EdgeCard{},
+		keeper.ClockCard{Standing: keeper.StandingUnchecked, Method: "local"},
+		keeper.ObsCard{Standing: keeper.StandingOK, Links: []keeper.ObsLink{{Name: "a"}, {Name: "b"}}},
+	)
+	if err != nil {
+		t.Fatalf("runStatus: %v", err)
+	}
+	if want := "observability: 2 backends"; !strings.Contains(out.String(), want) {
+		t.Errorf("status missing %q:\n%s", want, out.String())
 	}
 }
 
@@ -154,6 +176,53 @@ func TestStatusRefusesUnknownCard(t *testing.T) {
 		t.Error("status bullshit validated, want unknown-command refusal")
 	} else if !strings.Contains(err.Error(), "unknown command") {
 		t.Errorf("error = %q, want unknown command", err.Error())
+	}
+}
+
+// Every renderer surfaces a failed write instead of swallowing
+// it: each assembles its card then writes once, so a broken
+// pipe errors with no partial card printed as success. One
+// pass each with the shared errWriter pins the single write.
+// If this fails, a renderer eats write errors.
+func TestStatusRenderersSurfaceWriteErrors(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	s := store.NewMemStore()
+	st := keeper.Status{StoreOK: true}
+	for _, tc := range []struct {
+		name string
+		run  func() error
+	}{
+		{"aggregate", func() error {
+			return runStatus(errWriter{},
+				keeper.RegistryCard{Standing: keeper.StandingOK, Reachable: true},
+				keeper.StoreCard{Standing: keeper.StandingOK}, st,
+				keeper.EdgeCard{}, keeper.ClockCard{}, keeper.ObsCard{})
+		}},
+		{"store", func() error {
+			return runStatusStore(ctx, errWriter{}, s, "", 0, nil, false)
+		}},
+		{"edge", func() error {
+			return renderEdgeCard(errWriter{},
+				keeper.EdgeCard{Standing: keeper.StandingOK, Open: true}, false)
+		}},
+		{"registry", func() error {
+			return renderRegistryCard(errWriter{},
+				keeper.RegistryCard{Standing: keeper.StandingOK, Reachable: true}, false)
+		}},
+		{"activity", func() error {
+			return renderActivityCard(errWriter{},
+				keeper.FetchActivityCard(ctx, s), now, false)
+		}},
+		{"observability", func() error {
+			return renderObsCard(errWriter{},
+				keeper.ObsCard{Standing: keeper.StandingOK,
+					Links: []keeper.ObsLink{{Name: "Grafana"}}}, false)
+		}},
+	} {
+		if err := tc.run(); err == nil {
+			t.Errorf("%s swallowed a write error", tc.name)
+		}
 	}
 }
 

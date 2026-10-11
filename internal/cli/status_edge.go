@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -22,11 +23,15 @@ func renderEdgeCard(w io.Writer, card keeper.EdgeCard, asJSON bool) error {
 	if asJSON {
 		return json.NewEncoder(w).Encode(card)
 	}
-	// Closed renders edge state only: the fence was never read,
-	// so a verdict would be fabricated. The console guards its
-	// Fence card behind the same open check.
+	// One assembled write: a broken pipe errors with no partial
+	// card printed as success. Closed renders edge state only:
+	// the fence was never read, so a verdict would be
+	// fabricated. The console guards its Fence card behind the
+	// same open check.
+	var sb strings.Builder
 	if !card.Open {
-		_, err := fmt.Fprintf(w, "gateway: closed\n")
+		_, _ = fmt.Fprintf(&sb, "gateway: closed\n")
+		_, err := io.WriteString(w, sb.String())
 		return err
 	}
 	// The posture names its effect: deny refuses writes, pass
@@ -40,15 +45,12 @@ func renderEdgeCard(w io.Writer, card keeper.EdgeCard, asJSON bool) error {
 	if card.Hold {
 		hold = "hold lease pinning writes"
 	}
-	_, err := fmt.Fprintf(w, "gateway: open\nfence: %s (%s)\n", fenceState, hold)
-	if err != nil {
-		return err
-	}
+	_, _ = fmt.Fprintf(&sb, "gateway: open\nfence: %s (%s)\n", fenceState, hold)
 	if card.Open && card.EdgeAddr != "" && card.RegistryURL != "" {
-		_, err = fmt.Fprintf(w, "route: %s → %s\n", card.EdgeAddr, card.RegistryURL)
-		return err
+		_, _ = fmt.Fprintf(&sb, "route: %s → %s\n", card.EdgeAddr, card.RegistryURL)
 	}
-	return nil
+	_, err := io.WriteString(w, sb.String())
+	return err
 }
 
 var statusEdgeCmd = &cobra.Command{

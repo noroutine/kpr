@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
@@ -72,34 +73,29 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 	if lock == "" {
 		lock = "unlocked"
 	}
-	if _, err := fmt.Fprintf(w, "store: %s (%s)\nstate: %s\nlock: %s\n",
-		card.Name, card.Detail, storeState(card.Standing), lock); err != nil {
-		return err
-	}
+	// One assembled write, like the aggregate: a broken pipe
+	// errors with no partial card printed as success.
+	var sb strings.Builder
+	_, _ = fmt.Fprintf(&sb, "store: %s (%s)\nstate: %s\nlock: %s\n",
+		card.Name, card.Detail, storeState(card.Standing), lock)
 	// The pairing verdicts judge the served generation against;
 	// empty on no store, so the line stays out then.
 	if card.Identity != "" {
-		if _, err := fmt.Fprintf(w, "identity: %s\n", card.Identity); err != nil {
-			return err
-		}
+		_, _ = fmt.Fprintf(&sb, "identity: %s\n", card.Identity)
 	}
 	if card.FsNote != "" {
-		if _, err := fmt.Fprintf(w, "fs: %s\n", card.FsNote); err != nil {
-			return err
-		}
+		_, _ = fmt.Fprintf(&sb, "fs: %s\n", card.FsNote)
 	}
-	_, err := fmt.Fprintf(w, "tracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\nproof: %s\n",
+	_, _ = fmt.Fprintf(&sb, "tracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\nproof: %s\n",
 		st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, voiceProof(proof))
-	if err != nil {
-		return err
-	}
 	// The trust verdict judges the served generation against the
 	// local rows and pairing — the same inputs the old `store
 	// status` judged, so the word survives the drop. The word
 	// voices as-is: renderers never translate it.
 	rows, _ := s.All(ctx)
 	ident, _ := s.GetIdentity(ctx)
-	_, err = fmt.Fprintf(w, "trust: %s\n", keeper.FetchTrustCard(ctx, reg, ident, rows).Word)
+	_, _ = fmt.Fprintf(&sb, "trust: %s\n", keeper.FetchTrustCard(ctx, reg, ident, rows).Word)
+	_, err := io.WriteString(w, sb.String())
 	return err
 }
 

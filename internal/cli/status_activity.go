@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -33,15 +34,15 @@ func renderActivityCard(w io.Writer, card keeper.ActivityCard, now time.Time, as
 		return err
 	}
 	n := min(len(card.Outcomes), keeper.ActivityTail)
-	if _, err := fmt.Fprintf(w, "activity (last %d of %d):\n", n, card.Total); err != nil {
-		return err
-	}
+	// One assembled write: the tail reads whole or errors — a
+	// broken pipe never prints a truncated ring as success.
+	var sb strings.Builder
+	_, _ = fmt.Fprintf(&sb, "activity (last %d of %d):\n", n, card.Total)
 	for _, o := range card.Outcomes[:n] {
-		if _, err := fmt.Fprintln(w, keeper.FormatOutcome(now, o, true)); err != nil {
-			return err
-		}
+		_, _ = fmt.Fprintln(&sb, keeper.FormatOutcome(now, o, true))
 	}
-	return nil
+	_, err := io.WriteString(w, sb.String())
+	return err
 }
 
 var statusActivityCmd = &cobra.Command{

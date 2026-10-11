@@ -243,6 +243,9 @@ func TestCommandTailsRunAgainstFileBackend(t *testing.T) {
 	dir := t.TempDir()
 	srv := serveRegistry(t, t.TempDir(), false)
 	defer srv.Close()
+	// Pin the clock transport: a leaked KPR_TIME_METHOD would
+	// voice skew instead of unchecked.
+	t.Setenv(config.EnvTimeMethod, "local")
 	for _, tc := range []struct {
 		name   string
 		target *cobra.Command
@@ -254,6 +257,11 @@ func TestCommandTailsRunAgainstFileBackend(t *testing.T) {
 		{"discard", planDiscardCmd, nil, "nothing due"},
 		{"sweep", sweepCmd, nil, "sweep "},
 		{"status store", statusStoreCmd, nil, "state:"},
+		{"status edge", statusEdgeCmd, nil, "gateway: "},
+		{"status registry", statusRegistryCmd, nil, "url: "},
+		{"status clock", statusClockCmd, nil, "unchecked"},
+		{"status activity", statusActivityCmd, nil, "activity: none recorded"},
+		{"status observability", statusObservabilityCmd, nil, "observability: unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := runLockCmd(t, dir, srv.URL, tc.target)
@@ -288,7 +296,7 @@ func TestKeeperCommandsRefuseBadBackend(t *testing.T) {
 // If this fails, one command renders without a backend.
 func TestStoreCommandsRefuseBadBackend(t *testing.T) {
 	t.Setenv(config.EnvStore, "bogus-backend")
-	for _, target := range []*cobra.Command{storeLsCmd, statusStoreCmd, storeInspectCmd, storeRmCmd, planAddCmd, planRemoveCmd, unlockCmd, adoptCmd} {
+	for _, target := range []*cobra.Command{storeLsCmd, statusStoreCmd, storeInspectCmd, storeRmCmd, planAddCmd, planRemoveCmd, unlockCmd, adoptCmd, statusEdgeCmd, statusRegistryCmd, statusClockCmd, statusActivityCmd} {
 		var buf bytes.Buffer
 		target.SetOut(&buf)
 		defer target.SetOut(nil)

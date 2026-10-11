@@ -109,6 +109,17 @@ func TestIndexLinksStylesheet(t *testing.T) {
 	}
 }
 
+// The stylesheet is a reader: anything but GET refuses. If
+// this fails, the asset answers writes it must not.
+func TestStyleHandlerRefusesWrites(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/static/style.css", nil)
+	rr := httptest.NewRecorder()
+	styleHandler(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", rr.Code)
+	}
+}
+
 // /static/style.css serves the extracted rules as CSS: the
 // bulb classes must travel with the split, or the standing
 // colors silently die. If this fails, the split dropped rules.

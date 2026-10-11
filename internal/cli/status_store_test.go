@@ -67,6 +67,11 @@ func TestStoreStateWordsTranslateStanding(t *testing.T) {
 			t.Errorf("words(%q) = %q, want %q", tc.standing, got, tc.want)
 		}
 	}
+	// A standing nobody worded voices its code: silence would
+	// read as healthy, and the aggregate shares these words.
+	if got := storeState(keeper.Standing("tomorrow")); got != "tomorrow" {
+		t.Errorf("unknown standing = %q, want the code itself", got)
+	}
 }
 
 // status store carries the counters with the card: tracked and
@@ -99,6 +104,31 @@ func TestStatusStoreCarriesCountersAndProof(t *testing.T) {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("store missing %q:\n%s", want, buf.String())
 		}
+	}
+}
+
+// A served generation voices with its age in both views: the
+// proven path shares the one fetch, stamping the same now.
+// The fake serves sentinel manifests, so proven is live, not
+// staged. If this fails, text and json age different proofs.
+func TestStatusStoreVoicesProvenAge(t *testing.T) {
+	root := t.TempDir()
+	srv := serveRegistry(t, root, true)
+	defer srv.Close()
+	cfg := stageGCStore(t, root)
+	dir := t.TempDir()
+	setUnlockConfig(t, cfg)
+	// Unlock mints the generation the fake then serves: proven
+	// is live end to end, not staged.
+	if _, err := runLockCmd(t, dir, srv.URL, unlockCmd); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	out, err := runLockCmd(t, dir, srv.URL, statusStoreCmd)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if !strings.Contains(out, "proof: ") || !strings.Contains(out, "ago") {
+		t.Errorf("proven store lacks an aged proof voice:\n%s", out)
 	}
 }
 

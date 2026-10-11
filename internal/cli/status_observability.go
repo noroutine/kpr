@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/config"
@@ -23,12 +24,14 @@ func renderObsCard(w io.Writer, card keeper.ObsCard, asJSON bool) error {
 		_, err := io.WriteString(w, "observability: unavailable — no backends configured\n")
 		return err
 	}
+	// One assembled write: every link or an error, no partial
+	// launchpad printed as success.
+	var sb strings.Builder
 	for _, l := range card.Links {
-		if _, err := fmt.Fprintf(w, "%s: %s — %s\n", l.Name, l.URL, l.Blurb); err != nil {
-			return err
-		}
+		_, _ = fmt.Fprintf(&sb, "%s: %s — %s\n", l.Name, l.URL, l.Blurb)
 	}
-	return nil
+	_, err := io.WriteString(w, sb.String())
+	return err
 }
 
 var statusObservabilityCmd = &cobra.Command{

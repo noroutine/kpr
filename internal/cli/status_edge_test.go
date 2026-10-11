@@ -84,6 +84,21 @@ func TestStatusEdgeVoicesEffect(t *testing.T) {
 	}
 }
 
+// A pinned hold lease reads beside the fence verdict: the
+// operator sees which writes the lease pins, not just the
+// bare hold bit. If this fails, a held edge reads like an
+// unheld one.
+func TestStatusEdgeVoicesHold(t *testing.T) {
+	card := keeper.EdgeCard{Standing: keeper.StandingDenied, Open: true, Deny: true, Hold: true}
+	var buf bytes.Buffer
+	if err := renderEdgeCard(&buf, card, false); err != nil {
+		t.Fatalf("renderEdgeCard: %v", err)
+	}
+	if want := "hold lease pinning writes"; !strings.Contains(buf.String(), want) {
+		t.Errorf("card missing %q:\n%s", want, buf.String())
+	}
+}
+
 // status edge --json is the card struct verbatim: machine
 // readers get the standing code, not the words. If this fails,
 // --json drifts from the model both renderers sign.

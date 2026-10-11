@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -35,14 +36,15 @@ func renderRegistryCard(w io.Writer, card keeper.RegistryCard, asJSON bool) erro
 	if asJSON {
 		return json.NewEncoder(w).Encode(card)
 	}
-	if _, err := fmt.Fprintf(w, "registry: %s\n", registryState(card)); err != nil {
-		return err
-	}
+	// One assembled write, like the aggregate: a broken pipe
+	// errors with no partial card printed as success.
+	var sb strings.Builder
+	_, _ = fmt.Fprintf(&sb, "registry: %s\n", registryState(card))
 	if card.URL != "" {
-		_, err := fmt.Fprintf(w, "url: %s\n", card.URL)
-		return err
+		_, _ = fmt.Fprintf(&sb, "url: %s\n", card.URL)
 	}
-	return nil
+	_, err := io.WriteString(w, sb.String())
+	return err
 }
 
 var statusRegistryCmd = &cobra.Command{

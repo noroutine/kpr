@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -36,16 +37,16 @@ func runStatus(w io.Writer, reg keeper.RegistryCard, card keeper.StoreCard, st k
 	if !st.StoreOK {
 		return fmt.Errorf("%s unreachable: no tracked state to report", card.Name)
 	}
+	// One assembled write: a broken pipe errors with no partial
+	// card printed as success. Builder writes never fail, so the
+	// single WriteString carries the only error branch.
+	var sb strings.Builder
 	url := ""
 	if reg.URL != "" {
 		url = " (" + reg.URL + ")"
 	}
-	if _, err := fmt.Fprintf(w, "registry: %s%s\n", registryState(reg), url); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "store: %s (%s)\n", storeState(card.Standing), card.Name); err != nil {
-		return err
-	}
+	_, _ = fmt.Fprintf(&sb, "registry: %s%s\n", registryState(reg), url)
+	_, _ = fmt.Fprintf(&sb, "store: %s (%s)\n", storeState(card.Standing), card.Name)
 	posture := "closed"
 	if edge.Open {
 		posture = "open, pass"
@@ -53,9 +54,7 @@ func runStatus(w io.Writer, reg keeper.RegistryCard, card keeper.StoreCard, st k
 			posture = "open, deny"
 		}
 	}
-	if _, err := fmt.Fprintf(w, "edge: %s\n", posture); err != nil {
-		return err
-	}
+	_, _ = fmt.Fprintf(&sb, "edge: %s\n", posture)
 	// The skew voices itself when it is a reading; unreachable
 	// and unchecked have no reading (their SkewText is the
 	// standing or a dash), so the line names the state with the
@@ -68,19 +67,13 @@ func runStatus(w io.Writer, reg keeper.RegistryCard, card keeper.StoreCard, st k
 	default:
 		skew = fmt.Sprintf("%s: %s", clock.Standing, skew)
 	}
-	if _, err := fmt.Fprintf(w, "clock: %s\n", skew); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "plan: %d due\n", len(st.Plan)); err != nil {
-		return err
-	}
+	_, _ = fmt.Fprintf(&sb, "clock: %s\n", skew)
+	_, _ = fmt.Fprintf(&sb, "plan: %d due\n", len(st.Plan))
 	activity := "none recorded"
 	if len(st.Activity) > 0 {
 		activity = fmt.Sprintf("%d recorded, last %s", len(st.Activity), st.Activity[0].Outcome)
 	}
-	if _, err := fmt.Fprintf(w, "activity: %s\n", activity); err != nil {
-		return err
-	}
+	_, _ = fmt.Fprintf(&sb, "activity: %s\n", activity)
 	backends := "unavailable"
 	if obs.Standing == keeper.StandingOK {
 		backends = fmt.Sprintf("%d backend", len(obs.Links))
@@ -88,7 +81,8 @@ func runStatus(w io.Writer, reg keeper.RegistryCard, card keeper.StoreCard, st k
 			backends += "s"
 		}
 	}
-	_, err := fmt.Fprintf(w, "observability: %s\n", backends)
+	_, _ = fmt.Fprintf(&sb, "observability: %s\n", backends)
+	_, err := io.WriteString(w, sb.String())
 	return err
 }
 
