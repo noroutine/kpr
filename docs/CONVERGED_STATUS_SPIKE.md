@@ -9,6 +9,13 @@ This spike converges them: every card is a `keeper` struct,
 Absorbs `docs/CLI_FUTURE.md` (gateway/clock parity falls out
 of the model — dissolved here).
 
+Rule: `store status` is frozen as the reference. The spike
+does not touch it except cosmetic changes the spike itself
+forces (shared consts, moved helpers — same output). Each
+new `status <card>` is built in parallel from the card
+models, golden-tested against the reference; `store status`
+drops in a separate change once the cards read identical.
+
 ## Model: kind and standing
 
 Kind is the struct type. Standing is a machine code set once
@@ -83,8 +90,9 @@ as today, now tested once in `keeper`.
   passthrough tests.
 
 Each milestone: focused `keeper`/`human`/`cli`/`console`
-tests, then suite + lint green. `store status` stays as a
-hidden alias of `status store` (reversible; kill on request).
+tests, then suite + lint green. New commands never alias the
+reference — parallel `status <card>` beside frozen `store
+status`, compared by goldens, reference dropped separately.
 
 ## Absorbed from CLI_FUTURE
 
