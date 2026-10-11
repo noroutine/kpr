@@ -89,10 +89,22 @@ as today, now tested once in `keeper`.
   `keeperData`/`storeData`/`sentinelData` die; per-card
   passthrough tests.
 
-Each milestone: focused `keeper`/`human`/`cli`/`console`
-tests, then suite + lint green. New commands never alias the
-reference — parallel `status <card>` beside frozen `store
-status`, compared by goldens, reference dropped separately.
+Each milestone follows the same shape, model first:
+
+1. Testable card model in `keeper`: struct + assembly with a
+   standing-matrix test (facts in → code out), no renderers
+   yet. No model lands untested — the model is the contract
+   both renderers sign.
+2. CLI render: text + `--json` from the model, golden-tested
+   (against the `store status` reference where one exists).
+3. Console render: section reads the model, passthrough test.
+4. Suite + lint green, then Claude review per slice (see
+   [`docs/REVIEWER_CONTEXT.md`](REVIEWER_CONTEXT.md)) — next
+   milestone starts only after the review lands.
+
+New commands never alias the reference — parallel `status
+<card>` beside frozen `store status`, compared by goldens,
+reference dropped separately.
 
 ## Absorbed from CLI_FUTURE
 
