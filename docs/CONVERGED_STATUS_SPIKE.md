@@ -16,6 +16,18 @@ new `status <card>` is built in parallel from the card
 models, golden-tested against the reference; `store status`
 drops in a separate change once the cards read identical.
 
+## Placement
+
+Cards live in `keeper` (`cards.go`), display in `human` —
+no new package, no `keeper` subpackage. `keeper` already is
+the read-side store use cases (plan, policy, reap, ghosts,
+`Status`) that both renderers import; three small structs
+with no independent lifecycle don't earn a ports tree (the
+`fence` impurity-note rule). Not `observability`: that name
+already means the metrics/traces/logs overlay
+(`docs/OBSERVABILITY.md`) — status snapshots sharing it
+would collide on every future conversation about either.
+
 ## Model: kind and standing
 
 Kind is the struct type. Standing is a machine code set once
