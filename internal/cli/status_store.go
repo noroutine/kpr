@@ -48,7 +48,22 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 	proven := keeper.FetchProofCard(ctx, reg).Proven()
 	card := keeper.FetchStoreCard(ctx, s, st.StoreOK, redisAddr, redisDB, proven)
 	if asJSON {
-		return json.NewEncoder(w).Encode(card)
+		// The machine view carries what the text carries: the
+		// card with the counters and the proof voice beside
+		// them — never a subset the text outgrows.
+		out := struct {
+			keeper.StoreCard
+			Tracked   int    `json:"tracked"`
+			Due       int    `json:"due"`
+			Performed int    `json:"performed"`
+			Planned   int    `json:"planned"`
+			Failed    int    `json:"failed"`
+			Proof     string `json:"proof"`
+		}{StoreCard: card,
+			Tracked: st.Tracked, Due: st.Due,
+			Performed: st.Performed, Planned: st.Planned, Failed: st.Failed,
+			Proof: proofState(ctx, reg)}
+		return json.NewEncoder(w).Encode(out)
 	}
 	lock := card.LockNote
 	if lock == "" {

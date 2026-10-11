@@ -37,7 +37,7 @@ func renderGatewayCard(w io.Writer, card keeper.GatewayCard, asJSON bool) error 
 		fenceState = "deny — writes refused"
 	}
 	hold := "no hold lease"
-	if card.Held {
+	if card.Hold {
 		hold = "hold lease pinning writes"
 	}
 	_, err := fmt.Fprintf(w, "edge: open\nfence: %s (%s)\n", fenceState, hold)

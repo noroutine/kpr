@@ -63,7 +63,7 @@ stamp their own render time.
 |---|---|---|
 | Keeper (counters) | `Counters` (existing `Status` counts) | `status` aggregate header |
 | Registry | `Registry{Standing, URL, Reachable}` | `status registry` |
-| Gateway | `Gateway{Standing, Open, Deny, Held, EdgeAddr, RegistryURL}` | `status gateway` |
+| Gateway | `Gateway{Standing, Open, Deny, Hold, EdgeAddr, RegistryURL}` | `status gateway` |
 | Clock | `Clock{Standing, Method, Server, Skew, Tolerance}` (raw durations, not words) | `status clock` |
 | Plan | `Status.Plan` rows (mutations stay `plan add/rm`) | console only — no `status plan` twin (`kpr plan` owns the human view) |
 | Store | `Store{Name, Detail, Healthy, Standing, LockNote, FsNote, Identity}` + `Status` counts + proof voice | `status store` |

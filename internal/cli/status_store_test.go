@@ -102,10 +102,12 @@ func TestStatusStoreCarriesCountersAndProof(t *testing.T) {
 	}
 }
 
-// status store --json is the card struct verbatim: machine
-// readers get the standing code, not the words. If this fails,
-// --json drifts from the model both renderers sign.
-func TestStatusStoreJSONIsCardVerbatim(t *testing.T) {
+// status store --json carries what the text carries: the card
+// fields with the counters and the proof voice beside them.
+// Machine readers get the standing code, not the words; the
+// proof voices the same string both views print. If this
+// fails, --json and text report different stores.
+func TestStatusStoreJSONMatchesText(t *testing.T) {
 	s := store.NewMemStore()
 	if err := s.SetUnlocked(context.Background(), false); err != nil {
 		t.Fatalf("lock: %v", err)
@@ -115,14 +117,26 @@ func TestStatusStoreJSONIsCardVerbatim(t *testing.T) {
 		t.Fatalf("runStatusStore: %v", err)
 	}
 	var got struct {
-		Standing string `json:"standing"`
-		Name     string `json:"name"`
-		LockNote string `json:"lockNote"`
+		Standing  string `json:"standing"`
+		Name      string `json:"name"`
+		LockNote  string `json:"lockNote"`
+		Tracked   int    `json:"tracked"`
+		Due       int    `json:"due"`
+		Performed int    `json:"performed"`
+		Planned   int    `json:"planned"`
+		Failed    int    `json:"failed"`
+		Proof     string `json:"proof"`
 	}
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if got.Standing != "locked" || got.Name != "mem" || got.LockNote != "locked" {
 		t.Errorf("json = %+v, want locked mem card", got)
+	}
+	if got.Tracked != 0 || got.Due != 0 || got.Performed != 0 || got.Planned != 0 || got.Failed != 0 {
+		t.Errorf("json counts = %+v, want the zero tally beside the card", got)
+	}
+	if got.Proof != "unproven" {
+		t.Errorf("json proof = %q, want the text voice unproven", got.Proof)
 	}
 }

@@ -16,7 +16,7 @@ type GatewayCard struct {
 	Standing    Standing `json:"standing"`
 	Open        bool     `json:"open"`
 	Deny        bool     `json:"deny"`
-	Held        bool     `json:"held"`
+	Hold        bool     `json:"hold"`
 	EdgeAddr    string   `json:"edgeAddr,omitempty"`
 	RegistryURL string   `json:"registryUrl,omitempty"`
 }
@@ -44,7 +44,7 @@ func FetchGatewayCard(ctx context.Context, gate GatePosture, s store.Store, edge
 		unlocked, err := s.IsUnlocked(ctx)
 		deny = err != nil || !unlocked
 	}
-	card := GatewayCard{Open: true, Deny: deny, Held: held, EdgeAddr: edgeAddr, RegistryURL: registryURL}
+	card := GatewayCard{Open: true, Deny: deny, Hold: held, EdgeAddr: edgeAddr, RegistryURL: registryURL}
 	switch {
 	case deny:
 		card.Standing = StandingDenied

@@ -18,12 +18,20 @@ import (
 // model: method, server, live skew, bound, and the render stamp
 // beside it — server time as kpr sees it, same shape as the
 // console's Server time card. The stamp is caller-owned (Now
-// stays out of the shared card); --json stays the card verbatim.
+// stays out of the shared card); --json carries the card with
+// the same stamp beside it.
 // Degraded reads loud (caps + the bound beside the skew); local
 // reads unchecked, never a fake zero.
 func renderClockCard(w io.Writer, card keeper.ClockCard, now time.Time, asJSON bool) error {
 	if asJSON {
-		return json.NewEncoder(w).Encode(card)
+		// The machine view carries what the text carries: the
+		// card with the render stamp beside it — never a subset
+		// the text outgrows.
+		out := struct {
+			keeper.ClockCard
+			Now string `json:"now"`
+		}{ClockCard: card, Now: now.UTC().Format("2006-01-02 15:04:05 UTC")}
+		return json.NewEncoder(w).Encode(out)
 	}
 	standing := ""
 	if card.Standing != keeper.StandingOK {

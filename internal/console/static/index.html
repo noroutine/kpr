@@ -92,7 +92,7 @@
             <div class="card {{ bulb .Gateway.Standing }}">
                 <div class="label">Fence</div>
                 <div class="value">{{ if .Gateway.Deny }}deny{{ else }}pass{{ end }}</div>
-                <div class="meta">{{ if .Gateway.Held }}hold lease pinning writes{{ else }}no hold lease{{ end }}</div>
+                <div class="meta">{{ if .Gateway.Hold }}hold lease pinning writes{{ else }}no hold lease{{ end }}</div>
             </div>
             {{ end }}
         </div>

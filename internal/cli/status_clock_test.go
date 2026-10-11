@@ -55,23 +55,30 @@ func TestStatusClockPrintsServerTime(t *testing.T) {
 	}
 }
 
-// status clock --json is the card struct verbatim: machine
-// readers get nanosecond skews and the standing code. If this
-// fails, --json drifts from the model both renderers sign.
-func TestStatusClockJSONIsCardVerbatim(t *testing.T) {
+// status clock --json carries what the text carries: the card
+// with the render stamp beside it. Machine readers get
+// nanosecond skews, the standing code, and the same stamp the
+// text prints. If this fails, --json and text report different
+// clocks.
+func TestStatusClockJSONMatchesText(t *testing.T) {
 	card := keeper.ClockCard{Standing: keeper.StandingUnchecked, Method: "local", Server: "machine clock"}
+	now := time.Date(2026, 10, 11, 16, 35, 0, 0, time.UTC)
 	var buf bytes.Buffer
-	if err := renderClockCard(&buf, card, time.Now(), true); err != nil {
+	if err := renderClockCard(&buf, card, now, true); err != nil {
 		t.Fatalf("renderClockCard: %v", err)
 	}
 	var got struct {
 		Standing string `json:"standing"`
 		Method   string `json:"method"`
+		Now      string `json:"now"`
 	}
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if got.Standing != "unchecked" || got.Method != "local" {
 		t.Errorf("json = %+v, want unchecked local card", got)
+	}
+	if got.Now != "2026-10-11 16:35:00 UTC" {
+		t.Errorf("json now = %q, want the text stamp", got.Now)
 	}
 }

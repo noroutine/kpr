@@ -42,9 +42,9 @@ func TestGatewayCardVoicesPosture(t *testing.T) {
 		{"locked denies", stubGate{}, locked, true, false, keeper.StandingDenied},
 	} {
 		got := keeper.FetchGatewayCard(ctx, tc.gate, tc.st, ":5000", "http://registry:5000")
-		if got.Deny != tc.deny || got.Held != tc.held || got.Standing != tc.stand {
+		if got.Deny != tc.deny || got.Hold != tc.held || got.Standing != tc.stand {
 			t.Errorf("%s = (deny %v, held %v, %q), want (deny %v, held %v, %q)",
-				tc.name, got.Deny, got.Held, got.Standing, tc.deny, tc.held, tc.stand)
+				tc.name, got.Deny, got.Hold, got.Standing, tc.deny, tc.held, tc.stand)
 		}
 		if tc.gate != nil && (!got.Open || got.EdgeAddr != ":5000" || got.RegistryURL != "http://registry:5000") {
 			t.Errorf("%s open/addrs = (%v, %q, %q), want edge voiced", tc.name, got.Open, got.EdgeAddr, got.RegistryURL)
