@@ -61,7 +61,7 @@ reference pages above. Each `X.md` states what ships today; its
 | [ARCHITECTURE_FUTURE](ARCHITECTURE_FUTURE.md) | open and upcoming work |
 | [GC_FUTURE](GC_FUTURE.md) | per-repo collection |
 | [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | filling missing digests on tracked rows |
-| [CLI_FUTURE](CLI_FUTURE.md) | one subpackage per command |
+| [CONVERGED_STATUS_SPIKE](CONVERGED_STATUS_SPIKE.md) | one status model, CLI + console renderers |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |
 
 Deferred by decision, kept so the reasoning survives:
