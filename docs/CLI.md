@@ -1,7 +1,7 @@
 # CLI
 
-`kpr` commands, one subpackage each (all moved or moving —
-see [`docs/CLI_FUTURE.md`](CLI_FUTURE.md)). Shared wiring
+`kpr` commands, one file each (`store_<verb>.go`,
+`plan_<verb>.go`, `status_<card>.go`, …). Shared wiring
 lives in [`internal/cli/deps`](../internal/cli/deps/deps.go):
 `Deps`/`OpenDeps` (config, state, registry client),
 `OpenStore`/`BuildStore`/`StoreName`,

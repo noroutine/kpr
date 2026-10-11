@@ -3,14 +3,10 @@ package console
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/clock"
-	"nrtn.dev/catalyst/kpr/internal/config"
-	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
@@ -21,48 +17,8 @@ import (
 // no test observes the bound. The red-banner tests pin the logic.
 const probeTimeout = 2 * time.Second
 
-// keeperData is everything the console shows about what kpr tracks —
-// never a registry catalog: banner, counters, plan, activity.
-type keeperData struct {
-	RedisOK    bool
-	RegistryOK bool
-	Tracked    int
-	Due        int
-	Performed  int
-	Planned    int
-	Failed     int
-	Untracked  int
-	Plan       []keeperPlanRow
-	// Activity is the capped tail (CLI status shape); ActivityTotal
-	// is the uncapped ring size, so the cap reads honest. Full
-	// precise records live behind /api/activity.
-	Activity      []keeperActivityRow
-	ActivityTotal int
-	// EdgeOpen renders the gateway section open (proven and
-	// serving); EdgeDeny/EdgeHeld are its live fence posture —
-	// what IS, while the activity ring shows what CHANGED.
-	EdgeOpen bool
-	EdgeDeny bool
-	EdgeHeld bool
-	// RegistryURL/EdgeAddr name the endpoints the cards talk
-	// about (edge forwards EdgeAddr → RegistryURL); empty renders
-	// nothing, never a guess.
-	RegistryURL string
-	EdgeAddr    string
-	// ClockMethod/ClockServer voice the configured time transport;
-	// ClockSkew is the live offset as kpr sees it ("+83ms",
-	// "unreachable", or "—" when unchecked), ClockNote its bound.
-	// ClockNow is the server clock at render (what "now" means to
-	// kpr). The skew reading is taken during the same render, so a
-	// separate checked stamp would always read "just now" — noise,
-	// not information. (The proof itself carries no obtained-at.)
-	ClockMethod string
-	ClockServer string
-	ClockSkew   string
-	ClockNote   string
-	ClockNow    string
-}
-
+// keeperPlanRow is one plan line shaped for the template: the
+// push stamp preformatted, "unknown" when the store never said.
 type keeperPlanRow struct {
 	Repo   string
 	Tag    string
@@ -77,105 +33,33 @@ type keeperActivityRow struct {
 	Line string
 }
 
-// keeperSnapshot renders the keeper use case for the dashboard. The
-// numbers come from keeper.FetchStatus — the same implementation
-// `status` reads; this stays formatting-only, degrading to red/empty
-// when a backend is absent or down.
-func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
-	defer cancel()
-
-	st := keeper.FetchStatus(ctx, s.Store, s.Registry)
-	k := keeperData{
-		RedisOK:    st.StoreOK,
-		RegistryOK: st.RegistryOK,
-		Tracked:    st.Tracked, Due: st.Due,
-		Performed: st.Performed, Planned: st.Planned,
-		Failed: st.Failed, Untracked: st.Untracked,
-	}
-	if s.Edge != nil {
-		k.EdgeOpen = true
-		k.EdgeDeny, k.EdgeHeld = s.Edge.Snapshot()
-		// Would-deny, not just last-denied: the live lock reading
-		// is the answer whenever a store is present, so a fresh
-		// lock reads deny before the first refused push and a
-		// fresh unlock clears without waiting for traffic. An
-		// unreadable marker reads deny — the fence refuses then
-		// too. The Snapshot value survives only where no store
-		// exists to ask.
-		if s.Store != nil {
-			unlocked, err := s.Store.IsUnlocked(ctx)
-			k.EdgeDeny = err != nil || !unlocked
-		}
-	}
-	k.RegistryURL, k.EdgeAddr = s.RegistryURL, s.EdgeAddr
-	now := time.Now().UTC()
-	k.ClockNow = now.Format("2006-01-02 15:04:05 UTC")
-	k.ClockMethod, k.ClockServer, k.ClockSkew, k.ClockNote = clockSnapshot(ctx)
-	for _, p := range st.Plan {
+// planRows shapes the plan for the template: the push stamp
+// preformatted, "unknown" when the store never said.
+func planRows(plan []keeper.PlanEntry) []keeperPlanRow {
+	var rows []keeperPlanRow
+	for _, p := range plan {
 		pushed := p.PushedAt.UTC().Format(time.RFC3339)
 		if p.PushedAt.IsZero() {
 			pushed = "unknown"
 		}
-		k.Plan = append(k.Plan, keeperPlanRow{Repo: p.Repo, Tag: p.Tag, Reason: p.Reason, Pushed: pushed})
+		rows = append(rows, keeperPlanRow{Repo: p.Repo, Tag: p.Tag, Reason: p.Reason, Pushed: pushed})
 	}
-	k.ActivityTotal = len(st.Activity)
-	for _, a := range st.Activity {
-		if len(k.Activity) >= activityTail {
+	return rows
+}
+
+// activityRows shapes the capped ring tail for the template. It
+// mirrors the CLI status view through the shared formatter
+// (unpadded — the card has its own padding): same last-10 tail,
+// capped and said out loud.
+func activityRows(entries []keeper.ActivityEntry, now time.Time) []keeperActivityRow {
+	var rows []keeperActivityRow
+	for _, a := range entries {
+		if len(rows) >= keeper.ActivityTail {
 			break
 		}
-		k.Activity = append(k.Activity, keeperActivityRow{Line: activityLine(a)})
+		rows = append(rows, keeperActivityRow{Line: keeper.FormatOutcome(now, a, false)})
 	}
-	return k
-}
-
-// activityTail mirrors the CLI status view: the console shows the
-// same last-10 tail, capped and said out loud.
-const activityTail = 10
-
-// activityLine formats one ring entry exactly like `store status`
-// (see renderOutcome in internal/cli): row-less control events
-// without the repo:tag prefix, every line with a human age.
-// Friendly only — precise stamps live behind /api/activity.
-func activityLine(a keeper.ActivityEntry) string {
-	age := human.Age(a.At)
-	// No leading indent: the CLI pads for the terminal, the card
-	// has its own padding.
-	if a.Repo == "" && a.Tag == "" {
-		return fmt.Sprintf("%s (%s), %s", a.Outcome, a.Reason, age)
-	}
-	return fmt.Sprintf("%s:%s — %s (%s), %s", a.Repo, a.Tag, a.Outcome, a.Reason, age)
-}
-
-// clockSnapshot voices the configured time transport and the live
-// skew as kpr sees it: the same source the mint paths check
-// through, read here for display. An unreachable source reads
-// "unreachable" (never slow: the caller's probe timeout bounds
-// it); local trusts the machine clock, so skew is "—".
-func clockSnapshot(ctx context.Context) (method, server, skew, note string) {
-	cfg := config.Current()
-	method = string(cfg.TimeMethod)
-	server = cfg.TimeServer
-	if cfg.TimeMethod == clock.MethodLocal {
-		return method, "machine clock", "—", "unchecked"
-	}
-	src := clock.NewSource(cfg.TimeMethod)
-	offset, err := src.Offset(ctx, server)
-	if err != nil {
-		return method, server, "unreachable", "tolerance " + clock.Tolerance.String()
-	}
-	return method, server, formatOffset(offset),
-		"tolerance " + clock.Tolerance.String()
-}
-
-// formatOffset voices a clock skew with its sign: ahead reads +,
-// behind reads -. If this fails, the card flips behind/ahead.
-func formatOffset(offset time.Duration) string {
-	sign := "+"
-	if offset < 0 {
-		sign = "-"
-	}
-	return sign + offset.Round(time.Millisecond).Abs().String()
+	return rows
 }
 
 // activityHandler serves the full precise ring as JSON for download:

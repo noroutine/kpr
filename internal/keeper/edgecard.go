@@ -1,0 +1,57 @@
+package keeper
+
+import (
+	"context"
+
+	"nrtn.dev/catalyst/kpr/internal/store"
+)
+
+// EdgeCard is the live fence posture through the same read
+// the console renders: open, deny, or hold, with the endpoints
+// beside it. Disabled renders closed, never an error. Standing
+// is decided here, at assembly — deny wins over hold, and the
+// lock read overrides the snapshot (would-deny, not just
+// last-denied).
+type EdgeCard struct {
+	Standing    Standing `json:"standing"`
+	Open        bool     `json:"open"`
+	Deny        bool     `json:"deny"`
+	Hold        bool     `json:"hold"`
+	EdgeAddr    string   `json:"edgeAddr,omitempty"`
+	RegistryURL string   `json:"registryUrl,omitempty"`
+}
+
+// GatePosture is the outbound port the edge card reads: the
+// fence snapshot. *fence.Gate carries it; tests pin it.
+type GatePosture interface {
+	Snapshot() (deny, held bool)
+}
+
+// FetchEdgeCard voices the fence posture: the snapshot's
+// deny/hold, overridden by the live lock reading whenever a
+// store is present — so a fresh lock reads deny before the
+// first refused push and a fresh unlock clears without waiting
+// for traffic. An unreadable marker reads deny — the fence
+// refuses then too.
+func FetchEdgeCard(ctx context.Context, gate GatePosture, s store.Store, edgeAddr, registryURL string) EdgeCard {
+	if gate == nil {
+		// Closed, but the endpoints are config facts, not probe
+		// results — they render either way.
+		return EdgeCard{Standing: StandingClosed, EdgeAddr: edgeAddr, RegistryURL: registryURL}
+	}
+	deny, held := gate.Snapshot()
+	if s != nil {
+		unlocked, err := s.IsUnlocked(ctx)
+		deny = err != nil || !unlocked
+	}
+	card := EdgeCard{Open: true, Deny: deny, Hold: held, EdgeAddr: edgeAddr, RegistryURL: registryURL}
+	switch {
+	case deny:
+		card.Standing = StandingDenied
+	case held:
+		card.Standing = StandingHold
+	default:
+		card.Standing = StandingOK
+	}
+	return card
+}

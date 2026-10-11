@@ -1,4 +1,4 @@
-# Analysis
+# Analysis <!-- omit in toc -->
 
 `kpr registry analyze` reports registry magnitude: how many
 repos, tags, revisions, blobs, and bytes — the numbers that tell
@@ -19,7 +19,7 @@ command judges nothing. Needs the filestore proof
 storage root). Point-in-time on a live registry. Designs not
 yet built live in [ANALYSIS_FUTURE.md](ANALYSIS_FUTURE.md).
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [The eight lines](#the-eight-lines)
 - [How it walks](#how-it-walks)

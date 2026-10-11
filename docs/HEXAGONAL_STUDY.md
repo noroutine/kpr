@@ -1,4 +1,4 @@
-# Hexagonal study: what the misses taught
+# Hexagonal study: what the misses taught <!-- omit in toc -->
 
 A worked post-mortem. `store rm --untag` shipped deleting manifests
 straight from `cli`; review found three architectural misses, and
@@ -12,7 +12,7 @@ the port map as it stands, this one is the reasoning that got it
 there. For the distilled rules, see
 [HEXAGONAL_WISDOMS.md](HEXAGONAL_WISDOMS.md).
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [The three misses](#the-three-misses)
   - [Miss 1 — the bypass](#miss-1--the-bypass)

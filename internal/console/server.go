@@ -62,6 +62,7 @@ type Server struct {
 func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.indexHandler)
+	mux.HandleFunc("/static/style.css", styleHandler)
 	mux.HandleFunc("/metrics", MetricsHandler)
 	mux.HandleFunc("/health", HealthHandler)
 	mux.HandleFunc("/api/activity", s.activityHandler)

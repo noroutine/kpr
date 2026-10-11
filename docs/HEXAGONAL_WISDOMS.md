@@ -1,9 +1,9 @@
-# Hexagonal wisdoms
+# Hexagonal Wisdoms <!-- omit in toc -->
 
 Lessons from building kpr hexagonal, each pinned to the commit that taught
 it. The rule, then the receipt. Two megawisdoms up top, then the checklist.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [W1: Ports hide partners, not steps](#w1-ports-hide-partners-not-steps)
 - [W2: A port needs a second implementation that differs in a way someone uses](#w2-a-port-needs-a-second-implementation-that-differs-in-a-way-someone-uses)

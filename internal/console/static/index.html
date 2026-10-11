@@ -5,47 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1e1e1e">
-    <style>
-        body { font-family: monospace; margin: 20px; background: #1e1e1e; color: #d4d4d4; }
-        h1 { color: #4ec9b0; margin-bottom: 5px; }
-        .hostname { color: #808080; font-size: 0.9em; margin-bottom: 20px; }
-        h2 { color: #dcdcaa; margin-top: 20px; margin-bottom: 10px; font-size: 1.2em; }
-        .section { margin-bottom: 30px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
-        .grid + .card { margin-top: 15px; }
-        .card {
-            background: #2d2d30;
-            border-left: 4px solid #007acc;
-            padding: 16px;
-        }
-        .stat-card {
-            border-left-color: #4ec9b0;
-        }
-        .config-card {
-            border-left-color: #dcdcaa;
-        }
-        .label { color: #ce9178; font-size: 0.85em; margin-bottom: 4px; }
-        .value { color: #9cdcfe; font-size: 1em; font-weight: bold; overflow-wrap: anywhere; }
-        .meta { color: #808080; font-size: 0.9em; margin-top: 4px; }
-        .config-item {
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #3e3e42;
-        }
-        .config-item:last-child {
-            border-bottom: none;
-            margin-bottom: 0;
-            padding-bottom: 0;
-        }
-        .config-key { color: #ce9178; font-size: 0.9em; }
-        .config-value { color: #9cdcfe; margin-top: 4px; }
-        a { color: #569cd6; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        hr { margin: 30px 0; border: 0; border-top: 1px solid #3e3e42; }
-        ul { line-height: 1.6; }
-        pre { margin: 12px 0 0; overflow-x: auto; }
-        .footer { margin-top: 40px; text-align: center; color: #808080; font-size: 0.85em; }
-    </style>
+    <link rel="stylesheet" href="{{ .BasePath }}/static/style.css">
 </head>
 <body>
     <h1>📋 kpr - Management Console</h1>
@@ -73,53 +33,66 @@
     </div>
 
     <div class="section">
-        <h2>🧹 Keeper</h2>
+        <h2>📦 Registry</h2>
         <div class="grid">
-            <div class="card">
+            <div class="card {{ bulb .Registry.Standing }}">
                 <div class="label">Registry</div>
-                <div class="value">{{ if .Keeper.RegistryOK }}reachable{{ else }}unreachable{{ end }}</div>
-                {{ if .Keeper.RegistryURL }}<div class="meta">{{ .Keeper.RegistryURL }}</div>{{ end }}
+                <div class="value">{{ if .Registry.Reachable }}reachable{{ else }}unreachable{{ end }}</div>
+                {{ if .Registry.URL }}<div class="meta">{{ .Registry.URL }}</div>{{ end }}
             </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>💾 Store</h2>
+        <div class="grid">
             <div class="card stat-card">
                 <div class="label">Tracked / Due</div>
-                <div class="value">{{ .Keeper.Tracked }} / {{ .Keeper.Due }}</div>
-                <div class="meta">performed {{ .Keeper.Performed }} · planned {{ .Keeper.Planned }} · failed {{ .Keeper.Failed }} · untracked {{ .Keeper.Untracked }}</div>
+                <div class="value">{{ .Status.Tracked }} / {{ .Status.Due }}</div>
+                <div class="meta">performed {{ .Status.Performed }} · planned {{ .Status.Planned }} · failed {{ .Status.Failed }} · untracked {{ .Status.Untracked }}</div>
             </div>
-            <div class="card stat-card">
-                <div class="label">State backend</div>
+            <div class="card stat-card {{ bulb .Store.Standing }}">
+                <div class="label">Backend</div>
                 <div class="value">{{ .Store.Name }}</div>
                 <div class="meta">{{ if .Store.Detail }}{{ .Store.Detail }} · {{ end }}{{ if .Store.Healthy }}reachable{{ else }}unreachable{{ end }}{{ if .Store.LockNote }} · {{ .Store.LockNote }}{{ end }}</div>
                 {{ if .Store.FsNote }}<div class="meta">{{ .Store.FsNote }}</div>{{ end }}
             </div>
+            {{ if .Store.Identity }}
             <div class="card stat-card">
+                <div class="label">Identity</div>
+                <div class="value">{{ .Store.Identity }}</div>
+                <div class="meta">pairs this store to its registry</div>
+            </div>
+            {{ end }}
+            <div class="card stat-card {{ bulb .Sentinel.Standing }}">
                 <div class="label">Same-store proof</div>
                 <div class="value">{{ if .Sentinel.Proven }}{{ .Sentinel.Gen }}{{ else }}unproven{{ end }}</div>
                 <div class="meta">{{ if .Sentinel.Proven }}proven {{ .Sentinel.TS }}{{ else }}no generation served yet{{ end }}</div>
             </div>
         </div>
-        {{ if .Keeper.Activity }}
+        {{ if .Activity }}
         <div class="card">
             <div class="label">Activity</div>
-            <div class="value">last {{ len .Keeper.Activity }} of {{ .Keeper.ActivityTotal }} · <a href="{{ .BasePath }}/api/activity">full JSON</a></div>
-            <pre>{{ range .Keeper.Activity }}{{ .Line }}
+            <div class="value">last {{ len .Activity }} of {{ .ActivityTotal }} · <a href="{{ .BasePath }}/api/activity">full JSON</a></div>
+            <pre>{{ range .Activity }}{{ .Line }}
 {{ end }}</pre>
         </div>
         {{ end }}
     </div>
 
     <div class="section">
-        <h2>🚪 Gateway</h2>
+        <h2>🚪 Edge</h2>
         <div class="grid">
             <div class="card">
-                <div class="label">Edge</div>
-                <div class="value">{{ if .Keeper.EdgeOpen }}open{{ else }}closed{{ end }}</div>
-                {{ if and .Keeper.EdgeOpen .Keeper.EdgeAddr .Keeper.RegistryURL }}<div class="meta">{{ .Keeper.EdgeAddr }} → {{ .Keeper.RegistryURL }}</div>{{ end }}
+                <div class="label">Gateway</div>
+                <div class="value">{{ if .Edge.Open }}open{{ else }}closed{{ end }}</div>
+                {{ if and .Edge.Open .Edge.EdgeAddr .Edge.RegistryURL }}<div class="meta">{{ .Edge.EdgeAddr }} → {{ .Edge.RegistryURL }}</div>{{ end }}
             </div>
-            {{ if .Keeper.EdgeOpen }}
-            <div class="card">
+            {{ if .Edge.Open }}
+            <div class="card {{ bulb .Edge.Standing }}">
                 <div class="label">Fence</div>
-                <div class="value">{{ if .Keeper.EdgeDeny }}deny{{ else }}pass{{ end }}</div>
-                <div class="meta">{{ if .Keeper.EdgeHeld }}hold lease pinning writes{{ else }}no hold lease{{ end }}</div>
+                <div class="value">{{ if .Edge.Deny }}deny{{ else }}pass{{ end }}</div>
+                <div class="meta">{{ if .Edge.Hold }}hold lease pinning writes{{ else }}no hold lease{{ end }}</div>
             </div>
             {{ end }}
         </div>
@@ -130,38 +103,38 @@
         <div class="grid">
             <div class="card">
                 <div class="label">Transport</div>
-                <div class="value">{{ .Keeper.ClockMethod }}</div>
-                <div class="meta">{{ .Keeper.ClockServer }}</div>
+                <div class="value">{{ .Clock.Method }}</div>
+                <div class="meta">{{ .Clock.Server }}</div>
             </div>
-            <div class="card">
+            <div class="card {{ bulb .Clock.Standing }}">
                 <div class="label">Skew</div>
-                <div class="value">{{ .Keeper.ClockSkew }}</div>
-                <div class="meta">{{ .Keeper.ClockNote }}</div>
+                <div class="value">{{ .Clock.SkewText }}</div>
+                <div class="meta">{{ .Clock.NoteText }}</div>
             </div>
             <div class="card">
                 <div class="label">Server time</div>
-                <div class="value">{{ .Keeper.ClockNow }}</div>
+                <div class="value">{{ .ClockNow }}</div>
                 <div class="meta">as kpr sees it</div>
             </div>
         </div>
     </div>
 
-    {{ if .Keeper.Plan }}
+    {{ if .Plan }}
     <div class="section">
         <h2>📋 Plan</h2>
         <ul>
-            {{ range .Keeper.Plan }}
+            {{ range .Plan }}
             <li>{{ .Repo }}:{{ .Tag }} — {{ .Reason }} (pushed {{ .Pushed }})</li>
             {{ end }}
         </ul>
     </div>
     {{ end }}
 
-    {{ if .Links }}
+    {{ if .Obs.Links }}
     <div class="section">
         <h2>🔭 Observability</h2>
         <div class="grid">
-            {{ range .Links }}
+            {{ range .Obs.Links }}
             <div class="card">
                 <div class="value"><a href="{{ .URL }}" target="_blank" rel="noopener">{{ .Name }}</a></div>
                 <div class="meta">{{ .Blurb }}</div>

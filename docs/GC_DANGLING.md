@@ -1,13 +1,17 @@
-# Garbage collection — dangling references
+# Garbage Collection — Dangling References <!-- omit in toc -->
 
 Designs for dangling-reference work that is **not built**.
 Shipped gc behavior lives in [GC.md](GC.md); other unbuilt gc
 designs live in [GC_FUTURE.md](GC_FUTURE.md).
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [What can dangle](#what-can-dangle)
 - [Dead tag links (designed)](#dead-tag-links-designed)
+  - [Why no existing tool owns them](#why-no-existing-tool-owns-them)
+  - [Design: two detectors, one mark kind, gc resolves](#design-two-detectors-one-mark-kind-gc-resolves)
+  - [Lifecycle](#lifecycle)
+  - [Steps](#steps)
 - [Risks and open questions](#risks-and-open-questions)
 
 ## What can dangle

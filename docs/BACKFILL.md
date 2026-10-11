@@ -1,4 +1,4 @@
-# Backfill
+# Backfill <!-- omit in toc -->
 
 `kpr store backfill` adopts pre-kpr tags into tracked rows — a
 one-shot import for tags the receiver never saw.
@@ -22,7 +22,7 @@ reason (`tracked`, `floater`) — so a skip-heavy run stays
 greppable. Pipes get the settled lines only — no control codes
 in logs.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [What it does](#what-it-does)
 - [The per-run gate](#the-per-run-gate)

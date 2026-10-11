@@ -1,4 +1,4 @@
-# kpr — project goals
+# kpr — project goals <!-- omit in toc -->
 
 kpr ("keeper") fronts a stock OCI `distribution` registry:
 ephemeral images plus lightweight retention cleanups, without the
@@ -6,6 +6,13 @@ weight of Harbor or Nexus.
 Inspired by ttl.sh. The design lives in [`docs/ARCHITECTURE.md`](ARCHITECTURE.md);
 this page is the backdrop — what it is, what it won't become,
 and what's still open.
+
+## Contents <!-- omit in toc -->
+
+- [What it is](#what-it-is)
+- [Principles](#principles)
+- [Non-goals](#non-goals)
+- [Open questions](#open-questions)
 
 ## What it is
 

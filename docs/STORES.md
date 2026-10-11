@@ -1,6 +1,13 @@
-# State backends
+# State Backends <!-- omit in toc -->
 
-## Contents
+Every kpr process programs to the `store.Store` port
+(`internal/store/store.go`): rows, due marks, run state,
+the activity ring, and both single-flight locks. Three
+adapters carry it; the `testing/storetest` contract suite runs
+identical scenarios against all of them — one contract,
+never a copy per backend.
+
+## Contents <!-- omit in toc -->
 
 - [The three stores](#the-three-stores)
 - [FileStore layout](#filestore-layout)
@@ -9,16 +16,10 @@
 - [Wiring: deriving the backend](#wiring-deriving-the-backend)
 - [The self-contained backup](#the-self-contained-backup)
 - [Ghosts: rows both witnesses agree are gone](#ghosts-rows-both-witnesses-agree-are-gone)
+  - [The fs-root caveat](#the-fs-root-caveat)
 - [Limits](#limits)
 
 ## The three stores
-
-Every kpr process programs to the `store.Store` port
-(`internal/store/store.go`): rows, due marks, run state,
-the activity ring, and both single-flight locks. Three
-adapters carry it; the `testing/storetest` contract suite runs
-identical scenarios against all of them — one contract,
-never a copy per backend.
 
 - **FileStore** — *the default*. Per-row JSON files under one dir,
   flock'd lock files, no redis. A single registry volume carries

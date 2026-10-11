@@ -1,4 +1,4 @@
-# internal/config
+# internal/config <!-- omit in toc -->
 
 Developer reference for `internal/config`'s structure: what belongs where,
 and the steps to add something new in each dimension. User-facing
@@ -9,6 +9,18 @@ in `internal/cli`; this page documents the machinery behind them.
 The rule for the whole package: each fact has exactly one place it is
 written down, and `internal/cli` seeds flag defaults from the resolved
 `Config` instead of maintaining its own copy.
+
+## Contents <!-- omit in toc -->
+- [The three dimensions (plus argv)](#the-three-dimensions-plus-argv)
+- [Runtime settings — `config.go`](#runtime-settings--configgo)
+  - [Adding a new env var](#adding-a-new-env-var)
+  - [Adding a plain tunable constant (no env override)](#adding-a-plain-tunable-constant-no-env-override)
+- [Compile-time metadata — `compiletime.go`](#compile-time-metadata--compiletimego)
+  - [Adding a new compile-time value](#adding-a-new-compile-time-value)
+- [Process/OS runtime facts — `runtime.go`](#processos-runtime-facts--runtimego)
+  - [Adding a new runtime fact](#adding-a-new-runtime-fact)
+- [Test seams vs. config values](#test-seams-vs-config-values)
+
 
 ## The three dimensions (plus argv)
 

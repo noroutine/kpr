@@ -1,11 +1,11 @@
-# Quickstart: kpr on a fresh registry
+# Quickstart: kpr on a fresh registry <!-- omit in toc -->
 
 From zero to expiring tags in ten minutes. No existing stack and no
 repo checkout — two containers, one shared volume, no database.
 
 Already run `distribution`? See [ADOPT_KPR.md](ADOPT_KPR.md) instead.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Prerequisites](#prerequisites)
 - [The two files](#the-two-files)

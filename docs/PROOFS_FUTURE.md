@@ -1,7 +1,14 @@
-# Proofs — future work
+# Proofs — future work <!-- omit in toc -->
 
 Unbuilt proof designs. The shipped proof model lives in
 [PROOFS.md](PROOFS.md).
+
+## Contents <!-- omit in toc -->
+
+- [Proofs over registry config](#proofs-over-registry-config)
+- [Provers read their own sources](#provers-read-their-own-sources)
+- [Proofs as binding call dependencies (not revised yet)](#proofs-as-binding-call-dependencies-not-revised-yet)
+- [Split proofs per subpackage (not revised yet)](#split-proofs-per-subpackage-not-revised-yet)
 
 ## Proofs over registry config
 

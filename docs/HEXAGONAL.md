@@ -1,4 +1,4 @@
-# Hexagonal architecture
+# Hexagonal Architecture <!-- omit in toc -->
 
 kpr is hexagonal: a `policy` core, `keeper`/`gc`/`sweep`/`backfill`
 use cases, `store`/`registry`/`clock` outbound adapters, and
@@ -16,7 +16,7 @@ to:
 - [HEXAGONAL_WISDOMS.md](HEXAGONAL_WISDOMS.md) — the
   port-cutting rules, distilled.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Where we are](#where-we-are)
 - [Shape](#shape)

@@ -1,4 +1,4 @@
-# Garbage collection
+# Garbage Collection <!-- omit in toc -->
 
 Manifest deletes drop references only; the bytes stay until
 something collects them. kpr does not collect them itself.
@@ -18,7 +18,7 @@ cache, a push mid-collect, a clock that misorders generations. So
 kpr proves the world first, collects, then confirms nothing moved
 underneath.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [The shape of a run](#the-shape-of-a-run)
 - [The gates](#the-gates)

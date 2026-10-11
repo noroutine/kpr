@@ -1,4 +1,4 @@
-# kpr architecture
+# kpr architecture <!-- omit in toc -->
 
 Dead-simple gateway and keeper that stops a local `distribution`
 registry from becoming a pig. One binary, one state backend (plain
@@ -6,7 +6,7 @@ files by default, redis with `KPR_REDIS_ADDR`), opinionated,
 use-case driven policies written as plain code. Both state backends:
 [STORES](STORES.md).
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Components](#components)
 - [Layering](#layering)

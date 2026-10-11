@@ -1,6 +1,7 @@
 package console
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net"
@@ -11,8 +12,10 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/app"
+	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/helpers/human"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
 var (
@@ -49,16 +52,59 @@ type pageData struct {
 	// would 404 against the console. Built off the request host —
 	// the only address known dialable from this browser.
 	AppStatusURL string
-	// Links holds the configured observability launchpad entries. A
-	// link appears only when its URL is configured — empty means the
-	// backend is absent and the template hides the whole section.
-	Links []consoleLink
-	// Keeper is what kpr tracks (banner, counters, plan, activity).
-	Keeper keeperData
+	// Obs holds the configured observability launchpad entries —
+	// the same card `status observability` prints. A link appears
+	// only when its URL is configured; an empty card hides the
+	// whole section.
+	Obs keeper.ObsCard
+	// Registry voices the probed distribution registry with its
+	// endpoint — the same card `status registry` prints.
+	Registry keeper.RegistryCard
+	// Status is what kpr tracks (banner, counters) — the same
+	// model `status` reads. Plan and Activity are its
+	// template-shaped views; ActivityTotal is the uncapped ring
+	// size, so the cap reads honest.
+	Status        keeper.Status
+	Plan          []keeperPlanRow
+	Activity      []keeperActivityRow
+	ActivityTotal int
+	// Edge is the shared fence posture card: open, deny, or
+	// hold with the endpoints beside it. What IS, while the
+	// activity ring shows what CHANGED. The section and the
+	// card are named edge; the card's own label says gateway —
+	// the role the edge plays in front of the registry.
+	Edge keeper.EdgeCard
+	// Clock is the shared time-transport card: method, server,
+	// live skew, bound. ClockNow is the server clock at render
+	// (what "now" means to kpr) — stamped here, never shared:
+	// the skew reading is taken during the same render, so a
+	// separate checked stamp would always read "just now" —
+	// noise, not information. (The proof itself carries no
+	// obtained-at.)
+	Clock    keeper.ClockCard
+	ClockNow string
 	// Store names the state backend and where it lives; Sentinel
 	// carries the live same-store proof generation, if any.
-	Store    storeData
-	Sentinel sentinelData
+	Store    keeper.StoreCard
+	Sentinel keeper.ProofCard
+}
+
+// bulbClass paints a card's left border from its standing: deny
+// red, hold and degraded amber, ok teal. Anything else gets no
+// class (the default border) rather than a wrong color — the
+// words carry those states. The template calls it; the CLI
+// voices the same rule in words beside its own cards.
+func bulbClass(standing keeper.Standing) string {
+	switch standing {
+	case keeper.StandingDenied:
+		return "bulb-deny"
+	case keeper.StandingHold, keeper.StandingDegraded:
+		return "bulb-warn"
+	case keeper.StandingOK:
+		return "bulb-ok"
+	default:
+		return ""
+	}
 }
 
 // bracketHost renders a bind address for display: a bare IPv6 host
@@ -94,27 +140,14 @@ func appStatusURL(hostport string, appPort int) string {
 	return "http://" + bracketHost(host) + ":" + strconv.Itoa(appPort) + "/api/status"
 }
 
-// consoleLink is one observability UI entry on the console.
-type consoleLink struct {
-	Name  string
-	URL   string
-	Blurb string
-}
-
-// observabilityLinks resolves the configured UI base URLs into
-// launchpad entries, skipping every backend without a URL.
-func observabilityLinks(cfg *config.Config) []consoleLink {
-	var links []consoleLink
-	add := func(url, name, blurb string) {
-		if url != "" {
-			links = append(links, consoleLink{Name: name, URL: url, Blurb: blurb})
-		}
-	}
-	add(cfg.QuickwitURL, "Quickwit", "Searchable logs, kept across dev runs")
-	add(cfg.JaegerURL, "Jaeger", "Distributed traces, stored in Quickwit")
-	add(cfg.GrafanaURL, "Grafana", "Metrics dashboards for this service")
-	add(cfg.PrometheusURL, "Prometheus", "Raw metrics and scrape targets")
-	return links
+// obsCard resolves the configured UI base URLs into the shared
+// launchpad card: the same entries `status observability`
+// prints, decided in keeper, never recomputed here.
+func obsCard(cfg *config.Config) keeper.ObsCard {
+	return keeper.FetchObsCard(keeper.ObsURLs{
+		Quickwit: cfg.QuickwitURL, Jaeger: cfg.JaegerURL,
+		Grafana: cfg.GrafanaURL, Prometheus: cfg.PrometheusURL,
+	})
 }
 
 type metricsData struct {
@@ -151,8 +184,22 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 
 	rt := config.CurrentRuntime()
 
-	keeper := s.keeperSnapshot(r.Context())
-	sentinel := s.sentinelSnapshot(r.Context())
+	// The page assembles straight from the shared keeper
+	// models — the same implementation `status` reads — with
+	// only template shaping in between, degrading to red/empty
+	// when a backend is absent or down.
+	ctx, cancel := context.WithTimeout(r.Context(), probeTimeout)
+	defer cancel()
+
+	st := keeper.FetchStatus(ctx, s.Store, s.Registry)
+	sentinel := s.sentinelSnapshot(ctx)
+	// Edge posture reads the shared card: would-deny, lease,
+	// and standing decided in keeper, never recomputed here.
+	var gate keeper.GatePosture
+	if s.Edge != nil {
+		gate = s.Edge
+	}
+	now := time.Now().UTC()
 
 	data := pageData{
 		Hostname:       hostname,
@@ -171,10 +218,18 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppPort:        strconv.Itoa(cfg.AppPort),
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
 		AppStatusURL:   appStatusURL(r.Host, cfg.AppPort),
-		Links:          observabilityLinks(cfg),
-		Keeper:         keeper,
-		Store:          storeSnapshot(r.Context(), s.Store, keeper.RedisOK, cfg, sentinel.Proven),
-		Sentinel:       sentinel,
+		Obs:            obsCard(cfg),
+		Registry:       keeper.NewRegistryCard(s.Registry, st.RegistryOK, cfg.RegistryURL),
+		Status:         st,
+		Plan:           planRows(st.Plan),
+		Activity:       activityRows(st.Activity, now),
+		ActivityTotal:  len(st.Activity),
+		Edge:           keeper.FetchEdgeCard(ctx, gate, s.Store, s.EdgeAddr, s.RegistryURL),
+		Clock:          keeper.FetchClockCard(ctx, clock.NewSource(cfg.TimeMethod), cfg.TimeMethod, cfg.TimeServer, clock.Tolerance),
+		ClockNow:       now.Format("2006-01-02 15:04:05 UTC"),
+		Store: keeper.FetchStoreCard(ctx, s.Store, st.StoreOK,
+			cfg.RedisAddr, cfg.RedisDB, sentinel.Proven()),
+		Sentinel: sentinel,
 	}
 
 	renderIndex(w, data)

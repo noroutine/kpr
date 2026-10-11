@@ -6,15 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/fence"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -56,9 +54,9 @@ func TestKeeperBannerDegradedWithoutBackends(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Keeper", "unreachable"} {
+	for _, want := range []string{"Registry", "Store", "unreachable"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q (degraded banner)", want)
+			t.Errorf("dashboard missing %q (degraded sections)", want)
 		}
 	}
 	// The console never sweeps, so it advertises no sweep posture:
@@ -72,11 +70,12 @@ func TestKeeperBannerDegradedWithoutBackends(t *testing.T) {
 	}
 }
 
-// The gateway gets its own place: closed with no gate (disabled
-// or unproven edge), open with the live fence posture when serve
-// proves it. If this fails, the operator can't see whether pushes
-// are fenced.
-func TestGatewaySectionRendersPosture(t *testing.T) {
+// The edge gets its own place: the section is named edge, the
+// card inside says gateway — the role the edge plays. Closed
+// with no gate (disabled or unproven edge), open with the live
+// fence posture when serve proves it. If this fails, the
+// operator can't see whether pushes are fenced.
+func TestEdgeSectionRendersPosture(t *testing.T) {
 	testConfig(t)
 	render := func(s *Server) string {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -87,11 +86,11 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 		}
 		return rr.Body.String()
 	}
-	if body := render(&Server{}); !strings.Contains(body, "Gateway") || !strings.Contains(body, "closed") {
-		t.Error("dashboard without a gate must render the gateway closed")
+	if body := render(&Server{}); !strings.Contains(body, "🚪 Edge") || !strings.Contains(body, "Gateway") || !strings.Contains(body, "closed") {
+		t.Error("dashboard without a gate must render the edge section with the gateway closed")
 	}
 	body := render(&Server{Edge: &fence.Gate{Store: store.NewMemStore()}})
-	for _, want := range []string{"Gateway", "open", "pass"} {
+	for _, want := range []string{"🚪 Edge", "Gateway", "open", "pass"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard with a gate missing %q (open fence)", want)
 		}
@@ -104,22 +103,25 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 	if err := locked.SetUnlocked(context.Background(), false); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	if body := render(&Server{Edge: &fence.Gate{Store: locked}, Store: locked}); !strings.Contains(body, "deny") {
+	if body := render(&Server{Edge: &fence.Gate{Store: locked}, Store: locked}); !strings.Contains(body, ">deny<") {
 		t.Error("dashboard with a locked store must read deny before any traffic")
 	}
 	// The other side of the same branch: an unlocked store with an
-	// open gate reads pass, never deny. If this fails, the fence
-	// posture cannot tell open from closed.
+	// open gate reads pass, never deny. The verdict is pinned on
+	// its element (">deny" would be the verdict voicing deny):
+	// the stylesheet names the deny bulb, so a whole-body
+	// substring would trip on styling, not posture. If this
+	// fails, the fence posture cannot tell open from closed.
 	open := store.NewMemStore()
 	if err := open.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("unlock: %v", err)
 	}
-	if body := render(&Server{Edge: &fence.Gate{Store: open}, Store: open}); !strings.Contains(body, "pass") || strings.Contains(body, "deny") {
+	if body := render(&Server{Edge: &fence.Gate{Store: open}, Store: open}); !strings.Contains(body, ">pass<") || strings.Contains(body, ">deny") {
 		t.Error("dashboard with an unlocked store must read pass, not deny")
 	}
 }
 
-// Activity reads like `store status` in a code block — friendly
+// Activity reads like `status activity` in a code block — friendly
 // lines, capped at ten and said out loud — while /api/activity
 // serves every record with precise stamps. If this fails, the
 // console either hides the cap or loses precision.
@@ -167,10 +169,10 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 	if strings.Contains(section, "<li>") {
 		t.Error("dashboard activity still renders bullets, want the code block")
 	}
-	// Placement: the card lives in Keeper, not its own section. If
-	// this fails, activity drifted back out of Keeper.
-	if keeper, activity := strings.Index(body, "🧹 Keeper"), strings.Index(body, ">Activity</div>"); activity < keeper {
-		t.Error("Activity card renders outside Keeper")
+	// Placement: the card lives in Store, not its own section. If
+	// this fails, activity drifted back out of Store.
+	if store, activity := strings.Index(body, "💾 Store"), strings.Index(body, ">Activity</div>"); activity < store {
+		t.Error("Activity card renders outside Store")
 	}
 
 	apiReq := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
@@ -287,15 +289,8 @@ func TestActivityZeroStampReadsUnknown(t *testing.T) {
 // The redis card names addr and DB even degraded: the operator
 // must see which redis is unreachable, not just red. If this
 // fails, the card hides the backend it complains about.
-func TestRedisStoreCardNamesAddrAndDB(t *testing.T) {
-	testConfig(t)
-	rs := store.NewRedisStore("redis:6379", "", 0)
-	defer func() { _ = rs.Close() }()
-	got := storeSnapshot(context.Background(), rs, false, config.Current(), false)
-	if got.Name != "redis" || got.Detail != "redis:6379 db 0" {
-		t.Errorf("redis card = %q/%q, want redis with addr and DB", got.Name, got.Detail)
-	}
-}
+// Redis naming now lives in keeper.FetchStoreCard (spike
+// milestone 1); the case moved with the function, not dropped.
 
 // Clock, endpoints, and capacity read off the cards: the local
 // transport voices unchecked (never a fake zero skew), the cards
@@ -326,227 +321,54 @@ func TestInfoCardsVoiceConfigAndProof(t *testing.T) {
 	}
 }
 
-// The local transport voices itself without touching the network:
-// machine clock, no skew, unchecked. If this fails, the card
-// either fakes a zero skew or leaves the transport unnamed.
-func TestClockSnapshotVoicesLocal(t *testing.T) {
-	testConfig(t)
-	method, server, skew, note := clockSnapshot(context.Background())
-	if method != "local" || server != "machine clock" || skew != "—" || note != "unchecked" {
-		t.Errorf("local snapshot = %q/%q/%q/%q, want local transport voiced", method, server, skew, note)
-	}
-}
+// Local/unreachable transport cases now live in
+// keeper.FetchClockCard's matrix (spike milestone 4); the live
+// https source case moved with them, not dropped.
 
-// An unreadable mount gets no ink, not an error card: Statfs
-// failure reads empty, and the card drops the size line. If this
-// fails, a dead mount breaks the store card.
-func TestFsStatsEmptyOnUnreadableMount(t *testing.T) {
-	absent := filepath.Join(t.TempDir(), "absent")
-	if got := fsStats(absent); got != "" {
-		t.Errorf("fsStats(absent) = %q, want empty", got)
-	}
-	if _, _, ok := fsSizes(absent); ok {
-		t.Error("fsSizes(absent) ok, want refusal")
-	}
-}
+// Mount refusal now lives in keeper beside fsStats (spike
+// milestone 1); the case moved with the function, not dropped.
 
-// A silent sentinel reads unproven, never stale: the proof card
-// shows no generation until the registry serves one. If this
-// fails, a dead sentinel borrows yesterday's generation.
-func TestSentinelSnapshotUnprovenOnError(t *testing.T) {
-	testConfig(t)
-	s := &Server{Sentinel: stubSentinelAPI{err: errors.New("registry: 500")}}
-	got := s.sentinelSnapshot(context.Background())
-	if got.Proven || got.Gen != "" {
-		t.Errorf("snapshot = %+v, want unproven with no generation", got)
-	}
-}
+// Unproven-on-error now lives in keeper.FetchProofCard (spike
+// milestone 2); the case moved with the function, not dropped.
+// The index passthrough below still proves the section renders
+// the shared card.
 
 // Filesystem size is proof-gated: an unproven dir is nobody's
 // store to report on, while a proven one voices capacity. If this
 // fails, the console sizes a stranger's disk — or stays mute on
 // its own.
-func TestFileStoreFsNoteGatedOnProof(t *testing.T) {
-	testConfig(t)
-	ctx := context.Background()
-	st := store.NewFileStore(t.TempDir())
-	cfg := config.Current()
-	if got := storeSnapshot(ctx, st, true, cfg, true); got.FsNote == "" {
-		t.Error("proven file store voices no size, want free/total")
-	} else if !strings.Contains(got.FsNote, "free of ") || !strings.Contains(got.FsNote, "% used)") {
-		t.Errorf("FsNote = %q, want '<free> free of <total> (<pct>%% used)'", got.FsNote)
-	}
-	if got := storeSnapshot(ctx, st, true, cfg, false); got.FsNote != "" {
-		t.Errorf("unproven file store voices %q, want silence", got.FsNote)
-	}
-	if got := storeSnapshot(ctx, nil, false, cfg, true); got.FsNote != "" {
-		t.Errorf("storeless snapshot voices %q, want silence", got.FsNote)
-	}
-}
+// Proof gating now lives in keeper.FetchStoreCard (spike
+// milestone 1); the cases moved with the function, not dropped.
 
-// Byte tiers stay operator-shaped: whole units above ten, one
-// decimal below, MB under a gig — boundaries included, so a tier
-// edge never flips units. If this fails, the capacity glance reads
-// like a raw byte count.
-func TestFmtBytesTiers(t *testing.T) {
-	const kb = 1024
-	for _, tc := range []struct {
-		n    uint64
-		want string
-	}{
-		{500 * 1024 * 1024, "500 MB"},
-		{1024 * 1024 * 1024, "1.0 GB"},
-		{5 * 1024 * 1024 * 1024, "5.0 GB"},
-		{10 * 1024 * 1024 * 1024, "10 GB"},
-		{91 * 1024 * 1024 * 1024, "91 GB"},
-		{1024 * 1024 * 1024 * 1024, "1.0 TB"},
-		{10 * 1024 * 1024 * 1024 * 1024, "10 TB"},
-		{6300 * 1024 * 1024 * 1024, "6.2 TB"},
-		{10*1024*1024*1024*1024 - kb, "10.0 TB"},
-	} {
-		if got := fmtBytes(tc.n); got != tc.want {
-			t.Errorf("fmtBytes(%d) = %q, want %q", tc.n, got, tc.want)
-		}
-	}
-}
+// Byte tiers now live in human.Capacity (spike milestone 0);
+// the cases moved with the function, not dropped.
 
-// The percent math is the only unprobed part of the capacity card:
-// whole percent used, free==total reading zero. If this fails, the
-// card's percent lies while free and total read true.
-func TestUsedPercent(t *testing.T) {
-	for _, tc := range []struct {
-		total, free uint64
-		want        uint64
-	}{
-		{100, 30, 70},
-		{100, 100, 0},
-		{100, 0, 100},
-		{3, 1, 66},
-	} {
-		if got := usedPercent(tc.total, tc.free); got != tc.want {
-			t.Errorf("usedPercent(%d, %d) = %d, want %d", tc.total, tc.free, got, tc.want)
-		}
-	}
-}
+// Percent math now lives in human.UsedPercent (spike milestone
+// 0); the cases moved with the function, not dropped.
 
 // Nonsense sizes never reach the card: zero total, or free above
 // total — including the free==total edge a looser check would let
 // through. If this fails, a corrupt Statfs voices petabytes as
 // capacity.
-func TestSaneSizes(t *testing.T) {
-	for _, tc := range []struct {
-		total, free uint64
-		want        bool
-	}{
-		{0, 0, false},
-		{100, 101, false},
-		{100, 100, true},
-		{100, 30, true},
-	} {
-		if got := saneSizes(tc.total, tc.free); got != tc.want {
-			t.Errorf("saneSizes(%d, %d) = %v, want %v", tc.total, tc.free, got, tc.want)
-		}
-	}
-	// The live path over a real dir stays sane: block math that
-	// underflows units reads zero total and refuses.
-	if total, free, ok := fsSizes(t.TempDir()); !ok || total == 0 || free > total {
-		t.Errorf("fsSizes(tempdir) = %d/%d/%v, want sane sizes", total, free, ok)
-	}
-}
+// Size guards now live in keeper beside the store card (spike
+// milestone 1); the truth tables moved with the functions, not
+// dropped.
 
 // Nonsense blocks refuse without a syscall: zero total and
 // free-above-total never reach the card, whatever the filesystem
 // claims. If this fails, a corrupt Statfs voices petabytes as
 // capacity.
-func TestSizesFromBlocksRefusesNonsense(t *testing.T) {
-	if _, _, ok := sizesFromBlocks(0, 0, 4096); ok {
-		t.Error("sizesFromBlocks(0 blocks) ok, want refusal")
-	}
-	if _, _, ok := sizesFromBlocks(100, 200, 4096); ok {
-		t.Error("sizesFromBlocks(free above total) ok, want refusal")
-	}
-	if total, free, ok := sizesFromBlocks(100, 30, 4096); !ok || total != 409600 || free != 122880 {
-		t.Errorf("sizesFromBlocks = %d/%d/%v, want 409600/122880/true", total, free, ok)
-	}
-}
+// Moved to keeper with sizesFromBlocks (spike milestone 1).
 
 // fsSizes voices block math, not block counts: totals are raw
 // blocks times the fragment unit. If this fails, the card sizes
 // block counts as bytes.
-func TestFsSizesMultipliesByUnit(t *testing.T) {
-	dir := t.TempDir()
-	var fs syscall.Statfs_t
-	if err := syscall.Statfs(dir, &fs); err != nil {
-		t.Fatalf("statfs: %v", err)
-	}
-	unit := fsBlockUnit(&fs)
-	total, free, ok := fsSizes(dir)
-	if !ok {
-		t.Fatal("fsSizes refused a plain temp dir")
-	}
-	if total != uint64(fs.Blocks)*unit || free != uint64(fs.Bavail)*unit {
-		t.Errorf("fsSizes = %d/%d, want blocks×unit %d/%d",
-			total, free, uint64(fs.Blocks)*unit, uint64(fs.Bavail)*unit)
-	}
-}
+// Moved to keeper with fsSizes (spike milestone 1).
 
-func httpsConfig(t *testing.T, server string) {
-	t.Helper()
-	t.Setenv(config.EnvTimeMethod, "https")
-	t.Setenv(config.EnvTimeServer, server)
-	t.Cleanup(config.SetCurrent(config.NewBuilder().FromEnv().Build()))
-}
+// Moved to keeper with FetchClockCard (spike milestone 4).
 
-// An https time source the console can read voices its skew: the
-// card shows the same transport the mints check through. If this
-// fails, the clock card cannot read what the proofs rely on.
-func TestClockSnapshotVoicesHTTPSSkew(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer srv.Close()
-	httpsConfig(t, srv.URL)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	method, server, skew, _ := clockSnapshot(ctx)
-	if method != "https" || server != srv.URL {
-		t.Errorf("snapshot = %q/%q, want https/%s", method, server, srv.URL)
-	}
-	if !strings.HasPrefix(skew, "+") && !strings.HasPrefix(skew, "-") {
-		t.Errorf("skew = %q, want a signed offset", skew)
-	}
-}
-
-// An unreachable time source reads unreachable, never slow: the
-// caller's probe timeout bounds it. If this fails, a dead time
-// server hangs the dashboard.
-func TestClockSnapshotUnreachableSource(t *testing.T) {
-	httpsConfig(t, "http://127.0.0.1:1")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, _, skew, note := clockSnapshot(ctx)
-	if skew != "unreachable" {
-		t.Errorf("skew = %q, want unreachable", skew)
-	}
-	// The bound voices its exact tuning: any arithmetic on Tolerance
-	// renames this line. If this fails, the card's 30s moved without
-	// the docs.
-	if note != "tolerance 30s" {
-		t.Errorf("note = %q, want the 30s tolerance named", note)
-	}
-}
-
-// Skew voices its sign: ahead +, behind -. If this fails, the card
-// flips behind/ahead.
-func TestFormatOffset(t *testing.T) {
-	if got := formatOffset(5 * time.Second); got != "+5s" {
-		t.Errorf("formatOffset(+5s) = %q, want +5s", got)
-	}
-	if got := formatOffset(-5 * time.Second); got != "-5s" {
-		t.Errorf("formatOffset(-5s) = %q, want -5s", got)
-	}
-	if got := formatOffset(0); got != "+0s" {
-		t.Errorf("formatOffset(0) = %q, want +0s", got)
-	}
-}
+// Skew sign now lives in human.SignedOffset (spike milestone
+// 0); the cases moved with the function, not dropped.
 
 // The app-status link keeps the browser's host and swaps the port
 // (the endpoint lives on the other listener — a relative href
@@ -690,6 +512,54 @@ func TestConsoleDoesNotServeSweepEndpoint(t *testing.T) {
 	}
 }
 
+// Standing paints the card's left border: deny red, held and
+// degraded amber, ok teal — the console half of the rule both
+// renderers sign. Anything else gets no class (the default
+// border) rather than a wrong color: the words carry those
+// states. If this fails, the dashboard bulbs lie or vanish.
+func TestBulbClassTruthTable(t *testing.T) {
+	for _, tc := range []struct {
+		standing keeper.Standing
+		want     string
+	}{
+		{keeper.StandingDenied, "bulb-deny"},
+		{keeper.StandingHold, "bulb-warn"},
+		{keeper.StandingDegraded, "bulb-warn"},
+		{keeper.StandingOK, "bulb-ok"},
+		{keeper.StandingClosed, ""},
+		{keeper.StandingLocked, ""},
+		{keeper.StandingUnreachable, ""},
+		{keeper.StandingUnproven, ""},
+		{keeper.StandingUnchecked, ""},
+		{keeper.StandingUnavailable, ""},
+	} {
+		if got := bulbClass(tc.standing); got != tc.want {
+			t.Errorf("bulbClass(%q) = %q, want %q", tc.standing, got, tc.want)
+		}
+	}
+}
+
+// A denied fence paints its card red end to end: the model
+// decides deny in keeper, the template only hangs the class.
+// If this fails, deny reads as words with a calm blue border.
+func TestEdgeBulbRedOnDeny(t *testing.T) {
+	testConfig(t)
+	locked := store.NewMemStore()
+	if err := locked.SetUnlocked(context.Background(), false); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	srv := &Server{Edge: &fence.Gate{Store: locked}, Store: locked}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.indexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "bulb-deny") {
+		t.Error("denied dashboard lacks the red bulb class")
+	}
+}
+
 // stubProbe answers the banner probe without HTTP: the console must
 // consume the registry through a small port, not a concrete client.
 // If this fails, the dashboard is still coupled to the transport.
@@ -720,7 +590,7 @@ func TestKeeperSnapshotLiveUnlockClearsStaleDeny(t *testing.T) {
 		t.Fatalf("unlock: %v", err)
 	}
 	s := &Server{Store: st, Edge: g, Registry: stubProbe{}}
-	if d := s.keeperSnapshot(ctx); d.EdgeDeny {
+	if d := keeper.FetchEdgeCard(ctx, s.Edge, s.Store, s.EdgeAddr, s.RegistryURL); d.Deny {
 		t.Error("snapshot denies after unlock, want the live reading to clear the stale flip")
 	}
 }
@@ -731,7 +601,7 @@ func TestKeeperSnapshotLiveUnlockClearsStaleDeny(t *testing.T) {
 func TestKeeperBannerGreenWithStubRegistry(t *testing.T) {
 	testConfig(t)
 	s := &Server{Store: keeperStore(t), Registry: stubProbe{}}
-	if d := s.keeperSnapshot(context.Background()); !d.RegistryOK {
+	if d := keeper.FetchStatus(context.Background(), s.Store, s.Registry); !d.RegistryOK {
 		t.Error("stub-reachable registry renders red, want green")
 	}
 }

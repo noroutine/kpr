@@ -87,6 +87,59 @@ func TestIndexHandler(t *testing.T) {
 	}
 }
 
+// The dashboard wears its stylesheet by reference, not inline:
+// the link honors the base path (stripped-prefix consoles keep
+// working), and no <style> block ships in the page. If this
+// fails, styling regressed to inline or the href 404s behind a
+// subpath.
+func TestIndexLinksStylesheet(t *testing.T) {
+	testConfig(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	IndexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `/static/style.css`) {
+		t.Errorf("dashboard lacks the stylesheet href:\n%s", body)
+	}
+	if strings.Contains(body, "<style>") {
+		t.Error("dashboard still inlines its stylesheet")
+	}
+}
+
+// The stylesheet is a reader: anything but GET refuses. If
+// this fails, the asset answers writes it must not.
+func TestStyleHandlerRefusesWrites(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/static/style.css", nil)
+	rr := httptest.NewRecorder()
+	styleHandler(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", rr.Code)
+	}
+}
+
+// /static/style.css serves the extracted rules as CSS: the
+// bulb classes must travel with the split, or the standing
+// colors silently die. If this fails, the split dropped rules.
+func TestStyleHandlerServesCSS(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
+	rr := httptest.NewRecorder()
+	styleHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "text/css; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want CSS", ct)
+	}
+	for _, want := range []string{".card", ".bulb-deny", ".bulb-warn", ".bulb-ok"} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("stylesheet lacks %q", want)
+		}
+	}
+}
+
 // With no UI base URL configured the dashboard shows no Observability
 // section: links to backends nobody runs are worse than no links. If
 // this fails, the launchpad leaks into the default console.
@@ -314,9 +367,10 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	// the error branches lie.
 	logs := captureLog(t)
 	for path, want := range map[string]int{
-		"/":        http.StatusOK,
-		"/metrics": http.StatusOK,
-		"/health":  http.StatusOK,
+		"/":                 http.StatusOK,
+		"/metrics":          http.StatusOK,
+		"/health":           http.StatusOK,
+		"/static/style.css": http.StatusOK,
 	} {
 		resp, err := testClient.Get(base + path) //nolint:gosec,noctx // test-only loopback
 		if err != nil {
@@ -490,7 +544,7 @@ func (s stubSentinelAPI) GetBlob(context.Context, string, string) ([]byte, error
 	return s.blob, nil
 }
 
-// The Keeper's second row must name the wired backend, where it
+// The Store section must name the wired backend, where it
 // lives, and the live sentinel generation — a file stack shows
 // "file" and its dir, never Redis's name. If this fails, the console
 // misreports the backend the operator must fix.
@@ -511,9 +565,10 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		"State backend", "file", dir,
+		">Backend</div>", "file", dir,
 		"reachable", "locked",
 		"019-test-gen", "proven 2026-09-30T00:00:00Z",
+		">Identity</div>", "unpaired",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
@@ -522,21 +577,41 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 	if strings.Contains(body, ">Redis<") {
 		t.Errorf("dashboard names Redis on a file stack")
 	}
-	// Placement: the backend and proof cards sit in Keeper, after
+	// Placement: the backend and proof cards sit in Store, after
 	// its heading — there is no separate State section. If this
-	// fails, the cards drifted back out of Keeper.
+	// fails, the cards drifted back out of Store.
 	if strings.Contains(body, "🗄️") {
 		t.Error("dashboard still renders a State section")
 	}
-	if keeper, backend := strings.Index(body, "Keeper"), strings.Index(body, "State backend"); backend < keeper {
-		t.Error("State backend card renders outside Keeper")
+	if store, backend := strings.Index(body, "💾 Store"), strings.Index(body, ">Backend</div>"); backend < store {
+		t.Error("Backend card renders outside Store")
 	}
 }
 
-// With no store and no sentinel API the Keeper's backend cards
+// With no store and no sentinel API the Store's backend cards
 // degrade to named absences — "unavailable", "unproven" — and still
 // render 200. If this fails, a backend outage takes the whole
 // console down with it.
+// An erroring sentinel renders unproven through the whole page:
+// the section reads the shared proof card, so a registry error
+// voices "unproven", never stale and never 500. If this fails,
+// the dashboard borrows yesterday's generation on errors.
+func TestIndexRendersUnprovenOnSentinelError(t *testing.T) {
+	testConfig(t)
+	s := &Server{Sentinel: stubSentinelAPI{err: errors.New("registry: 500")}}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	s.indexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	for _, want := range []string{"unproven", "no generation served yet"} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("dashboard missing %q on sentinel error", want)
+		}
+	}
+}
+
 func TestIndexDegradesWithoutStoreOrSentinel(t *testing.T) {
 	testConfig(t)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -547,7 +622,7 @@ func TestIndexDegradesWithoutStoreOrSentinel(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"State", "unavailable", "unproven", "no generation served yet"} {
+	for _, want := range []string{"Backend", "unavailable", "unproven", "no generation served yet"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}

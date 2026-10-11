@@ -108,7 +108,9 @@ promise hasn't elapsed is never wiped by a stale mark.
 
 ```bash
 kpr serve    # console :9300 + app :8080 + receiver + sweeper loop
-kpr status   # banner + counters as text
+kpr status   # high-level posture, one line per section
+kpr status <card>  # detail behind a line: store, registry, edge,
+                   # clock, activity, observability (--json)
 kpr plan     # pending candidates (--json for piping)
 kpr plan discard  # drop the whole plan (clear due marks, no dry-run)
 kpr plan add <pattern>...     # mark tracked repo:tag by glob, regex: or
@@ -121,7 +123,6 @@ kpr store rm --untag <repo:tag>...  # delete the manifest too, row drops on conf
 kpr store unlock   # prove the shared store, set the intent marker
 kpr store lock     # drop the intent marker
 kpr store adopt [IDENT] [--gen]  # pair the store to the served lineage
-kpr store status  # backend, lock, proof, identity, activity tail (--json)
 kpr reap [policy]  # evaluate one policy (ttl, hash, partial,
                    # untagged, keep-n) or all; marks accumulate until
                    # sweep or plan discard (--no-dry-run to mark, repeat

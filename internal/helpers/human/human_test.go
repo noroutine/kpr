@@ -88,6 +88,70 @@ func TestBytesScalesUnits(t *testing.T) {
 	}
 }
 
+// Skew always carries its sign: ahead reads +, behind reads -,
+// zero reads +0s. If this fails, the clock card flips
+// behind/ahead.
+func TestSignedOffsetCarriesSign(t *testing.T) {
+	for _, tc := range []struct {
+		d    time.Duration
+		want string
+	}{
+		{5 * time.Second, "+5s"},
+		{-5 * time.Second, "-5s"},
+		{0, "+0s"},
+		{83 * time.Millisecond, "+83ms"},
+	} {
+		if got := human.SignedOffset(tc.d); got != tc.want {
+			t.Errorf("SignedOffset(%v) = %q, want %q", tc.d, got, tc.want)
+		}
+	}
+}
+
+// Capacity reads in operator glance bands (whole TB/GB above
+// ten, one decimal below, MB under a gig) — beside Bytes'
+// precise binary units, never instead. If this fails, the
+// store card's free/total lie while the bytes are right.
+func TestCapacityReadsGlanceBands(t *testing.T) {
+	const kb = 1024
+	for _, tc := range []struct {
+		n    uint64
+		want string
+	}{
+		{500 * 1024 * 1024, "500 MB"},
+		{1024 * 1024 * 1024, "1.0 GB"},
+		{5 * 1024 * 1024 * 1024, "5.0 GB"},
+		{10 * 1024 * 1024 * 1024, "10 GB"},
+		{91 * 1024 * 1024 * 1024, "91 GB"},
+		{1024 * 1024 * 1024 * 1024, "1.0 TB"},
+		{6300 * 1024 * 1024 * 1024, "6.2 TB"},
+		{10 * 1024 * 1024 * 1024 * 1024, "10 TB"},
+		{10*1024*1024*1024*1024 - kb, "10.0 TB"},
+	} {
+		if got := human.Capacity(tc.n); got != tc.want {
+			t.Errorf("Capacity(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}
+
+// Used percent is whole percent used, free==total reading
+// zero. If this fails, the card's percent lies while free and
+// total read true.
+func TestUsedPercentReadsWholePercent(t *testing.T) {
+	for _, tc := range []struct {
+		total, free uint64
+		want        uint64
+	}{
+		{100, 30, 70},
+		{100, 100, 0},
+		{100, 0, 100},
+		{3, 1, 66},
+	} {
+		if got := human.UsedPercent(tc.total, tc.free); got != tc.want {
+			t.Errorf("UsedPercent(%d, %d) = %d, want %d", tc.total, tc.free, got, tc.want)
+		}
+	}
+}
+
 // Stamps read human beside the exact value: the operator glances
 // ("5m ago") without losing precision. Zero degrades to a word,
 // future clamps like every Ago. If this fails, displays fall back

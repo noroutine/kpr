@@ -1,11 +1,11 @@
-# Observability: Quickwit + Jaeger + Prometheus + Grafana
+# Observability: Quickwit + Jaeger + Prometheus + Grafana <!-- omit in toc -->
 
 Optional dev-time observability for kpr. Nothing here runs by default;
 the base `docker compose up` is untouched. Quickwit stores logs and
 traces (single OTLP/gRPC backend), Jaeger UI reads traces back from it,
 Prometheus scrapes metrics, Grafana shows the dashboard.
 
-## Contents
+## Contents <!-- omit in toc -->
 
 - [Run it](#run-it)
 - [What you get](#what-you-get)

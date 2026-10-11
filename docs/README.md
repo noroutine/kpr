@@ -1,8 +1,9 @@
-# kpr documentation
+# kpr documentation <!-- omit in toc -->
 
 Every page, grouped by what you came here to do. Project overview
 and quickstart commands are in the [top-level README](../README.md).
 
+## Contents <!-- omit in toc -->
 - [Get on board](#get-on-board)
 - [Run it](#run-it)
 - [Understand it](#understand-it)
@@ -20,6 +21,7 @@ and quickstart commands are in the [top-level README](../README.md).
 
 | Doc | Answers |
 |---|---|
+| [CONVERGED_CONSOLE_AND_STATUS](CONVERGED_CONSOLE_AND_STATUS.md) | the status model: cards, CLI and console views |
 | [ADOPT](ADOPT.md) | pairing a store to a lineage (`store adopt`) |
 | [CONFIG](CONFIG.md) | every environment variable, and how they resolve |
 | [STORES](STORES.md) | file and redis backends, layouts, invariants |
@@ -61,7 +63,6 @@ reference pages above. Each `X.md` states what ships today; its
 | [ARCHITECTURE_FUTURE](ARCHITECTURE_FUTURE.md) | open and upcoming work |
 | [GC_FUTURE](GC_FUTURE.md) | per-repo collection |
 | [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | filling missing digests on tracked rows |
-| [CLI_FUTURE](CLI_FUTURE.md) | one subpackage per command |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |
 
 Deferred by decision, kept so the reasoning survives:
