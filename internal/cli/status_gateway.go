@@ -29,9 +29,12 @@ func renderGatewayCard(w io.Writer, card keeper.GatewayCard, asJSON bool) error 
 		_, err := fmt.Fprintf(w, "edge: closed\n")
 		return err
 	}
-	fenceState := "pass"
+	// The posture names its effect: deny refuses writes, pass
+	// allows them. The bare names are the model's shorthand
+	// (--json keeps them); the text view owes what they mean.
+	fenceState := "pass — writes allowed"
 	if card.Deny {
-		fenceState = "deny"
+		fenceState = "deny — writes refused"
 	}
 	hold := "no hold lease"
 	if card.Held {

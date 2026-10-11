@@ -83,6 +83,24 @@ type pageData struct {
 	Sentinel keeper.ProofCard
 }
 
+// bulbClass paints a card's left border from its standing: deny
+// red, held and degraded amber, ok teal. Anything else gets no
+// class (the default border) rather than a wrong color — the
+// words carry those states. The template calls it; the CLI
+// voices the same rule in words beside its own cards.
+func bulbClass(standing keeper.Standing) string {
+	switch standing {
+	case keeper.StandingDenied:
+		return "bulb-deny"
+	case keeper.StandingHeld, keeper.StandingDegraded:
+		return "bulb-warn"
+	case keeper.StandingOK:
+		return "bulb-ok"
+	default:
+		return ""
+	}
+}
+
 // bracketHost renders a bind address for display: a bare IPv6 host
 // (containing ':') gets brackets so the console shows "[::]:9300",
 // never ":::9300". Already-bracketed and plain hostnames pass through.

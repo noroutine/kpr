@@ -12,7 +12,11 @@ var indexHTML string
 
 // indexTmpl renders the dashboard (see pageData): parsed once at
 // init, so a broken page fails the boot instead of every request.
-var indexTmpl = template.Must(template.New("index").Parse(indexHTML))
+// The bulb func hangs the standing color on a card; the model
+// decides the standing in keeper, the template only colors it.
+var indexTmpl = template.Must(template.New("index").Funcs(template.FuncMap{
+	"bulb": bulbClass,
+}).Parse(indexHTML))
 
 // renderIndex writes the dashboard for data. The execute fails only
 // when the client goes away mid-write; that refusal is logged,

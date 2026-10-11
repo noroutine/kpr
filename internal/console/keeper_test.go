@@ -102,17 +102,20 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 	if err := locked.SetUnlocked(context.Background(), false); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	if body := render(&Server{Edge: &fence.Gate{Store: locked}, Store: locked}); !strings.Contains(body, "deny") {
+	if body := render(&Server{Edge: &fence.Gate{Store: locked}, Store: locked}); !strings.Contains(body, ">deny<") {
 		t.Error("dashboard with a locked store must read deny before any traffic")
 	}
 	// The other side of the same branch: an unlocked store with an
-	// open gate reads pass, never deny. If this fails, the fence
-	// posture cannot tell open from closed.
+	// open gate reads pass, never deny. The verdict is pinned on
+	// its element (">deny" would be the verdict voicing deny):
+	// the stylesheet names the deny bulb, so a whole-body
+	// substring would trip on styling, not posture. If this
+	// fails, the fence posture cannot tell open from closed.
 	open := store.NewMemStore()
 	if err := open.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("unlock: %v", err)
 	}
-	if body := render(&Server{Edge: &fence.Gate{Store: open}, Store: open}); !strings.Contains(body, "pass") || strings.Contains(body, "deny") {
+	if body := render(&Server{Edge: &fence.Gate{Store: open}, Store: open}); !strings.Contains(body, ">pass<") || strings.Contains(body, ">deny") {
 		t.Error("dashboard with an unlocked store must read pass, not deny")
 	}
 }
@@ -505,6 +508,54 @@ func TestConsoleDoesNotServeSweepEndpoint(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
+	}
+}
+
+// Standing paints the card's left border: deny red, held and
+// degraded amber, ok teal — the console half of the rule both
+// renderers sign. Anything else gets no class (the default
+// border) rather than a wrong color: the words carry those
+// states. If this fails, the dashboard bulbs lie or vanish.
+func TestBulbClassTruthTable(t *testing.T) {
+	for _, tc := range []struct {
+		standing keeper.Standing
+		want     string
+	}{
+		{keeper.StandingDenied, "bulb-deny"},
+		{keeper.StandingHeld, "bulb-warn"},
+		{keeper.StandingDegraded, "bulb-warn"},
+		{keeper.StandingOK, "bulb-ok"},
+		{keeper.StandingClosed, ""},
+		{keeper.StandingLocked, ""},
+		{keeper.StandingUnreachable, ""},
+		{keeper.StandingUnproven, ""},
+		{keeper.StandingUnchecked, ""},
+		{keeper.StandingUnavailable, ""},
+	} {
+		if got := bulbClass(tc.standing); got != tc.want {
+			t.Errorf("bulbClass(%q) = %q, want %q", tc.standing, got, tc.want)
+		}
+	}
+}
+
+// A denied fence paints its card red end to end: the model
+// decides deny in keeper, the template only hangs the class.
+// If this fails, deny reads as words with a calm blue border.
+func TestGatewayBulbRedOnDeny(t *testing.T) {
+	testConfig(t)
+	locked := store.NewMemStore()
+	if err := locked.SetUnlocked(context.Background(), false); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	srv := &Server{Edge: &fence.Gate{Store: locked}, Store: locked}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.indexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "bulb-deny") {
+		t.Error("denied dashboard lacks the red bulb class")
 	}
 }
 
