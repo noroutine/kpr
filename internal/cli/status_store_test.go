@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -24,16 +25,44 @@ func TestStatusStorePrintsCardLines(t *testing.T) {
 	}
 	for _, want := range []string{
 		"store: mem (in-memory, tests only)",
-		"health: reachable",
-		"standing: ok",
+		"state: ready",
 		"lock: unlocked",
 	} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("card missing %q:\n%s", want, buf.String())
 		}
 	}
+	// Neither the raw code nor the old double signal survives in
+	// the text view: the code is --json's, and one state line
+	// voices the verdict.
+	for _, gone := range []string{"standing:", "health:"} {
+		if strings.Contains(buf.String(), gone) {
+			t.Errorf("card leaks %q, translated past it:\n%s", gone, buf.String())
+		}
+	}
 	if strings.Contains(buf.String(), "fs:") {
 		t.Errorf("mem card voices fs line:\n%s", buf.String())
+	}
+}
+
+// The text view voices card-specific words, never the raw
+// standing code: the code is the machine contract (--json
+// keeps it), the words say what the state means for this
+// backend. If this fails, the renderer echoes internals.
+func TestStoreStateWordsTranslateStanding(t *testing.T) {
+	for _, tc := range []struct {
+		standing keeper.Standing
+		want     string
+	}{
+		{keeper.StandingOK, "state: ready"},
+		{keeper.StandingLocked, "state: locked — writes denied, reads continue"},
+		{keeper.StandingDegraded, "state: degraded — lock intent unreadable"},
+		{keeper.StandingUnreachable, "state: unreachable — backend not answering"},
+		{keeper.StandingUnavailable, "state: unavailable — no store wired"},
+	} {
+		if got := storeStateWords(tc.standing); got != tc.want {
+			t.Errorf("words(%q) = %q, want %q", tc.standing, got, tc.want)
+		}
 	}
 }
 

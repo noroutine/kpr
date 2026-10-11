@@ -14,8 +14,31 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
+// storeStateWords translates the generic standing code into
+// store-specific words for the text view: what the state means
+// for this backend. --json keeps the raw code for machines. A
+// standing this switch never learned voices its code rather
+// than hiding a state nobody worded — silence would read as
+// healthy.
+func storeStateWords(standing keeper.Standing) string {
+	switch standing {
+	case keeper.StandingOK:
+		return "state: ready"
+	case keeper.StandingLocked:
+		return "state: locked — writes denied, reads continue"
+	case keeper.StandingDegraded:
+		return "state: degraded — lock intent unreadable"
+	case keeper.StandingUnreachable:
+		return "state: unreachable — backend not answering"
+	case keeper.StandingUnavailable:
+		return "state: unavailable — no store wired"
+	default:
+		return "state: " + string(standing)
+	}
+}
+
 // runStatusStore prints the store card from the shared model:
-// backend, health, standing, intent, and size when the card
+// backend, translated state, intent, and size when the card
 // voices it. The frozen `store status` is the reference; this
 // reads the model both renderers sign.
 func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr string, redisDB int, proven, asJSON bool) error {
@@ -28,12 +51,8 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 	if lock == "" {
 		lock = "unlocked"
 	}
-	health := "reachable"
-	if !card.Healthy {
-		health = "unreachable"
-	}
-	if _, err := fmt.Fprintf(w, "store: %s (%s)\nhealth: %s\nstanding: %s\nlock: %s\n",
-		card.Name, card.Detail, health, card.Standing, lock); err != nil {
+	if _, err := fmt.Fprintf(w, "store: %s (%s)\n%s\nlock: %s\n",
+		card.Name, card.Detail, storeStateWords(card.Standing), lock); err != nil {
 		return err
 	}
 	if card.FsNote != "" {
@@ -46,8 +65,8 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 var statusStoreCmd = &cobra.Command{
 	Use:   "store",
 	Short: "Show the store card from the shared status model",
-	Long: `Backend, health, standing, intent, and size — the store
-card both the console and the CLI render.`,
+	Long: `Backend, state, intent, and size — the store card both
+the console and the CLI render.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
