@@ -28,6 +28,12 @@ func TestRootHelpCarriesBanner(t *testing.T) {
 	if !strings.Contains(RootCmd.Long, "redistribute") {
 		t.Errorf("root Long = %q, want the license banner in it", RootCmd.Long)
 	}
+	// Help text is prose, not code: a NOTE moved inside the raw
+	// string prints in --help. If this fails, a comment leaked
+	// into user-visible output.
+	if strings.Contains(RootCmd.Long, "NOTE(") {
+		t.Errorf("root Long leaks a code note:\n%s", RootCmd.Long)
+	}
 }
 
 // kpr license prints the full GPL text: if this fails, the embed

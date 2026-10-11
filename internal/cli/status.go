@@ -125,6 +125,10 @@ detail lives behind each status card.`,
 		}
 		// Reads ride a bounded context: a dead backend reads
 		// degraded/unreachable, never slow (house 5s).
+		// NOTE(mutants): the 5s bound is timing, not logic — no
+		// test distinguishes it from any other positive bound
+		// without a stopwatch. A mutant here survives by being
+		// unobservable, not by being correct.
 		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 		defer cancel()
 		st := keeper.FetchStatus(ctx, d.Store, d.Reg)

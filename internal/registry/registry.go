@@ -295,6 +295,10 @@ const ociManifestType = "application/vnd.oci.image.manifest.v1+json"
 // manifestAcceptTypes is what manifest HEADs ask for: registry:3
 // 400s a bare */* on docker manifest lists (MANIFEST_INVALID),
 // so name every type instead of wildcarding.
+// NOTE(mutants): the concat emits no cover block of its own, so
+// gremlins reads it NOT COVERED — the sent header is pinned
+// instead (TestManifestDigestAvoidsBareStarAccept fails loudly
+// on a wildcard), whatever the label says.
 const manifestAcceptTypes = "application/vnd.docker.distribution.manifest.list.v2+json, " +
 	"application/vnd.docker.distribution.manifest.v2+json, " +
 	"application/vnd.oci.image.index.v1+json, " +

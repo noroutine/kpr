@@ -162,6 +162,10 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 	}
 	// One frozen clock for gate and pass alike: the verdict judges
 	// as of pass start, not as of however long the reads took.
+	// NOTE(mutants): gremlins reads the check NOT COVERED, but it
+	// executes — a hand-flip fails TestRunPassRefusesForeignLineage
+	// (and the other gate refusals) loudly. The label disagrees
+	// with the suite.
 	if _, err := (proof.Prover{Sentinel: s.Sentinel, Store: s.Store, Armed: !proof.Unarmed(s.Armed), Now: func() time.Time { return now }}.Prove(ctx)); err != nil {
 		setStage(StageFailure, 0, 0)
 		sum.Skipped = true
@@ -243,6 +247,10 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			progress()
 			continue
 		}
+		// NOTE(mutants): gremlins reads the case lines NOT COVERED,
+		// but the switch executes — a hand-flip of the digest leg
+		// fails TestRunPassSkipsMovedDigest loudly. The label
+		// disagrees with the suite.
 		switch {
 		case !ok:
 			resolve(r, "skipped", nil)
@@ -282,6 +290,10 @@ func (s *Sweeper) RunPass(ctx context.Context, trigger string) (sum Summary) {
 			continue
 		}
 		outcome, derr := s.deleteManifest(ctx, r)
+		// NOTE(mutants): gremlins reads the case lines NOT COVERED,
+		// but the switch executes — hand-flips fail the delete,
+		// held and activity tests loudly. The label disagrees with
+		// the suite.
 		switch {
 		case derr != nil:
 			sum.Failures = append(sum.Failures, fmt.Sprintf("%s:%s: %v", r.Repo, r.Tag, derr))

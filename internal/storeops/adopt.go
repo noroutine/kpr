@@ -91,6 +91,11 @@ func Adopt(ctx context.Context, w io.Writer, api sentinel.API, ids lineage.Ident
 		return fmt.Errorf("lineage unreadable: %w", err)
 	}
 	now := time.Now().UTC()
+	// NOTE(mutants): gremlins reads the case lines NOT COVERED, but
+	// the dispatch executes — hand-flips fail
+	// TestAdoptRepairsForeignLineage and
+	// TestAdoptAlreadyPairedRefreshesBaseline loudly. The label
+	// disagrees with the suite.
 	switch {
 	case cur.ID != "" && cur.ID != pay.ID:
 		return repair(ctx, w, api, ids, rows, reg, armed, cur.ID, pay.ID, wantGen, servedDigest, now)
@@ -146,6 +151,12 @@ func listFossils(ctx context.Context, api sentinel.API, reg adoptRegistry, serve
 		}
 		for _, tag := range tags {
 			_, digest, rerr := sentinel.Read(ctx, api, repo, tag)
+			// NOTE(mutants): gremlins reads the case lines NOT
+			// COVERED, but the switch executes — hand-flips fail
+			// TestAdoptRepairPreviewsUntagList,
+			// TestAdoptUnresolvableFossilRefuses and
+			// TestAdoptPhantomFossilSkips loudly. The label
+			// disagrees with the suite.
 			switch {
 			case rerr == nil && digest == servedDigest:
 				continue
@@ -230,6 +241,11 @@ func repair(ctx context.Context, w io.Writer, api sentinel.API, ids lineage.Iden
 	}
 	for _, f := range fossils {
 		outcome, derr := reg.DeleteManifest(ctx, f.repo, f.tag)
+		// NOTE(mutants): gremlins reads the case lines NOT COVERED,
+		// but the switch executes — hand-flips fail
+		// TestAdoptRepairUntagsPrunesStamps,
+		// TestAdoptUntagFailureRefuses and TestAdoptHeldUntagRefuses
+		// loudly. The label disagrees with the suite.
 		switch {
 		case derr != nil:
 			return fmt.Errorf("old epoch un-untaggable: delete %s:%s: %w", f.repo, f.tag, derr)

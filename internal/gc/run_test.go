@@ -333,6 +333,20 @@ func TestRunPreviewPromisesHuskRemovals(t *testing.T) {
 	}
 }
 
+// A clean root previews nothing: zero husks and zero empty dirs
+// print no lines, never "would prune 0". If this fails, dry runs
+// narrate removals arming would not perform.
+func TestWritePreviewRemovalsSilentOnCleanRoot(t *testing.T) {
+	root := t.TempDir()
+	var out strings.Builder
+	if err := writePreviewRemovals(&out, root); err != nil {
+		t.Fatalf("preview over clean root: %v", err)
+	}
+	if strings.Contains(out.String(), "would prune") {
+		t.Errorf("clean preview narrates removals:\n%s", out.String())
+	}
+}
+
 // Enumeration failures warn inline, never fail the preview: a
 // blinded root warns twice (husks, dirs) and returns nil. If this
 // fails, a struggling preview fails the run it was only

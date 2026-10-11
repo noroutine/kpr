@@ -241,6 +241,20 @@ func TestVerifyReadFailureIsNotMismatch(t *testing.T) {
 	}
 }
 
+// A dead registry refuses the read-back: the write landed but kpr
+// shares nothing with this store. If this fails, a stranger's
+// registry reads as shared.
+func TestWriteVerifiedRefusesUnreadableRegistry(t *testing.T) {
+	root := t.TempDir()
+	payload := Payload{V: 1, Gen: "gen", ID: "id", TS: "ts", Writer: "test"}
+	api := &stubAPI{err: errors.New("connection refused")}
+	if _, err := WriteVerified(context.Background(), api, root, payload); err == nil {
+		t.Fatal("mint over a dead registry succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "does not share") {
+		t.Errorf("refusal = %q, want the stranger-store cause", err)
+	}
+}
+
 // LastProof returns whatever the fixed address serves without taking
 // a position on it: callers compare age and decide. Absence refuses
 // — "unproven" is a fact about the store, never generation zero. If

@@ -97,6 +97,9 @@ func Capacity(n uint64) string {
 	const tb = 1024 * 1024 * 1024 * 1024
 	const gb = 1024 * 1024 * 1024
 	const mb = 1024 * 1024
+	// NOTE(mutants): gremlins reads the case lines NOT COVERED, but
+	// a hand-flip fails TestCapacityReadsGlanceBands loudly — the
+	// label disagrees with the suite.
 	switch {
 	case n >= 10*tb:
 		return fmt.Sprintf("%d TB", n/tb)

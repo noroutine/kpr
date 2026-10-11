@@ -391,6 +391,11 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		return op()
 	}
 
+	// NOTE(mutants): gremlins reads the case/condition
+	// continuation lines NOT COVERED, but the dispatch executes
+	// in unit tests — a hand-flip fails
+	// TestRunArmedCollectFailureSurfaces loudly. The label
+	// disagrees with the suite.
 	switch {
 	case proof.Unarmed(opts.Armed):
 		if err := collect(ctx, w, config.Current().RegistryBinPath, args(config.Current().RegistryConfig, opts.DeleteUntagged, true), d.Report); err != nil {

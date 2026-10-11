@@ -54,6 +54,10 @@ func FetchStoreCard(ctx context.Context, s store.Store, healthy bool, redisAddr 
 	}
 	note := ""
 	standing := StandingOK
+	// NOTE(mutants): the error case emits no cover block of its
+	// own (attributed to the switch header), so gremlins reads it
+	// NOT COVERED — a hand-flip fails TestStoreCardStandingMatrix
+	// loudly, whatever the label says.
 	switch ok, err := s.IsUnlocked(ctx); {
 	case err != nil:
 		note = "lock unknown"

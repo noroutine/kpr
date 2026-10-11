@@ -45,6 +45,7 @@ func TestClockCardVoicesTransportAndSkew(t *testing.T) {
 		{"behind ok", clock.MethodHTTPS, stubSource{offset: -time.Second}, keeper.StandingOK, -time.Second},
 		{"past tolerance", clock.MethodHTTPS, stubSource{offset: 61 * time.Second}, keeper.StandingDegraded, 61 * time.Second},
 		{"at tolerance", clock.MethodHTTPS, stubSource{offset: 30 * time.Second}, keeper.StandingOK, 30 * time.Second},
+		{"at negative tolerance", clock.MethodHTTPS, stubSource{offset: -30 * time.Second}, keeper.StandingOK, -30 * time.Second},
 	} {
 		got := keeper.FetchClockCard(ctx, tc.src, tc.method, "ts", tol)
 		if got.Standing != tc.standing || got.Skew != tc.skew {

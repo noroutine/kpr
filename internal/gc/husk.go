@@ -147,6 +147,9 @@ func classify(dir, repo string) (repoKind, error) {
 			tagged = true
 		}
 		return nil
+		// NOTE(mutants): failing the walk error instead is untestable
+		// green — the walk fails here only on mid-walk races, and
+		// staging a race proves the staging.
 	}); err != nil && !os.IsNotExist(err) {
 		return keptRepo, err
 	}
@@ -176,6 +179,9 @@ func freshUpload(sessions string) (bool, error) {
 			newest = info.ModTime()
 		}
 		return nil
+		// NOTE(mutants): swallowing the walk error instead is untestable
+		// green — the walk fails here only on mid-walk races, and
+		// staging a race proves the staging.
 	}); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil

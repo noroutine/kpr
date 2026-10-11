@@ -116,6 +116,9 @@ func Verify(ctx context.Context, api API, repo, tag string, wantGen string) erro
 // first consumer arrives it stays parked, not faked.
 func WriteVerified(ctx context.Context, api API, root string, p Payload) (string, error) {
 	md, err := Write(root, Repo, Tag, p)
+	// NOTE(mutants): gremlins reads the check NOT COVERED, but it
+	// executes — TestWriteVerifiedRefusesUnwritable fails loudly
+	// without it. The label disagrees with the suite.
 	if err != nil {
 		return "", fmt.Errorf("sentinel generation unwritable under %s: %w", root, err)
 	}
