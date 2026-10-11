@@ -15,10 +15,13 @@ import (
 )
 
 // renderClockCard prints the time transport from the shared
-// model: method, server, live skew, bound. Degraded reads loud
-// (caps + the bound beside the skew); local reads unchecked,
-// never a fake zero.
-func renderClockCard(w io.Writer, card keeper.ClockCard, asJSON bool) error {
+// model: method, server, live skew, bound, and the render stamp
+// beside it — server time as kpr sees it, same shape as the
+// console's Server time card. The stamp is caller-owned (Now
+// stays out of the shared card); --json stays the card verbatim.
+// Degraded reads loud (caps + the bound beside the skew); local
+// reads unchecked, never a fake zero.
+func renderClockCard(w io.Writer, card keeper.ClockCard, now time.Time, asJSON bool) error {
 	if asJSON {
 		return json.NewEncoder(w).Encode(card)
 	}
@@ -26,8 +29,9 @@ func renderClockCard(w io.Writer, card keeper.ClockCard, asJSON bool) error {
 	if card.Standing != keeper.StandingOK {
 		standing = " (" + string(card.Standing) + ")"
 	}
-	_, err := fmt.Fprintf(w, "method: %s\nserver: %s\nskew: %s%s\n%s\n",
-		card.Method, card.Server, card.SkewText(), standing, card.NoteText())
+	_, err := fmt.Fprintf(w, "method: %s\nserver: %s\nskew: %s%s\n%s\nnow: %s\n",
+		card.Method, card.Server, card.SkewText(), standing, card.NoteText(),
+		now.UTC().Format("2006-01-02 15:04:05 UTC"))
 	return err
 }
 
@@ -50,7 +54,7 @@ the console and the CLI render.`,
 		defer cancel()
 		card := keeper.FetchClockCard(ctx,
 			clock.NewSource(cfg.TimeMethod), cfg.TimeMethod, cfg.TimeServer, clock.Tolerance)
-		return renderClockCard(cmd.OutOrStdout(), card, asJSON)
+		return renderClockCard(cmd.OutOrStdout(), card, time.Now(), asJSON)
 	},
 }
 

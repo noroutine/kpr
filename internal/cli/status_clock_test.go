@@ -19,7 +19,7 @@ func TestStatusClockPrintsTransport(t *testing.T) {
 		Server: "https://ts:8443", Skew: 61 * time.Second, Tolerance: 30 * time.Second,
 	}
 	var buf bytes.Buffer
-	if err := renderClockCard(&buf, card, false); err != nil {
+	if err := renderClockCard(&buf, card, time.Now(), false); err != nil {
 		t.Fatalf("renderClockCard: %v", err)
 	}
 	for _, want := range []string{
@@ -34,13 +34,34 @@ func TestStatusClockPrintsTransport(t *testing.T) {
 	}
 }
 
+// status clock shows server time as kpr sees it: the render
+// stamp beside the skew, same shape as the console's Server
+// time card. The stamp is caller-owned (the card carries no
+// Now); here it is pinned so the test stays deterministic. If
+// this fails, the CLI shows a skew with no anchor to read it
+// against.
+func TestStatusClockPrintsServerTime(t *testing.T) {
+	card := keeper.ClockCard{
+		Standing: keeper.StandingOK, Method: "https",
+		Server: "zeitstempel.dfn.de", Tolerance: 30 * time.Second,
+	}
+	now := time.Date(2026, 10, 11, 16, 35, 0, 0, time.UTC)
+	var buf bytes.Buffer
+	if err := renderClockCard(&buf, card, now, false); err != nil {
+		t.Fatalf("renderClockCard: %v", err)
+	}
+	if want := "now: 2026-10-11 16:35:00 UTC"; !strings.Contains(buf.String(), want) {
+		t.Errorf("card missing %q:\n%s", want, buf.String())
+	}
+}
+
 // status clock --json is the card struct verbatim: machine
 // readers get nanosecond skews and the standing code. If this
 // fails, --json drifts from the model both renderers sign.
 func TestStatusClockJSONIsCardVerbatim(t *testing.T) {
 	card := keeper.ClockCard{Standing: keeper.StandingUnchecked, Method: "local", Server: "machine clock"}
 	var buf bytes.Buffer
-	if err := renderClockCard(&buf, card, true); err != nil {
+	if err := renderClockCard(&buf, card, time.Now(), true); err != nil {
 		t.Fatalf("renderClockCard: %v", err)
 	}
 	var got struct {
