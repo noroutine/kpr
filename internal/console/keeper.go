@@ -38,17 +38,10 @@ type keeperData struct {
 	// precise records live behind /api/activity.
 	Activity      []keeperActivityRow
 	ActivityTotal int
-	// EdgeOpen renders the gateway section open (proven and
-	// serving); EdgeDeny/EdgeHeld are its live fence posture —
-	// what IS, while the activity ring shows what CHANGED.
-	EdgeOpen bool
-	EdgeDeny bool
-	EdgeHeld bool
-	// RegistryURL/EdgeAddr name the endpoints the cards talk
-	// about (edge forwards EdgeAddr → RegistryURL); empty renders
-	// nothing, never a guess.
-	RegistryURL string
-	EdgeAddr    string
+	// Gateway is the shared fence posture card: open, deny, or
+	// held with the endpoints beside it. What IS, while the
+	// activity ring shows what CHANGED.
+	Gateway keeper.GatewayCard
 	// ClockMethod/ClockServer voice the configured time transport;
 	// ClockSkew is the live offset as kpr sees it ("+83ms",
 	// "unreachable", or "—" when unchecked), ClockNote its bound.
@@ -93,22 +86,13 @@ func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
 		Performed: st.Performed, Planned: st.Planned,
 		Failed: st.Failed, Untracked: st.Untracked,
 	}
+	// Gateway posture reads the shared card: would-deny, lease,
+	// and standing decided in keeper, never recomputed here.
+	var gate keeper.GatePosture
 	if s.Edge != nil {
-		k.EdgeOpen = true
-		k.EdgeDeny, k.EdgeHeld = s.Edge.Snapshot()
-		// Would-deny, not just last-denied: the live lock reading
-		// is the answer whenever a store is present, so a fresh
-		// lock reads deny before the first refused push and a
-		// fresh unlock clears without waiting for traffic. An
-		// unreadable marker reads deny — the fence refuses then
-		// too. The Snapshot value survives only where no store
-		// exists to ask.
-		if s.Store != nil {
-			unlocked, err := s.Store.IsUnlocked(ctx)
-			k.EdgeDeny = err != nil || !unlocked
-		}
+		gate = s.Edge
 	}
-	k.RegistryURL, k.EdgeAddr = s.RegistryURL, s.EdgeAddr
+	k.Gateway = keeper.FetchGatewayCard(ctx, gate, s.Store, s.EdgeAddr, s.RegistryURL)
 	now := time.Now().UTC()
 	k.ClockNow = now.Format("2006-01-02 15:04:05 UTC")
 	k.ClockMethod, k.ClockServer, k.ClockSkew, k.ClockNote = clockSnapshot(ctx)

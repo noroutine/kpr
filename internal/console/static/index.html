@@ -78,7 +78,7 @@
             <div class="card">
                 <div class="label">Registry</div>
                 <div class="value">{{ if .Keeper.RegistryOK }}reachable{{ else }}unreachable{{ end }}</div>
-                {{ if .Keeper.RegistryURL }}<div class="meta">{{ .Keeper.RegistryURL }}</div>{{ end }}
+                {{ if .Keeper.Gateway.RegistryURL }}<div class="meta">{{ .Keeper.Gateway.RegistryURL }}</div>{{ end }}
             </div>
             <div class="card stat-card">
                 <div class="label">Tracked / Due</div>
@@ -112,14 +112,14 @@
         <div class="grid">
             <div class="card">
                 <div class="label">Edge</div>
-                <div class="value">{{ if .Keeper.EdgeOpen }}open{{ else }}closed{{ end }}</div>
-                {{ if and .Keeper.EdgeOpen .Keeper.EdgeAddr .Keeper.RegistryURL }}<div class="meta">{{ .Keeper.EdgeAddr }} → {{ .Keeper.RegistryURL }}</div>{{ end }}
+                <div class="value">{{ if .Keeper.Gateway.Open }}open{{ else }}closed{{ end }}</div>
+                {{ if and .Keeper.Gateway.Open .Keeper.Gateway.EdgeAddr .Keeper.Gateway.RegistryURL }}<div class="meta">{{ .Keeper.Gateway.EdgeAddr }} → {{ .Keeper.Gateway.RegistryURL }}</div>{{ end }}
             </div>
-            {{ if .Keeper.EdgeOpen }}
+            {{ if .Keeper.Gateway.Open }}
             <div class="card">
                 <div class="label">Fence</div>
-                <div class="value">{{ if .Keeper.EdgeDeny }}deny{{ else }}pass{{ end }}</div>
-                <div class="meta">{{ if .Keeper.EdgeHeld }}hold lease pinning writes{{ else }}no hold lease{{ end }}</div>
+                <div class="value">{{ if .Keeper.Gateway.Deny }}deny{{ else }}pass{{ end }}</div>
+                <div class="meta">{{ if .Keeper.Gateway.Held }}hold lease pinning writes{{ else }}no hold lease{{ end }}</div>
             </div>
             {{ end }}
         </div>

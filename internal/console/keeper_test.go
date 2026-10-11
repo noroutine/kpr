@@ -587,7 +587,7 @@ func TestKeeperSnapshotLiveUnlockClearsStaleDeny(t *testing.T) {
 		t.Fatalf("unlock: %v", err)
 	}
 	s := &Server{Store: st, Edge: g, Registry: stubProbe{}}
-	if d := s.keeperSnapshot(ctx); d.EdgeDeny {
+	if d := s.keeperSnapshot(ctx); d.Gateway.Deny {
 		t.Error("snapshot denies after unlock, want the live reading to clear the stale flip")
 	}
 }
