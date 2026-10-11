@@ -537,6 +537,26 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 // degrade to named absences — "unavailable", "unproven" — and still
 // render 200. If this fails, a backend outage takes the whole
 // console down with it.
+// An erroring sentinel renders unproven through the whole page:
+// the section reads the shared proof card, so a registry error
+// voices "unproven", never stale and never 500. If this fails,
+// the dashboard borrows yesterday's generation on errors.
+func TestIndexRendersUnprovenOnSentinelError(t *testing.T) {
+	testConfig(t)
+	s := &Server{Sentinel: stubSentinelAPI{err: errors.New("registry: 500")}}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	s.indexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	for _, want := range []string{"unproven", "no generation served yet"} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("dashboard missing %q on sentinel error", want)
+		}
+	}
+}
+
 func TestIndexDegradesWithoutStoreOrSentinel(t *testing.T) {
 	testConfig(t)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

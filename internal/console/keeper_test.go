@@ -331,17 +331,10 @@ func TestClockSnapshotVoicesLocal(t *testing.T) {
 // Mount refusal now lives in keeper beside fsStats (spike
 // milestone 1); the case moved with the function, not dropped.
 
-// A silent sentinel reads unproven, never stale: the proof card
-// shows no generation until the registry serves one. If this
-// fails, a dead sentinel borrows yesterday's generation.
-func TestSentinelSnapshotUnprovenOnError(t *testing.T) {
-	testConfig(t)
-	s := &Server{Sentinel: stubSentinelAPI{err: errors.New("registry: 500")}}
-	got := s.sentinelSnapshot(context.Background())
-	if got.Proven || got.Gen != "" {
-		t.Errorf("snapshot = %+v, want unproven with no generation", got)
-	}
-}
+// Unproven-on-error now lives in keeper.FetchProofCard (spike
+// milestone 2); the case moved with the function, not dropped.
+// The index passthrough below still proves the section renders
+// the shared card.
 
 // Filesystem size is proof-gated: an unproven dir is nobody's
 // store to report on, while a proven one voices capacity. If this

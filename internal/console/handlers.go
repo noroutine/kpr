@@ -59,7 +59,7 @@ type pageData struct {
 	// Store names the state backend and where it lives; Sentinel
 	// carries the live same-store proof generation, if any.
 	Store    keeper.StoreCard
-	Sentinel sentinelData
+	Sentinel keeper.ProofCard
 }
 
 // bracketHost renders a bind address for display: a bare IPv6 host
@@ -175,7 +175,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		Links:          observabilityLinks(cfg),
 		Keeper:         snap,
 		Store: keeper.FetchStoreCard(r.Context(), s.Store, snap.RedisOK,
-			cfg.RedisAddr, cfg.RedisDB, sentinel.Proven),
+			cfg.RedisAddr, cfg.RedisDB, sentinel.Proven()),
 		Sentinel: sentinel,
 	}
 

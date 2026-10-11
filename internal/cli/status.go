@@ -61,18 +61,15 @@ func lockState(ctx context.Context, s store.Store) string {
 // when the registry serves none. Nil registry reads unproven;
 // an unreadable timestamp still names the generation.
 func proofState(ctx context.Context, api sentinel.API) string {
-	if api == nil {
+	card := keeper.FetchProofCard(ctx, api)
+	if !card.Proven() {
 		return "unproven"
 	}
-	p, err := sentinel.LastProof(ctx, api)
+	age, err := card.Age(time.Now().UTC())
 	if err != nil {
-		return "unproven"
+		return card.Gen
 	}
-	age, err := p.Age(time.Now().UTC())
-	if err != nil {
-		return p.Gen
-	}
-	return p.Gen + " (" + human.Ago(age) + ")"
+	return card.Gen + " (" + human.Ago(age) + ")"
 }
 
 // describeStore names the wired backend with its address for the
