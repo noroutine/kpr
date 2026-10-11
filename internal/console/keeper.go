@@ -42,18 +42,15 @@ type keeperData struct {
 	// held with the endpoints beside it. What IS, while the
 	// activity ring shows what CHANGED.
 	Gateway keeper.GatewayCard
-	// ClockMethod/ClockServer voice the configured time transport;
-	// ClockSkew is the live offset as kpr sees it ("+83ms",
-	// "unreachable", or "—" when unchecked), ClockNote its bound.
-	// ClockNow is the server clock at render (what "now" means to
-	// kpr). The skew reading is taken during the same render, so a
-	// separate checked stamp would always read "just now" — noise,
-	// not information. (The proof itself carries no obtained-at.)
-	ClockMethod string
-	ClockServer string
-	ClockSkew   string
-	ClockNote   string
-	ClockNow    string
+	// Clock is the shared time-transport card: method, server,
+	// live skew, bound. ClockNow is the server clock at render
+	// (what "now" means to kpr) — stamped here, never shared:
+	// the skew reading is taken during the same render, so a
+	// separate checked stamp would always read "just now" —
+	// noise, not information. (The proof itself carries no
+	// obtained-at.)
+	Clock    keeper.ClockCard
+	ClockNow string
 }
 
 type keeperPlanRow struct {
@@ -93,9 +90,10 @@ func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
 		gate = s.Edge
 	}
 	k.Gateway = keeper.FetchGatewayCard(ctx, gate, s.Store, s.EdgeAddr, s.RegistryURL)
+	cfg := config.Current()
+	k.Clock = keeper.FetchClockCard(ctx, clock.NewSource(cfg.TimeMethod), cfg.TimeMethod, cfg.TimeServer, clock.Tolerance)
 	now := time.Now().UTC()
 	k.ClockNow = now.Format("2006-01-02 15:04:05 UTC")
-	k.ClockMethod, k.ClockServer, k.ClockSkew, k.ClockNote = clockSnapshot(ctx)
 	for _, p := range st.Plan {
 		pushed := p.PushedAt.UTC().Format(time.RFC3339)
 		if p.PushedAt.IsZero() {
@@ -129,27 +127,6 @@ func activityLine(a keeper.ActivityEntry) string {
 		return fmt.Sprintf("%s (%s), %s", a.Outcome, a.Reason, age)
 	}
 	return fmt.Sprintf("%s:%s — %s (%s), %s", a.Repo, a.Tag, a.Outcome, a.Reason, age)
-}
-
-// clockSnapshot voices the configured time transport and the live
-// skew as kpr sees it: the same source the mint paths check
-// through, read here for display. An unreachable source reads
-// "unreachable" (never slow: the caller's probe timeout bounds
-// it); local trusts the machine clock, so skew is "—".
-func clockSnapshot(ctx context.Context) (method, server, skew, note string) {
-	cfg := config.Current()
-	method = string(cfg.TimeMethod)
-	server = cfg.TimeServer
-	if cfg.TimeMethod == clock.MethodLocal {
-		return method, "machine clock", "—", "unchecked"
-	}
-	src := clock.NewSource(cfg.TimeMethod)
-	offset, err := src.Offset(ctx, server)
-	if err != nil {
-		return method, server, "unreachable", "tolerance " + clock.Tolerance.String()
-	}
-	return method, server, human.SignedOffset(offset),
-		"tolerance " + clock.Tolerance.String()
 }
 
 // activityHandler serves the full precise ring as JSON for download:

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
@@ -317,16 +316,9 @@ func TestInfoCardsVoiceConfigAndProof(t *testing.T) {
 	}
 }
 
-// The local transport voices itself without touching the network:
-// machine clock, no skew, unchecked. If this fails, the card
-// either fakes a zero skew or leaves the transport unnamed.
-func TestClockSnapshotVoicesLocal(t *testing.T) {
-	testConfig(t)
-	method, server, skew, note := clockSnapshot(context.Background())
-	if method != "local" || server != "machine clock" || skew != "—" || note != "unchecked" {
-		t.Errorf("local snapshot = %q/%q/%q/%q, want local transport voiced", method, server, skew, note)
-	}
-}
+// Local/unreachable transport cases now live in
+// keeper.FetchClockCard's matrix (spike milestone 4); the live
+// https source case moved with them, not dropped.
 
 // Mount refusal now lives in keeper beside fsStats (spike
 // milestone 1); the case moved with the function, not dropped.
@@ -368,49 +360,7 @@ func TestClockSnapshotVoicesLocal(t *testing.T) {
 // block counts as bytes.
 // Moved to keeper with fsSizes (spike milestone 1).
 
-func httpsConfig(t *testing.T, server string) {
-	t.Helper()
-	t.Setenv(config.EnvTimeMethod, "https")
-	t.Setenv(config.EnvTimeServer, server)
-	t.Cleanup(config.SetCurrent(config.NewBuilder().FromEnv().Build()))
-}
-
-// An https time source the console can read voices its skew: the
-// card shows the same transport the mints check through. If this
-// fails, the clock card cannot read what the proofs rely on.
-func TestClockSnapshotVoicesHTTPSSkew(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer srv.Close()
-	httpsConfig(t, srv.URL)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	method, server, skew, _ := clockSnapshot(ctx)
-	if method != "https" || server != srv.URL {
-		t.Errorf("snapshot = %q/%q, want https/%s", method, server, srv.URL)
-	}
-	if !strings.HasPrefix(skew, "+") && !strings.HasPrefix(skew, "-") {
-		t.Errorf("skew = %q, want a signed offset", skew)
-	}
-}
-
-// An unreachable time source reads unreachable, never slow: the
-// caller's probe timeout bounds it. If this fails, a dead time
-// server hangs the dashboard.
-func TestClockSnapshotUnreachableSource(t *testing.T) {
-	httpsConfig(t, "http://127.0.0.1:1")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, _, skew, note := clockSnapshot(ctx)
-	if skew != "unreachable" {
-		t.Errorf("skew = %q, want unreachable", skew)
-	}
-	// The bound voices its exact tuning: any arithmetic on Tolerance
-	// renames this line. If this fails, the card's 30s moved without
-	// the docs.
-	if note != "tolerance 30s" {
-		t.Errorf("note = %q, want the 30s tolerance named", note)
-	}
-}
+// Moved to keeper with FetchClockCard (spike milestone 4).
 
 // Skew sign now lives in human.SignedOffset (spike milestone
 // 0); the cases moved with the function, not dropped.

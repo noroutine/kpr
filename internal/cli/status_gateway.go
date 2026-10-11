@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
@@ -64,7 +66,11 @@ gateway card both the console and the CLI render.`,
 			// traffic's news, not a one-shot's.
 			gate = &fence.Gate{Store: d.Store, Lease: fence.LeaseForStore(d.Store)}
 		}
-		card := keeper.FetchGatewayCard(cmd.Context(), gate, d.Store, cfg.EdgeAddr, cfg.RegistryURL)
+		// Lease and lock reads ride a bounded context: a dead
+		// backend reads degraded/unreachable, never slow.
+		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+		defer cancel()
+		card := keeper.FetchGatewayCard(ctx, gate, d.Store, cfg.EdgeAddr, cfg.RegistryURL)
 		return renderGatewayCard(cmd.OutOrStdout(), card, asJSON)
 	},
 }
