@@ -24,11 +24,6 @@
                 <div class="value">{{ .Requests }}</div>
                 <div class="meta">Application server (port 8080)</div>
             </div>
-            <div class="card stat-card">
-                <div class="label">Go Runtime</div>
-                <div class="value">{{ .GoVersion }}</div>
-                <div class="meta">{{ .GoOSArch }}</div>
-            </div>
         </div>
     </div>
 
@@ -159,6 +154,14 @@
                 <div class="config-item">
                     <div class="config-key">Built At</div>
                     <div class="config-value">{{ .BuildTime }}</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-key">Go Version</div>
+                    <div class="config-value">{{ .GoVersion }}</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-key">Platform</div>
+                    <div class="config-value">{{ .GoOSArch }}</div>
                 </div>
             </div>
             <div class="card config-card">
