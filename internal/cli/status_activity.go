@@ -25,6 +25,13 @@ func renderActivityCard(w io.Writer, card keeper.ActivityCard, now time.Time, as
 		_, err := io.WriteString(w, "activity: unknown\n")
 		return err
 	}
+	// An empty ring is an idle keeper, not a broken one: it
+	// reads none recorded — the same words the aggregate
+	// posture and the old reference voice.
+	if len(card.Outcomes) == 0 {
+		_, err := io.WriteString(w, "activity: none recorded\n")
+		return err
+	}
 	n := min(len(card.Outcomes), keeper.ActivityTail)
 	if _, err := fmt.Fprintf(w, "activity (last %d of %d):\n", n, card.Total); err != nil {
 		return err

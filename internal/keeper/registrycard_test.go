@@ -35,3 +35,27 @@ func TestRegistryCardVoicesEndpoint(t *testing.T) {
 		t.Errorf("proberless = (%q, %v), want (unavailable, false)", got.Standing, got.Reachable)
 	}
 }
+
+// NewRegistryCard reuses an established answer without
+// probing: the aggregate posture and the console reuse the
+// FetchStatus probe instead of health-checking twice per
+// render. If this fails, every render doubles the outbound
+// probe and the shared answer goes unread.
+func TestNewRegistryCardReusesProbe(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		reg       keeper.Prober
+		reachable bool
+		stand     keeper.Standing
+	}{
+		{"ok stays ok", stubReg{}, true, keeper.StandingOK},
+		{"down stays down", stubReg{}, false, keeper.StandingUnreachable},
+		{"no prober stays unavailable", nil, false, keeper.StandingUnavailable},
+		{"no prober never upgrades", nil, true, keeper.StandingUnavailable},
+	} {
+		got := keeper.NewRegistryCard(tc.reg, tc.reachable, "http://registry:5000")
+		if got.Standing != tc.stand || got.Reachable != (tc.stand == keeper.StandingOK) || got.URL != "http://registry:5000" {
+			t.Errorf("%s = (%q, %v), want (%q, answer-kept)", tc.name, got.Standing, got.Reachable, tc.stand)
+		}
+	}
+}

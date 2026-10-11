@@ -27,3 +27,19 @@ func FetchRegistryCard(ctx context.Context, reg Prober, url string) RegistryCard
 	}
 	return RegistryCard{Standing: StandingOK, URL: url, Reachable: true}
 }
+
+// NewRegistryCard voices the card for an already-probed
+// endpoint: the reachability an earlier probe established,
+// without probing twice. FetchStatus already probes for its
+// RegistryOK, so its renderers reuse that answer here — one
+// probe per render, never two. Use FetchRegistryCard when the
+// probe itself is the point.
+func NewRegistryCard(reg Prober, reachable bool, url string) RegistryCard {
+	if reg == nil {
+		return RegistryCard{Standing: StandingUnavailable, URL: url}
+	}
+	if !reachable {
+		return RegistryCard{Standing: StandingUnreachable, URL: url}
+	}
+	return RegistryCard{Standing: StandingOK, URL: url, Reachable: true}
+}

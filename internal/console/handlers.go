@@ -219,7 +219,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
 		AppStatusURL:   appStatusURL(r.Host, cfg.AppPort),
 		Obs:            obsCard(cfg),
-		Registry:       keeper.FetchRegistryCard(ctx, s.Registry, cfg.RegistryURL),
+		Registry:       keeper.NewRegistryCard(s.Registry, st.RegistryOK, cfg.RegistryURL),
 		Status:         st,
 		Plan:           planRows(st.Plan),
 		Activity:       activityRows(st.Activity, now),

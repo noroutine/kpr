@@ -38,14 +38,14 @@ func storeState(standing keeper.Standing) string {
 // runStatusStore prints the store card from the shared model:
 // backend, translated state, intent, size when the card voices
 // it, then the counters with the proof voice in banner words —
-// the same facts the console's Store section shows. The frozen
-// `store status` is the reference; this reads the model both
-// renderers sign. A nil registry reads unproven with no probe,
-// never a missing line.
+// the same facts the console's Store section shows. The proof
+// is fetched once and voiced twice (text and json share the
+// fetch, never re-prove the registry). A nil registry reads
+// unproven with no probe, never a missing line.
 func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr string, redisDB int, reg statusRegistry, asJSON bool) error {
 	st := keeper.FetchStatus(ctx, s, reg)
-	proven := keeper.FetchProofCard(ctx, reg).Proven()
-	card := keeper.FetchStoreCard(ctx, s, st.StoreOK, redisAddr, redisDB, proven)
+	proof := keeper.FetchProofCard(ctx, reg)
+	card := keeper.FetchStoreCard(ctx, s, st.StoreOK, redisAddr, redisDB, proof.Proven())
 	if asJSON {
 		// The machine view carries what the text carries: the
 		// card with the counters and the proof voice beside
@@ -62,7 +62,7 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 		}{StoreCard: card,
 			Tracked: st.Tracked, Due: st.Due,
 			Performed: st.Performed, Planned: st.Planned, Failed: st.Failed,
-			Proof: proofState(ctx, reg)}
+			Proof: voiceProof(proof)}
 		rows, _ := s.All(ctx)
 		ident, _ := s.GetIdentity(ctx)
 		out.Trust = keeper.FetchTrustCard(ctx, reg, ident, rows).Word
@@ -89,7 +89,7 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 		}
 	}
 	_, err := fmt.Fprintf(w, "tracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\nproof: %s\n",
-		st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, proofState(ctx, reg))
+		st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, voiceProof(proof))
 	if err != nil {
 		return err
 	}

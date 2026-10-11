@@ -44,6 +44,21 @@ func TestStatusActivityPrintsTailTotal(t *testing.T) {
 	}
 }
 
+// A healthy store with no ring entries reads none recorded,
+// never a zero-of-zero header — an empty ring is an idle
+// keeper, not a broken one. The aggregate `status` voices the
+// same words. If this fails, freshness reads as malfunction.
+func TestStatusActivityVoicesNoneOnEmptyRing(t *testing.T) {
+	card := keeper.FetchActivityCard(context.Background(), store.NewMemStore())
+	var buf bytes.Buffer
+	if err := renderActivityCard(&buf, card, time.Now().UTC(), false); err != nil {
+		t.Fatalf("renderActivityCard: %v", err)
+	}
+	if want := "activity: none recorded"; !strings.Contains(buf.String(), want) {
+		t.Errorf("empty ring missing %q:\n%s", want, buf.String())
+	}
+}
+
 // status activity --json is the full ring with precise stamps:
 // the /api/activity shape, superset. If this fails, --json
 // drifts from the model both renderers sign.
