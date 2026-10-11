@@ -253,12 +253,24 @@ func TestMetricsHandler(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
+	// Bytes first: decoding consumes the recorder's buffer.
+	payload := rr.Body.Bytes()
 	var body metricsData
-	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+	if err := json.Unmarshal(payload, &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if body.Version != config.Version || body.Commit != config.Commit {
 		t.Errorf("identity = %q/%q", body.Version, body.Commit)
+	}
+	// The toolchain version is dashboard furniture, not a metric:
+	// scrapers get no go_version key. If this fails, /metrics
+	// leaks build trivia scrapers never asked for.
+	var raw map[string]any
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		t.Fatalf("re-decode: %v", err)
+	}
+	if _, ok := raw["go_version"]; ok {
+		t.Errorf("metrics carries go_version = %v, want the key gone", raw["go_version"])
 	}
 	if body.Environment["KPR_APP_PORT"] != "18080" || body.Environment["KPR_REDIS_ADDR"] != "redis:6379" {
 		t.Errorf("environment = %v", body.Environment)
@@ -503,9 +515,11 @@ func TestIndexHandlerBracketsIPv6Bind(t *testing.T) {
 	}
 }
 
-// The runtime card must name the platform the binary was built for,
-// from the runtime config — not just the Go toolchain version. If
-// this fails, the card regressed to the template's version-only line.
+// The configuration section must name the platform the binary was
+// built for, from the runtime config — not just the Go toolchain
+// version — and the metrics grid must not carry a Go Runtime card.
+// If this fails, the runtime rows regressed to the metrics grid
+// or dropped the platform.
 func TestIndexHandlerShowsRuntimePlatform(t *testing.T) {
 	testConfig(t)
 
@@ -518,6 +532,9 @@ func TestIndexHandlerShowsRuntimePlatform(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing runtime %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "Go Runtime") {
+		t.Errorf("metrics grid still carries a Go Runtime card:\n%s", body)
 	}
 }
 

@@ -154,7 +154,6 @@ type metricsData struct {
 	Uptime        string            `json:"uptime"`
 	UptimeSeconds int64             `json:"uptime_seconds"`
 	Requests      uint64            `json:"requests"`
-	GoVersion     string            `json:"go_version"`
 	Version       string            `json:"version"`
 	Commit        string            `json:"commit"`
 	BuildTime     string            `json:"build_time"`
@@ -254,7 +253,6 @@ func MetricsHandler(w http.ResponseWriter, r *http.Request) {
 		Uptime:        human.Dur(uptime.Round(time.Second)),
 		UptimeSeconds: int64(uptime.Seconds()),
 		Requests:      app.GetAPIRequestCount(),
-		GoVersion:     config.CurrentRuntime().GoVersion,
 		Version:       config.Version,
 		Commit:        config.Commit,
 		BuildTime:     config.BuildTime,
