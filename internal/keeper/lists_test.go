@@ -27,24 +27,6 @@ func stageRing(t *testing.T) *store.MemStore {
 	return s
 }
 
-// The plan card voices due rows with reasons: the read side of
-// plan add/rm, same rows the console lists. A down store reads
-// unreachable, never an empty plan. If this fails, the plan
-// views read different backlogs.
-func TestPlanCardVoicesDueRows(t *testing.T) {
-	ctx := context.Background()
-	got := keeper.FetchPlanCard(ctx, stageRing(t), nil)
-	if got.Standing != keeper.StandingOK || len(got.Rows) != 1 {
-		t.Fatalf("plan = (%q, %d rows), want (ok, 1)", got.Standing, len(got.Rows))
-	}
-	if r := got.Rows[0]; r.Repo != "app" || r.Tag != "v1" || r.Reason != "ttl:10m elapsed" {
-		t.Errorf("row = %+v, want the due row voiced", r)
-	}
-	if got := keeper.FetchPlanCard(ctx, nil, nil); got.Standing != keeper.StandingUnreachable || len(got.Rows) != 0 {
-		t.Errorf("storeless plan = (%q, %d rows), want (unreachable, empty)", got.Standing, len(got.Rows))
-	}
-}
-
 // The activity card voices the ring with its honest total: the
 // tail cap reads "last n of total", never a silent truncation.
 // A down store reads unreachable. If this fails, the tail lies

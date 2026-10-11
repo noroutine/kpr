@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/keeper"
-	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -70,11 +69,12 @@ func TestStatusActivityJSONIsFullRing(t *testing.T) {
 	}
 }
 
-// A down backend reads unknown on both list cards, never an
-// empty ring or an empty plan — silence would misreport
-// "nothing to do". If this fails, the renderers drop the
-// standing the fetch voiced.
-func TestStatusListsVoiceUnknownOnDownStore(t *testing.T) {
+// A down backend reads unknown on the activity card, never an
+// empty ring — silence would misreport "nothing to do". If
+// this fails, the renderer drops the standing the fetch
+// voiced. (Plan has no CLI card: `kpr plan` owns the human
+// view, the console list reads Status.Plan.)
+func TestStatusActivityVoicesUnknownOnDownStore(t *testing.T) {
 	down := keeper.FetchActivityCard(context.Background(), nil)
 	var buf bytes.Buffer
 	if err := renderActivityCard(&buf, down, time.Now().UTC(), false); err != nil {
@@ -82,33 +82,5 @@ func TestStatusListsVoiceUnknownOnDownStore(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "activity: unknown") {
 		t.Errorf("down activity prints:\n%s\nwant the unknown line, never an empty tail", buf.String())
-	}
-	plan := keeper.FetchPlanCard(context.Background(), nil, nil)
-	buf.Reset()
-	if err := renderPlanCard(&buf, plan, false); err != nil {
-		t.Fatalf("renderPlanCard: %v", err)
-	}
-	if !strings.Contains(buf.String(), "plan: unknown") {
-		t.Errorf("down plan prints:\n%s\nwant the unknown line, never an empty plan", buf.String())
-	}
-}
-
-// status plan prints due rows with reasons from the shared
-// model: the read side of plan add/rm. If this fails, the plan
-// views read different backlogs.
-func TestStatusPlanPrintsDueRows(t *testing.T) {
-	ctx := context.Background()
-	s := store.NewMemStore()
-	if err := s.Record(ctx, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:b",
-		PushedAt: time.Now().UTC().Add(-time.Hour), Due: true, Reason: "ttl:10m elapsed"}); err != nil {
-		t.Fatalf("record: %v", err)
-	}
-	card := keeper.FetchPlanCard(ctx, s, nil)
-	var buf bytes.Buffer
-	if err := renderPlanCard(&buf, card, false); err != nil {
-		t.Fatalf("renderPlanCard: %v", err)
-	}
-	if !strings.Contains(buf.String(), "app:v1 — ttl:10m elapsed") {
-		t.Errorf("plan missing due row:\n%s", buf.String())
 	}
 }

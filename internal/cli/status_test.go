@@ -123,6 +123,18 @@ func TestStatusRefusesUnknownCard(t *testing.T) {
 	}
 }
 
+// Plan stays off status: `kpr plan` owns the human view, the
+// console list reads Status.Plan — a status plan twin would
+// duplicate both for no new fact (dropped as garbage). If this
+// fails, the twin crept back.
+func TestStatusHasNoPlanTwin(t *testing.T) {
+	for _, sub := range statusCmd.Commands() {
+		if sub.Name() == "plan" {
+			t.Errorf("status carries a %q subcommand, want plan left to `kpr plan`", sub.Name())
+		}
+	}
+}
+
 // describeStore voices the backend in one line: file with its dir,
 // redis with addr and DB. If this fails, the store card names the
 // wrong backend — the operator fixes the wrong state.

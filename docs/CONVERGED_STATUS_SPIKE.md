@@ -64,7 +64,7 @@ stamp their own render time.
 | Keeper (counters) | `Counters` (existing `Status` counts) | `status` aggregate header |
 | Gateway | `Gateway{Standing, Open, Deny, Held, EdgeAddr, RegistryURL}` | `status gateway` |
 | Clock | `Clock{Standing, Method, Server, Skew, Tolerance}` (raw durations, not words) | `status clock` |
-| Plan | `Plan{Rows []PlanEntry}` (reuse type; mutations stay `plan add/rm`) | `status plan` |
+| Plan | `Status.Plan` rows (mutations stay `plan add/rm`) | console only — no `status plan` twin (`kpr plan` owns the human view) |
 | Store | `Store{Name, Detail, Healthy, Standing, LockNote, FsNote}` | `status store` |
 | Sentinel | `Proof{Standing, Gen, TS}` | proof line on `status` (already lives there) |
 | Activity | `Activity{Lines, Total}` (tail; full ring keeps `/api/activity` shape) | `status activity` |
@@ -93,10 +93,11 @@ as today, now tested once in `keeper`.
 - **4 — `status clock`.** `clockSnapshot` → `keeper`
   (env-staged: `TimeMethod=local` pins no-probe, `httptest`
   date server pins skew). Standing-matrix test.
-- **5 — plan + activity.** `Plan`/`Activity` cards, one
-  formatter with padding flag (`activityLine` ×
+- **5 — plan + activity.** `Activity` card + console plan
+  list, one formatter with padding flag (`activityLine` ×
   `renderOutcome` merge); `/api/activity` and `--json`
-  shapes converge.
+  shapes converge. (No `status plan` twin: `kpr plan` owns
+  the human view — dropped as garbage.)
 - **6 — console thin.** Handlers keep HTTP/templates;
   `keeperData` dies (page assembles from cards with only
   template shaping in between; `storeData`/`sentinelData`

@@ -6,25 +6,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// PlanCard is the read side of plan add/rm: due rows with
-// reasons, same rows the console lists. Standing voices the
-// fetch, never the backlog — an empty plan reads ok, a down
-// store unreachable.
-type PlanCard struct {
-	Standing Standing    `json:"standing"`
-	Rows     []PlanEntry `json:"rows"`
-}
-
-// FetchPlanCard voices due rows through the shared counting:
-// one implementation serves the console list and the CLI.
-func FetchPlanCard(ctx context.Context, s store.Store, reg Prober) PlanCard {
-	st := FetchStatus(ctx, s, reg)
-	if !st.StoreOK {
-		return PlanCard{Standing: StandingUnreachable}
-	}
-	return PlanCard{Standing: StandingOK, Rows: st.Plan}
-}
-
 // ActivityCard voices the ring with its honest total: the tail
 // cap reads "last n of total", never a silent truncation.
 // Standing voices the fetch — a down store reads unreachable.
