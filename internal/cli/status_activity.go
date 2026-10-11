@@ -39,7 +39,7 @@ func renderActivityCard(w io.Writer, card keeper.ActivityCard, now time.Time, as
 
 var statusActivityCmd = &cobra.Command{
 	Use:   "activity",
-	Short: "Show the activity tail from the shared status model",
+	Short: "Show the activity tail",
 	Long: `Last ring entries with the honest total — the activity
 card both the console and the CLI render.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {

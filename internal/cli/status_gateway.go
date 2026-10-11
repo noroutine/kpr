@@ -53,7 +53,7 @@ func renderGatewayCard(w io.Writer, card keeper.GatewayCard, asJSON bool) error 
 
 var statusGatewayCmd = &cobra.Command{
 	Use:   "gateway",
-	Short: "Show the live fence posture from the shared status model",
+	Short: "Show the live fence posture",
 	Long: `Edge open/closed, fence deny/pass, hold lease — the
 gateway card both the console and the CLI render.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {

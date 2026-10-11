@@ -37,7 +37,7 @@ func renderClockCard(w io.Writer, card keeper.ClockCard, now time.Time, asJSON b
 
 var statusClockCmd = &cobra.Command{
 	Use:   "clock",
-	Short: "Show the time transport from the shared status model",
+	Short: "Show the time transport",
 	Long: `Method, server, live skew, bound — the clock card both
 the console and the CLI render.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {

@@ -64,7 +64,7 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 
 var statusStoreCmd = &cobra.Command{
 	Use:   "store",
-	Short: "Show the store card from the shared status model",
+	Short: "Show the store card",
 	Long: `Backend, state, intent, and size — the store card both
 the console and the CLI render.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
