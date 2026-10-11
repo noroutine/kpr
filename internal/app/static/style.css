@@ -1,77 +1,79 @@
-/* kpr app page: same dark console voice as the management console
-   (monospace, flat dark cards, teal accents) — no gradients, no
-   hover lifts, no glow. */
+/*
+  kpr app page: same dark console voice as the management console
+  (monospace, flat dark cards, teal accents) — no gradients, no
+  hover lifts, no glow.
+*/
 
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-    font-family: monospace;
-    background: #1e1e1e;
-    min-height: 100vh;
-    padding: 20px;
-    color: #d4d4d4;
+  font-family: monospace;
+  background: #1e1e1e;
+  min-height: 100vh;
+  padding: 20px;
+  color: #d4d4d4;
 }
 
 .container {
-    max-width: 62ch;
-    margin: 0 auto;
+  max-width: 62ch;
+  margin: 0 auto;
 }
 
 header {
-    margin-bottom: 30px;
-    padding: 10px 0;
+  margin-bottom: 30px;
+  padding: 10px 0;
 }
 
 header h1 {
-    font-size: 2em;
-    margin-bottom: 5px;
-    color: #4ec9b0;
+  font-size: 2em;
+  margin-bottom: 5px;
+  color: #4ec9b0;
 }
 
 .subtitle {
-    font-size: 1em;
-    color: #808080;
+  font-size: 1em;
+  color: #808080;
 }
 
 main {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
 }
 
 .hero h2 {
-    font-size: 2.6em;
-    line-height: 1.1;
-    margin-bottom: 22px;
-    color: #d4d4d4;
+  font-size: 2.6em;
+  line-height: 1.1;
+  margin-bottom: 22px;
+  color: #d4d4d4;
 }
 
 .hero p {
-    line-height: 1.6;
-    margin-bottom: 14px;
-    color: #d4d4d4;
-    max-width: 60ch;
+  line-height: 1.6;
+  margin-bottom: 14px;
+  color: #d4d4d4;
+  max-width: 60ch;
 }
 
 .commands {
-    background: #1e1e1e;
-    padding: 15px;
-    border-radius: 4px;
-    font-family: monospace;
-    font-size: 0.9em;
-    line-height: 1.7;
-    color: #9cdcfe;
-    overflow-x: auto;
+  background: #1e1e1e;
+  padding: 15px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+  line-height: 1.7;
+  color: #9cdcfe;
+  overflow-x: auto;
 }
 
 footer {
-    text-align: center;
-    color: #808080;
-    margin-top: 40px;
-    padding: 20px;
-    font-size: 0.85em;
+  text-align: center;
+  color: #808080;
+  margin-top: 40px;
+  padding: 20px;
+  font-size: 0.85em;
 }
