@@ -1,6 +1,6 @@
 //go:build linux
 
-package console
+package keeper
 
 import "syscall"
 

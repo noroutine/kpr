@@ -6,10 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -287,15 +285,8 @@ func TestActivityZeroStampReadsUnknown(t *testing.T) {
 // The redis card names addr and DB even degraded: the operator
 // must see which redis is unreachable, not just red. If this
 // fails, the card hides the backend it complains about.
-func TestRedisStoreCardNamesAddrAndDB(t *testing.T) {
-	testConfig(t)
-	rs := store.NewRedisStore("redis:6379", "", 0)
-	defer func() { _ = rs.Close() }()
-	got := storeSnapshot(context.Background(), rs, false, config.Current(), false)
-	if got.Name != "redis" || got.Detail != "redis:6379 db 0" {
-		t.Errorf("redis card = %q/%q, want redis with addr and DB", got.Name, got.Detail)
-	}
-}
+// Redis naming now lives in keeper.FetchStoreCard (spike
+// milestone 1); the case moved with the function, not dropped.
 
 // Clock, endpoints, and capacity read off the cards: the local
 // transport voices unchecked (never a fake zero skew), the cards
@@ -337,18 +328,8 @@ func TestClockSnapshotVoicesLocal(t *testing.T) {
 	}
 }
 
-// An unreadable mount gets no ink, not an error card: Statfs
-// failure reads empty, and the card drops the size line. If this
-// fails, a dead mount breaks the store card.
-func TestFsStatsEmptyOnUnreadableMount(t *testing.T) {
-	absent := filepath.Join(t.TempDir(), "absent")
-	if got := fsStats(absent); got != "" {
-		t.Errorf("fsStats(absent) = %q, want empty", got)
-	}
-	if _, _, ok := fsSizes(absent); ok {
-		t.Error("fsSizes(absent) ok, want refusal")
-	}
-}
+// Mount refusal now lives in keeper beside fsStats (spike
+// milestone 1); the case moved with the function, not dropped.
 
 // A silent sentinel reads unproven, never stale: the proof card
 // shows no generation until the registry serves one. If this
@@ -366,23 +347,8 @@ func TestSentinelSnapshotUnprovenOnError(t *testing.T) {
 // store to report on, while a proven one voices capacity. If this
 // fails, the console sizes a stranger's disk — or stays mute on
 // its own.
-func TestFileStoreFsNoteGatedOnProof(t *testing.T) {
-	testConfig(t)
-	ctx := context.Background()
-	st := store.NewFileStore(t.TempDir())
-	cfg := config.Current()
-	if got := storeSnapshot(ctx, st, true, cfg, true); got.FsNote == "" {
-		t.Error("proven file store voices no size, want free/total")
-	} else if !strings.Contains(got.FsNote, "free of ") || !strings.Contains(got.FsNote, "% used)") {
-		t.Errorf("FsNote = %q, want '<free> free of <total> (<pct>%% used)'", got.FsNote)
-	}
-	if got := storeSnapshot(ctx, st, true, cfg, false); got.FsNote != "" {
-		t.Errorf("unproven file store voices %q, want silence", got.FsNote)
-	}
-	if got := storeSnapshot(ctx, nil, false, cfg, true); got.FsNote != "" {
-		t.Errorf("storeless snapshot voices %q, want silence", got.FsNote)
-	}
-}
+// Proof gating now lives in keeper.FetchStoreCard (spike
+// milestone 1); the cases moved with the function, not dropped.
 
 // Byte tiers now live in human.Capacity (spike milestone 0);
 // the cases moved with the function, not dropped.
@@ -394,62 +360,20 @@ func TestFileStoreFsNoteGatedOnProof(t *testing.T) {
 // total — including the free==total edge a looser check would let
 // through. If this fails, a corrupt Statfs voices petabytes as
 // capacity.
-func TestSaneSizes(t *testing.T) {
-	for _, tc := range []struct {
-		total, free uint64
-		want        bool
-	}{
-		{0, 0, false},
-		{100, 101, false},
-		{100, 100, true},
-		{100, 30, true},
-	} {
-		if got := saneSizes(tc.total, tc.free); got != tc.want {
-			t.Errorf("saneSizes(%d, %d) = %v, want %v", tc.total, tc.free, got, tc.want)
-		}
-	}
-	// The live path over a real dir stays sane: block math that
-	// underflows units reads zero total and refuses.
-	if total, free, ok := fsSizes(t.TempDir()); !ok || total == 0 || free > total {
-		t.Errorf("fsSizes(tempdir) = %d/%d/%v, want sane sizes", total, free, ok)
-	}
-}
+// Size guards now live in keeper beside the store card (spike
+// milestone 1); the truth tables moved with the functions, not
+// dropped.
 
 // Nonsense blocks refuse without a syscall: zero total and
 // free-above-total never reach the card, whatever the filesystem
 // claims. If this fails, a corrupt Statfs voices petabytes as
 // capacity.
-func TestSizesFromBlocksRefusesNonsense(t *testing.T) {
-	if _, _, ok := sizesFromBlocks(0, 0, 4096); ok {
-		t.Error("sizesFromBlocks(0 blocks) ok, want refusal")
-	}
-	if _, _, ok := sizesFromBlocks(100, 200, 4096); ok {
-		t.Error("sizesFromBlocks(free above total) ok, want refusal")
-	}
-	if total, free, ok := sizesFromBlocks(100, 30, 4096); !ok || total != 409600 || free != 122880 {
-		t.Errorf("sizesFromBlocks = %d/%d/%v, want 409600/122880/true", total, free, ok)
-	}
-}
+// Moved to keeper with sizesFromBlocks (spike milestone 1).
 
 // fsSizes voices block math, not block counts: totals are raw
 // blocks times the fragment unit. If this fails, the card sizes
 // block counts as bytes.
-func TestFsSizesMultipliesByUnit(t *testing.T) {
-	dir := t.TempDir()
-	var fs syscall.Statfs_t
-	if err := syscall.Statfs(dir, &fs); err != nil {
-		t.Fatalf("statfs: %v", err)
-	}
-	unit := fsBlockUnit(&fs)
-	total, free, ok := fsSizes(dir)
-	if !ok {
-		t.Fatal("fsSizes refused a plain temp dir")
-	}
-	if total != uint64(fs.Blocks)*unit || free != uint64(fs.Bavail)*unit {
-		t.Errorf("fsSizes = %d/%d, want blocks×unit %d/%d",
-			total, free, uint64(fs.Blocks)*unit, uint64(fs.Bavail)*unit)
-	}
-}
+// Moved to keeper with fsSizes (spike milestone 1).
 
 func httpsConfig(t *testing.T, server string) {
 	t.Helper()

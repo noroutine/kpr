@@ -13,6 +13,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/app"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/helpers/human"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
 var (
@@ -57,7 +58,7 @@ type pageData struct {
 	Keeper keeperData
 	// Store names the state backend and where it lives; Sentinel
 	// carries the live same-store proof generation, if any.
-	Store    storeData
+	Store    keeper.StoreCard
 	Sentinel sentinelData
 }
 
@@ -151,7 +152,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 
 	rt := config.CurrentRuntime()
 
-	keeper := s.keeperSnapshot(r.Context())
+	snap := s.keeperSnapshot(r.Context())
 	sentinel := s.sentinelSnapshot(r.Context())
 
 	data := pageData{
@@ -172,9 +173,10 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
 		AppStatusURL:   appStatusURL(r.Host, cfg.AppPort),
 		Links:          observabilityLinks(cfg),
-		Keeper:         keeper,
-		Store:          storeSnapshot(r.Context(), s.Store, keeper.RedisOK, cfg, sentinel.Proven),
-		Sentinel:       sentinel,
+		Keeper:         snap,
+		Store: keeper.FetchStoreCard(r.Context(), s.Store, snap.RedisOK,
+			cfg.RedisAddr, cfg.RedisDB, sentinel.Proven),
+		Sentinel: sentinel,
 	}
 
 	renderIndex(w, data)

@@ -1,14 +1,13 @@
-//go:build linux
+//go:build darwin
 
-package console
+package keeper
 
 import "testing"
 
-// The block unit must stay the fragment size on Linux: virtiofs
-// reports a 1MB Bsize over 4K fragments, so Bsize here mints
-// petabytes on ordinary disks. If this fails, the capacity card
-// is sizing fantasy storage again.
-func TestFsSizesSaneOnLinux(t *testing.T) {
+// The block unit must stay the fundamental size on macOS, where
+// statfs carries no separate fragment size. If this fails, the
+// capacity card is sizing fantasy storage again.
+func TestFsSizesSaneOnDarwin(t *testing.T) {
 	total, free, ok := fsSizes(t.TempDir())
 	if !ok {
 		t.Fatal("fsSizes refused a plain temp dir")

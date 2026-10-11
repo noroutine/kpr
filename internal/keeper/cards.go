@@ -11,9 +11,12 @@ const (
 	StandingOK Standing = "ok"
 	// StandingHeld pins writes under a hold lease.
 	StandingHeld Standing = "held"
-	// StandingDenied refuses writes (locked store).
+	// StandingDenied is the fence refusing traffic (edge DENY).
+	// The store card never sets it — operator intent there is
+	// StandingLocked.
 	StandingDenied Standing = "denied"
-	// StandingDegraded answers, past a bound (clock skew).
+	// StandingDegraded answers, below full health (a bound
+	// crossed, a reading failed).
 	StandingDegraded Standing = "degraded"
 	// StandingUnreachable never answered the probe.
 	StandingUnreachable Standing = "unreachable"
@@ -23,6 +26,8 @@ const (
 	StandingLocked Standing = "locked"
 	// StandingClosed is configured off, not broken.
 	StandingClosed Standing = "closed"
+	// StandingUnavailable has no backend to ask.
+	StandingUnavailable Standing = "unavailable"
 	// StandingUnchecked is not a verdict (local clock).
 	StandingUnchecked Standing = "unchecked"
 )
