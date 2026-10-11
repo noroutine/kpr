@@ -87,6 +87,48 @@ func TestIndexHandler(t *testing.T) {
 	}
 }
 
+// The dashboard wears its stylesheet by reference, not inline:
+// the link honors the base path (stripped-prefix consoles keep
+// working), and no <style> block ships in the page. If this
+// fails, styling regressed to inline or the href 404s behind a
+// subpath.
+func TestIndexLinksStylesheet(t *testing.T) {
+	testConfig(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	IndexHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `/static/style.css`) {
+		t.Errorf("dashboard lacks the stylesheet href:\n%s", body)
+	}
+	if strings.Contains(body, "<style>") {
+		t.Error("dashboard still inlines its stylesheet")
+	}
+}
+
+// /static/style.css serves the extracted rules as CSS: the
+// bulb classes must travel with the split, or the standing
+// colors silently die. If this fails, the split dropped rules.
+func TestStyleHandlerServesCSS(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
+	rr := httptest.NewRecorder()
+	styleHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "text/css; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want CSS", ct)
+	}
+	for _, want := range []string{".card", ".bulb-deny", ".bulb-warn", ".bulb-ok"} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("stylesheet lacks %q", want)
+		}
+	}
+}
+
 // With no UI base URL configured the dashboard shows no Observability
 // section: links to backends nobody runs are worse than no links. If
 // this fails, the launchpad leaks into the default console.
@@ -314,9 +356,10 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	// the error branches lie.
 	logs := captureLog(t)
 	for path, want := range map[string]int{
-		"/":        http.StatusOK,
-		"/metrics": http.StatusOK,
-		"/health":  http.StatusOK,
+		"/":                 http.StatusOK,
+		"/metrics":          http.StatusOK,
+		"/health":           http.StatusOK,
+		"/static/style.css": http.StatusOK,
 	} {
 		resp, err := testClient.Get(base + path) //nolint:gosec,noctx // test-only loopback
 		if err != nil {

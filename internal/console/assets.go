@@ -10,6 +10,22 @@ import (
 //go:embed static/index.html
 var indexHTML string
 
+//go:embed static/style.css
+var styleCSS string
+
+// styleHandler serves the dashboard stylesheet as CSS: one
+// file, one route, no file server to feed. GET only, like the
+// other readers; the href carries the base path, so a
+// stripped-prefix console resolves it.
+func styleHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	_, _ = w.Write([]byte(styleCSS))
+}
+
 // indexTmpl renders the dashboard (see pageData): parsed once at
 // init, so a broken page fails the boot instead of every request.
 // The bulb func hangs the standing color on a card; the model
