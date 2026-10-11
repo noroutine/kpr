@@ -57,6 +57,9 @@ type pageData struct {
 	// only when its URL is configured; an empty card hides the
 	// whole section.
 	Obs keeper.ObsCard
+	// Registry voices the probed distribution registry with its
+	// endpoint — the same card `status registry` prints.
+	Registry keeper.RegistryCard
 	// Status is what kpr tracks (banner, counters) — the same
 	// model `status` reads. Plan and Activity are its
 	// template-shaped views; ActivityTotal is the uncapped ring
@@ -214,6 +217,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
 		AppStatusURL:   appStatusURL(r.Host, cfg.AppPort),
 		Obs:            obsCard(cfg),
+		Registry:       keeper.FetchRegistryCard(ctx, s.Registry, cfg.RegistryURL),
 		Status:         st,
 		Plan:           planRows(st.Plan),
 		Activity:       activityRows(st.Activity, now),

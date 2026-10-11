@@ -533,7 +533,7 @@ func (s stubSentinelAPI) GetBlob(context.Context, string, string) ([]byte, error
 	return s.blob, nil
 }
 
-// The Keeper's second row must name the wired backend, where it
+// The Store section must name the wired backend, where it
 // lives, and the live sentinel generation — a file stack shows
 // "file" and its dir, never Redis's name. If this fails, the console
 // misreports the backend the operator must fix.
@@ -565,18 +565,18 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 	if strings.Contains(body, ">Redis<") {
 		t.Errorf("dashboard names Redis on a file stack")
 	}
-	// Placement: the backend and proof cards sit in Keeper, after
+	// Placement: the backend and proof cards sit in Store, after
 	// its heading — there is no separate State section. If this
-	// fails, the cards drifted back out of Keeper.
+	// fails, the cards drifted back out of Store.
 	if strings.Contains(body, "🗄️") {
 		t.Error("dashboard still renders a State section")
 	}
-	if keeper, backend := strings.Index(body, "Keeper"), strings.Index(body, "State backend"); backend < keeper {
-		t.Error("State backend card renders outside Keeper")
+	if store, backend := strings.Index(body, "💾 Store"), strings.Index(body, "State backend"); backend < store {
+		t.Error("State backend card renders outside Store")
 	}
 }
 
-// With no store and no sentinel API the Keeper's backend cards
+// With no store and no sentinel API the Store's backend cards
 // degrade to named absences — "unavailable", "unproven" — and still
 // render 200. If this fails, a backend outage takes the whole
 // console down with it.

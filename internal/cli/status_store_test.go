@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/keeper"
+	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -20,7 +22,7 @@ func TestStatusStorePrintsCardLines(t *testing.T) {
 		t.Fatalf("unlock: %v", err)
 	}
 	var buf bytes.Buffer
-	if err := runStatusStore(context.Background(), &buf, s, "", 0, false, false); err != nil {
+	if err := runStatusStore(context.Background(), &buf, s, "", 0, nil, false); err != nil {
 		t.Fatalf("runStatusStore: %v", err)
 	}
 	for _, want := range []string{
@@ -66,6 +68,39 @@ func TestStoreStateWordsTranslateStanding(t *testing.T) {
 	}
 }
 
+// status store carries the counters with the card: tracked and
+// due with the outcome tally in banner words, plus the proof
+// voice (unproven without a registry). The console's Store
+// section shows the same facts. If this fails, the store view
+// hides the backlog it owns.
+func TestStatusStoreCarriesCountersAndProof(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewMemStore()
+	if err := s.Record(ctx, policy.Row{Repo: "app", Tag: "v1", Digest: "sha256:b",
+		PushedAt: time.Now().UTC().Add(-time.Hour), Due: true, Reason: "ttl:10m elapsed"}); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if err := s.PushActivity(ctx, store.Outcome{Repo: "app", Tag: "v1",
+		Reason: "ttl:10m elapsed", Outcome: "deleted", At: time.Now().UTC()}); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if err := s.SetUnlocked(ctx, true); err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := runStatusStore(ctx, &buf, s, "", 0, nil, false); err != nil {
+		t.Fatalf("runStatusStore: %v", err)
+	}
+	for _, want := range []string{
+		"tracked: 1", "due: 1", "performed: 1", "planned: 0", "failed: 0",
+		"proof: unproven",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("store missing %q:\n%s", want, buf.String())
+		}
+	}
+}
+
 // status store --json is the card struct verbatim: machine
 // readers get the standing code, not the words. If this fails,
 // --json drifts from the model both renderers sign.
@@ -75,7 +110,7 @@ func TestStatusStoreJSONIsCardVerbatim(t *testing.T) {
 		t.Fatalf("lock: %v", err)
 	}
 	var buf bytes.Buffer
-	if err := runStatusStore(context.Background(), &buf, s, "", 0, false, true); err != nil {
+	if err := runStatusStore(context.Background(), &buf, s, "", 0, nil, true); err != nil {
 		t.Fatalf("runStatusStore: %v", err)
 	}
 	var got struct {

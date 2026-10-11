@@ -33,13 +33,19 @@
     </div>
 
     <div class="section">
-        <h2>🧹 Keeper</h2>
+        <h2>📦 Registry</h2>
         <div class="grid">
-            <div class="card">
+            <div class="card {{ bulb .Registry.Standing }}">
                 <div class="label">Registry</div>
-                <div class="value">{{ if .Status.RegistryOK }}reachable{{ else }}unreachable{{ end }}</div>
-                {{ if .Gateway.RegistryURL }}<div class="meta">{{ .Gateway.RegistryURL }}</div>{{ end }}
+                <div class="value">{{ if .Registry.Reachable }}reachable{{ else }}unreachable{{ end }}</div>
+                {{ if .Registry.URL }}<div class="meta">{{ .Registry.URL }}</div>{{ end }}
             </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>💾 Store</h2>
+        <div class="grid">
             <div class="card stat-card">
                 <div class="label">Tracked / Due</div>
                 <div class="value">{{ .Status.Tracked }} / {{ .Status.Due }}</div>

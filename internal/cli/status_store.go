@@ -10,7 +10,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
-	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -38,12 +37,16 @@ func storeStateWords(standing keeper.Standing) string {
 }
 
 // runStatusStore prints the store card from the shared model:
-// backend, translated state, intent, and size when the card
-// voices it. The frozen `store status` is the reference; this
-// reads the model both renderers sign.
-func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr string, redisDB int, proven, asJSON bool) error {
-	healthy := s.Ping(ctx) == nil
-	card := keeper.FetchStoreCard(ctx, s, healthy, redisAddr, redisDB, proven)
+// backend, translated state, intent, size when the card voices
+// it, then the counters with the proof voice in banner words —
+// the same facts the console's Store section shows. The frozen
+// `store status` is the reference; this reads the model both
+// renderers sign. A nil registry reads unproven with no probe,
+// never a missing line.
+func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr string, redisDB int, reg statusRegistry, asJSON bool) error {
+	st := keeper.FetchStatus(ctx, s, reg)
+	proven := keeper.FetchProofCard(ctx, reg).Proven()
+	card := keeper.FetchStoreCard(ctx, s, st.StoreOK, redisAddr, redisDB, proven)
 	if asJSON {
 		return json.NewEncoder(w).Encode(card)
 	}
@@ -56,10 +59,13 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 		return err
 	}
 	if card.FsNote != "" {
-		_, err := fmt.Fprintf(w, "fs: %s\n", card.FsNote)
-		return err
+		if _, err := fmt.Fprintf(w, "fs: %s\n", card.FsNote); err != nil {
+			return err
+		}
 	}
-	return nil
+	_, err := fmt.Fprintf(w, "tracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\nproof: %s\n",
+		st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, proofState(ctx, reg))
+	return err
 }
 
 var statusStoreCmd = &cobra.Command{
@@ -74,15 +80,9 @@ the console and the CLI render.`,
 		}
 		defer d.Close()
 		asJSON, _ := cmd.Flags().GetBool("json")
-		proven := false
-		if d.Reg != nil {
-			if _, err := sentinel.LastProof(cmd.Context(), d.Reg); err == nil {
-				proven = true
-			}
-		}
 		cfg := config.Current()
 		return runStatusStore(cmd.Context(), cmd.OutOrStdout(), d.Store,
-			cfg.RedisAddr, cfg.RedisDB, proven, asJSON)
+			cfg.RedisAddr, cfg.RedisDB, d.Reg, asJSON)
 	},
 }
 

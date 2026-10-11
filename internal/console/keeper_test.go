@@ -54,9 +54,9 @@ func TestKeeperBannerDegradedWithoutBackends(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"Keeper", "unreachable"} {
+	for _, want := range []string{"Registry", "Store", "unreachable"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q (degraded banner)", want)
+			t.Errorf("dashboard missing %q (degraded sections)", want)
 		}
 	}
 	// The console never sweeps, so it advertises no sweep posture:
@@ -168,10 +168,10 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 	if strings.Contains(section, "<li>") {
 		t.Error("dashboard activity still renders bullets, want the code block")
 	}
-	// Placement: the card lives in Keeper, not its own section. If
-	// this fails, activity drifted back out of Keeper.
-	if keeper, activity := strings.Index(body, "🧹 Keeper"), strings.Index(body, ">Activity</div>"); activity < keeper {
-		t.Error("Activity card renders outside Keeper")
+	// Placement: the card lives in Store, not its own section. If
+	// this fails, activity drifted back out of Store.
+	if store, activity := strings.Index(body, "💾 Store"), strings.Index(body, ">Activity</div>"); activity < store {
+		t.Error("Activity card renders outside Store")
 	}
 
 	apiReq := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
