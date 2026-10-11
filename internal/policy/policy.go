@@ -57,10 +57,12 @@ func isDateLike(tag string) bool {
 	if len(tag) != 8 && len(tag) != 9 && len(tag) != 10 {
 		return false
 	}
-	// NOTE(mutants): reached only via isBareHash today (hashRe
-	// plus the letter scan already guarantee digits), but the
-	// guard keeps isDateLike correct standalone — dropping it
-	// lets "2024ab15" read as a date for any future caller.
+	// NOTE(mutants): the guard keeps isDateLike correct — without
+	// it a suffixed tag like "20240115a" reads as a date (time.Parse
+	// sees only the first 8 bytes). Reached only via isBareHash
+	// today, where skipping it is equivalent (hashRe plus the letter
+	// scan already guarantee digit-only input): the guard stays for
+	// standalone callers.
 	for i := 0; i < len(tag); i++ {
 		if tag[i] < '0' || tag[i] > '9' {
 			return false
@@ -81,6 +83,11 @@ func isBareHash(tag string) bool {
 	if !hashRe.MatchString(tag) {
 		return false
 	}
+	// NOTE(mutants): the loop mutants are equivalent — the line
+	// above admits hex only, so a char past 'f' never reaches
+	// here; a lone 'a'/'f' falling through rejoins !isDateLike,
+	// whose digit scan rejects the same letter (true either
+	// way); and skipping the loop returns that same verdict.
 	for i := 0; i < len(tag); i++ {
 		if tag[i] >= 'a' && tag[i] <= 'f' {
 			return true

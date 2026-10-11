@@ -83,6 +83,8 @@ func (l RedisLease) Hold(ctx context.Context, until time.Time) (func(), error) {
 		return nil, errors.New("redis lease without a conn")
 	}
 	ttl := time.Until(until) + leaseExpiryMargin
+	// NOTE(mutants): <= is equivalent — clamping an exactly-margin
+	// ttl to the margin is identity.
 	if ttl < leaseExpiryMargin {
 		ttl = leaseExpiryMargin
 	}

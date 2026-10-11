@@ -37,6 +37,12 @@ func TestProveBlobCacheOff(t *testing.T) {
 		t.Error("both halves cleared, want refusal")
 	} else if got := err.Error(); !strings.Contains(got, "redis:6379") || !strings.Contains(got, "blobdescriptor") {
 		t.Errorf("refusal = %q, want both halves named", got)
+	} else if !strings.Contains(got, "with storage.cache.blobdescriptor") {
+		// The both-halves leg names the pairing, not just the
+		// shared prefix: without this, the addr-only leg covers
+		// for it and the switch legs blur. If this fails, both
+		// halves fall through to the addr-only refusal.
+		t.Errorf("refusal = %q, want the both-halves leg", got)
 	}
 	// Plural addrs follow the collector's grammar: the first wins.
 	// If this fails, the prover dials a different redis than the

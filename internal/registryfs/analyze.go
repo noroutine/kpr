@@ -304,6 +304,10 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 			if len(parts) >= 2 && slices.Contains(parts[1:len(parts)-1], "_manifests") {
 				return nil
 			}
+			// NOTE(mutants): gremlins reads the case lines NOT COVERED,
+			// but the switch executes — a hand-flip of the routing
+			// fails TestAnalyzeCountsLayout loudly (exact counts pin
+			// every leg). The label disagrees with the suite.
 			switch {
 			case len(parts) > 2 && parts[0] == "repositories" && parts[len(parts)-1] == "_uploads":
 				// Per-repo upload sessions: one subdir each.
@@ -351,6 +355,11 @@ func walkShard(v2, name string, pointers *refs, progress func(Report)) (Report, 
 			// Index links (…/index/…) match none and stay
 			// uncounted, whatever the algorithm names.
 			n := len(parts)
+			// NOTE(mutants): gremlins reads the case lines NOT
+			// COVERED, but the switch executes — a hand-flip of the
+			// n >= 7 bound fails TestAnalyzeCountsLayout loudly
+			// (exact counts pin every leg). The label disagrees
+			// with the suite.
 			switch {
 			case n >= 7 && parts[n-2] == "current" && parts[n-4] == "tags" && parts[n-5] == "_manifests":
 				// The prime is a pointer, never inventory: it

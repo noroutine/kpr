@@ -2,6 +2,14 @@
 // file-backed registry API, a scripted clock, staged config, and
 // the fault doubles. Any suite proving store ceremonies stands on
 // the same ground — one set of fakes, never a copy per suite.
+//
+// NOTE(mutants): gremlins reads cross-package-only legs here as
+// NOT COVERED — without coverpkg it never sees the suites that
+// stage through these helpers (StubClock{Err}, the bin override,
+// FailRows, the GetManifest miss leg all execute from gc,
+// storeops and unlock suites; a coverpkg run over ./internal/...
+// shows it). Staging-failure legs (t.Fatalf) are uncoverable by
+// construction: if staging fails there is no test left to run.
 package fakes
 
 import (

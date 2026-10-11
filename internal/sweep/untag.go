@@ -109,6 +109,10 @@ func (s *Sweeper) Untag(ctx context.Context, rows []policy.Row, same proof.SameS
 	var failed []string
 	for _, r := range rows {
 		outcome, derr := s.deleteManifest(ctx, r)
+		// NOTE(mutants): gremlins reads the case lines NOT COVERED,
+		// but the switch executes — hand-flips fail the untag
+		// delete, held and gone tests loudly. The label disagrees
+		// with the suite.
 		switch {
 		case derr != nil:
 			s.resolveRow(ctx, id, "untag", r, "failed", derr)

@@ -345,6 +345,16 @@ func TestAdoptAlreadyPairedRefreshesBaseline(t *testing.T) {
 	if ident.BaselineGen != second {
 		t.Errorf("baseline %q, serves %q", ident.BaselineGen, second)
 	}
+	// A refresh is not a fresh pairing: the operator's adoption
+	// timestamp survives, and the narration says refreshed, not
+	// paired. If this fails, re-adopt re-stamps adoption (or the
+	// refresh leg blurs into the pairing leg).
+	if !ident.AdoptedAt.IsZero() {
+		t.Errorf("AdoptedAt = %v, want the pairing-time zero preserved", ident.AdoptedAt)
+	}
+	if !strings.Contains(out.String(), "already paired") {
+		t.Errorf("narration = %q, want the refresh leg named", out.String())
+	}
 }
 
 func TestAdoptGenMismatchRefuses(t *testing.T) {

@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -339,6 +340,38 @@ func TestDeleteManifestSuccess(t *testing.T) {
 	}
 	if gotMethod != http.MethodDelete || gotPath != "/v2/app/manifests/sha256:abc" {
 		t.Errorf("request = %s %s, want DELETE /v2/app/manifests/sha256:abc", gotMethod, gotPath)
+	}
+}
+
+// A missing manifest reads gone and a denied delete reads held:
+// the sweeper keeps rows the registry refused, drops rows the
+// registry already lost. If this fails, deletes misclassify and
+// the sweep either drops live rows or keeps dead ones.
+func TestDeleteManifestClassifiesGoneAndHeld(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		code   string
+		want   string
+	}{
+		{"manifest unknown", http.StatusNotFound, "MANIFEST_UNKNOWN", OutcomeGone},
+		{"name unknown", http.StatusNotFound, "NAME_UNKNOWN", OutcomeGone},
+		{"denied", http.StatusMethodNotAllowed, "DENIED", OutcomeHeld},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(tc.status)
+			_, _ = fmt.Fprintf(w, `{"errors":[{"code":%q}]}`, tc.code)
+		}))
+		outcome, err := NewClient(srv.URL).DeleteManifest(testCtx(), "app", "sha256:abc")
+		srv.Close()
+		if err != nil {
+			t.Errorf("%s: DeleteManifest: %v", tc.name, err)
+			continue
+		}
+		if outcome != tc.want {
+			t.Errorf("%s: outcome = %q, want %q", tc.name, outcome, tc.want)
+		}
 	}
 }
 

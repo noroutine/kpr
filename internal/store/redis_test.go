@@ -53,6 +53,31 @@ func (s *wireScript) record(cmd string, args []string) {
 	s.calls[cmd] = append(s.calls[cmd], args)
 }
 
+// leasePXMillis reads the PX millis the fake wire saw on the SET
+// for key, or -1 when no SET carried one. The driver always sets
+// leases with a TTL, so -1 means the fake stopped recording, not
+// an unset TTL.
+func leasePXMillis(script *wireScript, key string) int64 {
+	script.mu.Lock()
+	defer script.mu.Unlock()
+	for _, args := range script.calls["SET"] {
+		if len(args) < 2 || args[0] != key {
+			continue
+		}
+		for i := 1; i+1 < len(args); i++ {
+			if strings.ToUpper(args[i]) != "PX" {
+				continue
+			}
+			ms, err := strconv.ParseInt(args[i+1], 10, 64)
+			if err != nil {
+				return -1
+			}
+			return ms
+		}
+	}
+	return -1
+}
+
 func (s *wireScript) get(key string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -201,6 +226,9 @@ func serveWireConn(c net.Conn, script *wireScript) {
 				_, _ = c.Write([]byte(":1\r\n"))
 			} else {
 				script.set(args[1], args[2])
+				// Bounds ride along: PX carries the TTL the
+				// driver promised, like LTRIM/LRANGE windows.
+				script.record(cmd, args[1:])
 				_, _ = c.Write([]byte("+OK\r\n"))
 			}
 		case "GET":
@@ -499,7 +527,8 @@ func TestRedisSingletonsDecode(t *testing.T) {
 // (or drops the take the store wrote).
 func TestRedisLeaseWireRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	s := wireStore(t, &wireScript{})
+	script := &wireScript{}
+	s := wireStore(t, script)
 	conn, ok := s.HoldLeaseConn()
 	if !ok {
 		t.Fatal("HoldLeaseConn advertised false over a live wire")
@@ -512,6 +541,14 @@ func TestRedisLeaseWireRoundTrip(t *testing.T) {
 	release, err := l.Hold(ctx, until)
 	if err != nil {
 		t.Fatalf("wire Hold: %v", err)
+	}
+	// The SET carries term plus margin as PX: a sign flip (or a
+	// dropped margin) shows on the wire, not just in the
+	// round-trip. If this fails, the lease carriage expires with
+	// the term instead of past it.
+	if px := leasePXMillis(script, store.HoldLeaseKey); px < int64(5*time.Minute/time.Millisecond) ||
+		px > int64(10*time.Minute/time.Millisecond)+60_000 {
+		t.Errorf("lease PX = %dms, want term+margin (~10min)", px)
 	}
 	if got, present := l.Read(); !present || !got.Equal(until) {
 		t.Errorf("wire Read = (%v, %v), want (%v, true)", got, present, until)

@@ -228,6 +228,9 @@ func Run(ctx context.Context, w io.Writer, d Deps, opts Options, accepts Accepts
 		// ordering. No floater, no cap; an unreadable one warns
 		// and runs uncapped.
 		newest := time.Time{}
+		// NOTE(mutants): gremlins reads this guard NOT COVERED, but
+		// a hand-flip fails TestBackfillClampsSentinelNewerThanLatest
+		// loudly — the label disagrees with the suite.
 		if strings.HasPrefix(repo, SentinelPrefix) {
 			lm, lerr := tagMtime(root, repo, sentinel.Tag)
 			switch {
