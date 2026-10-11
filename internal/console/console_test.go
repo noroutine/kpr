@@ -554,10 +554,10 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		"State backend", "file", dir,
+		">Backend</div>", "file", dir,
 		"reachable", "locked",
 		"019-test-gen", "proven 2026-09-30T00:00:00Z",
-		"identity: unpaired",
+		">Identity</div>", "unpaired",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
@@ -572,8 +572,8 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 	if strings.Contains(body, "🗄️") {
 		t.Error("dashboard still renders a State section")
 	}
-	if store, backend := strings.Index(body, "💾 Store"), strings.Index(body, "State backend"); backend < store {
-		t.Error("State backend card renders outside Store")
+	if store, backend := strings.Index(body, "💾 Store"), strings.Index(body, ">Backend</div>"); backend < store {
+		t.Error("Backend card renders outside Store")
 	}
 }
 
@@ -611,7 +611,7 @@ func TestIndexDegradesWithoutStoreOrSentinel(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"State", "unavailable", "unproven", "no generation served yet"} {
+	for _, want := range []string{"Backend", "unavailable", "unproven", "no generation served yet"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}
