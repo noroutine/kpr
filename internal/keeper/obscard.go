@@ -40,9 +40,9 @@ func FetchObsCard(urls ObsURLs) ObsCard {
 		}
 		links = append(links, ObsLink{Name: name, URL: url, Blurb: blurb})
 	}
-	add(urls.Quickwit, "Quickwit", "Searchable logs, kept across dev runs")
-	add(urls.Jaeger, "Jaeger", "Distributed traces, stored in Quickwit")
-	add(urls.Grafana, "Grafana", "Metrics dashboards for this service")
+	add(urls.Quickwit, "Quickwit", "Searchable logs")
+	add(urls.Jaeger, "Jaeger", "Distributed traces")
+	add(urls.Grafana, "Grafana", "Metrics dashboards")
 	add(urls.Prometheus, "Prometheus", "Raw metrics and scrape targets")
 	if len(links) == 0 {
 		return ObsCard{Standing: StandingUnavailable}
