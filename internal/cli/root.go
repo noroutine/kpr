@@ -26,6 +26,10 @@ stays stock, never forked. Configuration comes from KPR_* variables;
 flags override per invocation.
 
 ` + config.LicenseBanner(),
+	// NOTE(mutants): the Long initializer above emits no cover
+	// block of its own, so gremlins reads it NOT COVERED — the
+	// effect is pinned instead (TestRootHelpCarriesBanner fails
+	// loudly without the banner), whatever the label says.
 	Version: config.Version,
 	// Errors print once, from Execute below — cobra stays silent,
 	// so a refusal never echoes as "Error: ..." plus the message.
