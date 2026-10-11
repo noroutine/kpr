@@ -2,80 +2,128 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
-	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// status is the ssh-and-scripts banner: redis and registry reachability
-// plus counters from tracked state. If this fails, operators cannot
-// tell a healthy keeper from a blind one.
-func TestStatusRendersBannerAndCounters(t *testing.T) {
+// status is the high-level posture, one line per section: the
+// detail lives behind each status card. If this fails,
+// operators cannot tell a healthy keeper from a blind one.
+func TestStatusShowsSectionPostures(t *testing.T) {
+	now := time.Now().UTC()
+	st := keeper.Status{StoreOK: true, Tracked: 2, Due: 1,
+		Plan: []keeper.PlanEntry{{Repo: "app", Tag: "v1"}},
+		Activity: []keeper.ActivityEntry{{Repo: "app", Tag: "v1",
+			Reason: "ttl:10m elapsed", Outcome: "deleted", At: now.Add(-time.Hour)}},
+	}
 	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, cliStore(), liveRegistryClient(t)); err != nil {
+	err := runStatus(&out,
+		keeper.RegistryCard{Standing: keeper.StandingOK, URL: "http://registry:5000", Reachable: true},
+		keeper.StoreCard{Standing: keeper.StandingLocked, Name: "file", Detail: "/var/lib/kpr", Healthy: true, LockNote: "locked", Identity: "019-abc"},
+		st,
+		keeper.EdgeCard{Standing: keeper.StandingDenied, Open: true, Deny: true},
+		keeper.ClockCard{Standing: keeper.StandingOK, Method: "https", Server: "ts", Skew: -time.Second},
+		keeper.ObsCard{Standing: keeper.StandingOK, Links: []keeper.ObsLink{{Name: "Grafana"}}},
+	)
+	if err != nil {
 		t.Fatalf("runStatus: %v", err)
 	}
-	// Exact line: "unreachable" contains "reachable", so a bare
-	// substring check would pass on a red banner.
-	for _, want := range []string{"registry: reachable\n", "tracked: 2", "due: 1", "performed: 1", "planned: 1", "failed: 1"} {
+	for _, want := range []string{
+		"registry: reachable (http://registry:5000)",
+		"store: locked — writes denied, reads continue (file)",
+		"edge: open, deny",
+		"clock: -1s via https",
+		"plan: 1 due",
+		"activity: 1 recorded, last deleted",
+		"observability: 1 backend",
+	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("status missing %q:\n%s", want, out.String())
 		}
 	}
-	// Store facts live under `store status` now — the banner must
-	// not duplicate them.
-	for _, gone := range []string{"store-lock:", "proof:", "identity:"} {
+	// No section duplicates another's detail: counters, proof,
+	// and ages live behind the cards, not here.
+	for _, gone := range []string{"tracked:", "proof:", "ago", "armed", "dry-run", "sweeper:"} {
 		if strings.Contains(out.String(), gone) {
-			t.Errorf("status leaks %q, owned by store status:\n%s", gone, out.String())
+			t.Errorf("status leaks %q (detail the cards own):\n%s", gone, out.String())
 		}
-	}
-	// Arming is per-invocation, not a posture: status owns none of
-	// it, so it advertises neither armed nor dry-run. If this
-	// fails, the dead serve loop's wording crept back into a banner
-	// that reports on nothing armable.
-	for _, gone := range []string{"armed", "dry-run", "sweeper:"} {
-		if strings.Contains(out.String(), gone) {
-			t.Errorf("status advertises %q (arming the banner doesn't own):\n%s", gone, out.String())
-		}
-	}
-	if strings.Contains(out.String(), "redis: reachable") {
-		t.Errorf("status names redis on a mem store:\n%s", out.String())
 	}
 }
 
-// A down registry reddens the banner but still reports: status is a
-// reader, not a health gate. Redis down, in contrast, fails fast —
-// without state every number would be a lie. If this fails, status
-// either hides a down registry or invents numbers with no backend.
+// A clock with no reading names its state, never a doubled
+// word: unreachable and unchecked voice state plus transport,
+// a real skew voices with its bound behind it. If this fails,
+// the clock line stutters.
+func TestStatusClockLineHasNoReadingWithoutOne(t *testing.T) {
+	st := keeper.Status{StoreOK: true}
+	for _, tc := range []struct {
+		name string
+		card keeper.ClockCard
+		want string
+	}{
+		{"unreachable", keeper.ClockCard{Standing: keeper.StandingUnreachable, Method: "https"}, "clock: unreachable (https)"},
+		{"unchecked", keeper.ClockCard{Standing: keeper.StandingUnchecked, Method: "local"}, "clock: unchecked (local)"},
+		{"degraded", keeper.ClockCard{Standing: keeper.StandingDegraded, Method: "https", Skew: 61 * time.Second}, "clock: degraded: +1m1s via https"},
+	} {
+		var out bytes.Buffer
+		err := runStatus(&out, keeper.RegistryCard{}, keeper.StoreCard{Standing: keeper.StandingOK},
+			st, keeper.EdgeCard{}, tc.card, keeper.ObsCard{})
+		if err != nil {
+			t.Fatalf("%s: runStatus: %v", tc.name, err)
+		}
+		if !strings.Contains(out.String(), tc.want) {
+			t.Errorf("%s missing %q:\n%s", tc.name, tc.want, out.String())
+		}
+	}
+}
+
+// A down registry reddens its line but still reports: status is a
+// reader, not a health gate. A dead store, in contrast, fails
+// fast — without state every number would be a lie. If this
+// fails, status either hides a down registry or invents numbers
+// with no backend.
 func TestStatusDegradesAndFailsFast(t *testing.T) {
+	st := keeper.Status{StoreOK: true}
+	reg := keeper.RegistryCard{Standing: keeper.StandingUnreachable, URL: "http://127.0.0.1:1"}
 	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, cliStore(), registry.NewClient("http://127.0.0.1:1")); err != nil {
+	if err := runStatus(&out, reg, keeper.StoreCard{Standing: keeper.StandingOK},
+		st, keeper.EdgeCard{}, keeper.ClockCard{}, keeper.ObsCard{}); err != nil {
 		t.Fatalf("registry down must not fail status: %v", err)
 	}
-	if !strings.Contains(out.String(), "unreachable") {
+	if !strings.Contains(out.String(), "registry: unreachable") {
 		t.Errorf("status hides dead registry:\n%s", out.String())
 	}
-	if err := runStatus(cliCtx(), io.Discard, deadStore{}, liveRegistryClient(t)); err == nil {
-		t.Error("redis down succeeded, want a fast clear error")
+	down := keeper.Status{StoreOK: false}
+	if err := runStatus(io.Discard, reg,
+		keeper.StoreCard{Standing: keeper.StandingUnreachable, Name: "redis"},
+		down, keeper.EdgeCard{}, keeper.ClockCard{}, keeper.ObsCard{}); err == nil {
+		t.Error("dead store succeeded, want a fast clear error")
 	} else if !strings.Contains(err.Error(), "redis") {
-		t.Errorf("error = %q, want it to name redis", err.Error())
+		t.Errorf("error = %q, want it to name the store", err.Error())
 	}
 }
 
-// status without a registry client still reports (red banner), since
-// the probe is optional — only state is mandatory. If this fails, a
-// nil client panics the status path instead of reddening it.
+// status without a probed registry still reports: no prober
+// reads unavailable, never a missing line. If this fails, a
+// missing registry panics the status path instead of voicing
+// it.
 func TestStatusNilRegistry(t *testing.T) {
+	st := keeper.Status{StoreOK: true}
+	reg := keeper.FetchRegistryCard(context.Background(), nil, "")
 	var out bytes.Buffer
-	if err := runStatus(cliCtx(), &out, cliStore(), nil); err != nil {
-		t.Fatalf("runStatus with nil registry: %v", err)
+	if err := runStatus(&out, reg, keeper.StoreCard{Standing: keeper.StandingOK},
+		st, keeper.EdgeCard{}, keeper.ClockCard{}, keeper.ObsCard{}); err != nil {
+		t.Fatalf("runStatus with no registry: %v", err)
 	}
-	if !strings.Contains(out.String(), "unreachable") {
+	if !strings.Contains(out.String(), "registry: unavailable") {
 		t.Errorf("status hides missing registry:\n%s", out.String())
 	}
 }

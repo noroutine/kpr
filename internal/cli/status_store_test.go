@@ -57,13 +57,13 @@ func TestStoreStateWordsTranslateStanding(t *testing.T) {
 		standing keeper.Standing
 		want     string
 	}{
-		{keeper.StandingOK, "state: ready"},
-		{keeper.StandingLocked, "state: locked — writes denied, reads continue"},
-		{keeper.StandingDegraded, "state: degraded — lock intent unreadable"},
-		{keeper.StandingUnreachable, "state: unreachable — backend not answering"},
-		{keeper.StandingUnavailable, "state: unavailable — no store wired"},
+		{keeper.StandingOK, "ready"},
+		{keeper.StandingLocked, "locked — writes denied, reads continue"},
+		{keeper.StandingDegraded, "degraded — lock intent unreadable"},
+		{keeper.StandingUnreachable, "unreachable — backend not answering"},
+		{keeper.StandingUnavailable, "unavailable — no store wired"},
 	} {
-		if got := storeStateWords(tc.standing); got != tc.want {
+		if got := storeState(tc.standing); got != tc.want {
 			t.Errorf("words(%q) = %q, want %q", tc.standing, got, tc.want)
 		}
 	}

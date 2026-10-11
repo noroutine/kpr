@@ -13,6 +13,20 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
+// registryState translates the generic standing into
+// registry-specific words: what the reachability means for the
+// probed endpoint. Both the card view and the aggregate posture
+// voice it; --json keeps the raw code for machines.
+func registryState(card keeper.RegistryCard) string {
+	if card.Reachable {
+		return "reachable"
+	}
+	if card.Standing == keeper.StandingUnavailable {
+		return "unavailable — no registry wired"
+	}
+	return "unreachable — not answering"
+}
+
 // renderRegistryCard prints the probed registry from the shared
 // model: reachability with the endpoint it probed. A down
 // registry still names its URL; no prober reads unavailable in
@@ -21,14 +35,7 @@ func renderRegistryCard(w io.Writer, card keeper.RegistryCard, asJSON bool) erro
 	if asJSON {
 		return json.NewEncoder(w).Encode(card)
 	}
-	state := "reachable"
-	if !card.Reachable {
-		state = "unreachable — not answering"
-		if card.Standing == keeper.StandingUnavailable {
-			state = "unavailable — no registry wired"
-		}
-	}
-	if _, err := fmt.Fprintf(w, "registry: %s\n", state); err != nil {
+	if _, err := fmt.Fprintf(w, "registry: %s\n", registryState(card)); err != nil {
 		return err
 	}
 	if card.URL != "" {

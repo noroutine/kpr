@@ -61,7 +61,7 @@ stamp their own render time.
 
 | Console section | `keeper` model | Command |
 |---|---|---|
-| Keeper (counters) | `Counters` (existing `Status` counts) | `status` aggregate header |
+| Keeper (counters) | `Counters` (existing `Status` counts) | `status` posture overview (one line per section, detail behind the cards) |
 | Registry | `Registry{Standing, URL, Reachable}` | `status registry` |
 | Edge | `Edge{Standing, Open, Deny, Hold, EdgeAddr, RegistryURL}` | `status edge` |
 | Clock | `Clock{Standing, Method, Server, Skew, Tolerance}` (raw durations, not words) | `status clock` |

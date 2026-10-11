@@ -13,26 +13,25 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// storeStateWords translates the generic standing code into
-// store-specific words for the text view: what the state means
-// for this backend. --json keeps the raw code for machines. A
-// standing this switch never learned voices its code rather
-// than hiding a state nobody worded — silence would read as
-// healthy.
-func storeStateWords(standing keeper.Standing) string {
+// storeState translates the generic standing code into
+// store-specific words: what the state means for this backend.
+// --json keeps the raw code for machines. A standing this
+// switch never learned voices its code rather than hiding a
+// state nobody worded — silence would read as healthy.
+func storeState(standing keeper.Standing) string {
 	switch standing {
 	case keeper.StandingOK:
-		return "state: ready"
+		return "ready"
 	case keeper.StandingLocked:
-		return "state: locked — writes denied, reads continue"
+		return "locked — writes denied, reads continue"
 	case keeper.StandingDegraded:
-		return "state: degraded — lock intent unreadable"
+		return "degraded — lock intent unreadable"
 	case keeper.StandingUnreachable:
-		return "state: unreachable — backend not answering"
+		return "unreachable — backend not answering"
 	case keeper.StandingUnavailable:
-		return "state: unavailable — no store wired"
+		return "unavailable — no store wired"
 	default:
-		return "state: " + string(standing)
+		return string(standing)
 	}
 }
 
@@ -69,8 +68,8 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 	if lock == "" {
 		lock = "unlocked"
 	}
-	if _, err := fmt.Fprintf(w, "store: %s (%s)\n%s\nlock: %s\n",
-		card.Name, card.Detail, storeStateWords(card.Standing), lock); err != nil {
+	if _, err := fmt.Fprintf(w, "store: %s (%s)\nstate: %s\nlock: %s\n",
+		card.Name, card.Detail, storeState(card.Standing), lock); err != nil {
 		return err
 	}
 	// The pairing verdicts judge the served generation against;
