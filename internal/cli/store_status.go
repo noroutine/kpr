@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"nrtn.dev/catalyst/kpr/internal/cli/deps"
-	"nrtn.dev/catalyst/kpr/internal/helpers/human"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 	"nrtn.dev/catalyst/kpr/internal/store"
 	"nrtn.dev/catalyst/kpr/internal/trust"
@@ -33,11 +33,8 @@ func identityState(ctx context.Context, s store.Store) string {
 	return id.ID
 }
 
-// activityTail is how many ring records the text view shows: the
-// newest slice, with the total beside it. The full ring (at most
-// ActivityCap small records) goes to --json.
-const activityTail = 10
-
+// The tail cap lives in keeper.ActivityTail beside the shared
+// formatter (spike milestone 5): one const for both text views.
 type activityJSON struct {
 	Repo    string `json:"repo"`
 	Tag     string `json:"tag"`
@@ -98,7 +95,7 @@ func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentine
 		_, err := io.WriteString(w, "activity: none recorded\n")
 		return err
 	}
-	n := min(len(acts), activityTail)
+	n := min(len(acts), keeper.ActivityTail)
 	if _, err := fmt.Fprintf(w, "activity (last %d of %d):\n", n, len(acts)); err != nil {
 		return err
 	}
@@ -111,19 +108,14 @@ func runStoreStatus(ctx context.Context, w io.Writer, s store.Store, api sentine
 	return nil
 }
 
-// renderOutcome prints one ring entry: rows as repo:tag —
-// outcome, row-less control events (fence flips) as the outcome
-// alone, each with a human age (precise stamps stay in --json).
-// A stray ": — " prefix reads as a malformed row.
+// renderOutcome prints one ring entry through the shared
+// formatter: the frozen reference keeps its words, the words
+// live in keeper now.
 func renderOutcome(now time.Time, a store.Outcome) string {
-	age := "unknown age"
-	if !a.At.IsZero() {
-		age = human.ShortAge(now, a.At)
-	}
-	if a.Repo == "" && a.Tag == "" {
-		return fmt.Sprintf("  %s (%s), %s", a.Outcome, a.Reason, age)
-	}
-	return fmt.Sprintf("  %s:%s — %s (%s), %s", a.Repo, a.Tag, a.Outcome, a.Reason, age)
+	return keeper.FormatOutcome(now, keeper.ActivityEntry{
+		Repo: a.Repo, Tag: a.Tag, Reason: a.Reason, Outcome: a.Outcome,
+		At: a.At, Actor: a.Actor, Trigger: a.Trigger,
+	}, true)
 }
 
 var storeStatusCmd = &cobra.Command{

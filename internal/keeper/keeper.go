@@ -36,22 +36,22 @@ type Prober interface {
 // PlanEntry is one due row with its reason; ActivityEntry is one
 // resolved row. Times stay raw — adapters format for humans.
 type PlanEntry struct {
-	Repo     string
-	Tag      string
-	Reason   string
-	PushedAt time.Time
+	Repo     string    `json:"repo"`
+	Tag      string    `json:"tag"`
+	Reason   string    `json:"reason"`
+	PushedAt time.Time `json:"pushedAt"`
 }
 
 // ActivityEntry is one resolved row: what the pass did, who did it,
 // what caused it, and when.
 type ActivityEntry struct {
-	Repo    string
-	Tag     string
-	Reason  string
-	Outcome string
-	At      time.Time
-	Actor   string
-	Trigger string
+	Repo    string    `json:"repo"`
+	Tag     string    `json:"tag"`
+	Reason  string    `json:"reason"`
+	Outcome string    `json:"outcome"`
+	At      time.Time `json:"at"`
+	Actor   string    `json:"actor,omitempty"`
+	Trigger string    `json:"trigger,omitempty"`
 }
 
 // Status is everything the console and `status` show about what kpr

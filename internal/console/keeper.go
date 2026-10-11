@@ -3,14 +3,12 @@ package console
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/config"
-	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
@@ -101,32 +99,17 @@ func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
 		}
 		k.Plan = append(k.Plan, keeperPlanRow{Repo: p.Repo, Tag: p.Tag, Reason: p.Reason, Pushed: pushed})
 	}
+	// The tail mirrors the CLI status view through the shared
+	// formatter (unpadded — the card has its own padding):
+	// same last-10 tail, capped and said out loud.
 	k.ActivityTotal = len(st.Activity)
 	for _, a := range st.Activity {
-		if len(k.Activity) >= activityTail {
+		if len(k.Activity) >= keeper.ActivityTail {
 			break
 		}
-		k.Activity = append(k.Activity, keeperActivityRow{Line: activityLine(a)})
+		k.Activity = append(k.Activity, keeperActivityRow{Line: keeper.FormatOutcome(now, a, false)})
 	}
 	return k
-}
-
-// activityTail mirrors the CLI status view: the console shows the
-// same last-10 tail, capped and said out loud.
-const activityTail = 10
-
-// activityLine formats one ring entry exactly like `store status`
-// (see renderOutcome in internal/cli): row-less control events
-// without the repo:tag prefix, every line with a human age.
-// Friendly only — precise stamps live behind /api/activity.
-func activityLine(a keeper.ActivityEntry) string {
-	age := human.Age(a.At)
-	// No leading indent: the CLI pads for the terminal, the card
-	// has its own padding.
-	if a.Repo == "" && a.Tag == "" {
-		return fmt.Sprintf("%s (%s), %s", a.Outcome, a.Reason, age)
-	}
-	return fmt.Sprintf("%s:%s — %s (%s), %s", a.Repo, a.Tag, a.Outcome, a.Reason, age)
 }
 
 // activityHandler serves the full precise ring as JSON for download:
