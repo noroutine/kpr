@@ -67,6 +67,7 @@ stamp their own render time.
 | Clock | `Clock{Standing, Method, Server, Skew, Tolerance}` (raw durations, not words) | `status clock` |
 | Plan | `Status.Plan` rows (mutations stay `plan add/rm`) | console only — no `status plan` twin (`kpr plan` owns the human view) |
 | Store | `Store{Name, Detail, Healthy, Standing, LockNote, FsNote, Identity}` + `Status` counts + proof voice | `status store` |
+| Trust | `Trust{Standing, Word}` (dry lineage verdict: paired, unpaired, unserved, unproven, foreign, rollback?, behind) | `trust:` line on `status store` |
 | Sentinel | `Proof{Standing, Gen, TS}` | proof line on `status` (already lives there) |
 | Activity | `Activity{Lines, Total}` (tail; full ring keeps `/api/activity` shape) | `status activity` |
 | Observability | `Obs{Links}` (configured UI backends; empty reads unavailable) | `status observability` |

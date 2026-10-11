@@ -94,7 +94,7 @@ func TestStatusStoreCarriesCountersAndProof(t *testing.T) {
 	}
 	for _, want := range []string{
 		"tracked: 1", "due: 1", "performed: 1", "planned: 0", "failed: 0",
-		"proof: unproven",
+		"proof: unproven", "trust: unpaired",
 	} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("store missing %q:\n%s", want, buf.String())
@@ -126,6 +126,7 @@ func TestStatusStoreJSONMatchesText(t *testing.T) {
 		Planned   int    `json:"planned"`
 		Failed    int    `json:"failed"`
 		Proof     string `json:"proof"`
+		Trust     string `json:"trust"`
 	}
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -138,5 +139,8 @@ func TestStatusStoreJSONMatchesText(t *testing.T) {
 	}
 	if got.Proof != "unproven" {
 		t.Errorf("json proof = %q, want the text voice unproven", got.Proof)
+	}
+	if got.Trust != "unpaired" {
+		t.Errorf("json trust = %q, want the text voice unpaired", got.Trust)
 	}
 }

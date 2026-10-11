@@ -58,10 +58,14 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 			Planned   int    `json:"planned"`
 			Failed    int    `json:"failed"`
 			Proof     string `json:"proof"`
+			Trust     string `json:"trust"`
 		}{StoreCard: card,
 			Tracked: st.Tracked, Due: st.Due,
 			Performed: st.Performed, Planned: st.Planned, Failed: st.Failed,
 			Proof: proofState(ctx, reg)}
+		rows, _ := s.All(ctx)
+		ident, _ := s.GetIdentity(ctx)
+		out.Trust = keeper.FetchTrustCard(ctx, reg, ident, rows).Word
 		return json.NewEncoder(w).Encode(out)
 	}
 	lock := card.LockNote
@@ -86,6 +90,16 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 	}
 	_, err := fmt.Fprintf(w, "tracked: %d\ndue: %d\nperformed: %d\nplanned: %d\nfailed: %d\nproof: %s\n",
 		st.Tracked, st.Due, st.Performed, st.Planned, st.Failed, proofState(ctx, reg))
+	if err != nil {
+		return err
+	}
+	// The trust verdict judges the served generation against the
+	// local rows and pairing — the same inputs the old `store
+	// status` judged, so the word survives the drop. The word
+	// voices as-is: renderers never translate it.
+	rows, _ := s.All(ctx)
+	ident, _ := s.GetIdentity(ctx)
+	_, err = fmt.Fprintf(w, "trust: %s\n", keeper.FetchTrustCard(ctx, reg, ident, rows).Word)
 	return err
 }
 
