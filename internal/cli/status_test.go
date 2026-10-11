@@ -109,6 +109,20 @@ func TestProofStateVoicesUnproven(t *testing.T) {
 	}
 }
 
+// status with a stray arg refuses: an unknown card name must read
+// as an error, never the banner. This pins the arg validator
+// cobra runs before RunE (executing the shared command here
+// would re-root onto Root with the test binary's own args, so
+// the validator — the unit this owns — is asserted directly).
+// If this fails, typos silently report numbers.
+func TestStatusRefusesUnknownCard(t *testing.T) {
+	if err := statusCmd.ValidateArgs([]string{"bullshit"}); err == nil {
+		t.Error("status bullshit validated, want unknown-command refusal")
+	} else if !strings.Contains(err.Error(), "unknown command") {
+		t.Errorf("error = %q, want unknown command", err.Error())
+	}
+}
+
 // describeStore voices the backend in one line: file with its dir,
 // redis with addr and DB. If this fails, the store card names the
 // wrong backend — the operator fixes the wrong state.

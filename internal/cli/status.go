@@ -92,6 +92,9 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show keeper banner and counters as text",
 	Long:  `Banner plus counters from tracked state, for scripts and ssh.`,
+	// Cards are subcommands; a stray arg is a typo, never the
+	// banner — NoArgs turns it into unknown-command before RunE.
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
