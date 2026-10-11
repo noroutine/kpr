@@ -77,6 +77,10 @@ the gateway in front of the registry.`,
 		}
 		// Lease and lock reads ride a bounded context: a dead
 		// backend reads degraded/unreachable, never slow.
+		// NOTE(mutants): the 5s bound is timing, not logic — no
+		// test distinguishes it from any other positive bound
+		// without a stopwatch. A mutant here survives by being
+		// unobservable, not by being correct.
 		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 		defer cancel()
 		card := keeper.FetchEdgeCard(ctx, gate, d.Store, cfg.EdgeAddr, cfg.RegistryURL)

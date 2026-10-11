@@ -62,6 +62,10 @@ card both the console and the CLI render.`,
 		cfg := config.Current()
 		// The probe rides a bounded context: a dead registry
 		// reads unreachable, never slow (house 5s).
+		// NOTE(mutants): the 5s bound is timing, not logic — no
+		// test distinguishes it from any other positive bound
+		// without a stopwatch. A mutant here survives by being
+		// unobservable, not by being correct.
 		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 		defer cancel()
 		card := keeper.FetchRegistryCard(ctx, d.Reg, cfg.RegistryURL)

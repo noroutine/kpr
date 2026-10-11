@@ -55,6 +55,31 @@ func TestStatusClockPrintsServerTime(t *testing.T) {
 	}
 }
 
+// A non-ok clock names its standing beside the skew, and an ok
+// clock names none: the suffix is the only place the code
+// surfaces in text. If this fails, degraded reads like ok (or
+// ok reads like it needs attention).
+func TestStatusClockVoicesStandingSuffix(t *testing.T) {
+	degraded := keeper.ClockCard{Standing: keeper.StandingDegraded, Method: "https",
+		Server: "ts", Skew: 61 * time.Second, Tolerance: 30 * time.Second}
+	var bad bytes.Buffer
+	if err := renderClockCard(&bad, degraded, time.Now(), false); err != nil {
+		t.Fatalf("renderClockCard: %v", err)
+	}
+	if want := "skew: +1m1s (degraded)"; !strings.Contains(bad.String(), want) {
+		t.Errorf("card missing %q:\n%s", want, bad.String())
+	}
+	ok := keeper.ClockCard{Standing: keeper.StandingOK, Method: "https",
+		Server: "ts", Skew: time.Second, Tolerance: 30 * time.Second}
+	var good bytes.Buffer
+	if err := renderClockCard(&good, ok, time.Now(), false); err != nil {
+		t.Fatalf("renderClockCard: %v", err)
+	}
+	if strings.Contains(good.String(), "(ok)") {
+		t.Errorf("ok card leaks a standing suffix:\n%s", good.String())
+	}
+}
+
 // status clock --json carries what the text carries: the card
 // with the render stamp beside it. Machine readers get
 // nanosecond skews, the standing code, and the same stamp the
