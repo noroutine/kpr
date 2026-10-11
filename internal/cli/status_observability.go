@@ -38,7 +38,13 @@ var statusObservabilityCmd = &cobra.Command{
 the console launchpad shows. Unconfigured reads unavailable.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		asJSON, _ := cmd.Flags().GetBool("json")
-		cfg := config.Current()
+		// Resolved and installed, not just read: the installed
+		// global starts as the empty default, and this command
+		// opens no store — without its own resolution it would
+		// reason about nothing while serve links backends. Same
+		// one value OpenDeps installs for the commands that do.
+		cfg := config.NewBuilder().FromEnv().Build()
+		config.SetCurrent(cfg)
 		card := keeper.FetchObsCard(keeper.ObsURLs{
 			Quickwit: cfg.QuickwitURL, Jaeger: cfg.JaegerURL,
 			Grafana: cfg.GrafanaURL, Prometheus: cfg.PrometheusURL,

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
@@ -32,6 +33,27 @@ func TestStatusObservabilityListsBackends(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "standing:") {
 		t.Errorf("empty card leaks the raw code:\n%s", buf.String())
+	}
+}
+
+// The command resolves its URLs from the environment at run
+// time, like every other command wires through OpenDeps —
+// reading the installed global raw would see the empty
+// default and cry unavailable beside a linked console. If
+// this fails, the CLI and serve reason about different
+// configs.
+func TestStatusObservabilityRunEReadsEnv(t *testing.T) {
+	t.Setenv("KPR_QUICKWIT_URL", "http://qw:8080")
+	prev := config.Current()
+	t.Cleanup(func() { config.SetCurrent(prev) })
+	var buf bytes.Buffer
+	statusObservabilityCmd.SetOut(&buf)
+	defer statusObservabilityCmd.SetOut(nil)
+	if err := statusObservabilityCmd.RunE(statusObservabilityCmd, nil); err != nil {
+		t.Fatalf("RunE: %v", err)
+	}
+	if want := "Quickwit: http://qw:8080"; !strings.Contains(buf.String(), want) {
+		t.Errorf("RunE missing %q:\n%s", want, buf.String())
 	}
 }
 
