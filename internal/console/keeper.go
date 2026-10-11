@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/clock"
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
@@ -19,38 +17,8 @@ import (
 // no test observes the bound. The red-banner tests pin the logic.
 const probeTimeout = 2 * time.Second
 
-// keeperData is everything the console shows about what kpr tracks —
-// never a registry catalog: banner, counters, plan, activity.
-type keeperData struct {
-	RedisOK    bool
-	RegistryOK bool
-	Tracked    int
-	Due        int
-	Performed  int
-	Planned    int
-	Failed     int
-	Untracked  int
-	Plan       []keeperPlanRow
-	// Activity is the capped tail (CLI status shape); ActivityTotal
-	// is the uncapped ring size, so the cap reads honest. Full
-	// precise records live behind /api/activity.
-	Activity      []keeperActivityRow
-	ActivityTotal int
-	// Gateway is the shared fence posture card: open, deny, or
-	// held with the endpoints beside it. What IS, while the
-	// activity ring shows what CHANGED.
-	Gateway keeper.GatewayCard
-	// Clock is the shared time-transport card: method, server,
-	// live skew, bound. ClockNow is the server clock at render
-	// (what "now" means to kpr) — stamped here, never shared:
-	// the skew reading is taken during the same render, so a
-	// separate checked stamp would always read "just now" —
-	// noise, not information. (The proof itself carries no
-	// obtained-at.)
-	Clock    keeper.ClockCard
-	ClockNow string
-}
-
+// keeperPlanRow is one plan line shaped for the template: the
+// push stamp preformatted, "unknown" when the store never said.
 type keeperPlanRow struct {
 	Repo   string
 	Tag    string
@@ -65,51 +33,33 @@ type keeperActivityRow struct {
 	Line string
 }
 
-// keeperSnapshot renders the keeper use case for the dashboard. The
-// numbers come from keeper.FetchStatus — the same implementation
-// `status` reads; this stays formatting-only, degrading to red/empty
-// when a backend is absent or down.
-func (s *Server) keeperSnapshot(ctx context.Context) keeperData {
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
-	defer cancel()
-
-	st := keeper.FetchStatus(ctx, s.Store, s.Registry)
-	k := keeperData{
-		RedisOK:    st.StoreOK,
-		RegistryOK: st.RegistryOK,
-		Tracked:    st.Tracked, Due: st.Due,
-		Performed: st.Performed, Planned: st.Planned,
-		Failed: st.Failed, Untracked: st.Untracked,
-	}
-	// Gateway posture reads the shared card: would-deny, lease,
-	// and standing decided in keeper, never recomputed here.
-	var gate keeper.GatePosture
-	if s.Edge != nil {
-		gate = s.Edge
-	}
-	k.Gateway = keeper.FetchGatewayCard(ctx, gate, s.Store, s.EdgeAddr, s.RegistryURL)
-	cfg := config.Current()
-	k.Clock = keeper.FetchClockCard(ctx, clock.NewSource(cfg.TimeMethod), cfg.TimeMethod, cfg.TimeServer, clock.Tolerance)
-	now := time.Now().UTC()
-	k.ClockNow = now.Format("2006-01-02 15:04:05 UTC")
-	for _, p := range st.Plan {
+// planRows shapes the plan for the template: the push stamp
+// preformatted, "unknown" when the store never said.
+func planRows(plan []keeper.PlanEntry) []keeperPlanRow {
+	var rows []keeperPlanRow
+	for _, p := range plan {
 		pushed := p.PushedAt.UTC().Format(time.RFC3339)
 		if p.PushedAt.IsZero() {
 			pushed = "unknown"
 		}
-		k.Plan = append(k.Plan, keeperPlanRow{Repo: p.Repo, Tag: p.Tag, Reason: p.Reason, Pushed: pushed})
+		rows = append(rows, keeperPlanRow{Repo: p.Repo, Tag: p.Tag, Reason: p.Reason, Pushed: pushed})
 	}
-	// The tail mirrors the CLI status view through the shared
-	// formatter (unpadded — the card has its own padding):
-	// same last-10 tail, capped and said out loud.
-	k.ActivityTotal = len(st.Activity)
-	for _, a := range st.Activity {
-		if len(k.Activity) >= keeper.ActivityTail {
+	return rows
+}
+
+// activityRows shapes the capped ring tail for the template. It
+// mirrors the CLI status view through the shared formatter
+// (unpadded — the card has its own padding): same last-10 tail,
+// capped and said out loud.
+func activityRows(entries []keeper.ActivityEntry, now time.Time) []keeperActivityRow {
+	var rows []keeperActivityRow
+	for _, a := range entries {
+		if len(rows) >= keeper.ActivityTail {
 			break
 		}
-		k.Activity = append(k.Activity, keeperActivityRow{Line: keeper.FormatOutcome(now, a, false)})
+		rows = append(rows, keeperActivityRow{Line: keeper.FormatOutcome(now, a, false)})
 	}
-	return k
+	return rows
 }
 
 // activityHandler serves the full precise ring as JSON for download:

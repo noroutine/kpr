@@ -98,8 +98,10 @@ as today, now tested once in `keeper`.
   `renderOutcome` merge); `/api/activity` and `--json`
   shapes converge.
 - **6 — console thin.** Handlers keep HTTP/templates;
-  `keeperData`/`storeData`/`sentinelData` die; per-card
-  passthrough tests.
+  `keeperData` dies (page assembles from cards with only
+  template shaping in between; `storeData`/`sentinelData`
+  never existed); per-card passthrough tests. (`store status`
+  drop stays separate, golden diff before/after.)
 
 Each milestone follows the same shape, model first:
 

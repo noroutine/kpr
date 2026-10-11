@@ -77,13 +77,13 @@
         <div class="grid">
             <div class="card">
                 <div class="label">Registry</div>
-                <div class="value">{{ if .Keeper.RegistryOK }}reachable{{ else }}unreachable{{ end }}</div>
-                {{ if .Keeper.Gateway.RegistryURL }}<div class="meta">{{ .Keeper.Gateway.RegistryURL }}</div>{{ end }}
+                <div class="value">{{ if .Status.RegistryOK }}reachable{{ else }}unreachable{{ end }}</div>
+                {{ if .Gateway.RegistryURL }}<div class="meta">{{ .Gateway.RegistryURL }}</div>{{ end }}
             </div>
             <div class="card stat-card">
                 <div class="label">Tracked / Due</div>
-                <div class="value">{{ .Keeper.Tracked }} / {{ .Keeper.Due }}</div>
-                <div class="meta">performed {{ .Keeper.Performed }} · planned {{ .Keeper.Planned }} · failed {{ .Keeper.Failed }} · untracked {{ .Keeper.Untracked }}</div>
+                <div class="value">{{ .Status.Tracked }} / {{ .Status.Due }}</div>
+                <div class="meta">performed {{ .Status.Performed }} · planned {{ .Status.Planned }} · failed {{ .Status.Failed }} · untracked {{ .Status.Untracked }}</div>
             </div>
             <div class="card stat-card">
                 <div class="label">State backend</div>
@@ -97,11 +97,11 @@
                 <div class="meta">{{ if .Sentinel.Proven }}proven {{ .Sentinel.TS }}{{ else }}no generation served yet{{ end }}</div>
             </div>
         </div>
-        {{ if .Keeper.Activity }}
+        {{ if .Activity }}
         <div class="card">
             <div class="label">Activity</div>
-            <div class="value">last {{ len .Keeper.Activity }} of {{ .Keeper.ActivityTotal }} · <a href="{{ .BasePath }}/api/activity">full JSON</a></div>
-            <pre>{{ range .Keeper.Activity }}{{ .Line }}
+            <div class="value">last {{ len .Activity }} of {{ .ActivityTotal }} · <a href="{{ .BasePath }}/api/activity">full JSON</a></div>
+            <pre>{{ range .Activity }}{{ .Line }}
 {{ end }}</pre>
         </div>
         {{ end }}
@@ -112,14 +112,14 @@
         <div class="grid">
             <div class="card">
                 <div class="label">Edge</div>
-                <div class="value">{{ if .Keeper.Gateway.Open }}open{{ else }}closed{{ end }}</div>
-                {{ if and .Keeper.Gateway.Open .Keeper.Gateway.EdgeAddr .Keeper.Gateway.RegistryURL }}<div class="meta">{{ .Keeper.Gateway.EdgeAddr }} → {{ .Keeper.Gateway.RegistryURL }}</div>{{ end }}
+                <div class="value">{{ if .Gateway.Open }}open{{ else }}closed{{ end }}</div>
+                {{ if and .Gateway.Open .Gateway.EdgeAddr .Gateway.RegistryURL }}<div class="meta">{{ .Gateway.EdgeAddr }} → {{ .Gateway.RegistryURL }}</div>{{ end }}
             </div>
-            {{ if .Keeper.Gateway.Open }}
+            {{ if .Gateway.Open }}
             <div class="card">
                 <div class="label">Fence</div>
-                <div class="value">{{ if .Keeper.Gateway.Deny }}deny{{ else }}pass{{ end }}</div>
-                <div class="meta">{{ if .Keeper.Gateway.Held }}hold lease pinning writes{{ else }}no hold lease{{ end }}</div>
+                <div class="value">{{ if .Gateway.Deny }}deny{{ else }}pass{{ end }}</div>
+                <div class="meta">{{ if .Gateway.Held }}hold lease pinning writes{{ else }}no hold lease{{ end }}</div>
             </div>
             {{ end }}
         </div>
@@ -130,27 +130,27 @@
         <div class="grid">
             <div class="card">
                 <div class="label">Transport</div>
-                <div class="value">{{ .Keeper.Clock.Method }}</div>
-                <div class="meta">{{ .Keeper.Clock.Server }}</div>
+                <div class="value">{{ .Clock.Method }}</div>
+                <div class="meta">{{ .Clock.Server }}</div>
             </div>
             <div class="card">
                 <div class="label">Skew</div>
-                <div class="value">{{ .Keeper.Clock.SkewText }}</div>
-                <div class="meta">{{ .Keeper.Clock.NoteText }}</div>
+                <div class="value">{{ .Clock.SkewText }}</div>
+                <div class="meta">{{ .Clock.NoteText }}</div>
             </div>
             <div class="card">
                 <div class="label">Server time</div>
-                <div class="value">{{ .Keeper.ClockNow }}</div>
+                <div class="value">{{ .ClockNow }}</div>
                 <div class="meta">as kpr sees it</div>
             </div>
         </div>
     </div>
 
-    {{ if .Keeper.Plan }}
+    {{ if .Plan }}
     <div class="section">
         <h2>📋 Plan</h2>
         <ul>
-            {{ range .Keeper.Plan }}
+            {{ range .Plan }}
             <li>{{ .Repo }}:{{ .Tag }} — {{ .Reason }} (pushed {{ .Pushed }})</li>
             {{ end }}
         </ul>

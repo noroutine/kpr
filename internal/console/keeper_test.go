@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/fence"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/policy"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/store"
@@ -537,7 +538,7 @@ func TestKeeperSnapshotLiveUnlockClearsStaleDeny(t *testing.T) {
 		t.Fatalf("unlock: %v", err)
 	}
 	s := &Server{Store: st, Edge: g, Registry: stubProbe{}}
-	if d := s.keeperSnapshot(ctx); d.Gateway.Deny {
+	if d := keeper.FetchGatewayCard(ctx, s.Edge, s.Store, s.EdgeAddr, s.RegistryURL); d.Deny {
 		t.Error("snapshot denies after unlock, want the live reading to clear the stale flip")
 	}
 }
@@ -548,7 +549,7 @@ func TestKeeperSnapshotLiveUnlockClearsStaleDeny(t *testing.T) {
 func TestKeeperBannerGreenWithStubRegistry(t *testing.T) {
 	testConfig(t)
 	s := &Server{Store: keeperStore(t), Registry: stubProbe{}}
-	if d := s.keeperSnapshot(context.Background()); !d.RegistryOK {
+	if d := keeper.FetchStatus(context.Background(), s.Store, s.Registry); !d.RegistryOK {
 		t.Error("stub-reachable registry renders red, want green")
 	}
 }

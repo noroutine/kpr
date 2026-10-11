@@ -1,6 +1,7 @@
 package console
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/app"
+	"nrtn.dev/catalyst/kpr/internal/clock"
 	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
@@ -54,8 +56,27 @@ type pageData struct {
 	// link appears only when its URL is configured — empty means the
 	// backend is absent and the template hides the whole section.
 	Links []consoleLink
-	// Keeper is what kpr tracks (banner, counters, plan, activity).
-	Keeper keeperData
+	// Status is what kpr tracks (banner, counters) — the same
+	// model `status` reads. Plan and Activity are its
+	// template-shaped views; ActivityTotal is the uncapped ring
+	// size, so the cap reads honest.
+	Status        keeper.Status
+	Plan          []keeperPlanRow
+	Activity      []keeperActivityRow
+	ActivityTotal int
+	// Gateway is the shared fence posture card: open, deny, or
+	// held with the endpoints beside it. What IS, while the
+	// activity ring shows what CHANGED.
+	Gateway keeper.GatewayCard
+	// Clock is the shared time-transport card: method, server,
+	// live skew, bound. ClockNow is the server clock at render
+	// (what "now" means to kpr) — stamped here, never shared:
+	// the skew reading is taken during the same render, so a
+	// separate checked stamp would always read "just now" —
+	// noise, not information. (The proof itself carries no
+	// obtained-at.)
+	Clock    keeper.ClockCard
+	ClockNow string
 	// Store names the state backend and where it lives; Sentinel
 	// carries the live same-store proof generation, if any.
 	Store    keeper.StoreCard
@@ -152,8 +173,22 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 
 	rt := config.CurrentRuntime()
 
-	snap := s.keeperSnapshot(r.Context())
-	sentinel := s.sentinelSnapshot(r.Context())
+	// The page assembles straight from the shared keeper
+	// models — the same implementation `status` reads — with
+	// only template shaping in between, degrading to red/empty
+	// when a backend is absent or down.
+	ctx, cancel := context.WithTimeout(r.Context(), probeTimeout)
+	defer cancel()
+
+	st := keeper.FetchStatus(ctx, s.Store, s.Registry)
+	sentinel := s.sentinelSnapshot(ctx)
+	// Gateway posture reads the shared card: would-deny, lease,
+	// and standing decided in keeper, never recomputed here.
+	var gate keeper.GatePosture
+	if s.Edge != nil {
+		gate = s.Edge
+	}
+	now := time.Now().UTC()
 
 	data := pageData{
 		Hostname:       hostname,
@@ -173,8 +208,14 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
 		AppStatusURL:   appStatusURL(r.Host, cfg.AppPort),
 		Links:          observabilityLinks(cfg),
-		Keeper:         snap,
-		Store: keeper.FetchStoreCard(r.Context(), s.Store, snap.RedisOK,
+		Status:         st,
+		Plan:           planRows(st.Plan),
+		Activity:       activityRows(st.Activity, now),
+		ActivityTotal:  len(st.Activity),
+		Gateway:        keeper.FetchGatewayCard(ctx, gate, s.Store, s.EdgeAddr, s.RegistryURL),
+		Clock:          keeper.FetchClockCard(ctx, clock.NewSource(cfg.TimeMethod), cfg.TimeMethod, cfg.TimeServer, clock.Tolerance),
+		ClockNow:       now.Format("2006-01-02 15:04:05 UTC"),
+		Store: keeper.FetchStoreCard(ctx, s.Store, st.StoreOK,
 			cfg.RedisAddr, cfg.RedisDB, sentinel.Proven()),
 		Sentinel: sentinel,
 	}

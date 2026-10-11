@@ -22,9 +22,12 @@ func renderGatewayCard(w io.Writer, card keeper.GatewayCard, asJSON bool) error 
 	if asJSON {
 		return json.NewEncoder(w).Encode(card)
 	}
-	edge := "closed"
-	if card.Open {
-		edge = "open"
+	// Closed renders edge state only: the fence was never read,
+	// so a verdict would be fabricated. The console guards its
+	// Fence card behind the same open check.
+	if !card.Open {
+		_, err := fmt.Fprintf(w, "edge: closed\n")
+		return err
 	}
 	fenceState := "pass"
 	if card.Deny {
@@ -34,7 +37,7 @@ func renderGatewayCard(w io.Writer, card keeper.GatewayCard, asJSON bool) error 
 	if card.Held {
 		hold = "hold lease pinning writes"
 	}
-	_, err := fmt.Fprintf(w, "edge: %s\nfence: %s (%s)\n", edge, fenceState, hold)
+	_, err := fmt.Fprintf(w, "edge: open\nfence: %s (%s)\n", fenceState, hold)
 	if err != nil {
 		return err
 	}

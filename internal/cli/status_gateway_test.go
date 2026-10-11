@@ -35,6 +35,24 @@ func TestStatusGatewayPrintsPosture(t *testing.T) {
 	}
 }
 
+// A closed edge renders no fence verdict: the posture was never
+// fetched, and printing "pass" would fabricate one. The console
+// guards its Fence card behind the same open check. If this
+// fails, the CLI reads a fence the console refuses to show.
+func TestStatusGatewayClosedHidesFence(t *testing.T) {
+	card := keeper.GatewayCard{Standing: keeper.StandingClosed}
+	var buf bytes.Buffer
+	if err := renderGatewayCard(&buf, card, false); err != nil {
+		t.Fatalf("renderGatewayCard: %v", err)
+	}
+	if !strings.Contains(buf.String(), "edge: closed") {
+		t.Errorf("closed card missing edge state:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "fence:") {
+		t.Errorf("closed card fabricates a fence verdict:\n%s", buf.String())
+	}
+}
+
 // status gateway --json is the card struct verbatim: machine
 // readers get the standing code, not the words. If this fails,
 // --json drifts from the model both renderers sign.

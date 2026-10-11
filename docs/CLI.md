@@ -1,7 +1,9 @@
 # CLI
 
 `kpr` commands, one file each (`store_<verb>.go`,
-`plan_<verb>.go`, …). Shared wiring
+`plan_<verb>.go`, …; sibling `status_*` cards share a file
+only when they render from one formatter, as `status_lists.go`
+does for activity + plan). Shared wiring
 lives in [`internal/cli/deps`](../internal/cli/deps/deps.go):
 `Deps`/`OpenDeps` (config, state, registry client),
 `OpenStore`/`BuildStore`/`StoreName`,
