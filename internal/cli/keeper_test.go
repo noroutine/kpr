@@ -253,7 +253,7 @@ func TestCommandTailsRunAgainstFileBackend(t *testing.T) {
 		{"plan", planCmd, nil, "nothing due"},
 		{"discard", planDiscardCmd, nil, "nothing due"},
 		{"sweep", sweepCmd, nil, "sweep "},
-		{"store status", storeStatusCmd, nil, "status:"},
+		{"status store", statusStoreCmd, nil, "state:"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := runLockCmd(t, dir, srv.URL, tc.target)
@@ -288,7 +288,7 @@ func TestKeeperCommandsRefuseBadBackend(t *testing.T) {
 // If this fails, one command renders without a backend.
 func TestStoreCommandsRefuseBadBackend(t *testing.T) {
 	t.Setenv(config.EnvStore, "bogus-backend")
-	for _, target := range []*cobra.Command{storeLsCmd, storeStatusCmd, storeInspectCmd, storeRmCmd, planAddCmd, planRemoveCmd, unlockCmd, adoptCmd} {
+	for _, target := range []*cobra.Command{storeLsCmd, statusStoreCmd, storeInspectCmd, storeRmCmd, planAddCmd, planRemoveCmd, unlockCmd, adoptCmd} {
 		var buf bytes.Buffer
 		target.SetOut(&buf)
 		defer target.SetOut(nil)

@@ -9,9 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
-	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // status is the high-level posture, one line per section: the
@@ -128,18 +126,6 @@ func TestStatusNilRegistry(t *testing.T) {
 	}
 }
 
-// An unreadable marker voices unknown, never locked: the operator
-// must not revoke on a read error. If this fails, an outage reads
-// as intent.
-func TestLockStateUnknownOnOutage(t *testing.T) {
-	if got := lockState(cliCtx(), deadStore{}); got != "unknown" {
-		t.Errorf("lockState on outage = %q, want unknown", got)
-	}
-	if got := lockState(cliCtx(), store.NewMemStore()); got != "locked" {
-		t.Errorf("fresh lockState = %q, want locked (born locked)", got)
-	}
-}
-
 // An unreadable proof voices unproven, and an undated generation
 // voices its name without an age: presence without timing is still
 // presence. If this fails, outages read as proofs (or proofs hide).
@@ -180,19 +166,5 @@ func TestStatusHasNoPlanTwin(t *testing.T) {
 		if sub.Name() == "plan" {
 			t.Errorf("status carries a %q subcommand, want plan left to `kpr plan`", sub.Name())
 		}
-	}
-}
-
-// describeStore voices the backend in one line: file with its dir,
-// redis with addr and DB. If this fails, the store card names the
-// wrong backend — the operator fixes the wrong state.
-func TestDescribeStoreNamesBackend(t *testing.T) {
-	t.Cleanup(config.SetCurrent(config.NewBuilder().WithRedisAddr("r:6379").WithRedisDB(4).Build()))
-	if got := describeStore(store.NewMemStore()); got != "redis (r:6379 db 4)" {
-		t.Errorf("mem store described as %q, want the redis line", got)
-	}
-	fs := store.NewFileStore(t.TempDir())
-	if got := describeStore(fs); got != "file ("+fs.Dir()+")" {
-		t.Errorf("file store described as %q, want file with dir", got)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,7 +14,6 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/helpers/human"
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
-	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
 // statusRegistry is what the banner reads: reachability plus the
@@ -94,20 +92,6 @@ func runStatus(w io.Writer, reg keeper.RegistryCard, card keeper.StoreCard, st k
 	return err
 }
 
-// lockState voices the intent marker in one word: locked denies
-// registry-store writes, unlocked allows them, unknown means the
-// read itself failed (never collapsed into either).
-func lockState(ctx context.Context, s store.Store) string {
-	ok, err := s.IsUnlocked(ctx)
-	if err != nil {
-		return "unknown"
-	}
-	if ok {
-		return "unlocked"
-	}
-	return "locked"
-}
-
 // proofState voices the live generation with its age, or unproven
 // when the registry serves none. Nil registry reads unproven;
 // an unreadable timestamp still names the generation.
@@ -121,19 +105,6 @@ func proofState(ctx context.Context, api sentinel.API) string {
 		return card.Gen
 	}
 	return card.Gen + " (" + human.Ago(age) + ")"
-}
-
-// describeStore names the wired backend with its address for the
-// banner: file with its dir, redis with addr and DB. The redis
-// half reads the installed config at use; the store half is the
-// caller's. Mirrors the console's store card; both stay dumb views
-// over the same facts.
-func describeStore(s store.Store) string {
-	if st, ok := s.(*store.FileStore); ok {
-		return "file (" + st.Dir() + ")"
-	}
-	cfg := config.Current()
-	return "redis (" + cfg.RedisAddr + " db " + strconv.Itoa(cfg.RedisDB) + ")"
 }
 
 // runPlan prints pending candidates with reasons; asJSON renders them

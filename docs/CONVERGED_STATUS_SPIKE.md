@@ -9,12 +9,12 @@ This spike converges them: every card is a `keeper` struct,
 Absorbs `docs/CLI_FUTURE.md` (gateway/clock parity falls out
 of the model — dissolved here).
 
-Rule: `store status` is frozen as the reference. The spike
-does not touch it except cosmetic changes the spike itself
-forces (shared consts, moved helpers — same output). Each
-new `status <card>` is built in parallel from the card
-models, golden-tested against the reference; `store status`
-drops in a separate change once the cards read identical.
+Rule (retired): `store status` was frozen as the reference
+while the cards were built in parallel from the card models,
+golden-tested against it. It dropped once every fact had a
+card home — backend, state, lock, fs, counts, proof,
+identity, activity tail — except the trust verdict, which
+still voices only in `registry analyze` and has no card yet.
 
 ## Placement
 

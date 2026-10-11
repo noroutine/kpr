@@ -121,7 +121,7 @@ func TestEdgeSectionRendersPosture(t *testing.T) {
 	}
 }
 
-// Activity reads like `store status` in a code block — friendly
+// Activity reads like `status activity` in a code block — friendly
 // lines, capped at ten and said out loud — while /api/activity
 // serves every record with precise stamps. If this fails, the
 // console either hides the cap or loses precision.
