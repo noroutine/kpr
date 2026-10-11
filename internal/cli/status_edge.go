@@ -14,11 +14,11 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 )
 
-// renderGatewayCard prints the fence posture from the shared
+// renderEdgeCard prints the fence posture from the shared
 // model: open/deny/held with the endpoints beside it. Closed
 // (no edge) renders as a state, never an error — same rule as
 // the console section.
-func renderGatewayCard(w io.Writer, card keeper.GatewayCard, asJSON bool) error {
+func renderEdgeCard(w io.Writer, card keeper.EdgeCard, asJSON bool) error {
 	if asJSON {
 		return json.NewEncoder(w).Encode(card)
 	}
@@ -26,7 +26,7 @@ func renderGatewayCard(w io.Writer, card keeper.GatewayCard, asJSON bool) error 
 	// so a verdict would be fabricated. The console guards its
 	// Fence card behind the same open check.
 	if !card.Open {
-		_, err := fmt.Fprintf(w, "edge: closed\n")
+		_, err := fmt.Fprintf(w, "gateway: closed\n")
 		return err
 	}
 	// The posture names its effect: deny refuses writes, pass
@@ -40,7 +40,7 @@ func renderGatewayCard(w io.Writer, card keeper.GatewayCard, asJSON bool) error 
 	if card.Hold {
 		hold = "hold lease pinning writes"
 	}
-	_, err := fmt.Fprintf(w, "edge: open\nfence: %s (%s)\n", fenceState, hold)
+	_, err := fmt.Fprintf(w, "gateway: open\nfence: %s (%s)\n", fenceState, hold)
 	if err != nil {
 		return err
 	}
@@ -51,11 +51,12 @@ func renderGatewayCard(w io.Writer, card keeper.GatewayCard, asJSON bool) error 
 	return nil
 }
 
-var statusGatewayCmd = &cobra.Command{
-	Use:   "gateway",
-	Short: "Show the live fence posture",
-	Long: `Edge open/closed, fence deny/pass, hold lease — the
-gateway card both the console and the CLI render.`,
+var statusEdgeCmd = &cobra.Command{
+	Use:   "edge",
+	Short: "Show the live edge posture",
+	Long: `Gateway open/closed, fence deny/pass, hold lease — the
+edge card both the console and the CLI render. The edge is
+the gateway in front of the registry.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		d, err := deps.OpenDeps()
 		if err != nil {
@@ -76,12 +77,12 @@ gateway card both the console and the CLI render.`,
 		// backend reads degraded/unreachable, never slow.
 		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 		defer cancel()
-		card := keeper.FetchGatewayCard(ctx, gate, d.Store, cfg.EdgeAddr, cfg.RegistryURL)
-		return renderGatewayCard(cmd.OutOrStdout(), card, asJSON)
+		card := keeper.FetchEdgeCard(ctx, gate, d.Store, cfg.EdgeAddr, cfg.RegistryURL)
+		return renderEdgeCard(cmd.OutOrStdout(), card, asJSON)
 	},
 }
 
 func init() {
-	statusGatewayCmd.Flags().Bool("json", false, "Render the card as JSON")
-	statusCmd.AddCommand(statusGatewayCmd)
+	statusEdgeCmd.Flags().Bool("json", false, "Render the card as JSON")
+	statusCmd.AddCommand(statusEdgeCmd)
 }

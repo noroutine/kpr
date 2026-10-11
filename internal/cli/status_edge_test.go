@@ -11,21 +11,21 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// status gateway prints the fence posture from the shared
+// status edge prints the fence posture from the shared
 // model: open/deny/held with the endpoints beside it. If this
 // fails, the CLI and the console read different fences.
-func TestStatusGatewayPrintsPosture(t *testing.T) {
+func TestStatusEdgePrintsPosture(t *testing.T) {
 	s := store.NewMemStore()
 	if err := s.SetUnlocked(context.Background(), false); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	card := keeper.FetchGatewayCard(context.Background(), stubGateposture{}, s, ":5000", "http://registry:5000")
+	card := keeper.FetchEdgeCard(context.Background(), stubGateposture{}, s, ":5000", "http://registry:5000")
 	var buf bytes.Buffer
-	if err := renderGatewayCard(&buf, card, false); err != nil {
-		t.Fatalf("renderGatewayCard: %v", err)
+	if err := renderEdgeCard(&buf, card, false); err != nil {
+		t.Fatalf("renderEdgeCard: %v", err)
 	}
 	for _, want := range []string{
-		"edge: open",
+		"gateway: open",
 		"fence: deny",
 		":5000 → http://registry:5000",
 	} {
@@ -39,13 +39,13 @@ func TestStatusGatewayPrintsPosture(t *testing.T) {
 // fetched, and printing "pass" would fabricate one. The console
 // guards its Fence card behind the same open check. If this
 // fails, the CLI reads a fence the console refuses to show.
-func TestStatusGatewayClosedHidesFence(t *testing.T) {
-	card := keeper.GatewayCard{Standing: keeper.StandingClosed}
+func TestStatusEdgeClosedHidesFence(t *testing.T) {
+	card := keeper.EdgeCard{Standing: keeper.StandingClosed}
 	var buf bytes.Buffer
-	if err := renderGatewayCard(&buf, card, false); err != nil {
-		t.Fatalf("renderGatewayCard: %v", err)
+	if err := renderEdgeCard(&buf, card, false); err != nil {
+		t.Fatalf("renderEdgeCard: %v", err)
 	}
-	if !strings.Contains(buf.String(), "edge: closed") {
+	if !strings.Contains(buf.String(), "gateway: closed") {
 		t.Errorf("closed card missing edge state:\n%s", buf.String())
 	}
 	if strings.Contains(buf.String(), "fence:") {
@@ -57,15 +57,15 @@ func TestStatusGatewayClosedHidesFence(t *testing.T) {
 // name: deny refuses writes, pass allows them. The names alone
 // are the model's shorthand (--json keeps them); the CLI owes
 // the effect. If this fails, the renderer echoes internals.
-func TestStatusGatewayVoicesEffect(t *testing.T) {
+func TestStatusEdgeVoicesEffect(t *testing.T) {
 	s := store.NewMemStore()
 	if err := s.SetUnlocked(context.Background(), false); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	card := keeper.FetchGatewayCard(context.Background(), stubGateposture{}, s, ":5000", "http://registry:5000")
+	card := keeper.FetchEdgeCard(context.Background(), stubGateposture{}, s, ":5000", "http://registry:5000")
 	var buf bytes.Buffer
-	if err := renderGatewayCard(&buf, card, false); err != nil {
-		t.Fatalf("renderGatewayCard: %v", err)
+	if err := renderEdgeCard(&buf, card, false); err != nil {
+		t.Fatalf("renderEdgeCard: %v", err)
 	}
 	if want := "fence: deny — writes refused"; !strings.Contains(buf.String(), want) {
 		t.Errorf("card missing %q:\n%s", want, buf.String())
@@ -75,23 +75,23 @@ func TestStatusGatewayVoicesEffect(t *testing.T) {
 		t.Fatalf("unlock: %v", err)
 	}
 	var passing bytes.Buffer
-	passingCard := keeper.FetchGatewayCard(context.Background(), stubGateposture{}, open, ":5000", "http://registry:5000")
-	if err := renderGatewayCard(&passing, passingCard, false); err != nil {
-		t.Fatalf("renderGatewayCard: %v", err)
+	passingCard := keeper.FetchEdgeCard(context.Background(), stubGateposture{}, open, ":5000", "http://registry:5000")
+	if err := renderEdgeCard(&passing, passingCard, false); err != nil {
+		t.Fatalf("renderEdgeCard: %v", err)
 	}
 	if want := "fence: pass — writes allowed"; !strings.Contains(passing.String(), want) {
 		t.Errorf("card missing %q:\n%s", want, passing.String())
 	}
 }
 
-// status gateway --json is the card struct verbatim: machine
+// status edge --json is the card struct verbatim: machine
 // readers get the standing code, not the words. If this fails,
 // --json drifts from the model both renderers sign.
-func TestStatusGatewayJSONIsCardVerbatim(t *testing.T) {
-	card := keeper.GatewayCard{Standing: keeper.StandingClosed}
+func TestStatusEdgeJSONIsCardVerbatim(t *testing.T) {
+	card := keeper.EdgeCard{Standing: keeper.StandingClosed}
 	var buf bytes.Buffer
-	if err := renderGatewayCard(&buf, card, true); err != nil {
-		t.Fatalf("renderGatewayCard: %v", err)
+	if err := renderEdgeCard(&buf, card, true); err != nil {
+		t.Fatalf("renderEdgeCard: %v", err)
 	}
 	var got struct {
 		Standing string `json:"standing"`

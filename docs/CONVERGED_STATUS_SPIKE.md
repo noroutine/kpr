@@ -63,7 +63,7 @@ stamp their own render time.
 |---|---|---|
 | Keeper (counters) | `Counters` (existing `Status` counts) | `status` aggregate header |
 | Registry | `Registry{Standing, URL, Reachable}` | `status registry` |
-| Gateway | `Gateway{Standing, Open, Deny, Hold, EdgeAddr, RegistryURL}` | `status gateway` |
+| Edge | `Edge{Standing, Open, Deny, Hold, EdgeAddr, RegistryURL}` | `status edge` |
 | Clock | `Clock{Standing, Method, Server, Skew, Tolerance}` (raw durations, not words) | `status clock` |
 | Plan | `Status.Plan` rows (mutations stay `plan add/rm`) | console only — no `status plan` twin (`kpr plan` owns the human view) |
 | Store | `Store{Name, Detail, Healthy, Standing, LockNote, FsNote, Identity}` + `Status` counts + proof voice | `status store` |
@@ -90,8 +90,9 @@ as today, now tested once in `keeper`.
   platform files force). Golden pins today's card.
 - **2 — proof.** `sentinelSnapshot` → `keeper.FetchProofCard`;
   feeds console section + `status` proof line. No new command.
-- **3 — `status gateway`.** Edge posture + would-deny lock read
-  move; `deny_engage` voicing untouched.
+- **3 — `status edge`.** Edge posture + would-deny lock read
+  move; `deny_engage` voicing untouched. (The command and the
+  card are named edge; gateway describes the role in prose.)
 - **4 — `status clock`.** `clockSnapshot` → `keeper`
   (env-staged: `TimeMethod=local` pins no-probe, `httptest`
   date server pins skew). Standing-matrix test.

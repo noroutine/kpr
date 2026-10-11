@@ -70,11 +70,12 @@ func TestKeeperBannerDegradedWithoutBackends(t *testing.T) {
 	}
 }
 
-// The gateway gets its own place: closed with no gate (disabled
-// or unproven edge), open with the live fence posture when serve
-// proves it. If this fails, the operator can't see whether pushes
-// are fenced.
-func TestGatewaySectionRendersPosture(t *testing.T) {
+// The edge gets its own place: the section is named edge, the
+// card inside says gateway — the role the edge plays. Closed
+// with no gate (disabled or unproven edge), open with the live
+// fence posture when serve proves it. If this fails, the
+// operator can't see whether pushes are fenced.
+func TestEdgeSectionRendersPosture(t *testing.T) {
 	testConfig(t)
 	render := func(s *Server) string {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -85,11 +86,11 @@ func TestGatewaySectionRendersPosture(t *testing.T) {
 		}
 		return rr.Body.String()
 	}
-	if body := render(&Server{}); !strings.Contains(body, "Gateway") || !strings.Contains(body, "closed") {
-		t.Error("dashboard without a gate must render the gateway closed")
+	if body := render(&Server{}); !strings.Contains(body, "🚪 Edge") || !strings.Contains(body, "Gateway") || !strings.Contains(body, "closed") {
+		t.Error("dashboard without a gate must render the edge section with the gateway closed")
 	}
 	body := render(&Server{Edge: &fence.Gate{Store: store.NewMemStore()}})
-	for _, want := range []string{"Gateway", "open", "pass"} {
+	for _, want := range []string{"🚪 Edge", "Gateway", "open", "pass"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard with a gate missing %q (open fence)", want)
 		}
@@ -541,7 +542,7 @@ func TestBulbClassTruthTable(t *testing.T) {
 // A denied fence paints its card red end to end: the model
 // decides deny in keeper, the template only hangs the class.
 // If this fails, deny reads as words with a calm blue border.
-func TestGatewayBulbRedOnDeny(t *testing.T) {
+func TestEdgeBulbRedOnDeny(t *testing.T) {
 	testConfig(t)
 	locked := store.NewMemStore()
 	if err := locked.SetUnlocked(context.Background(), false); err != nil {
@@ -589,7 +590,7 @@ func TestKeeperSnapshotLiveUnlockClearsStaleDeny(t *testing.T) {
 		t.Fatalf("unlock: %v", err)
 	}
 	s := &Server{Store: st, Edge: g, Registry: stubProbe{}}
-	if d := keeper.FetchGatewayCard(ctx, s.Edge, s.Store, s.EdgeAddr, s.RegistryURL); d.Deny {
+	if d := keeper.FetchEdgeCard(ctx, s.Edge, s.Store, s.EdgeAddr, s.RegistryURL); d.Deny {
 		t.Error("snapshot denies after unlock, want the live reading to clear the stale flip")
 	}
 }

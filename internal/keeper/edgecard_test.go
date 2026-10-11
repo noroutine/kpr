@@ -8,18 +8,18 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
-// stubGate is a fence with pinned posture: the gateway card's
+// stubGate is a fence with pinned posture: the edge card's
 // snapshot source without a serve loop.
 type stubGate struct{ deny, held bool }
 
 func (g stubGate) Snapshot() (bool, bool) { return g.deny, g.held }
 
-// The gateway card voices the live fence posture: open when an
+// The edge card voices the live fence posture: open when an
 // edge serves, deny on the lock (would-deny, not just
 // last-denied), held on the lease, closed with no edge. Deny
 // wins over held — the refusal is the news. If this fails, the
 // dashboard and the CLI read different fences.
-func TestGatewayCardVoicesPosture(t *testing.T) {
+func TestEdgeCardVoicesPosture(t *testing.T) {
 	ctx := context.Background()
 	open := store.NewMemStore()
 	if err := open.SetUnlocked(ctx, true); err != nil {
@@ -41,7 +41,7 @@ func TestGatewayCardVoicesPosture(t *testing.T) {
 		{"deny wins", stubGate{deny: true, held: true}, nil, true, true, keeper.StandingDenied},
 		{"locked denies", stubGate{}, locked, true, false, keeper.StandingDenied},
 	} {
-		got := keeper.FetchGatewayCard(ctx, tc.gate, tc.st, ":5000", "http://registry:5000")
+		got := keeper.FetchEdgeCard(ctx, tc.gate, tc.st, ":5000", "http://registry:5000")
 		if got.Deny != tc.deny || got.Hold != tc.held || got.Standing != tc.stand {
 			t.Errorf("%s = (deny %v, held %v, %q), want (deny %v, held %v, %q)",
 				tc.name, got.Deny, got.Hold, got.Standing, tc.deny, tc.held, tc.stand)

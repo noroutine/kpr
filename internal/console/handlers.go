@@ -68,10 +68,12 @@ type pageData struct {
 	Plan          []keeperPlanRow
 	Activity      []keeperActivityRow
 	ActivityTotal int
-	// Gateway is the shared fence posture card: open, deny, or
-	// held with the endpoints beside it. What IS, while the
-	// activity ring shows what CHANGED.
-	Gateway keeper.GatewayCard
+	// Edge is the shared fence posture card: open, deny, or
+	// hold with the endpoints beside it. What IS, while the
+	// activity ring shows what CHANGED. The section and the
+	// card are named edge; the card's own label says gateway —
+	// the role the edge plays in front of the registry.
+	Edge keeper.EdgeCard
 	// Clock is the shared time-transport card: method, server,
 	// live skew, bound. ClockNow is the server clock at render
 	// (what "now" means to kpr) — stamped here, never shared:
@@ -191,7 +193,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 
 	st := keeper.FetchStatus(ctx, s.Store, s.Registry)
 	sentinel := s.sentinelSnapshot(ctx)
-	// Gateway posture reads the shared card: would-deny, lease,
+	// Edge posture reads the shared card: would-deny, lease,
 	// and standing decided in keeper, never recomputed here.
 	var gate keeper.GatePosture
 	if s.Edge != nil {
@@ -222,7 +224,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		Plan:           planRows(st.Plan),
 		Activity:       activityRows(st.Activity, now),
 		ActivityTotal:  len(st.Activity),
-		Gateway:        keeper.FetchGatewayCard(ctx, gate, s.Store, s.EdgeAddr, s.RegistryURL),
+		Edge:           keeper.FetchEdgeCard(ctx, gate, s.Store, s.EdgeAddr, s.RegistryURL),
 		Clock:          keeper.FetchClockCard(ctx, clock.NewSource(cfg.TimeMethod), cfg.TimeMethod, cfg.TimeServer, clock.Tolerance),
 		ClockNow:       now.Format("2006-01-02 15:04:05 UTC"),
 		Store: keeper.FetchStoreCard(ctx, s.Store, st.StoreOK,
