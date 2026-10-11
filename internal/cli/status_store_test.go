@@ -29,6 +29,7 @@ func TestStatusStorePrintsCardLines(t *testing.T) {
 		"store: mem (in-memory, tests only)",
 		"state: ready",
 		"lock: unlocked",
+		"identity: unpaired",
 	} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("card missing %q:\n%s", want, buf.String())

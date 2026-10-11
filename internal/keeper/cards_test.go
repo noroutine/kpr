@@ -42,6 +42,42 @@ func TestStoreCardStandingMatrix(t *testing.T) {
 	}
 }
 
+// The card voices the lineage pairing beside the backend: the
+// id verdicts judge the served generation against, with the
+// accepted baseline when one was recorded. Unpaired names
+// itself; a read failure is unknown, never a guess. If this
+// fails, the store view hides the identity trust judges.
+func TestStoreCardVoicesIdentity(t *testing.T) {
+	ctx := context.Background()
+	paired := store.NewMemStore()
+	if err := paired.SetIdentity(ctx, store.Identity{ID: "019-abc"}); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	baselined := store.NewMemStore()
+	if err := baselined.SetIdentity(ctx, store.Identity{ID: "019-abc", BaselineGen: "018-xyz"}); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		st   store.Store
+		want string
+	}{
+		{"paired", paired, "019-abc"},
+		{"baselined", baselined, "019-abc (baseline 018-xyz)"},
+		{"fresh", store.NewMemStore(), "unpaired"},
+		{"no store", nil, ""},
+	} {
+		if got := keeper.FetchStoreCard(ctx, tc.st, true, "", 0, false); got.Identity != tc.want {
+			t.Errorf("%s identity = %q, want %q", tc.name, got.Identity, tc.want)
+		}
+	}
+	rdb := store.NewRedisStore("127.0.0.1:1", "", 0)
+	defer func() { _ = rdb.Close() }()
+	if got := keeper.FetchStoreCard(ctx, rdb, false, "127.0.0.1:1", 0, false); got.Identity != "unknown" {
+		t.Errorf("down redis identity = %q, want unknown", got.Identity)
+	}
+}
+
 // A backend that answers nothing degrades the card instead of
 // guessing intent: "lock unknown", never collapsed into locked
 // or unlocked. If this fails, a down backend reads as an

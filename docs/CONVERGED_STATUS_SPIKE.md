@@ -66,7 +66,7 @@ stamp their own render time.
 | Gateway | `Gateway{Standing, Open, Deny, Held, EdgeAddr, RegistryURL}` | `status gateway` |
 | Clock | `Clock{Standing, Method, Server, Skew, Tolerance}` (raw durations, not words) | `status clock` |
 | Plan | `Status.Plan` rows (mutations stay `plan add/rm`) | console only — no `status plan` twin (`kpr plan` owns the human view) |
-| Store | `Store{Name, Detail, Healthy, Standing, LockNote, FsNote}` + `Status` counts + proof voice | `status store` |
+| Store | `Store{Name, Detail, Healthy, Standing, LockNote, FsNote, Identity}` + `Status` counts + proof voice | `status store` |
 | Sentinel | `Proof{Standing, Gen, TS}` | proof line on `status` (already lives there) |
 | Activity | `Activity{Lines, Total}` (tail; full ring keeps `/api/activity` shape) | `status activity` |
 | Observability | `Obs{Links}` (configured UI backends; empty reads unavailable) | `status observability` |

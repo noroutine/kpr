@@ -557,6 +557,7 @@ func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
 		"State backend", "file", dir,
 		"reachable", "locked",
 		"019-test-gen", "proven 2026-09-30T00:00:00Z",
+		"identity: unpaired",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)

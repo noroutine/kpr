@@ -28,6 +28,12 @@ type StoreCard struct {
 	// unlocked would claim intent nobody recorded. Empty means
 	// unlocked: the common open state needs no ink.
 	LockNote string `json:"lockNote,omitempty"`
+	// Identity voices the lineage pairing verdicts judge the
+	// served generation against, with the accepted baseline
+	// when one was recorded. "unpaired" names itself; "unknown"
+	// on a read failure, never a guess. Empty on no store:
+	// nothing to pair, so renderers skip the line.
+	Identity string `json:"identity,omitempty"`
 	// FsNote voices filesystem size for the file backend ("91
 	// GB free of 128 GB"): capacity planning, not precision.
 	// Shown only on a proven store — an unproven dir is
@@ -61,13 +67,26 @@ func FetchStoreCard(ctx context.Context, s store.Store, healthy bool, redisAddr 
 	if !healthy && standing == StandingOK {
 		standing = StandingUnreachable
 	}
+	// The pairing read rides along with the lock read: one cheap
+	// marker check per fetch, so the card voices identity without
+	// a second round trip anywhere.
+	ident := ""
+	if id, ierr := s.GetIdentity(ctx); ierr != nil {
+		ident = "unknown"
+	} else if id.ID == "" {
+		ident = "unpaired"
+	} else if id.BaselineGen != "" {
+		ident = id.ID + " (baseline " + id.BaselineGen + ")"
+	} else {
+		ident = id.ID
+	}
 	switch st := s.(type) {
 	case *store.FileStore:
 		fs := ""
 		if proven {
 			fs = fsStats(st.Dir())
 		}
-		return StoreCard{Standing: standing, Name: "file", Detail: st.Dir(), Healthy: healthy, LockNote: note, FsNote: fs}
+		return StoreCard{Standing: standing, Name: "file", Detail: st.Dir(), Healthy: healthy, LockNote: note, FsNote: fs, Identity: ident}
 	case *store.RedisStore:
 		return StoreCard{
 			Standing: standing,
@@ -75,13 +94,14 @@ func FetchStoreCard(ctx context.Context, s store.Store, healthy bool, redisAddr 
 			Detail:   redisAddr + " db " + strconv.Itoa(redisDB),
 			Healthy:  healthy,
 			LockNote: note,
+			Identity: ident,
 		}
 	case *store.MemStore:
-		return StoreCard{Standing: standing, Name: "mem", Detail: "in-memory, tests only", Healthy: healthy, LockNote: note}
+		return StoreCard{Standing: standing, Name: "mem", Detail: "in-memory, tests only", Healthy: healthy, LockNote: note, Identity: ident}
 	default:
 		// Unknown implementations still voice the probe: the
 		// note was computed from the port, not the type.
-		return StoreCard{Standing: standing, Name: "unavailable", Healthy: healthy, LockNote: note}
+		return StoreCard{Standing: standing, Name: "unavailable", Healthy: healthy, LockNote: note, Identity: ident}
 	}
 }
 

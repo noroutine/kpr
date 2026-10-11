@@ -58,6 +58,13 @@ func runStatusStore(ctx context.Context, w io.Writer, s store.Store, redisAddr s
 		card.Name, card.Detail, storeStateWords(card.Standing), lock); err != nil {
 		return err
 	}
+	// The pairing verdicts judge the served generation against;
+	// empty on no store, so the line stays out then.
+	if card.Identity != "" {
+		if _, err := fmt.Fprintf(w, "identity: %s\n", card.Identity); err != nil {
+			return err
+		}
+	}
 	if card.FsNote != "" {
 		if _, err := fmt.Fprintf(w, "fs: %s\n", card.FsNote); err != nil {
 			return err

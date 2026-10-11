@@ -55,6 +55,7 @@
                 <div class="label">State backend</div>
                 <div class="value">{{ .Store.Name }}</div>
                 <div class="meta">{{ if .Store.Detail }}{{ .Store.Detail }} · {{ end }}{{ if .Store.Healthy }}reachable{{ else }}unreachable{{ end }}{{ if .Store.LockNote }} · {{ .Store.LockNote }}{{ end }}</div>
+                {{ if .Store.Identity }}<div class="meta">identity: {{ .Store.Identity }}</div>{{ end }}
                 {{ if .Store.FsNote }}<div class="meta">{{ .Store.FsNote }}</div>{{ end }}
             </div>
             <div class="card stat-card {{ bulb .Sentinel.Standing }}">
