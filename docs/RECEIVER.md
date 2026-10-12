@@ -57,10 +57,11 @@ Handler behavior is pinned in `internal/receiver/events_test.go`.
 ## Topology
 
 The registry only needs the service port: `http://kpr:9000/events`
-resolves container-to-container with no host publish. Publish
-`9000:9000` to the host only when an operator (or a debugging
-`curl`) needs it. The compose stacks publish it; the quickstart
-keeps it internal.
+resolves container-to-container with no host publish. The compose
+stacks keep `9000:9000` commented out for exactly this reason —
+uncomment it only when an operator (or a debugging `curl`) needs
+host-side access. The quickstart and adopt snippets never publish
+it at all.
 
 Traefik never fronts the receiver: notifications from inside the
 registry container to a public URL would hairpin through TLS and
