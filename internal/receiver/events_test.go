@@ -162,6 +162,15 @@ func TestEventsHandlerSkipsTaglessPush(t *testing.T) {
 	}
 }
 
+// A nil store disables the receiver with a 503, never a panic: boot
+// degrades the same way. If this fails, an unwired receiver panics
+// on the first notification instead of refusing it.
+func TestEventsHandlerNilStoreIsUnavailable(t *testing.T) {
+	if rr := postEvents(t, nil, pushEnvelope()); rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 (receiver not configured)", rr.Code)
+	}
+}
+
 // Garbage into the endpoint is a 400, not a panic and not a silent
 // accept. If this fails, a misconfigured registry webhook wedges or
 // poisons the receiver.

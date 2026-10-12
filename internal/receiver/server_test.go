@@ -3,6 +3,7 @@ package receiver
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"nrtn.dev/catalyst/kpr/internal/config"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -171,6 +173,94 @@ func TestServerStartLogsBoundAddress(t *testing.T) {
 	case <-errCh:
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
+	}
+}
+
+// A listener that dies underneath the server must surface as a Start
+// error so the caller can react, rather than being swallowed. If this
+// fails, `serve` believes a dead socket is still serving.
+func TestServerStartServeError(t *testing.T) {
+	ln := loopbackListener(t)
+	_ = ln.Close() // die before Serve reaches it
+	s := &Server{Listener: ln, Store: store.NewMemStore()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := s.Start(ctx); err == nil {
+		t.Error("Start on a closed listener succeeded, want an error")
+	}
+	// Run the watcher now and drain it before returning: its writes
+	// must not land in a later test's capture window.
+	cancel()
+	select {
+	case <-s.shutdownDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("shutdown watcher did not finish")
+	}
+}
+
+// A shutdown that cannot drain in time must say so loudly: a
+// connection stuck mid-body never idles, so Shutdown outlives its
+// deadline against it and the watcher logs instead of hanging or
+// succeeding silent. If this fails, a wedged client turns `serve`
+// shutdown into a silent hang past the deadline.
+func TestServerStartShutdownTimeoutIsLogged(t *testing.T) {
+	t.Cleanup(config.SetCurrent(config.NewBuilder().
+		WithShutdownTimeout(time.Nanosecond).
+		Build()))
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln, Store: store.NewMemStore()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logs := captureLog(t)
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
+	base := "http://" + ln.Addr().String()
+	waitForEvents(t, base)
+
+	// Hold a connection open mid-body: headers complete, body
+	// short, never closed — the server side stays reading (never
+	// idle) while Shutdown's nanosecond deadline is already gone.
+	conn, err := net.Dial("tcp", ln.Addr().String()) //nolint:noctx // test-only loopback
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := fmt.Fprintf(conn, "POST /events HTTP/1.1\r\nHost: x\r\nContent-Length: 64\r\n\r\nstuck"); err != nil {
+		t.Fatalf("write partial body: %v", err)
+	}
+	// A second, complete envelope proves the listener dequeued the
+	// stuck one first (FIFO backlog): by the time this 202s, the
+	// server owns a conn that will never idle.
+	resp, err := testClient.Post(base+"/events", "application/json", strings.NewReader(`{}`)) //nolint:gosec,noctx // test-only loopback
+	if err != nil {
+		t.Fatalf("POST /events: %v", err)
+	}
+	drainAndClose(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("POST /events = %d, want 202", resp.StatusCode)
+	}
+
+	cancel()
+	// shutdownDone closes after the watcher logs (deferred close
+	// runs last): waiting on it — not on Start's return, which only
+	// needs the listener closed and routinely wins the race — makes
+	// the read below deterministic.
+	select {
+	case <-s.shutdownDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("shutdown watcher did not finish")
+	}
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
+	}
+	if out := logs.String(); !strings.Contains(out, "shutdown error") {
+		t.Errorf("forced shutdown timeout logged nothing, want the loud give-up:\n%s", out)
 	}
 }
 
