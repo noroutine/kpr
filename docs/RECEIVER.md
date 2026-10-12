@@ -1,9 +1,10 @@
-# Receiver
+# Receiver <!-- omit in toc -->
 
 The registry receiver: `POST /events` on its own port (`:9000` by
 default). Push notifications become tracked rows, delete
 notifications drop them. Nothing else lives here.
 
+## Contents <!-- omit in toc -->
 - [Why a separate port](#why-a-separate-port)
 - [Contract](#contract)
 - [Configuration](#configuration)
