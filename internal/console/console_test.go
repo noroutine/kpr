@@ -56,6 +56,8 @@ func testConfig(t *testing.T) {
 		WithManagementPort(19300).
 		WithAppHost("127.0.0.1").
 		WithAppPort(18080).
+		WithReceiverHost("127.0.0.1").
+		WithReceiverPort(19000).
 		WithRedisAddr("redis:6379").
 		Build()))
 }
@@ -75,7 +77,7 @@ func TestIndexHandler(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{config.Version, "127.0.0.1", "19300", "18080"} {
+	for _, want := range []string{config.Version, "127.0.0.1", "19300", "18080", "19000", "Registry Receiver"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard does not mention %q", want)
 		}
@@ -272,7 +274,7 @@ func TestMetricsHandler(t *testing.T) {
 	if _, ok := raw["go_version"]; ok {
 		t.Errorf("metrics carries go_version = %v, want the key gone", raw["go_version"])
 	}
-	if body.Environment["KPR_APP_PORT"] != "18080" || body.Environment["KPR_REDIS_ADDR"] != "redis:6379" {
+	if body.Environment["KPR_APP_PORT"] != "18080" || body.Environment["KPR_RECEIVER_PORT"] != "19000" || body.Environment["KPR_REDIS_ADDR"] != "redis:6379" {
 		t.Errorf("environment = %v", body.Environment)
 	}
 }
@@ -530,6 +532,8 @@ func TestIndexHandlerBracketsIPv6Bind(t *testing.T) {
 		WithManagementPort(19300).
 		WithAppHost("::").
 		WithAppPort(18080).
+		WithReceiverHost("::").
+		WithReceiverPort(19000).
 		Build()))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -539,12 +543,12 @@ func TestIndexHandlerBracketsIPv6Bind(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"[::]:19300", "[::]:18080"} {
+	for _, want := range []string{"[::]:19300", "[::]:18080", "[::]:19000"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, ":::19300") || strings.Contains(body, ":::18080") {
+	if strings.Contains(body, ":::19300") || strings.Contains(body, ":::18080") || strings.Contains(body, ":::19000") {
 		t.Errorf("dashboard shows unbracketed IPv6 bind:\n%s", body)
 	}
 }

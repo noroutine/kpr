@@ -9,8 +9,9 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/config"
 )
 
-// logLicenseBanner logs the GPL short notice; serve calls it first at
-// startup so docker logs carry the warranty/refusal grant.
+// logLicenseBanner logs the GPL short notice; serve calls it right
+// after the version line at startup so docker logs carry the
+// warranty/refusal grant.
 func logLicenseBanner() {
 	log.Print(config.LicenseBanner())
 }

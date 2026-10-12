@@ -62,7 +62,9 @@ resolves container-to-container with no host publish. The compose
 stacks keep `9000:9000` commented out for exactly this reason —
 uncomment it only when an operator (or a debugging `curl`) needs
 host-side access. The quickstart and adopt snippets never publish
-it at all.
+it at all. The console's configuration card names the receiver
+bind beside the app and console ones, so the dashboard says where
+the coupling lives.
 
 Traefik never fronts the receiver: notifications from inside the
 registry container to a public URL would hairpin through TLS and

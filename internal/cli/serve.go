@@ -30,6 +30,11 @@ var serveCmd = &cobra.Command{
 	Short: "Start management console, application server, receiver, and registry edge",
 	Long:  `Start the kpr servers: console, application, the registry receiver (/events on its own port), and the transparent registry edge proxy. The edge opens only on a RelativeURLs proof; KPR_EDGE=false opts out, and a failed proof closes the edge loudly while the other servers keep running.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Identity first, then the grant: the version line opens the
+		// boot log so a scrolled docker log names the build before
+		// anything else speaks (the server goroutines below race
+		// past anything logged after their launch).
+		log.Printf("Starting %s", config.VersionString())
 		logLicenseBanner()
 		// Resolve configuration once: environment first, explicit flags
 		// win (an unset flag already carries the env value as its
