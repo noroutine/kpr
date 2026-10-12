@@ -107,6 +107,21 @@ action dependencies) exist on the mirror. `upload-artifact`/`download-artifact`
 v4+ need the GHES artifact service, which the runners lack — do not use
 them; print reports (checksums, coverage tables) to the job log instead.
 
+## Releases (push the tag — never hand-publish)
+
+A release ships by pushing its tag (`git push origin vX.Y.Z` and
+`git push gh vX.Y.Z`) and nothing else.
+`.github/workflows/release.yml` builds the GHCR multiplatform images
+and creates the GitHub release itself (draft with assets, then
+published); the Forgejo release job mirrors the tag to
+`cr.noroutine.me`. Never create, undraft, edit, or publish the
+GitHub release by hand (`gh release create/edit`, web UI included):
+releases are immutable once published, so a hand-published release
+fails the workflow run the tag push already started — and tag
+creations are restricted, so the tag cannot simply be re-pushed to
+retry. A local `make release` builds `dist/` for smoke checks only;
+its artifacts never attach to the release by hand.
+
 ## Forgejo access for agents
 
 API base is `https://nrtn.dev/api/v1`, repo is `catalyst/kpr`.
