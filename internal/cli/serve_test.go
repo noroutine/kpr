@@ -166,6 +166,13 @@ func TestServeRunServesAndStopsOnSigterm(t *testing.T) {
 	if !strings.Contains(out, "invalid port") {
 		t.Errorf("no port warning logged for KPR_MANAGEMENT_PORT=bogus:\n%s", out)
 	}
+	// Identity opens the boot log: the version line precedes the
+	// license banner, never lands mid-stream from a racing server
+	// goroutine. If this fails, a scrolled docker log names the
+	// build late.
+	if vi, li := strings.Index(out, "Starting kpr"), strings.Index(out, "Copyright"); vi < 0 || li < 0 || vi > li {
+		t.Errorf("boot order wrong (version at %d, license at %d):\n%s", vi, li, out)
+	}
 	// No "<nil>" warning: a negated nil-check logs "Warning: <nil>" on the
 	// healthy path, which must fail here.
 	if strings.Contains(out, "<nil>") {

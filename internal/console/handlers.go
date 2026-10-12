@@ -47,6 +47,10 @@ type pageData struct {
 	AppPort        string
 	// AppAddr is the bracketed host:port display form, as above.
 	AppAddr string
+	// ReceiverAddr is the same display form for the registry
+	// receiver (/events): the coupling port beside the user- and
+	// management-facing ones.
+	ReceiverAddr string
 	// AppStatusURL is the absolute /api/status link: the endpoint
 	// lives on the app server (another port), so a relative href
 	// would 404 against the console. Built off the request host —
@@ -216,6 +220,7 @@ func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {
 		AppHost:        cfg.AppHost,
 		AppPort:        strconv.Itoa(cfg.AppPort),
 		AppAddr:        bracketHost(cfg.AppHost) + ":" + strconv.Itoa(cfg.AppPort),
+		ReceiverAddr:   bracketHost(cfg.ReceiverHost) + ":" + strconv.Itoa(cfg.ReceiverPort),
 		AppStatusURL:   appStatusURL(r.Host, cfg.AppPort),
 		Obs:            obsCard(cfg),
 		Registry:       keeper.NewRegistryCard(s.Registry, st.RegistryOK, cfg.RegistryURL),
@@ -246,6 +251,8 @@ func MetricsHandler(w http.ResponseWriter, r *http.Request) {
 		"KPR_MANAGEMENT_PORT": strconv.Itoa(cfg.ManagementPort),
 		"KPR_APP_HOST":        cfg.AppHost,
 		"KPR_APP_PORT":        strconv.Itoa(cfg.AppPort),
+		"KPR_RECEIVER_HOST":   cfg.ReceiverHost,
+		"KPR_RECEIVER_PORT":   strconv.Itoa(cfg.ReceiverPort),
 		"KPR_REDIS_ADDR":      cfg.RedisAddr,
 	}
 

@@ -105,9 +105,10 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}
 
-	log.Printf("Starting %s", config.VersionString())
 	// The socket names itself: configured host, ephemeral port,
 	// injected listener — the log reads what is actually bound.
+	// (The version line already opened the boot log in serve, so a
+	// second one here would read twice.)
 	log.Printf("Management console: http://%s", listener.Addr())
 
 	// Handle graceful shutdown
