@@ -144,6 +144,36 @@ func TestServerStartServesEventsAndStopsGracefully(t *testing.T) {
 	}
 }
 
+// The startup line must name the socket it actually serves —
+// "localhost" is a lie under any other bind (dual-stack `::`,
+// a container hostname, an injected listener). If this fails,
+// the operator reads the wrong address off the boot log.
+func TestServerStartLogsBoundAddress(t *testing.T) {
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln, Store: store.NewMemStore()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logs := captureLog(t)
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
+	waitForEvents(t, "http://"+ln.Addr().String())
+
+	if want := "http://" + ln.Addr().String() + "/events"; !strings.Contains(logs.String(), want) {
+		t.Errorf("boot log lacks %q:\n%s", want, logs.String())
+	}
+	if out := logs.String(); strings.Contains(out, "localhost") {
+		t.Errorf("boot log names localhost instead of the bound address:\n%s", out)
+	}
+
+	cancel()
+	select {
+	case <-errCh:
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
+	}
+}
+
 // An unlistenable address must fail Start fast with an error, not block
 // forever or panic. If this fails, a typo'd bind address hangs `serve`
 // instead of reporting the problem.

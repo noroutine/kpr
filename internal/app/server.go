@@ -99,7 +99,9 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	log.Printf("Starting app server")
-	log.Printf("Application: http://localhost:%d", s.Port)
+	// The socket names itself: configured host, ephemeral port,
+	// injected listener — the log reads what is actually bound.
+	log.Printf("Application: http://%s", listener.Addr())
 
 	// Handle graceful shutdown
 	s.shutdownDone = make(chan struct{})
