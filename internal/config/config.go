@@ -70,14 +70,23 @@ const (
 	// default (see AppPortWarning).
 	EnvAppPort = "KPR_APP_PORT"
 
+	// EnvReceiverHost overrides the registry receiver bind address.
+	// Defaults to DefaultReceiverHost ("::", dual-stack IPv4+IPv6).
+	EnvReceiverHost = "KPR_RECEIVER_HOST"
+
+	// EnvReceiverPort overrides the registry receiver port.
+	// Defaults to DefaultReceiverPort. Invalid values fall back to
+	// the default (see ReceiverPortWarning).
+	EnvReceiverPort = "KPR_RECEIVER_PORT"
+
 	// EnvConsoleBasePath prefixes console hrefs when the management
 	// console serves under a reverse-proxy subpath (stripped prefix).
 	// Empty (the default) renders bare root-relative hrefs.
 	EnvConsoleBasePath = "KPR_CONSOLE_BASE_PATH"
 
 	// EnvAppBasePath prefixes the app front page's asset hrefs under
-	// a reverse-proxy subpath, the same way. The receiver (/events)
-	// never moves — only UI hrefs do. Empty renders bare hrefs.
+	// a reverse-proxy subpath, the same way. Empty renders bare
+	// hrefs.
 	EnvAppBasePath = "KPR_APP_BASE_PATH"
 
 	// EnvRedisAddr overrides the redis address kpr uses for TTL tracking
@@ -224,8 +233,10 @@ var EnvVars = []EnvVar{
 	{EnvManagementPort, "Management console port. Defaults to 9300; invalid values fall back to the default."},
 	{EnvAppHost, "Application server bind address. Defaults to \"::\" (dual-stack IPv4+IPv6)."},
 	{EnvAppPort, "Application server port. Defaults to 8080; invalid values fall back to the default."},
+	{EnvReceiverHost, "Registry receiver bind address. Defaults to \"::\" (dual-stack IPv4+IPv6)."},
+	{EnvReceiverPort, "Registry receiver port. Defaults to 9000; invalid values fall back to the default."},
 	{EnvConsoleBasePath, "Management console subpath prefix for hrefs (e.g. /kpr behind a stripped PathPrefix). Empty renders root-relative hrefs."},
-	{EnvAppBasePath, "Application front page subpath prefix for asset hrefs. The receiver (/events) never moves. Empty renders root-relative hrefs."},
+	{EnvAppBasePath, "Application front page subpath prefix for asset hrefs. Empty renders root-relative hrefs."},
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
 	{EnvRedisPassword, "Redis password (empty means no auth). Shown as set/unset only, never rendered."},
 	{EnvRedisDB, "Redis logical database for kpr rows. Defaults to 0; compose uses 4 (0-2 taken, 3 is the registry cache)."},
@@ -260,6 +271,8 @@ const (
 	DefaultManagementPort = 9300
 	DefaultAppHost        = "::"
 	DefaultAppPort        = 8080
+	DefaultReceiverHost   = "::"
+	DefaultReceiverPort   = 9000
 
 	// DefaultRedisAddr is the redis address used when KPR_REDIS_ADDR is
 	// unset — a bare local run with no compose stack alongside it.
@@ -336,6 +349,17 @@ type Config struct {
 	// AppPortWarning is non-nil when EnvAppPort was set but not a valid
 	// port; AppPort still falls back to DefaultAppPort.
 	AppPortWarning error
+	// ReceiverHost is EnvReceiverHost's value, or
+	// DefaultReceiverHost if unset.
+	ReceiverHost string
+	// ReceiverPort is EnvReceiverPort's parsed value, or
+	// DefaultReceiverPort if unset or invalid. See
+	// ReceiverPortWarning.
+	ReceiverPort int
+	// ReceiverPortWarning is non-nil when EnvReceiverPort was set but
+	// not a valid port; ReceiverPort still falls back to
+	// DefaultReceiverPort.
+	ReceiverPortWarning error
 	// ConsoleBasePath is EnvConsoleBasePath's normalized value, or ""
 	// when unset. Normalized to empty-or-leading-slash-no-trailing
 	// (see normalizeBasePath) so templates join hrefs by
@@ -343,7 +367,7 @@ type Config struct {
 	ConsoleBasePath string
 	// AppBasePath is EnvAppBasePath's normalized value, or "" when
 	// unset. Same shape as ConsoleBasePath, for the app front page's
-	// asset hrefs. Never the receiver path.
+	// asset hrefs only.
 	AppBasePath string
 
 	// RedisAddr is EnvRedisAddr's value, or DefaultRedisAddr if unset.
@@ -459,6 +483,8 @@ func defaultConfig() Config {
 		ManagementPort:  DefaultManagementPort,
 		AppHost:         DefaultAppHost,
 		AppPort:         DefaultAppPort,
+		ReceiverHost:    DefaultReceiverHost,
+		ReceiverPort:    DefaultReceiverPort,
 		RedisAddr:       DefaultRedisAddr,
 		RegistryURL:     DefaultRegistryURL,
 		RegistryConfig:  DefaultRegistryConfig,
@@ -549,6 +575,7 @@ func (w *DBWarning) Error() string {
 func (b *Builder) FromEnv() *Builder {
 	b.cfg.ManagementHost = envOr(EnvManagementHost, DefaultManagementHost)
 	b.cfg.AppHost = envOr(EnvAppHost, DefaultAppHost)
+	b.cfg.ReceiverHost = envOr(EnvReceiverHost, DefaultReceiverHost)
 	b.cfg.ConsoleBasePath = normalizeBasePath(os.Getenv(EnvConsoleBasePath))
 	b.cfg.AppBasePath = normalizeBasePath(os.Getenv(EnvAppBasePath))
 	b.cfg.RedisAddr = envOr(EnvRedisAddr, DefaultRedisAddr)
@@ -576,6 +603,10 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.AppPort, err = parsePort(os.Getenv(EnvAppPort), DefaultAppPort)
 	if err != nil {
 		b.cfg.AppPortWarning = err
+	}
+	b.cfg.ReceiverPort, err = parsePort(os.Getenv(EnvReceiverPort), DefaultReceiverPort)
+	if err != nil {
+		b.cfg.ReceiverPortWarning = err
 	}
 
 	b.cfg.OTELEnabled = os.Getenv(EnvOTELEnabled) == "true"
@@ -636,6 +667,8 @@ func (b *Builder) WithManagementHost(v string) *Builder { b.cfg.ManagementHost =
 func (b *Builder) WithManagementPort(v int) *Builder    { b.cfg.ManagementPort = v; return b }
 func (b *Builder) WithAppHost(v string) *Builder        { b.cfg.AppHost = v; return b }
 func (b *Builder) WithAppPort(v int) *Builder           { b.cfg.AppPort = v; return b }
+func (b *Builder) WithReceiverHost(v string) *Builder   { b.cfg.ReceiverHost = v; return b }
+func (b *Builder) WithReceiverPort(v int) *Builder      { b.cfg.ReceiverPort = v; return b }
 func (b *Builder) WithConsoleBasePath(v string) *Builder {
 	b.cfg.ConsoleBasePath = normalizeBasePath(v)
 	return b

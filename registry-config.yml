@@ -8,7 +8,7 @@
 notifications:
   endpoints:
     - name: kpr
-      url: http://kpr:8080/events
+      url: http://kpr:9000/events
       timeout: 1s
       threshold: 5
       backoff: 1s

@@ -56,7 +56,7 @@ services:
       # Host pushes land on the edge: a transparent proxy with a
       # HOLD/DENY fence, inside `serve`, default-on.
       - "5000:5000"
-      - "9300:9300"   # console; the receiver (:8080) stays internal
+      - "9300:9300"   # console; the receiver (:9000) stays internal
     environment:
       - KPR_REGISTRY_URL=http://registry:5000
       # Rows live beside the images, so the registry root is a
@@ -79,7 +79,7 @@ version: 0.1
 notifications:
   endpoints:
     - name: kpr
-      url: http://kpr:8080/events   # service name, internal network
+      url: http://kpr:9000/events   # service name, internal network
       timeout: 1s
       threshold: 5
       backoff: 1s

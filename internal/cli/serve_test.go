@@ -70,24 +70,27 @@ func waitFor(t *testing.T, url string) {
 // vars: a same-named parameter would shadow the package var and turn the
 // assignment below into a silent self-assign (which is exactly the bug
 // this comment guards against).
-func setServeAddrs(t *testing.T, mgmt, app int) {
+func setServeAddrs(t *testing.T, mgmt, app, receiver int) {
 	t.Helper()
 	oldHost, oldPort, oldAppHost, oldAppPort := managementHost, managementPort, appHost, appPort
+	oldReceiverHost, oldReceiverPort := receiverHost, receiverPort
 	managementHost, managementPort = "127.0.0.1", mgmt
 	appHost, appPort = "127.0.0.1", app
+	receiverHost, receiverPort = "127.0.0.1", receiver
 	t.Cleanup(func() {
 		managementHost, managementPort = oldHost, oldPort
 		appHost, appPort = oldAppHost, oldAppPort
+		receiverHost, receiverPort = oldReceiverHost, oldReceiverPort
 	})
 }
 
-// A full `serve` run must bring up both servers from environment-derived
-// config — warning on an unusable port value instead of dying, staying
-// silent on the healthy paths — serve traffic, and shut both down cleanly
-// on SIGTERM. If this fails, the production entrypoint (flag/env
-// layering, both listeners, graceful shutdown) is untested wiring, or an
-// error branch logs when it shouldn't (or stays silent when it should
-// warn).
+// A full `serve` run must bring up all three servers from
+// environment-derived config — warning on an unusable port value
+// instead of dying, staying silent on the healthy paths — serve
+// traffic, and shut them down cleanly on SIGTERM. If this fails,
+// the production entrypoint (flag/env layering, every listener,
+// graceful shutdown) is untested wiring, or an error branch logs
+// when it shouldn't (or stays silent when it should warn).
 func TestServeRunServesAndStopsOnSigterm(t *testing.T) {
 	t.Setenv("KPR_MANAGEMENT_PORT", "bogus") // exercises the port warning, not a failure
 	// Silence derives the file backend, which would come up healthy
@@ -95,7 +98,7 @@ func TestServeRunServesAndStopsOnSigterm(t *testing.T) {
 	// degraded banner, so point at a redis that is not there.
 	clearStoreEnv(t)
 	t.Setenv(config.EnvRedisAddr, "127.0.0.1:1")
-	setServeAddrs(t, 18231, 18232)
+	setServeAddrs(t, 18231, 18232, 18230)
 	logs := captureLog(t)
 
 	done := make(chan struct{})
@@ -128,6 +131,25 @@ func TestServeRunServesAndStopsOnSigterm(t *testing.T) {
 		got := string(raw)
 		if !strings.Contains(got, `"status":"degraded"`) || !strings.Contains(got, `"store":"unreachable"`) {
 			t.Errorf("app status = %s, want degraded/unreachable without redis", got)
+		}
+		// /events answers on the receiver's own port (accepted —
+		// the store may be down, the receiver still takes the
+		// envelope), never on the app's.
+		resp, err = testClient.Post("http://127.0.0.1:18230/events", "application/json", strings.NewReader(`{}`)) //nolint:gosec,noctx // test-only loopback
+		if err != nil {
+			t.Fatalf("POST receiver /events: %v", err)
+		}
+		drainAndClose(t, resp)
+		if resp.StatusCode != http.StatusAccepted {
+			t.Errorf("POST receiver /events = %d, want 202", resp.StatusCode)
+		}
+		resp, err = testClient.Post("http://127.0.0.1:18232/events", "application/json", strings.NewReader(`{}`)) //nolint:gosec,noctx // test-only loopback
+		if err != nil {
+			t.Fatalf("POST app /events: %v", err)
+		}
+		drainAndClose(t, resp)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("POST app /events = %d, want 404 (receiver owns this route now)", resp.StatusCode)
 		}
 	}()
 
@@ -162,7 +184,7 @@ func TestServeRunServesAndStopsOnSigterm(t *testing.T) {
 // startup outage instead of a red banner.
 func TestServeRunDegradesWithoutRedis(t *testing.T) {
 	t.Setenv("KPR_REDIS_ADDR", "127.0.0.1:1") // nothing answers on port 1
-	setServeAddrs(t, 18235, 18236)
+	setServeAddrs(t, 18235, 18236, 18238)
 	logs := captureLog(t)
 
 	done := make(chan struct{})
@@ -215,7 +237,7 @@ func TestServeRunReportsEdgeBindFailure(t *testing.T) {
 	t.Setenv("KPR_EDGE_ADDR", "127.0.0.1:18237")
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
-	setServeAddrs(t, 18235, 18236)
+	setServeAddrs(t, 18235, 18236, 18238)
 	logs := captureLog(t)
 
 	done := make(chan struct{})
@@ -246,7 +268,7 @@ func TestServeRunReportsStartupFailure(t *testing.T) {
 
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
-	setServeAddrs(t, 18234, 18233) // app port already bound above
+	setServeAddrs(t, 18234, 18233, 18239) // app port already bound above
 	logs := captureLog(t)
 
 	done := make(chan struct{})
@@ -271,12 +293,13 @@ func TestServeRunReportsStartupFailure(t *testing.T) {
 // default boots silent and the operator never learns.
 func TestServeRunWarnsEveryDegradedDefault(t *testing.T) {
 	t.Setenv("KPR_APP_PORT", "bogus")
+	t.Setenv("KPR_RECEIVER_PORT", "bogus")
 	t.Setenv("KPR_REDIS_DB", "bogus")
 	t.Setenv("KPR_TIME_METHOD", "bogus")
 	t.Setenv("KPR_EDGE", "false")
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
-	setServeAddrs(t, 18241, 18242)
+	setServeAddrs(t, 18241, 18242, 18243)
 	logs := captureLog(t)
 
 	done := make(chan struct{})
@@ -299,6 +322,11 @@ func TestServeRunWarnsEveryDegradedDefault(t *testing.T) {
 			t.Errorf("no %q warning in boot logs:\n%s", want, logs.String())
 		}
 	}
+	// Both bogus ports must warn, not just the first: one shared
+	// "invalid port" line would hide a mistyped receiver bind.
+	if n := strings.Count(logs.String(), "invalid port"); n < 2 {
+		t.Errorf("got %d invalid-port warnings, want 2 (app + receiver):\n%s", n, logs.String())
+	}
 }
 
 // A serve boot stays hermetic: with only ports set, no kpr dir
@@ -310,7 +338,7 @@ func TestServeBootLeavesNoStoreDirBehind(t *testing.T) {
 	t.Setenv("KPR_EDGE", "false")
 	t.Setenv(config.EnvStore, "file")
 	t.Setenv(config.EnvStoreDir, t.TempDir())
-	setServeAddrs(t, 18251, 18252)
+	setServeAddrs(t, 18251, 18252, 18253)
 
 	done := make(chan struct{})
 	go func() {
@@ -499,7 +527,7 @@ func TestServeRunsNoAutomaticPasses(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("KPR_STORE", "file")
 	t.Setenv("KPR_STORE_DIR", dir)
-	setServeAddrs(t, 18241, 18242)
+	setServeAddrs(t, 18241, 18242, 18243)
 
 	done := make(chan struct{})
 	go func() {

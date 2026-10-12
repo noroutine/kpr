@@ -46,7 +46,7 @@ func waitShutdown(t *testing.T, s *Server) {
 // /api/status is the machine contract for expected state: ok when
 // the store answers, degraded when it doesn't, disabled with no
 // store at all — always 200 while serving (NOK is unreachable).
-// If this fails, monitors can't tell a blind receiver from a dead
+// If this fails, monitors can't tell a blind store from a dead
 // server.
 func TestStatusHandlerReportsExpectedState(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -170,6 +170,9 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 		"/api/hello":     http.StatusNotFound,
 		"/api/data":      http.StatusNotFound,
 		"/no-such-asset": http.StatusNotFound,
+		// /events moved to the receiver's own port: the app
+		// server no longer answers it.
+		"/events": http.StatusNotFound,
 	} {
 		resp, err := testClient.Get(base + path) //nolint:gosec,noctx // test-only loopback
 		if err != nil {
@@ -201,6 +204,40 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	waitShutdown(t, s)
 	if out := logs.String(); strings.Contains(out, "shutdown error") {
 		t.Errorf("clean shutdown logged errors: %q", out)
+	}
+}
+
+// The startup line must name the socket it actually serves —
+// "localhost" is a lie under any other bind (dual-stack `::`,
+// a container hostname, an injected listener). If this fails,
+// the operator reads the wrong address off the boot log.
+func TestServerStartLogsBoundAddress(t *testing.T) {
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logs := captureLog(t)
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
+	base := "http://" + ln.Addr().String()
+	waitFor(t, base+"/")
+
+	if want := "http://" + ln.Addr().String(); !strings.Contains(logs.String(), want) {
+		t.Errorf("boot log lacks %q:\n%s", want, logs.String())
+	}
+	if out := logs.String(); strings.Contains(out, "localhost") {
+		t.Errorf("boot log names localhost instead of the bound address:\n%s", out)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
 	}
 }
 
@@ -318,9 +355,8 @@ func (failWriter) WriteHeader(int) {}
 
 // Behind a subpath reverse proxy (stripped prefix) the front page's
 // stylesheet must carry the prefix or it 404s against the outer
-// host. /events stays put regardless — only the UI href moves. If
-// this fails, the landing page is unstyled under a prefix, or the
-// receiver moved (which must never happen for a UI reason).
+// host. Only the UI href moves. If this fails, the landing page is
+// unstyled under a prefix.
 func TestIndexPagePrefixesStylesheetWithBasePath(t *testing.T) {
 	t.Cleanup(config.SetCurrent(config.NewBuilder().
 		WithAppBasePath("/app").
@@ -348,14 +384,16 @@ func TestIndexPagePrefixesStylesheetWithBasePath(t *testing.T) {
 		t.Errorf("front page lacks prefixed stylesheet href")
 	}
 
-	// The receiver never moves for UI reasons.
+	// /events is not this server's route anymore: it lives on the
+	// receiver's own port (see internal/receiver). A 200 here would
+	// mean the unbundling regressed.
 	resp2, err := testClient.Post(base+"/events", "application/json", strings.NewReader(`{}`)) //nolint:gosec,noctx // test-only loopback
 	if err != nil {
 		t.Fatalf("POST /events: %v", err)
 	}
 	drainAndClose(t, resp2)
-	if resp2.StatusCode == http.StatusNotFound {
-		t.Errorf("POST /events 404s with a base path set — the receiver moved")
+	if resp2.StatusCode != http.StatusNotFound {
+		t.Errorf("POST /events = %d, want 404 (receiver owns this route now)", resp2.StatusCode)
 	}
 }
 

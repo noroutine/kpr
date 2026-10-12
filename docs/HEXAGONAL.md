@@ -105,7 +105,7 @@ flowchart LR
 ```
 
 Humans drive `cli`, pushes drive `edge`, and the registry drives
-the `/events` receiver in `app`.
+the `/events` receiver in `receiver`.
 
 The two arrows are deliberately asymmetric. Only the right one
 names ports, because only the driven half has any — the driving
@@ -126,7 +126,7 @@ Every package, and what it may import:
 | Use cases | `keeper`, `gc`, `sweep`, `backfill`, `trust` | core + adapter packages for types |
 | Driving adapters | `cli`, `web`, `edge` | anything — `cli` is the composition root |
 | Outbound adapters | `store`, `registry`, `clock`, `otel` | `policy` only (`store`); the rest import nothing |
-| Shared wiring | `app`, `config` | `config` → `clock`; `app` → `config`, `otel`, `policy`, `store` |
+| Shared wiring | `app`, `receiver`, `config` | `config` → `clock`; `app` → `config`, `otel`, `store`; `receiver` → `config`, `otel`, `policy`, `store` |
 
 Two readings worth keeping:
 

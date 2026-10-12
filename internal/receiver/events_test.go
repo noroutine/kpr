@@ -1,4 +1,4 @@
-package app
+package receiver
 
 import (
 	"bytes"
@@ -159,6 +159,15 @@ func TestEventsHandlerSkipsTaglessPush(t *testing.T) {
 	}
 	if rows, _ := s.All(context.Background()); len(rows) != 0 {
 		t.Errorf("rows = %d, want 0 (tagless skipped)", len(rows))
+	}
+}
+
+// A nil store disables the receiver with a 503, never a panic: boot
+// degrades the same way. If this fails, an unwired receiver panics
+// on the first notification instead of refusing it.
+func TestEventsHandlerNilStoreIsUnavailable(t *testing.T) {
+	if rr := postEvents(t, nil, pushEnvelope()); rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 (receiver not configured)", rr.Code)
 	}
 }
 
