@@ -20,14 +20,15 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/event"
 	"nrtn.dev/catalyst/kpr/internal/fence"
 	"nrtn.dev/catalyst/kpr/internal/otel"
+	"nrtn.dev/catalyst/kpr/internal/receiver"
 	"nrtn.dev/catalyst/kpr/internal/registry"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Start management console, application server, and registry edge",
-	Long:  `Start the kpr servers: console, application, and the transparent registry edge proxy. The edge opens only on a RelativeURLs proof; KPR_EDGE=false opts out, and a failed proof closes the edge loudly while the other servers keep running.`,
+	Short: "Start management console, application server, receiver, and registry edge",
+	Long:  `Start the kpr servers: console, application, the registry receiver (/events on its own port), and the transparent registry edge proxy. The edge opens only on a RelativeURLs proof; KPR_EDGE=false opts out, and a failed proof closes the edge loudly while the other servers keep running.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		logLicenseBanner()
 		// Resolve configuration once: environment first, explicit flags
@@ -38,6 +39,8 @@ var serveCmd = &cobra.Command{
 			WithManagementPort(managementPort).
 			WithAppHost(appHost).
 			WithAppPort(appPort).
+			WithReceiverHost(receiverHost).
+			WithReceiverPort(receiverPort).
 			Build()
 		defer config.SetCurrent(cfg)()
 		if !cmd.Flags().Changed("management-port") && cfg.ManagementPortWarning != nil {
@@ -45,6 +48,9 @@ var serveCmd = &cobra.Command{
 		}
 		if !cmd.Flags().Changed("app-port") && cfg.AppPortWarning != nil {
 			log.Printf("Warning: %v", cfg.AppPortWarning)
+		}
+		if !cmd.Flags().Changed("receiver-port") && cfg.ReceiverPortWarning != nil {
+			log.Printf("Warning: %v", cfg.ReceiverPortWarning)
 		}
 		if cfg.RedisDBWarning != nil {
 			log.Printf("Warning: %v", cfg.RedisDBWarning)
@@ -177,6 +183,23 @@ var serveCmd = &cobra.Command{
 			addr := net.JoinHostPort(appHost, fmt.Sprintf("%d", appPort))
 			log.Printf("Starting application server on %s", addr)
 			errors <- appServer.Start(ctx)
+		}()
+
+		// Start registry receiver: /events on its own port, so
+		// topologies that must not expose registry coupling alongside
+		// user- or management-facing ports simply do not publish it.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			receiverServer := &receiver.Server{
+				Host:        receiverHost,
+				Port:        receiverPort,
+				OTELEnabled: otelCfg.Enabled,
+				Store:       keeperStore,
+			}
+			addr := net.JoinHostPort(receiverHost, fmt.Sprintf("%d", receiverPort))
+			log.Printf("Starting registry receiver on %s", addr)
+			errors <- receiverServer.Start(ctx)
 		}()
 
 		// Start edge proxy (only when proven above)

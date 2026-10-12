@@ -17,7 +17,7 @@ kpr
 ├── gc                        garbage-collect (dry-run default)
 ├── store ls|inspect|rm|status rows, plus lock|unlock|adopt|backfill
 ├── registry analyze|ls       catalog reads
-├── serve                     edge + console + app
+├── serve                     edge (:5000) + console (:9300) + app (:8080) + receiver (:9000)
 ├── env                       effective KPR_* variables
 └── license                   print the GPLv3 license
 ```

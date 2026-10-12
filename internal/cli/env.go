@@ -44,6 +44,10 @@ func envValue(cfg *config.Config, name string) string {
 		return cfg.AppHost
 	case config.EnvAppPort:
 		return strconv.Itoa(cfg.AppPort)
+	case config.EnvReceiverHost:
+		return cfg.ReceiverHost
+	case config.EnvReceiverPort:
+		return strconv.Itoa(cfg.ReceiverPort)
 	case config.EnvRedisAddr:
 		return cfg.RedisAddr
 	case config.EnvRedisDB:

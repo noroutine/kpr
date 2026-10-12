@@ -16,11 +16,11 @@ import (
 // Must stay in sync with docs/CONFIG.md#adding-a-new-env-var.
 func TestNewBuilderDefaults(t *testing.T) {
 	cfg := NewBuilder().Build()
-	if cfg.ManagementHost != "::" || cfg.AppHost != "::" {
-		t.Errorf("hosts = %q/%q, want ::/::", cfg.ManagementHost, cfg.AppHost)
+	if cfg.ManagementHost != "::" || cfg.AppHost != "::" || cfg.ReceiverHost != "::" {
+		t.Errorf("hosts = %q/%q/%q, want ::/::/::", cfg.ManagementHost, cfg.AppHost, cfg.ReceiverHost)
 	}
-	if cfg.ManagementPort != 9300 || cfg.AppPort != 8080 {
-		t.Errorf("ports = %d/%d, want 9300/8080", cfg.ManagementPort, cfg.AppPort)
+	if cfg.ManagementPort != 9300 || cfg.AppPort != 8080 || cfg.ReceiverPort != 9000 {
+		t.Errorf("ports = %d/%d/%d, want 9300/8080/9000", cfg.ManagementPort, cfg.AppPort, cfg.ReceiverPort)
 	}
 	if cfg.RedisAddr != "localhost:6379" {
 		t.Errorf("RedisAddr = %q, want localhost:6379", cfg.RedisAddr)
@@ -56,6 +56,8 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	t.Setenv(EnvManagementPort, "19300")
 	t.Setenv(EnvAppHost, "127.0.0.1")
 	t.Setenv(EnvAppPort, "18080")
+	t.Setenv(EnvReceiverHost, "127.0.0.1")
+	t.Setenv(EnvReceiverPort, "19000")
 	t.Setenv(EnvRedisAddr, "redis:6379")
 	t.Setenv(EnvRedisPassword, "s3cret")
 	t.Setenv(EnvRedisDB, "4")
@@ -75,6 +77,9 @@ func TestFromEnvResolvesEveryVar(t *testing.T) {
 	}
 	if cfg.AppHost != "127.0.0.1" || cfg.AppPort != 18080 {
 		t.Errorf("app = %s:%d", cfg.AppHost, cfg.AppPort)
+	}
+	if cfg.ReceiverHost != "127.0.0.1" || cfg.ReceiverPort != 19000 {
+		t.Errorf("receiver = %s:%d", cfg.ReceiverHost, cfg.ReceiverPort)
 	}
 	if cfg.RedisAddr != "redis:6379" {
 		t.Errorf("RedisAddr = %q", cfg.RedisAddr)
@@ -222,6 +227,7 @@ func TestFromEnvBadPortFallsBackWithWarning(t *testing.T) {
 	for _, raw := range []string{"notaport", "0", "-1", "65536", "9300junk"} {
 		t.Setenv(EnvManagementPort, raw)
 		t.Setenv(EnvAppPort, raw)
+		t.Setenv(EnvReceiverPort, raw)
 		cfg := NewBuilder().FromEnv().Build()
 		if cfg.ManagementPort != DefaultManagementPort {
 			t.Errorf("raw %q: management port = %d, want default %d", raw, cfg.ManagementPort, DefaultManagementPort)
@@ -229,7 +235,10 @@ func TestFromEnvBadPortFallsBackWithWarning(t *testing.T) {
 		if cfg.AppPort != DefaultAppPort {
 			t.Errorf("raw %q: app port = %d, want default %d", raw, cfg.AppPort, DefaultAppPort)
 		}
-		if cfg.ManagementPortWarning == nil || cfg.AppPortWarning == nil {
+		if cfg.ReceiverPort != DefaultReceiverPort {
+			t.Errorf("raw %q: receiver port = %d, want default %d", raw, cfg.ReceiverPort, DefaultReceiverPort)
+		}
+		if cfg.ManagementPortWarning == nil || cfg.AppPortWarning == nil || cfg.ReceiverPortWarning == nil {
 			t.Errorf("raw %q: no warning recorded", raw)
 		} else if !strings.Contains(cfg.ManagementPortWarning.Error(), raw) {
 			t.Errorf("raw %q: warning %q does not name the value", raw, cfg.ManagementPortWarning)
@@ -246,6 +255,8 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 		WithManagementPort(1).
 		WithAppHost("h2").
 		WithAppPort(2).
+		WithReceiverHost("h3").
+		WithReceiverPort(3).
 		WithRedisAddr("r:1").
 		WithRedisPassword("pw").
 		WithRedisDB(4).
@@ -270,6 +281,9 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 	}
 	if cfg.AppHost != "h2" || cfg.AppPort != 2 {
 		t.Errorf("app = %s:%d", cfg.AppHost, cfg.AppPort)
+	}
+	if cfg.ReceiverHost != "h3" || cfg.ReceiverPort != 3 {
+		t.Errorf("receiver = %s:%d", cfg.ReceiverHost, cfg.ReceiverPort)
 	}
 	if cfg.RedisAddr != "r:1" || cfg.RedisPassword != "pw" || cfg.RedisDB != 4 || !cfg.OTELEnabled || cfg.OTLPEndpoint != "e:1" {
 		t.Errorf("backend/otel = %q/%q/%d/%v/%q", cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.OTELEnabled, cfg.OTLPEndpoint)
@@ -349,6 +363,7 @@ func TestSetCurrentRestoresPrevious(t *testing.T) {
 func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
+		EnvReceiverHost, EnvReceiverPort,
 		EnvConsoleBasePath, EnvAppBasePath,
 		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
 		EnvRegistryURL, EnvRegistryUser, EnvRegistryPassword,

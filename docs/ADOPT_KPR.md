@@ -41,7 +41,7 @@ flowchart LR
 Two wires and a volume:
 
 1. **Registry → kpr.** Push notifications to the receiver at
-   `POST http://kpr:8080/events`. The registry container reaches kpr
+   `POST http://kpr:9000/events`. The registry container reaches kpr
    by service name on a shared Docker network.
 2. **kpr → registry.** Catalog reads for `reap`, and manifest
    deletes by digest for the sweeper. Needs
@@ -74,7 +74,7 @@ server-side:
 notifications:
   endpoints:
     - name: kpr
-      url: http://kpr:8080/events   # service name on the shared network
+      url: http://kpr:9000/events   # service name on the shared network
       timeout: 1s
       threshold: 5
       backoff: 1s
@@ -90,7 +90,7 @@ http:
 
 Three things to get right:
 
-- **`url` resolves from the registry container.** `http://kpr:8080`
+- **`url` resolves from the registry container.** `http://kpr:9000`
   means "a container named `kpr` on our shared network" — not
   Traefik, and not `localhost`, which is the registry container
   itself.
@@ -142,10 +142,12 @@ Make sure the registry service drops its own `ports:` entry for
 run as the **same uid**, since they share the blob store. `user:
 "1000:1000"` on both is the simple answer.
 
-`KPR_APP_PORT` (receiver, default `8080`) and
+`KPR_APP_PORT` (landing page + status, default `8080`),
+`KPR_RECEIVER_PORT` (registry webhook, default `9000`), and
 `KPR_MANAGEMENT_PORT` (console, default `9300`) only matter if
 those ports collide on your network. Full wiring reference:
-[CONFIG.md](CONFIG.md).
+[CONFIG.md](CONFIG.md), receiver topology in
+[RECEIVER.md](RECEIVER.md).
 
 ## Step 3 — Traefik, if you use it
 

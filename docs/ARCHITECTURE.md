@@ -37,7 +37,8 @@ flowchart LR
     subgraph serve["<b>kpr serve</b> · long-running"]
       direction TB
       edge{{"<b>edge proxy</b> :5000<br/>forwards byte-identical<br/>HOLD / DENY fence"}} ~~~
-      recv{{"<b>receiver</b> :8080<br/>push records · delete drops"}} ~~~
+      recv{{"<b>receiver</b> :9000<br/>push records · delete drops"}} ~~~
+      app["<b>app</b> :8080<br/>landing · status"] ~~~
       console["<b>console</b> :9300<br/>counters · plan · activity"]
     end
 

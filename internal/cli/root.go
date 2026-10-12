@@ -13,6 +13,8 @@ var (
 	managementPort int
 	appHost        string
 	appPort        int
+	receiverHost   string
+	receiverPort   int
 )
 
 // RootCmd is the root command for kpr
@@ -57,6 +59,11 @@ func init() {
 	// Application server flags
 	RootCmd.PersistentFlags().StringVar(&appHost, "app-host", defaults.AppHost, "Application server host")
 	RootCmd.PersistentFlags().IntVar(&appPort, "app-port", defaults.AppPort, "Application server port")
+
+	// Registry receiver flags (registry coupling only — see
+	// docs/RECEIVER.md)
+	RootCmd.PersistentFlags().StringVar(&receiverHost, "receiver-host", defaults.ReceiverHost, "Registry receiver host")
+	RootCmd.PersistentFlags().IntVar(&receiverPort, "receiver-port", defaults.ReceiverPort, "Registry receiver port")
 
 	// Subpackaged commands register here; each owns its flags,
 	// help, and RunE behind its exported Cmd.

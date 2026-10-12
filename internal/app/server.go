@@ -17,8 +17,8 @@ type Server struct {
 	Host        string
 	Port        int
 	OTELEnabled bool
-	// Store backs the notification receiver. Nil disables /events
-	// (503); production always wires the redis store.
+	// Store backs /api/status. Nil renders it unbacked (but
+	// still 200); production always wires the keeper store.
 	Store store.Store
 	// Listener, when non-nil, serves on it instead of listening on
 	// Host:Port. Tests inject a loopback listener on an ephemeral port;
@@ -44,10 +44,10 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Serve index.html at root, templated with the app base path so
 	// the stylesheet href survives a stripped subpath prefix. Routes
-	// stay put — /events never moves for a UI reason. The template
-	// parses once at init (a broken embed fails the boot, not each
-	// request); the only per-request failure left is the execute,
-	// which a static page with one string key never produces.
+	// stay put — only UI hrefs move. The template parses once at
+	// init (a broken embed fails the boot, not each request); the
+	// only per-request failure left is the execute, which a static
+	// page with one string key never produces.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			renderIndex(w, config.Current().AppBasePath)
@@ -60,8 +60,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// landing page carries no state.
 	mux.HandleFunc("/api/status", StatusHandler(s.Store))
 
-	// Distribution notification receiver (-> tracked rows).
-	mux.HandleFunc("/events", EventsHandler(s.Store))
+	// /events lives on the receiver's own port (see
+	// internal/receiver): this server answers landing page and
+	// status only.
 
 	// Count every served request for the console's request metric,
 	// then the OTEL middleware if enabled. RequestTelemetry sits

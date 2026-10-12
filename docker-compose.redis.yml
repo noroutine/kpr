@@ -16,6 +16,7 @@ services:
     ports:
       - "8080:8080"   # Application server
       - "9300:9300"   # Management console
+      - "9000:9000"   # Registry receiver (/events)
       # The registry's old edge: kpr fronts :5000 now (RelativeURLs
       # proof gates it at open — absolute backend Locations close
       # it loudly, never a boot refusal).
@@ -28,6 +29,11 @@ services:
       - "KPR_MANAGEMENT_PORT=9300"
       - "KPR_APP_HOST=::"
       - "KPR_APP_PORT=8080"
+      # Registry receiver (registry coupling only — see
+      # docs/RECEIVER.md): published above, reachable by the
+      # registry as http://kpr:9000/events.
+      - "KPR_RECEIVER_HOST=::"
+      - "KPR_RECEIVER_PORT=9000"
       # Edge proxy listen address (default :5000, said out loud:
       # this port used to belong to the registry below).
       - "KPR_EDGE_ADDR=:5000"

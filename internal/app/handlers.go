@@ -11,26 +11,28 @@ import (
 
 var (
 	// apiRequestCount is every request the app server serves (status
-	// page, receiver) — the console's request metric. The
-	// template's per-mock-endpoint counting is gone with the mocks.
+	// page, landing page) — the console's request metric. The
+	// receiver counts nothing here: it serves its own port (see
+	// internal/receiver). The template's per-mock-endpoint counting
+	// is gone with the mocks.
 	apiRequestCount uint64
 )
 
-// StatusResponse is the GET /api/status body: the receiver's
-// expected state as the app server sees it. "ok" serves fully,
-// "degraded" serves with a blind receiver (store unreachable —
-// boot degrades the same way), and anything else is NOK (the
-// server itself unreachable). Machines read this; the landing
-// page carries no state.
+// StatusResponse is the GET /api/status body: the app's expected
+// state as the app server sees it. "ok" serves fully, "degraded"
+// serves with a blind store (store unreachable — boot degrades the
+// same way), and anything else is NOK (the server itself
+// unreachable). Machines read this; the landing page carries no
+// state.
 type StatusResponse struct {
 	Status string `json:"status"`
 	Store  string `json:"store"`
 }
 
-// StatusHandler serves GET /api/status for the given receiver
-// store. A nil store means the receiver is disabled; a Ping failure
-// means the store is unreachable. Both stay 200: the state rides
-// the body, not the code.
+// StatusHandler serves GET /api/status for the given store. A nil
+// store means the status is unbacked; a Ping failure means the
+// store is unreachable. Both stay 200: the state rides the body,
+// not the code.
 func StatusHandler(st store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		response := StatusResponse{Status: "ok", Store: "disabled"}
