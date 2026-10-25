@@ -14,6 +14,10 @@ covers, and the gates each must pass.
 - [CI Integration](#ci-integration)
 - [Mutation testing](#mutation-testing)
 - [End-to-end scenarios (`test/e2e`, `e2e` build tag)](#end-to-end-scenarios-teste2e-e2e-build-tag)
+  - [Running it](#running-it)
+  - [Fixtures](#fixtures)
+  - [What is covered](#what-is-covered)
+  - [Not yet covered](#not-yet-covered)
 
 ## Quick Start
 
@@ -310,10 +314,19 @@ themselves). A small scenario DSL (`scenario.go`: `Push`, `ReapArmed`,
 path, never a copy. `PushedAt` is backdated instead of sleeping on a
 clock, so scenarios stay fast and deterministic.
 
+### Running it
+
 ```bash
 just e2e            # or: make e2e
 go test -race -tags e2e ./test/e2e/ -count=1 -v   # the long form
 ```
+
+Local and manual, never per-push CI: e2e needs a docker daemon and
+pulls real images (`redis:8-alpine`, `registry:3`, plus the toolbox
+build), so it stays out of the fast gate by design. The same `-race`
+rules as the unit suite apply. `coverage-e2e` (see
+[Coverage](#coverage)) runs both suites with `-coverpkg` and unions
+them; that union, not either number alone, is the 90% bar.
 
 Two rules carry over from the fixture days:
 
@@ -323,39 +336,56 @@ Two rules carry over from the fixture days:
 - Every fixture address comes from the container runtime (mapped
   ports) — never hardcoded `localhost`.
 
-Covered so far: TTL expiry, keep-N retention, stale-upload
-tag-fallback, untagged-after-grace, a seven-client push matrix
-(ggcr, crane, docker daemon, regclient, oras typed artifacts,
-skopeo copy, podman), multi-arch index sweeps, referrer
-precision (an expired signature artifact sweeps while its subject
-stays listed and fetchable), the sentinel round-trip
-(write layout → API read → repoint serves fresh) and keep-N over
-generations (twelve mints → two marked → swept, ten survivors,
-floater serving newest), the lineage verdict matrix live
-(establish on silence, foreign refuses then `adopt` heals,
-rollback heals via `adopt --gen`, sweeper skips foreign
-dry-run), and the lock gate (`unlock` opens, unshared refuses).
-The edge fence (`test/e2e/edge_test.go`, same harness): locked
-manifest PUT/DELETE refuse 423 naming the remedy — even for tags
-that don't exist — while reads stay byte-identical to direct and
-blob uploads pass; unlocking forwards PUT (201), DELETE (202),
-and reads; an armed collect holds a concurrent PUT (held, then
-201 after release) while a preview never engages the fence.
-Clock checks run against a hermetic `httptest` time server —
-never the real network.
+### Fixtures
+
+One hermetic backend pair per test (`fixture.go`), cleaned up
+automatically; two variants:
+
+- `NewFixture` — redis + registry, endpoints read off the running
+  containers (host, mapped port, container-IP direct address,
+  loopback). The registry's delete stays enabled, the redis tenancy
+  mirrors the dev stack (rows on DB 4, e2e-only password).
+- `NewStorageFixture` — the same pair plus the registry's storage
+  directory on the host, for mount-reading use cases (backfill
+  reasons over the layout, not the API).
+
+`TestMain` builds the toolbox container once per package run
+(`testdata/toolbox`: oras, skopeo, and friends) — every scenario
+shares that one drawer of client binaries. Every backend round-trip
+is bounded (30s), so a hung container fails the scenario instead of
+the suite; clock checks run against a hermetic `httptest` time
+server — never the real network, never `zeitstempel.dfn.de`.
+
+### What is covered
+
+| Area | Proves (against real containers) | File |
+|---|---|---|
+| Retention policies | TTL expiry, keep-N, commit-hash suffix, stale-upload tag-fallback, untagged-after-grace | `policies_test.go` |
+| OCI shapes | multi-arch index sweeps; referrer precision (expired signature sweeps, subject stays fetchable) | `oci_test.go` |
+| Ghost rows | a row whose tag vanished converges instead of lingering | `ghosts_test.go` |
+| Push clients | ggcr, crane, docker daemon, regclient, oras, skopeo, podman — the same tag tracked the same way | `clients_test.go`, `clients.go` |
+| Edge fence | locked PUT/DELETE refuse 423 naming the remedy, reads byte-identical, uploads pass; armed collect HOLDS a concurrent PUT, preview never engages | `edge_test.go` |
+| Lock gates | `unlock` opens; an unshared registry refuses | `lock_test.go` |
+| Lineage live | establish on silence, foreign refuses then `adopt` heals, rollback heals via `adopt --gen`, sweeper skips foreign dry-run | `lineage_test.go` |
+| Sentinels | layout→API round-trip, repoint serves fresh, keep-N over generations (twelve mints → ten survivors), probe modes | `sentinel_dynamic_test.go`, `sentinel_keepn_test.go`, `sentinel_test.go` |
+| Backfill | pre-kpr tags adopt (digests filled from the layout); sentinel floaters never backfilled newer | `backfill_test.go` |
+| Store contracts | redis + file contract suites under containers, lease fencing moves the gate | `backend_test.go` |
+| GC prune | collection survives pruning the layout underneath | `gc_prune_test.go` |
 
 Client homes: Go-library clients (ggcr, crane, regclient) run
-in-process. Binary-only clients (oras, skopeo) run in one toolbox
-container (`testdata/toolbox`, built once per package run by
-TestMain) that reaches fixtures by container IP — no host binary
+in-process. Binary-only clients (oras, skopeo) run in the toolbox
+container and reach fixtures by container IP — no host binary
 needed, no port forwards involved. The docker CLI must stay
 host-bound (pushes originate inside the daemon): it skips on Docker
 Desktop (macOS/Windows), where the daemon's localhost cannot reach
-fixture ports — native Linux daemons, CI included, run it. Podman
-is daemonless so it shares the test's viewpoint; it runs wherever
-the binary is present and ready, and skips otherwise.
+fixture ports — native Linux daemons run it. Podman is daemonless
+so it shares the test's viewpoint; it runs wherever the binary is
+present and ready, and skips otherwise.
 
-Not yet covered: the receiver-notification path (scenarios record the
-row the receiver would track; a serve-booting scenario asserting
-push → notification → row is the next slice), the registry
-blobdescriptor cache on shared redis, and offline GC.
+### Not yet covered
+
+- The receiver-notification path: scenarios record the row the
+  receiver would track; a serve-booting scenario asserting
+  push → notification → row is the next slice.
+- The registry blobdescriptor cache on shared redis.
+- Offline GC (collector against a stopped registry's volume).
