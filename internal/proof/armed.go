@@ -21,7 +21,7 @@ type armedRun struct {
 }
 
 func (a armedRun) Source() string { return a.source }
-func (a armedRun) sealed()        {}
+func (a armedRun) sealed()        { return }
 
 // armedFromFlag builds intent from an explicit --no-dry-run.
 // Unexported on purpose: intent is produced by the Arm prover

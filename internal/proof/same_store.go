@@ -53,7 +53,7 @@ type sameStore struct {
 func (p sameStore) Generation() string { return p.gen }
 func (p sameStore) Identity() string   { return p.id }
 func (p sameStore) Stale() bool        { return p.stale }
-func (p sameStore) sealed()            {}
+func (p sameStore) sealed()            { return }
 
 // Prover reads same-store proof. Sentinel is the served side, Store
 // the paired side; Armed decides whether the read may establish

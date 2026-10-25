@@ -116,9 +116,12 @@ stale-fd close), and the `tabwriter` error bodies in the ls
 renderers (`registry ls`, `store ls`, ghosts long/short
 headers+rows — `tabwriter` buffers everything until `Flush`, so
 an intermediate write never fails; only `Flush` and direct-`w`
-writes carry error pins). The proof `sealed()` witnesses sit at
-0% by construction — uncallable except by their prover, which is
-the property. The `EffectiveTTL` non-zero-default branch is dead
+writes carry error pins). The proof `sealed()` witnesses read as
+covered only by construction of the metric: an empty body is 0
+coverable statements (0.0% even when executed), so the bodies
+carry `return` and one white-box test executes each seal once —
+uncallability from outside the package is the property, the
+statement makes the profile see it. The `EffectiveTTL` non-zero-default branch is dead
 by `const`, not by neglect (pinned by the NOTE in
 `policy_test.go`; flipping the const re-arms it the same day).
 Staging `t.Fatalf` guards (`ProvenRun`/`NewGenID`/`PairedGen`)

@@ -17,6 +17,16 @@ linters:
     - staticcheck
     - unused
     - misspell
+  exclusions:
+    rules:
+      # The proof sealed() witnesses carry `return` on purpose: an
+      # empty body is 0 coverable statements (0.0% even when
+      # executed), so the "redundant" return is the load-bearing
+      # coverage signal. Scoped to that one check in that package.
+      - path: 'internal/proof/.*\.go$'
+        linters:
+          - staticcheck
+        text: 'S1023'
 
 formatters:
   enable:

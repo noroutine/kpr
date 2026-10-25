@@ -20,7 +20,7 @@ type AcceptedRisk interface {
 // acceptedRisk is the sole implementation.
 type acceptedRisk struct{}
 
-func (acceptedRisk) sealed() {}
+func (acceptedRisk) sealed() { return }
 
 // acceptedRiskFromFlag builds acceptance from an explicit
 // --accept-* flag, granted only to an already-armed
