@@ -20,7 +20,7 @@ type UnlockedStore interface {
 
 type unlockedStore struct{}
 
-func (unlockedStore) sealed() {}
+func (unlockedStore) sealed() { return }
 
 // Locker reports the marker; store.Store satisfies it
 // structurally, so the use case names only what it reads.

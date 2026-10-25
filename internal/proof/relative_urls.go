@@ -30,7 +30,7 @@ type RelativeURLs interface {
 
 type relativeURLs struct{}
 
-func (relativeURLs) sealed() {}
+func (relativeURLs) sealed() { return }
 
 // ProveRelativeURLs reads the mounted registry config — the
 // same file gc resolves store paths from — and produces only when

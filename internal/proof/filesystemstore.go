@@ -25,7 +25,7 @@ type filesystemStore struct {
 }
 
 func (p filesystemStore) Root() string { return p.root }
-func (filesystemStore) sealed()        {}
+func (filesystemStore) sealed()        { return }
 
 // ProveFilesystemStore reads the storage driver the registry was
 // configured with and produces only for a filesystem root. Anything

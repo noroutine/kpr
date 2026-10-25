@@ -17,7 +17,7 @@ type BoundedClock interface {
 
 type boundedClock struct{}
 
-func (boundedClock) sealed() {}
+func (boundedClock) sealed() { return }
 
 // Checker proves the clock bound once per run. Refusals pass
 // through untouched — clock.Check's own contract (skew refuses,

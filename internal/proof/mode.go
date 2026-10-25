@@ -15,7 +15,7 @@ type RegistryReadonly interface {
 
 type registryReadonly struct{}
 
-func (registryReadonly) sealed() {}
+func (registryReadonly) sealed() { return }
 
 // RegistryWritable is a classified registry that takes writes: the
 // probe answered 202. Sealed like every evidence: the only
@@ -26,7 +26,7 @@ type RegistryWritable interface {
 
 type registryWritable struct{}
 
-func (registryWritable) sealed() {}
+func (registryWritable) sealed() { return }
 
 // Initiator performs one upload-initiate round trip against the
 // peer: POST, best-effort DELETE of our own upload on 202, and

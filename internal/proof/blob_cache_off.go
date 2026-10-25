@@ -26,7 +26,7 @@ type BlobCacheOff interface {
 
 type blobCacheOff struct{}
 
-func (blobCacheOff) sealed() {}
+func (blobCacheOff) sealed() { return }
 
 // Unreadable marks a registry config the prover could not read
 // or parse: broken input, not a missing proof. Acceptance cannot

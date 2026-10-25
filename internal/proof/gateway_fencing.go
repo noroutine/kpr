@@ -23,7 +23,7 @@ type GatewayFencingAvailable interface {
 
 type gatewayFencing struct{}
 
-func (gatewayFencing) sealed() {}
+func (gatewayFencing) sealed() { return }
 
 // NOTE(mutants): timeout arithmetic is equivalent — no test
 // distinguishes a 2s dial from a 3s one, and none should.

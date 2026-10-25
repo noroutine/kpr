@@ -22,7 +22,7 @@ type FreshGeneration interface {
 type freshGeneration struct{ gen string }
 
 func (f freshGeneration) Gen() string { return f.gen }
-func (f freshGeneration) sealed()     {}
+func (f freshGeneration) sealed()     { return }
 
 // MintedGeneration names the generation just minted, written,
 // and read back. Call it at the mint site and nowhere else.
