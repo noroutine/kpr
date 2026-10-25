@@ -3,6 +3,7 @@ package gc
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -172,7 +173,9 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	}
 	failOutput := func(werr error) error {
 		killCollector(cmd)
-		<-waitErr
+		// Join, don't drain: how the child ended rides along — the
+		// output failure is usually its downstream echo.
+		werr = errors.Join(werr, <-waitErr)
 		_ = reader.Close()
 		return fail(report, started, fmt.Errorf("collector output: %w", werr))
 	}
@@ -202,9 +205,9 @@ func runCollector(ctx context.Context, out io.Writer, binPath string, args []str
 	}
 	if cancelled {
 		_ = reader.Close()
-		<-waitErr
+		waitErr := <-waitErr
 		event.Emit(report, event.Timed(stageStopped, started))
-		return ctx.Err()
+		return errors.Join(ctx.Err(), waitErr)
 	}
 	// The child is dead and every write end is closed, so the
 	// scanner reaches EOF on its own: drain everything before

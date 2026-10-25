@@ -170,7 +170,10 @@ func TestServerStartLogsBoundAddress(t *testing.T) {
 
 	cancel()
 	select {
-	case <-errCh:
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
 	}
