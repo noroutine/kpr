@@ -38,10 +38,7 @@ type Server struct {
 
 // Start starts the application HTTP server on port 8080
 func (s *Server) Start(ctx context.Context) error {
-	assets, err := staticFS()
-	if err != nil {
-		return fmt.Errorf("app static files: %w", err)
-	}
+	assets := staticFS()
 	mux := http.NewServeMux()
 
 	// Built SPA shell at root, hashed assets under /_app/.

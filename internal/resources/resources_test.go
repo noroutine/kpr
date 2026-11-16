@@ -582,6 +582,86 @@ spec:
 	}
 }
 
+// A CA file that parses to zero certificates refuses the
+// bundle naming it: an empty trust pool verifies nothing,
+// which must never pass as configured. If this fails, a
+// hollow CA file files a bundle with no trust.
+func TestMaterializeRefusesCertlessCA(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "empty.pem"), []byte("not a pem block\n"))
+	writeFile(t, filepath.Join(dir, "b.yaml"), []byte(`apiVersion: kpr/v1alpha1
+kind: TLSBundle
+metadata:
+  name: hollow
+spec:
+  caFile: `+filepath.Join(dir, "empty.pem")+`
+`))
+	if _, err := Load(dir); err == nil {
+		t.Error("hollow CA filed, want a refusal")
+	} else if !strings.Contains(err.Error(), "hollow") {
+		t.Errorf("refusal = %v, want the bundle named", err)
+	}
+}
+
+// A working directory that vanishes mid-boot refuses the
+// resolve instead of loading from nowhere: Abs fails when
+// getwd has nothing to return. The process chdirs into a
+// scratch dir, deletes it, and restores on the way out —
+// hermetic because no test in this package runs parallel,
+// and the dir comes back before any other test needs CWD.
+// If this fails, a deleted CWD boots on the wrong tree.
+func TestLoadRefusesVanishedWorkdir(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("restore CWD: %v", err)
+		}
+	}()
+	if err := os.Remove(dir); err != nil {
+		t.Skipf("cannot remove CWD here: %v", err)
+	}
+	if _, err := Load("."); err == nil {
+		t.Error("Load from a vanished dir succeeded, want a refusal")
+	}
+}
+
+// A symlink loop in place of the dir refuses instead of
+// hanging the walk: EvalSymlinks fails where Stat sees
+// through. If this fails, a cyclic mount stalls the boot.
+func TestLoadRefusesSymlinkLoop(t *testing.T) {
+	dir := t.TempDir()
+	loop := filepath.Join(dir, "loop")
+	if err := os.Symlink(loop, loop); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if _, err := Load(loop); err == nil {
+		t.Error("Load through a symlink loop succeeded, want a refusal")
+	}
+}
+
+// A dangling symlink where a bundle file should be refuses
+// with the path: Stat follows the link and fails, and the
+// error names the entry instead of vanishing it. If this
+// fails, a dead link drops its bundle silently.
+func TestLoadRefusesDanglingSymlink(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(dir, "ghost.pem"), filepath.Join(dir, "b.yaml")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if _, err := Load(dir); err == nil {
+		t.Error("Load with a dangling entry succeeded, want a refusal")
+	} else if !strings.Contains(err.Error(), "b.yaml") {
+		t.Errorf("refusal = %v, want the entry named", err)
+	}
+}
+
 // Two broken bundles refuse with the alphabetically first
 // name, every run: compile walks the sorted entries, never
 // the map order. If this fails, a multi-broken dir names a

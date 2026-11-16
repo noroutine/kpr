@@ -136,6 +136,52 @@ func TestCollectBundlesMatrix(t *testing.T) {
 	}
 }
 
+// A ghost serving bundle refuses the command instead of
+// printing an https card it cannot back: the refusal names
+// the bundle. If this fails, a typo'd name prints fiction.
+func TestStatusBundlesRefusesGhostServingBundle(t *testing.T) {
+	dir := bundleDir(t)
+	cfg := config.NewBuilder().WithConfigDir(dir).WithTLSBundle("ghost").Build()
+	if _, err := collectBundles(cfg); err == nil {
+		t.Error("ghost serving bundle collected, want a refusal")
+	} else if !strings.Contains(err.Error(), "ghost") {
+		t.Errorf("refusal = %v, want the bundle named", err)
+	}
+	// The command surfaces the same refusal instead of
+	// swallowing it into usage text. If this fails, the CLI
+	// hides the reason serve would refuse on.
+	t.Setenv(config.EnvConfigDir, dir)
+	t.Setenv(config.EnvTLSBundle, "ghost")
+	if err := statusBundlesCmd.RunE(statusBundlesCmd, nil); err == nil {
+		t.Error("RunE with a ghost bundle returned nil, want the refusal")
+	}
+}
+
+// A broken config dir refuses instead of printing guesses: a
+// file that will not parse is a refusal, never an empty
+// section. If this fails, a broken edit reads as "no bundles".
+func TestCollectBundlesRefusesBrokenDir(t *testing.T) {
+	dir := t.TempDir()
+	writePair(t, dir, "bad.yaml", []byte("not: [valid\n"))
+	cfg := config.NewBuilder().WithConfigDir(dir).Build()
+	if _, err := collectBundles(cfg); err == nil {
+		t.Error("broken dir collected, want a refusal")
+	}
+}
+
+// A failing writer surfaces the write error instead of
+// half a table: half a bundles section must not read as
+// complete. If this fails, truncated output passes silently.
+func TestStatusBundlesCommandReportsWriteError(t *testing.T) {
+	dir := bundleDir(t)
+	t.Setenv(config.EnvConfigDir, dir)
+	statusBundlesCmd.SetOut(errWriter{})
+	defer statusBundlesCmd.SetOut(nil)
+	if err := statusBundlesCmd.RunE(statusBundlesCmd, nil); err == nil {
+		t.Error("RunE with a failing writer returned nil, want the write error")
+	}
+}
+
 // The command renders text lines by default and the bundle model
 // as JSON with --json: machines read the cards verbatim. If this
 // fails, scripts parse prose or the text drifts from the model.

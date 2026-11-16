@@ -13,9 +13,13 @@ var staticFiles embed.FS
 // staticFS is the embedded SvelteKit build output (see
 // web/app, copied by `just web-build`): one static export,
 // no server rendering — the page fetches /api/status at
-// runtime, so the bundle carries no build-time data.
-func staticFS() (fs.FS, error) {
-	return fs.Sub(staticFiles, "static")
+// runtime, so the bundle carries no build-time data. The
+// embed directive guarantees the subtree at compile time (a
+// missing dir fails the build, not the boot), so there is
+// no error to return.
+func staticFS() fs.FS {
+	fsys, _ := fs.Sub(staticFiles, "static")
+	return fsys
 }
 
 // indexHandler serves the built SPA shell. A dying connection

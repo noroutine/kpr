@@ -139,6 +139,30 @@ func TestOverviewObsLinks(t *testing.T) {
 	}
 }
 
+// A configured dir names the snapshot source on the model:
+// dir or unconfigured, the page voices where the bundles
+// came from. If this fails, the overview hides a configured
+// source.
+func TestOverviewNamesConfiguredSource(t *testing.T) {
+	t.Cleanup(config.SetCurrent(config.NewBuilder().WithConfigDir("/etc/kpr/resources").Build()))
+	out := getOverview(t, &Server{})
+	if out.Source != "KPR_CONFIG_DIR=/etc/kpr/resources" {
+		t.Errorf("source = %q, want the configured dir", out.Source)
+	}
+}
+
+// A client that goes away mid-encode must not 500 the model:
+// the encode error is logged and the handler returns. If this
+// fails, one gone client wedges the overview goroutine.
+func TestOverviewHandlerLogsEncodeFailure(t *testing.T) {
+	testConfig(t)
+	logs := captureLog(t)
+	(&Server{}).overviewHandler(failWriter{}, httptest.NewRequest(http.MethodGet, "/api/overview", nil))
+	if !strings.Contains(logs.String(), "Error encoding overview JSON") {
+		t.Errorf("log = %q, want the encode refusal logged", logs.String())
+	}
+}
+
 // The runtime rides the overview, not the metrics: the toolchain
 // version and platform name the build behind the page for
 // operators, while scrapers get no go_version key. If this fails,
@@ -167,10 +191,7 @@ func TestOverviewVoicesRuntime(t *testing.T) {
 // in, file for file. If this fails, the embed and the build
 // output drifted apart.
 func TestStaticAssetsServe(t *testing.T) {
-	fsys, err := staticFS()
-	if err != nil {
-		t.Fatalf("staticFS: %v", err)
-	}
+	fsys := staticFS()
 	var sawHTML, sawJS bool
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
@@ -306,6 +327,29 @@ func TestMetricsHandler(t *testing.T) {
 	}
 	if body.Environment["KPR_TIME_METHOD"] == "" || body.Environment["KPR_TIME_SERVER"] == "" {
 		t.Errorf("clock source missing from metrics: %v", body.Environment)
+	}
+}
+
+// A clock running before the binary started reads zero
+// uptime, never negative: the start stamp pins the process,
+// so a scripted Now in the past clamps instead of wrapping.
+// If this fails, uptime underflows on skewed test clocks.
+func TestMetricsHandlerClampsNegativeUptime(t *testing.T) {
+	testConfig(t)
+	before := startTime.Add(-time.Minute)
+	s := &Server{Now: func() time.Time { return before }}
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rr := httptest.NewRecorder()
+	s.metricsHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var body metricsData
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.UptimeSeconds != 0 {
+		t.Errorf("uptime = %d, want clamped 0", body.UptimeSeconds)
 	}
 }
 
