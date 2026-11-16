@@ -35,7 +35,7 @@ flowchart LR
     KPR -- "catalog reads +\nmanifest deletes" --> REG
     KPR -- "rows as files" --> VOL[(shared\nregistry volume)]
     REG --- VOL
-    TRF[Traefik] -. "optional: console :9300 only" .-> KPR
+    TRF[Traefik] -. "optional front:\nconsole, app, registry /v2" .-> KPR
 ```
 
 Two wires and a volume:
@@ -54,9 +54,10 @@ Two wires and a volume:
 
 **What stays off Traefik.** Notifications from inside the registry
 container to a public URL would hairpin through TLS and any auth
-middleware — don't. Pushes stay off it too: they land on kpr's edge
+middleware — don't. Everything else may ride it: the console on its
+own subdomain, the app at the apex, and pushes through the edge
 (`:5000`, moved off the registry), a transparent proxy that fences
-mutating routes. Traefik only ever fronts the console.
+mutating routes.
 
 ## Step 0 — pin the image
 
@@ -151,22 +152,58 @@ those ports collide on your network. Full wiring reference:
 
 ## Step 3 — Traefik, if you use it
 
-One router, console port 9300 only:
+Console on its own subdomain, app at the apex, registry `/v2`
+through the proven edge:
 
 ```yaml
     labels:
       - traefik.enable=true
-      - traefik.http.routers.kpr.rule=Host(`kpr.example.com`)
-      - traefik.http.routers.kpr.entrypoints=websecure
-      - traefik.http.routers.kpr.tls.certresolver=letsencrypt
-      - traefik.http.services.kpr.loadbalancer.server.port=9300
+      # Console, root-mounted: the SPA fetches absolute /api/*
+      # and /metrics, which 404 under a subpath.
+      - "traefik.http.routers.kpr-console.rule=Host(`console.example.com`)"
+      - "traefik.http.routers.kpr-console.tls=true"
+      - "traefik.http.routers.kpr-console.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.kpr-console.entrypoints=websecure"
+      - "traefik.http.routers.kpr-console.service=kpr-console@docker"
+      - "traefik.http.services.kpr-console.loadbalancer.server.port=9300"
+      # App: everything on its host. The shell, the hashed assets,
+      # the icon, and /api/* all live here; the longer /v2 rule
+      # below takes precedence where they overlap.
+      - "traefik.http.routers.kpr-app.rule=Host(`registry.example.com`)"
+      - "traefik.http.routers.kpr-app.tls=true"
+      - "traefik.http.routers.kpr-app.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.kpr-app.entrypoints=websecure"
+      - "traefik.http.routers.kpr-app.service=kpr-app@docker"
+      - "traefik.http.services.kpr-app.loadbalancer.server.port=8080"
+      # Registry API through the edge (longer rule wins over any
+      # bare-Host catch-all): pushes, pulls, catalog reads.
+      - "traefik.http.routers.kpr-registry.rule=Host(`registry.example.com`) && PathPrefix(`/v2`)"
+      - "traefik.http.routers.kpr-registry.tls=true"
+      - "traefik.http.routers.kpr-registry.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.kpr-registry.entrypoints=websecure"
+      - "traefik.http.routers.kpr-registry.middlewares=registry-buffering@docker"
+      - "traefik.http.routers.kpr-registry.service=kpr-edge@docker"
+      - "traefik.http.services.kpr-edge.loadbalancer.server.port=5000"
+      # Pushes stream verbatim: no buffering either direction,
+      # nothing in memory. Without this a big blob push buffers
+      # and dies.
+      - "traefik.http.middlewares.registry-buffering.buffering.maxRequestBodyBytes=0"
+      - "traefik.http.middlewares.registry-buffering.buffering.memRequestBodyBytes=0"
+      - "traefik.http.middlewares.registry-buffering.buffering.maxResponseBodyBytes=0"
+      - "traefik.http.middlewares.registry-buffering.buffering.memResponseBodyBytes=0"
 ```
 
-- kpr must join the network Traefik watches, or the router has no
-  backend.
-- Put your usual auth middleware on that router if the console
-  shouldn't be public. The receiver is a different port and is
-  unaffected.
+- One line per label, no breaks inside backticks: a folded
+  line silently changes the rule (`text/ht ml` matches
+  nothing) and the router goes dark with no error.
+- kpr must join the network Traefik watches, or the routers
+  have no backend.
+- Put your usual auth middleware on the console router if it
+  shouldn't be public. The receiver is a different port and
+  is unaffected.
+- The edge only opens on a proven backend (Step 1's
+  `relativeurls`): unproven, `:5000` answers nothing, and
+  pushes 404 at Traefik instead.
 - Notifications bypass Traefik entirely, by Step 1's internal URL.
 
 ## Step 4 — first run, still disarmed

@@ -62,6 +62,18 @@ presence-only over filed material — leaf issuance and the
 system roots are out of scope — and it marks cards, never
 the load.
 
+## Traefik front (dev)
+
+`just up-traefik` (or `make up-traefik`) layers a Traefik front
+that terminates TLS with the machine's certbot identity
+(`~/.certbot`, mounted read-only — `live/` entries are
+symlinks into `../archive/`, so the whole tree mounts) and
+routes the app by hostname. The backend stays plaintext;
+the console stays directly exposed on `:9300`. The certbot
+hostname (`mystic-raven-13.topteil.dev`) is hardcoded in both
+`docker-compose.traefik.yml` and `dev/traefik/dynamic.yml` —
+point both at your own machine's identity before running.
+
 ## Local dev stack
 
 `just up` stages the fixtures first (`dev-certs`) but boots

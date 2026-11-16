@@ -629,6 +629,13 @@ up-minimal: dev-certs
     docker compose -f {{COMPOSE_FILE}} up -d --build
     docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
 
+# Start dev stack behind a Traefik front: TLS terminates on the
+# local certbot identity, the app serves at its hostname (detached)
+up-traefik:
+    @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
+    GO_VERSION={{go_version}} docker compose -f {{COMPOSE_FILE}} -f docker-compose.traefik.yml up -d --build
+    docker compose -f {{COMPOSE_FILE}} -f docker-compose.traefik.yml run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
+
 # Start dev stack with the TLS overlay: console, app, receiver, and
 # edge serve HTTPS with the staged self-signed identity (detached)
 up-tls: dev-certs
