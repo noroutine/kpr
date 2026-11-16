@@ -3,9 +3,11 @@ package app
 import (
 	"bytes"
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -85,16 +87,71 @@ func (pingDownStore) Ping(context.Context) error { return errors.New("store down
 // The embedded SPA must actually be embedded: the bundle has to resolve
 // index.html at runtime, not just at compile time. If this fails, the
 // binary serves a 404 for its own UI.
-func TestGetStaticFSHasIndex(t *testing.T) {
-	fs, err := GetStaticFS()
+func TestStaticFSHasIndex(t *testing.T) {
+	fsys, err := staticFS()
 	if err != nil {
-		t.Fatalf("GetStaticFS: %v", err)
+		t.Fatalf("staticFS: %v", err)
 	}
-	f, err := fs.Open("index.html")
+	f, err := fsys.Open("index.html")
 	if err != nil {
 		t.Fatalf("open index.html: %v", err)
 	}
 	_ = f.Close()
+}
+
+// The embedded bundle carries the shell, its hashed assets, and the
+// icon: the Go side serves whatever `just web-build` copied in,
+// file for file. If this fails, the embed and the build output
+// drifted apart.
+func TestStaticAssetsServe(t *testing.T) {
+	fsys, err := staticFS()
+	if err != nil {
+		t.Fatalf("staticFS: %v", err)
+	}
+	var sawJS bool
+	if err := fs.WalkDir(fsys, "_app", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".js") {
+			sawJS = true
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk _app: %v", err)
+	}
+	if !sawJS {
+		t.Error("embedded bundle has no hashed JS under _app/")
+	}
+	if _, err := fsys.Open("favicon.svg"); err != nil {
+		t.Errorf("embedded bundle has no favicon.svg: %v", err)
+	}
+}
+
+// Browsers request /favicon.ico unprompted on every visit: it must
+// answer the icon as SVG with a day of caching and refuse writes.
+// If this fails, every page view logs a 404 nobody looks at until
+// the logs do.
+func TestFaviconServesIcon(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
+	rr := httptest.NewRecorder()
+	faviconHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "image/svg+xml" {
+		t.Errorf("Content-Type = %q, want SVG", ct)
+	}
+	if cc := rr.Header().Get("Cache-Control"); !strings.Contains(cc, "max-age=86400") {
+		t.Errorf("Cache-Control = %q, want a day of caching", cc)
+	}
+
+	post := httptest.NewRequest(http.MethodPost, "/favicon.ico", nil)
+	postRR := httptest.NewRecorder()
+	faviconHandler(postRR, post)
+	if postRR.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST status = %d, want 405", postRR.Code)
+	}
 }
 
 // testClient is a keep-alive-free HTTP client for server tests: every
@@ -141,11 +198,11 @@ func loopbackListener(t *testing.T) net.Listener {
 	return ln
 }
 
-// A started server must serve the SPA at /, the keeper status at
-// /health, and 404 anything else (the template mock API is gone) —
-// then shut down cleanly on context cancel. If this fails, `serve`
-// comes up but doesn't actually serve, or it hangs on shutdown
-// instead of draining.
+// A started server must serve the SPA shell at /, its hashed assets
+// under /_app/, the keeper status at /api/status — and 404
+// anything else — then shut down cleanly on context cancel. If
+// this fails, `serve` comes up but doesn't actually serve, or it
+// hangs on shutdown instead of draining.
 func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	ln := loopbackListener(t)
 	s := &Server{Listener: ln}
@@ -167,9 +224,11 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 		"/":              http.StatusOK,
 		"/health":        http.StatusNotFound,
 		"/api/status":    http.StatusOK,
-		"/api/hello":     http.StatusNotFound,
-		"/api/data":      http.StatusNotFound,
+		"/favicon.ico":   http.StatusOK,
 		"/no-such-asset": http.StatusNotFound,
+		// The file server answers what the bundle carries and
+		// 404s the rest — no catch-all render, no silent miss.
+		"/_app/definitely-not-here": http.StatusNotFound,
 		// /events moved to the receiver's own port: the app
 		// server no longer answers it.
 		"/events": http.StatusNotFound,
@@ -296,11 +355,10 @@ func TestServerShutdown(t *testing.T) {
 	}
 }
 
-// The front page is the keeper's face: ttl.sh spirit (push, pull,
-// forget — homelab wording, not ephemeral-only) and the pipeline it
-// actually runs. No mock API buttons, no links section, no status
-// ball: keeper state lives on the console, not the landing page. If
-// this fails, the template demo is back or the ball crept back in.
+// The front page serves the built SPA shell: the kpr title, the
+// hashed asset refs, and no server-rendered copy — the page
+// fetches /api/status at runtime. If this fails, the landing
+// page regressed to server rendering.
 func TestIndexPageIsKeeperFront(t *testing.T) {
 	ln := loopbackListener(t)
 	s := &Server{Listener: ln}
@@ -320,27 +378,30 @@ func TestIndexPageIsKeeperFront(t *testing.T) {
 		t.Fatalf("read /: %v", err)
 	}
 	body := string(raw)
-	for _, want := range []string{"Push. Pull.", "reap", "sweep", "keeper"} {
+	for _, want := range []string{"kpr", "/_app/"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("front page lacks %q", want)
 		}
 	}
-	for _, gone := range []string{"api/hello", "api/data", "testHello", "<button", "<a ", "Quickwit", "What kpr does",
-		"/health", "status-text", "app.js", "ball"} {
-		if strings.Contains(body, gone) {
-			t.Errorf("front page still carries %q (mock, link, ball, or dropped section)", gone)
+	// The pitch survives the redesign: hero, commands, tagline.
+	for _, want := range []string{"Push. Pull.", "docker push", "reap plans, sweep deletes"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("front page lost %q (old landing copy)", want)
 		}
+	}
+	if strings.Contains(body, "<style>") {
+		t.Error("front page carries an inline style block; styling lives in the bundle")
 	}
 }
 
-// A client that goes away mid-write must not 500 the render: the
-// execute error is logged and the handler returns. If this fails,
-// renderIndex answers write failures with a second write.
-func TestRenderIndexLogsWriteFailure(t *testing.T) {
+// A client that goes away mid-write must not 500 the shell: the
+// write error is logged and the handler returns. If this fails,
+// one gone client wedges the serving goroutine.
+func TestIndexHandlerLogsWriteFailure(t *testing.T) {
 	logs := captureLog(t)
-	renderIndex(failWriter{}, "/app")
-	if !strings.Contains(logs.String(), "Error executing index.html") {
-		t.Errorf("log = %q, want the execute refusal logged", logs.String())
+	indexHandler(failWriter{}, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(logs.String(), "Error writing front page") {
+		t.Errorf("log = %q, want the write refusal logged", logs.String())
 	}
 }
 
@@ -353,11 +414,33 @@ func (failWriter) Write([]byte) (int, error) {
 }
 func (failWriter) WriteHeader(int) {}
 
-// Behind a subpath reverse proxy (stripped prefix) the front page's
-// stylesheet must carry the prefix or it 404s against the outer
-// host. Only the UI href moves. If this fails, the landing page is
-// unstyled under a prefix.
-func TestIndexPagePrefixesStylesheetWithBasePath(t *testing.T) {
+// A broken embed fails loud, not silent: if the compiled-in
+// bundle ever loses its files, the handlers 500 instead of
+// serving empty pages. Staged by swapping the embed (the real
+// one always carries its files), restored before return. If
+// this fails, a broken build serves a blank app.
+func TestIndexHandlerRefusesBrokenEmbed(t *testing.T) {
+	prev := staticFiles
+	staticFiles = embed.FS{}
+	defer func() { staticFiles = prev }()
+
+	rr := httptest.NewRecorder()
+	indexHandler(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("GET / on a broken embed = %d, want 500", rr.Code)
+	}
+	rr = httptest.NewRecorder()
+	faviconHandler(rr, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("GET /favicon.ico on a broken embed = %d, want 500", rr.Code)
+	}
+}
+
+// Subpath prefixes do not apply to the SPA: the shell and the API
+// serve at root. A based front page still serves the shell —
+// the prefix only ever mattered to server-rendered hrefs, which
+// are gone.
+func TestIndexPageIgnoresBasePath(t *testing.T) {
 	t.Cleanup(config.SetCurrent(config.NewBuilder().
 		WithAppBasePath("/app").
 		Build()))
@@ -379,12 +462,11 @@ func TestIndexPagePrefixesStylesheetWithBasePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read /: %v", err)
 	}
-	body := string(raw)
-	if !strings.Contains(body, `href="/app/static/style.css"`) {
-		t.Errorf("front page lacks prefixed stylesheet href")
+	if body := string(raw); !strings.Contains(body, "/_app/") {
+		t.Error("based front page lost the root-absolute asset refs the SPA needs")
 	}
 
-	// /events is not this server's route anymore: it lives on the
+	// /events is not this server's route: it lives on the
 	// receiver's own port (see internal/receiver). A 200 here would
 	// mean the unbundling regressed.
 	resp2, err := testClient.Post(base+"/events", "application/json", strings.NewReader(`{}`)) //nolint:gosec,noctx // test-only loopback
@@ -397,9 +479,9 @@ func TestIndexPagePrefixesStylesheetWithBasePath(t *testing.T) {
 	}
 }
 
-// The console's request metric counts real app-server traffic now that
-// the mock endpoints are gone: every live request moves the counter.
-// If this fails, the metric is decoration again.
+// The console's request metric counts real app-server traffic:
+// every live request moves the counter, including the shell and
+// its 404s. If this fails, the metric is decoration again.
 func TestRequestCounterCountsLiveTraffic(t *testing.T) {
 	ln := loopbackListener(t)
 	s := &Server{Listener: ln}

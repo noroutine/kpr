@@ -1,0 +1,11 @@
+# Trust-only demo: the public Mozilla roots, staged by
+# `scripts/dev-certs.sh` (refreshed every run, too big to
+# commit). No leaf by design — anything verifying public
+# internet names against system-plus-dev trust names this
+# bundle. Reads ok with no lifetime.
+apiVersion: kpr/v1alpha1
+kind: TLSBundle
+metadata:
+  name: mozilla
+spec:
+  caFile: /etc/kpr/tls/mozilla-ca.pem

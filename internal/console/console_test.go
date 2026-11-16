@@ -3,19 +3,21 @@ package console
 import (
 	"bytes"
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"nrtn.dev/catalyst/kpr/internal/config"
+	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/store"
 )
 
@@ -76,133 +78,166 @@ func TestIndexHandler(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
+	if ct := rr.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want HTML", ct)
+	}
 	body := rr.Body.String()
-	for _, want := range []string{config.Version, "127.0.0.1", "19300", "18080", "19000", "Registry Receiver"} {
+	for _, want := range []string{"<title>Management console</title>", "/_app/"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("dashboard does not mention %q", want)
+			t.Errorf("dashboard shell omits %q", want)
 		}
 	}
-	// A clean render logs nothing: a success that logs a template error
+	if strings.Contains(body, "<style>") {
+		t.Error("dashboard shell carries an inline style block; styling lives in the bundle")
+	}
+	// A clean render logs nothing: a success that logs an error
 	// means the error branch fires when it shouldn't.
 	if out := logs.String(); strings.Contains(out, "Error") {
 		t.Errorf("clean render logged errors: %q", out)
 	}
 }
 
-// The dashboard wears its stylesheet by reference, not inline:
-// the link honors the base path (stripped-prefix consoles keep
-// working), and no <style> block ships in the page. If this
-// fails, styling regressed to inline or the href 404s behind a
-// subpath.
-func TestIndexLinksStylesheet(t *testing.T) {
+// The overview endpoint voices the launchpad: configured UI base
+// URLs render as links, an unconfigured backend stays out. If
+// this fails, the console links backends nobody runs — or hides
+// the ones that do.
+func TestOverviewObsLinks(t *testing.T) {
 	testConfig(t)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	IndexHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	body := rr.Body.String()
-	if !strings.Contains(body, `/static/style.css`) {
-		t.Errorf("dashboard lacks the stylesheet href:\n%s", body)
-	}
-	if strings.Contains(body, "<style>") {
-		t.Error("dashboard still inlines its stylesheet")
-	}
-}
-
-// The stylesheet is a reader: anything but GET refuses. If
-// this fails, the asset answers writes it must not.
-func TestStyleHandlerRefusesWrites(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/static/style.css", nil)
-	rr := httptest.NewRecorder()
-	styleHandler(rr, req)
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status = %d, want 405", rr.Code)
-	}
-}
-
-// /static/style.css serves the extracted rules as CSS: the
-// bulb classes must travel with the split, or the standing
-// colors silently die. If this fails, the split dropped rules.
-func TestStyleHandlerServesCSS(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/static/style.css", nil)
-	rr := httptest.NewRecorder()
-	styleHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	if ct := rr.Header().Get("Content-Type"); ct != "text/css; charset=utf-8" {
-		t.Errorf("Content-Type = %q, want CSS", ct)
-	}
-	for _, want := range []string{".card", ".bulb-deny", ".bulb-warn", ".bulb-ok"} {
-		if !strings.Contains(rr.Body.String(), want) {
-			t.Errorf("stylesheet lacks %q", want)
+	get := func() overviewData {
+		req := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
+		rr := httptest.NewRecorder()
+		(&Server{}).overviewHandler(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rr.Code)
 		}
+		var out overviewData
+		if err := json.NewDecoder(rr.Body).Decode(&out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return out
 	}
-}
-
-// With no UI base URL configured the dashboard shows no Observability
-// section: links to backends nobody runs are worse than no links. If
-// this fails, the launchpad leaks into the default console.
-func TestIndexHandlerHidesObservabilityByDefault(t *testing.T) {
-	testConfig(t)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	IndexHandler(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
+	if got := get(); got.Obs.Standing != keeper.StandingUnavailable || len(got.Obs.Links) != 0 {
+		t.Errorf("unconfigured launchpad = %+v, want unavailable with no links", got.Obs)
 	}
-	if strings.Contains(rr.Body.String(), "Observability") {
-		t.Errorf("dashboard shows Observability with no URLs configured")
-	}
-}
 
-// Every configured UI base URL renders as a launchpad card; an
-// unconfigured backend stays out. If this fails, the console links
-// somewhere it cannot reach, or hides somewhere it should link.
-func TestIndexHandlerShowsConfiguredLinks(t *testing.T) {
 	t.Cleanup(config.SetCurrent(config.NewBuilder().
-		WithManagementHost("127.0.0.1").
-		WithManagementPort(19300).
-		WithAppHost("127.0.0.1").
-		WithAppPort(18080).
 		WithQuickwitURL("http://localhost:7280").
 		WithJaegerURL("http://localhost:16686").
 		Build()))
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	IndexHandler(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
+	got := get()
+	if got.Obs.Standing != keeper.StandingOK || len(got.Obs.Links) != 2 {
+		t.Fatalf("configured launchpad = %+v, want ok with two links", got.Obs)
 	}
-	body := rr.Body.String()
-	for _, want := range []string{
-		"Observability",
-		`href="http://localhost:7280"`,
-		`href="http://localhost:16686"`,
-		"Quickwit",
-		"Jaeger",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q", want)
+	for _, want := range []string{"http://localhost:7280", "http://localhost:16686"} {
+		found := false
+		for _, l := range got.Obs.Links {
+			found = found || l.URL == want
 		}
-	}
-	for _, absent := range []string{"Grafana", "Prometheus"} {
-		if strings.Contains(body, absent) {
-			t.Errorf("dashboard links unconfigured %q", absent)
+		if !found {
+			t.Errorf("launchpad lacks %q: %+v", want, got.Obs.Links)
 		}
 	}
 }
 
-// Behind a subpath reverse proxy (stripped prefix), console links
-// must carry the prefix or they 404 against the outer host. If
-// this fails, the dashboard links at root while served under /kpr.
-// Empty base keeps the bare hrefs.
-func TestIndexHandlerPrefixesLinksWithBasePath(t *testing.T) {
+// The runtime rides the overview, not the metrics: the toolchain
+// version and platform name the build behind the page for
+// operators, while scrapers get no go_version key. If this fails,
+// the runtime rows regressed to the metrics grid or dropped the
+// platform.
+func TestOverviewVoicesRuntime(t *testing.T) {
+	testConfig(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
+	rr := httptest.NewRecorder()
+	(&Server{}).overviewHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var out overviewData
+	if err := json.NewDecoder(rr.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	rt := config.CurrentRuntime()
+	if out.GoVersion != rt.GoVersion || out.GoOSArch != rt.GOOS+"/"+rt.GOARCH {
+		t.Errorf("runtime = %q/%q, want %q/%q", out.GoVersion, out.GoOSArch, rt.GoVersion, rt.GOOS+"/"+rt.GOARCH)
+	}
+}
+
+// The embedded bundle carries the shell, its hashed assets, and
+// the icon: the Go side serves whatever `just web-build` copied
+// in, file for file. If this fails, the embed and the build
+// output drifted apart.
+func TestStaticAssetsServe(t *testing.T) {
+	fsys, err := staticFS()
+	if err != nil {
+		t.Fatalf("staticFS: %v", err)
+	}
+	var sawHTML, sawJS bool
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		t.Fatalf("read embed root: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() == "index.html" {
+			sawHTML = true
+		}
+		if e.IsDir() && e.Name() == "_app" {
+			if err := fs.WalkDir(fsys, "_app", func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() && strings.HasSuffix(path, ".js") {
+					sawJS = true
+				}
+				return nil
+			}); err != nil {
+				t.Fatalf("walk _app: %v", err)
+			}
+		}
+	}
+	if !sawHTML {
+		t.Error("embedded bundle has no index.html")
+	}
+	if !sawJS {
+		t.Error("embedded bundle has no hashed JS under _app/")
+	}
+	if _, err := fsys.Open("favicon.svg"); err != nil {
+		t.Errorf("embedded bundle has no favicon.svg: %v", err)
+	}
+}
+
+// Browsers request /favicon.ico unprompted on every visit: it must
+// answer the icon as SVG with a day of caching, refuse writes, and
+// be linked from the dashboard head. If this fails, every page view
+// logs a 404 nobody looks at until the logs do.
+func TestFaviconServesIcon(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
+	rr := httptest.NewRecorder()
+	faviconHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "image/svg+xml" {
+		t.Errorf("Content-Type = %q, want SVG", ct)
+	}
+	if cc := rr.Header().Get("Cache-Control"); !strings.Contains(cc, "max-age=86400") {
+		t.Errorf("Cache-Control = %q, want a day of caching", cc)
+	}
+
+	post := httptest.NewRequest(http.MethodPost, "/favicon.ico", nil)
+	postRR := httptest.NewRecorder()
+	faviconHandler(postRR, post)
+	if postRR.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST status = %d, want 405", postRR.Code)
+	}
+}
+
+// Subpath prefixes do not apply to the SPA: the shell and the API
+// serve at root, and the Svelte pages fetch root-absolute paths. A
+// based console still serves the shell — the prefix only ever
+// mattered to server-rendered hrefs, which are gone. If a base
+// path ever prefixes the UI again, the pages and web/README must
+// change together — never the Go side alone.
+func TestIndexIgnoresBasePath(t *testing.T) {
 	t.Cleanup(config.SetCurrent(config.NewBuilder().
 		WithConsoleBasePath("/kpr").
 		Build()))
@@ -210,22 +245,11 @@ func TestIndexHandlerPrefixesLinksWithBasePath(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 	IndexHandler(rr, req)
-
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
-	body := rr.Body.String()
-	for _, want := range []string{
-		`href="/kpr/api/activity"`,
-		`href="/kpr/health"`,
-		`href="/kpr/metrics"`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q", want)
-		}
-	}
-	if strings.Contains(body, `href="/api/activity"`) {
-		t.Errorf("dashboard links at root while based under /kpr")
+	if body := rr.Body.String(); !strings.Contains(body, "/_app/") {
+		t.Error("based console lost the root-absolute asset refs the SPA needs")
 	}
 }
 
@@ -276,6 +300,43 @@ func TestMetricsHandler(t *testing.T) {
 	}
 	if body.Environment["KPR_APP_PORT"] != "18080" || body.Environment["KPR_RECEIVER_PORT"] != "19000" || body.Environment["KPR_REDIS_ADDR"] != "redis:6379" {
 		t.Errorf("environment = %v", body.Environment)
+	}
+	if body.Environment["KPR_CONFIG_DIR"] != "" {
+		t.Errorf("config dir = %q, want empty by default", body.Environment["KPR_CONFIG_DIR"])
+	}
+	if body.Environment["KPR_TIME_METHOD"] == "" || body.Environment["KPR_TIME_SERVER"] == "" {
+		t.Errorf("clock source missing from metrics: %v", body.Environment)
+	}
+}
+
+// The UI base URLs ride the metrics environment so the SPA
+// launchpad renders them: set shows, empty hides. If this
+// fails, the console links backends nobody runs — or hides
+// the ones that do.
+func TestMetricsHandlerVoicesUILinks(t *testing.T) {
+	t.Cleanup(config.SetCurrent(config.NewBuilder().
+		WithQuickwitURL("http://localhost:7280").
+		WithGrafanaURL("http://localhost:3000").
+		Build()))
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rr := httptest.NewRecorder()
+	MetricsHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var body metricsData
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for k, want := range map[string]string{
+		"KPR_QUICKWIT_URL":   "http://localhost:7280",
+		"KPR_GRAFANA_URL":    "http://localhost:3000",
+		"KPR_JAEGER_URL":     "",
+		"KPR_PROMETHEUS_URL": "",
+	} {
+		if body.Environment[k] != want {
+			t.Errorf("environment[%s] = %q, want %q", k, body.Environment[k], want)
+		}
 	}
 }
 
@@ -381,10 +442,14 @@ func TestServerStartServesAndStopsGracefully(t *testing.T) {
 	// the error branches lie.
 	logs := captureLog(t)
 	for path, want := range map[string]int{
-		"/":                 http.StatusOK,
-		"/metrics":          http.StatusOK,
-		"/health":           http.StatusOK,
-		"/static/style.css": http.StatusOK,
+		"/":             http.StatusOK,
+		"/metrics":      http.StatusOK,
+		"/health":       http.StatusOK,
+		"/api/overview": http.StatusOK,
+		"/favicon.ico":  http.StatusOK,
+		// The file server answers what the bundle carries and
+		// 404s the rest — no catch-all render, no silent miss.
+		"/_app/definitely-not-here": http.StatusNotFound,
 	} {
 		resp, err := testClient.Get(base + path) //nolint:gosec,noctx // test-only loopback
 		if err != nil {
@@ -526,7 +591,10 @@ func TestServerShutdown(t *testing.T) {
 // A bare IPv6 bind must render bracketed: "::" prints as "[::]:9300",
 // never ":::9300". If this fails, the console misreports where it
 // listens on dual-stack defaults.
-func TestIndexHandlerBracketsIPv6Bind(t *testing.T) {
+// A bare IPv6 bind must render bracketed: "::" prints as "[::]:9300",
+// never ":::9300". If this fails, the console misreports where it
+// listens on dual-stack defaults.
+func TestOverviewBracketsIPv6Bind(t *testing.T) {
 	t.Cleanup(config.SetCurrent(config.NewBuilder().
 		WithManagementHost("::").
 		WithManagementPort(19300).
@@ -536,44 +604,43 @@ func TestIndexHandlerBracketsIPv6Bind(t *testing.T) {
 		WithReceiverPort(19000).
 		Build()))
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
 	rr := httptest.NewRecorder()
-	IndexHandler(rr, req)
+	(&Server{}).overviewHandler(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
-	body := rr.Body.String()
-	for _, want := range []string{"[::]:19300", "[::]:18080", "[::]:19000"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q:\n%s", want, body)
-		}
+	var out overviewData
+	if err := json.NewDecoder(rr.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if strings.Contains(body, ":::19300") || strings.Contains(body, ":::18080") || strings.Contains(body, ":::19000") {
-		t.Errorf("dashboard shows unbracketed IPv6 bind:\n%s", body)
+	for _, tc := range []struct{ got, want string }{
+		{out.ManagementAddr, "[::]:19300"},
+		{out.AppAddr, "[::]:18080"},
+		{out.ReceiverAddr, "[::]:19000"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("bind = %q, want %q", tc.got, tc.want)
+		}
 	}
 }
 
-// The configuration section must name the platform the binary was
-// built for, from the runtime config — not just the Go toolchain
-// version — and the metrics grid must not carry a Go Runtime card.
-// If this fails, the runtime rows regressed to the metrics grid
-// or dropped the platform.
-func TestIndexHandlerShowsRuntimePlatform(t *testing.T) {
-	testConfig(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+// getOverview decodes one /api/overview response for the model
+// tests below: a zero Server (like today's tests build) must
+// still answer 200 with degraded cards, never 500.
+func getOverview(t *testing.T, s *Server) overviewData {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
 	rr := httptest.NewRecorder()
-	IndexHandler(rr, req)
-	body := rr.Body.String()
-	rt := config.CurrentRuntime()
-	for _, want := range []string{runtime.Version(), rt.GOOS + "/" + rt.GOARCH} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing runtime %q:\n%s", want, body)
-		}
+	s.overviewHandler(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
 	}
-	if strings.Contains(body, "Go Runtime") {
-		t.Errorf("metrics grid still carries a Go Runtime card:\n%s", body)
+	var out overviewData
+	if err := json.NewDecoder(rr.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
+	return out
 }
 
 // bracketHost exists so the console never prints ":::9300": bare IPv6
@@ -599,91 +666,79 @@ func (s stubSentinelAPI) GetBlob(context.Context, string, string) ([]byte, error
 	return s.blob, nil
 }
 
-// The Store section must name the wired backend, where it
-// lives, and the live sentinel generation — a file stack shows
-// "file" and its dir, never Redis's name. If this fails, the console
+// The overview must name the wired backend, where it lives,
+// and the live sentinel generation — a file stack reads "file"
+// with its dir, never Redis's name. If this fails, the console
 // misreports the backend the operator must fix.
-func TestIndexShowsFileStoreAndLiveSentinel(t *testing.T) {
+func TestOverviewShowsFileStoreAndLiveSentinel(t *testing.T) {
 	testConfig(t)
 	dir := t.TempDir()
 	api := stubSentinelAPI{
 		man:  []byte(`{"schemaVersion":2,"config":{"digest":"sha256:abc"}}`),
 		blob: []byte(`{"v":1,"gen":"019-test-gen","ts":"2026-09-30T00:00:00Z","writer":"test"}`),
 	}
-	s := &Server{Store: store.NewFileStore(dir), Sentinel: api}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	s.indexHandler(rr, req)
+	out := getOverview(t, &Server{Store: store.NewFileStore(dir), Sentinel: api})
+	if out.Store.Name != "file" || !strings.Contains(out.Store.Detail, dir) {
+		t.Errorf("store = %+v, want the file backend with its dir", out.Store)
+	}
+	if out.Sentinel.Standing != keeper.StandingOK || out.Sentinel.Gen != "019-test-gen" {
+		t.Errorf("sentinel = %+v, want the live generation", out.Sentinel)
+	}
+	if out.Store.LockNote != "" && out.Store.LockNote != "locked" {
+		t.Errorf("lock note = %q on a fresh file stack", out.Store.LockNote)
+	}
+}
 
+// An erroring sentinel renders unproven through the whole model:
+// the card reads the shared proof, so a registry error voices
+// "unproven", never stale and never 500. If this fails, the
+// overview borrows yesterday's generation on errors.
+func TestOverviewRendersUnprovenOnSentinelError(t *testing.T) {
+	testConfig(t)
+	out := getOverview(t, &Server{Sentinel: stubSentinelAPI{err: errors.New("registry: 500")}})
+	if out.Sentinel.Standing != keeper.StandingUnproven {
+		t.Errorf("sentinel = %+v, want unproven on registry error", out.Sentinel)
+	}
+	if out.Sentinel.Gen != "" {
+		t.Errorf("sentinel carries gen %q with no proof", out.Sentinel.Gen)
+	}
+}
+
+// With no store and no sentinel API the backend cards degrade to
+// named absences — "unavailable", "unproven" — and still answer
+// 200. If this fails, a backend outage takes the whole console
+// down with it.
+func TestOverviewDegradesWithoutStoreOrSentinel(t *testing.T) {
+	testConfig(t)
+	out := getOverview(t, &Server{})
+	if out.Store.Standing != keeper.StandingUnavailable {
+		t.Errorf("store = %+v, want unavailable with no store wired", out.Store)
+	}
+	if out.Sentinel.Standing != keeper.StandingClosed {
+		t.Errorf("sentinel = %+v, want closed with no sentinel wired", out.Sentinel)
+	}
+	if out.Store.LockNote == "locked" {
+		t.Error("overview claims locked with no store wired")
+	}
+}
+
+// The list fields always render as arrays, never null: the SPA
+// reads `.length` off plan, activity, and bundles, and JSON
+// renders a nil Go slice as null — a blank crashed page. If
+// this fails, an empty backend crashes the dashboard.
+func TestOverviewListsNeverNull(t *testing.T) {
+	testConfig(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
+	rr := httptest.NewRecorder()
+	(&Server{}).overviewHandler(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{
-		">Backend</div>", "file", dir,
-		"reachable", "locked",
-		"019-test-gen", "proven 2026-09-30T00:00:00Z",
-		">Identity</div>", "unpaired",
-	} {
+	for _, want := range []string{`"plan":[]`, `"activity":[]`, `"bundles":[]`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q", want)
+			t.Errorf("overview omits %q (empty list must render [], never null)", want)
 		}
-	}
-	if strings.Contains(body, ">Redis<") {
-		t.Errorf("dashboard names Redis on a file stack")
-	}
-	// Placement: the backend and proof cards sit in Store, after
-	// its heading — there is no separate State section. If this
-	// fails, the cards drifted back out of Store.
-	if strings.Contains(body, "🗄️") {
-		t.Error("dashboard still renders a State section")
-	}
-	if store, backend := strings.Index(body, "💾 Store"), strings.Index(body, ">Backend</div>"); backend < store {
-		t.Error("Backend card renders outside Store")
-	}
-}
-
-// With no store and no sentinel API the Store's backend cards
-// degrade to named absences — "unavailable", "unproven" — and still
-// render 200. If this fails, a backend outage takes the whole
-// console down with it.
-// An erroring sentinel renders unproven through the whole page:
-// the section reads the shared proof card, so a registry error
-// voices "unproven", never stale and never 500. If this fails,
-// the dashboard borrows yesterday's generation on errors.
-func TestIndexRendersUnprovenOnSentinelError(t *testing.T) {
-	testConfig(t)
-	s := &Server{Sentinel: stubSentinelAPI{err: errors.New("registry: 500")}}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	s.indexHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	for _, want := range []string{"unproven", "no generation served yet"} {
-		if !strings.Contains(rr.Body.String(), want) {
-			t.Errorf("dashboard missing %q on sentinel error", want)
-		}
-	}
-}
-
-func TestIndexDegradesWithoutStoreOrSentinel(t *testing.T) {
-	testConfig(t)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	IndexHandler(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	body := rr.Body.String()
-	for _, want := range []string{"Backend", "unavailable", "unproven", "no generation served yet"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q", want)
-		}
-	}
-	if strings.Contains(body, "locked") {
-		t.Errorf("dashboard claims locked with no store wired")
 	}
 }
 
@@ -700,22 +755,14 @@ func (errUnlockStore) IsUnlocked(context.Context) (bool, error) {
 	return false, errors.New("marker unreadable")
 }
 
-func TestIndexShowsUnknownLockOnMarkerError(t *testing.T) {
+func TestOverviewShowsUnknownLockOnMarkerError(t *testing.T) {
 	testConfig(t)
-	s := &Server{Store: errUnlockStore{store.NewMemStore()}}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	s.indexHandler(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
+	out := getOverview(t, &Server{Store: errUnlockStore{store.NewMemStore()}})
+	if out.Store.LockNote != "lock unknown" {
+		t.Errorf("lock note = %q, want the unreadable marker voiced", out.Store.LockNote)
 	}
-	body := rr.Body.String()
-	if !strings.Contains(body, "lock unknown") {
-		t.Errorf("dashboard hides the unreadable marker")
-	}
-	if strings.Contains(body, "· locked") {
-		t.Errorf("dashboard collapses the error into locked")
+	if out.Store.Standing != keeper.StandingDegraded {
+		t.Errorf("standing = %q, want degraded on marker error", out.Store.Standing)
 	}
 }
 
@@ -734,14 +781,14 @@ func TestBracketHost(t *testing.T) {
 	}
 }
 
-// A client that goes away mid-write must not 500 the render: the
-// execute error is logged and the handler returns. If this fails,
-// renderIndex answers write failures with a second write.
-func TestRenderIndexLogsWriteFailure(t *testing.T) {
+// A client that goes away mid-write must not 500 the shell: the
+// write error is logged and the handler returns. If this fails,
+// one gone client wedges the serving goroutine.
+func TestIndexHandlerLogsWriteFailure(t *testing.T) {
 	logs := captureLog(t)
-	renderIndex(failWriter{}, pageData{})
-	if !strings.Contains(logs.String(), "Error executing dashboard") {
-		t.Errorf("log = %q, want the execute refusal logged", logs.String())
+	indexHandler(failWriter{}, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(logs.String(), "Error writing dashboard") {
+		t.Errorf("log = %q, want the write refusal logged", logs.String())
 	}
 }
 
@@ -753,3 +800,25 @@ func (failWriter) Write([]byte) (int, error) {
 	return 0, errors.New("client gone")
 }
 func (failWriter) WriteHeader(int) {}
+
+// A broken embed fails loud, not silent: if the compiled-in
+// bundle ever loses its files, the handlers 500 instead of
+// serving empty pages. Staged by swapping the embed (the real
+// one always carries its files), restored before return. If
+// this fails, a broken build serves blank dashboards.
+func TestIndexHandlerRefusesBrokenEmbed(t *testing.T) {
+	prev := staticFiles
+	staticFiles = embed.FS{}
+	defer func() { staticFiles = prev }()
+
+	rr := httptest.NewRecorder()
+	indexHandler(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("GET / on a broken embed = %d, want 500", rr.Code)
+	}
+	rr = httptest.NewRecorder()
+	faviconHandler(rr, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("GET /favicon.ico on a broken embed = %d, want 500", rr.Code)
+	}
+}

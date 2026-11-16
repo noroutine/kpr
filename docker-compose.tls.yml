@@ -1,0 +1,19 @@
+# TLS overlay: serve the dev stack over HTTPS with the named
+# bundle — console, app, receiver, and edge alike. Opt-in only, a
+# single switch: the base stack stays plaintext.
+#
+#   just up-tls   # or: make up-tls
+#
+# The bundle lives in dev/config (mounted by this overlay, not
+# the base file); this overlay only names it. Browsers warn —
+# expected for self-signed local dev. The cards voice the same
+# bundle either way; this overlay only switches the serving
+# sockets.
+services:
+  kpr:
+    environment:
+      - "KPR_TLS_BUNDLE=local"
+      - "KPR_CONFIG_DIR=/etc/kpr/resources"
+    volumes:
+      - ./dev/config:/etc/kpr/resources:ro
+      - ./dev/tls:/etc/kpr/tls:ro

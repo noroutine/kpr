@@ -79,6 +79,32 @@ const (
 	// the default (see ReceiverPortWarning).
 	EnvReceiverPort = "KPR_RECEIVER_PORT"
 
+	// EnvManagementEnabled switches the management console off
+	// when exactly "false": the dashboard, the API, and reloads
+	// go away. On by default — anything but "false" serves.
+	EnvManagementEnabled = "KPR_MANAGEMENT_ENABLED"
+
+	// EnvAppEnabled switches the application server off when
+	// exactly "false". On by default — anything but "false"
+	// serves.
+	EnvAppEnabled = "KPR_APP_ENABLED"
+
+	// EnvTLSBundle names the TLSBundle serving every listener —
+	// console, app, receiver, and edge — over HTTPS. The bundle
+	// lives in EnvConfigDir's folder (see internal/resources), so
+	// identity is filed once and served everywhere: no per-listener
+	// cert paths. Empty (the default) serves plaintext. A name with
+	// no bundle, a parked bundle, or a bundle with no identity
+	// refuses the boot — a listener that names a bundle with no
+	// identity serves nothing.
+	EnvTLSBundle = "KPR_TLS_BUNDLE"
+
+	// EnvConfigDir is the resource folder: k8s-style YAML files
+	// (currently TLSBundle only — see internal/resources). Empty
+	// (the default) means unconfigured: serve runs on env-only
+	// settings with no bundles.
+	EnvConfigDir = "KPR_CONFIG_DIR"
+
 	// EnvConsoleBasePath prefixes console hrefs when the management
 	// console serves under a reverse-proxy subpath (stripped prefix).
 	// Empty (the default) renders bare root-relative hrefs.
@@ -88,6 +114,27 @@ const (
 	// a reverse-proxy subpath, the same way. Empty renders bare
 	// hrefs.
 	EnvAppBasePath = "KPR_APP_BASE_PATH"
+
+	// EnvConsoleToken is the operator password (HTTP Basic, user
+	// "ops"). Empty (the default) leaves the console open: set it
+	// to guard the dashboard and the API. Presence-only in every
+	// rendering, never the value.
+	EnvConsoleToken = "KPR_CONSOLE_TOKEN"
+
+	// EnvConsoleAuth guards the management console with the
+	// token: "true" always guards, "false" never does, unset
+	// follows the token (a set token guards). Explicit "true"
+	// without EnvConsoleToken refuses the boot, loudly; any other
+	// value refuses it too — a misspelled opt-in must never read
+	// as disabled.
+	EnvConsoleAuth = "KPR_CONSOLE_AUTH"
+
+	// EnvPprofAddr exposes net/http/pprof on the given host:port
+	// for profiling (see docs/PROFILING.md). Empty (the default)
+	// leaves it off: pprof can dump heap contents, so it never
+	// binds without an explicit opt-in, and only to loopback
+	// (anything else refuses the boot).
+	EnvPprofAddr = "KPR_PPROF_ADDR"
 
 	// EnvRedisAddr overrides the redis address kpr uses for TTL tracking
 	// and cleanup bookkeeping. Defaults to DefaultRedisAddr.
@@ -235,8 +282,15 @@ var EnvVars = []EnvVar{
 	{EnvAppPort, "Application server port. Defaults to 8080; invalid values fall back to the default."},
 	{EnvReceiverHost, "Registry receiver bind address. Defaults to \"::\" (dual-stack IPv4+IPv6)."},
 	{EnvReceiverPort, "Registry receiver port. Defaults to 9000; invalid values fall back to the default."},
+	{EnvManagementEnabled, "Set exactly \"false\" to stop serving the console (dashboard, API, reloads). On by default."},
+	{EnvAppEnabled, "Set exactly \"false\" to stop serving the application server. On by default."},
+	{EnvTLSBundle, "TLSBundle serving every listener over HTTPS (bundle name from the config dir). Empty serves plaintext; unknown, parked, or identity-less names refuse the boot."},
+	{EnvConfigDir, "Resource folder (TLSBundle YAML). Empty means unconfigured."},
 	{EnvConsoleBasePath, "Management console subpath prefix for hrefs (e.g. /kpr behind a stripped PathPrefix). Empty renders root-relative hrefs."},
 	{EnvAppBasePath, "Application front page subpath prefix for asset hrefs. Empty renders root-relative hrefs."},
+	{EnvConsoleToken, "Operator password (HTTP Basic, user \"ops\"): set guards the console and the API. Shown as set/unset only, never rendered."},
+	{EnvConsoleAuth, "Console auth: \"true\" always, \"false\" never, unset follows the token. Explicit \"true\" without a token refuses the boot."},
+	{EnvPprofAddr, "host:port for the pprof debug endpoints (loopback only). Empty (default) leaves them off."},
 	{EnvRedisAddr, "Redis address for TTL tracking and cleanup bookkeeping. Defaults to localhost:6379."},
 	{EnvRedisPassword, "Redis password (empty means no auth). Shown as set/unset only, never rendered."},
 	{EnvRedisDB, "Redis logical database for kpr rows. Defaults to 0; compose uses 4 (0-2 taken, 3 is the registry cache)."},
@@ -360,6 +414,24 @@ type Config struct {
 	// not a valid port; ReceiverPort still falls back to
 	// DefaultReceiverPort.
 	ReceiverPortWarning error
+
+	// ConsoleEnabled is false only when EnvManagementEnabled is
+	// exactly "false": serve skips the console entirely. True by
+	// default.
+	ConsoleEnabled bool
+
+	// AppEnabled is false only when EnvAppEnabled is exactly
+	// "false": serve skips the application server. True by
+	// default.
+	AppEnabled bool
+
+	// TLSBundle is EnvTLSBundle's value, or "" if unset: the
+	// bundle serving every listener, or plaintext when empty.
+	TLSBundle string
+
+	// ConfigDir is EnvConfigDir's value, or "" if unset: the
+	// resource folder serve loads TLS bundles from.
+	ConfigDir string
 	// ConsoleBasePath is EnvConsoleBasePath's normalized value, or ""
 	// when unset. Normalized to empty-or-leading-slash-no-trailing
 	// (see normalizeBasePath) so templates join hrefs by
@@ -369,6 +441,18 @@ type Config struct {
 	// unset. Same shape as ConsoleBasePath, for the app front page's
 	// asset hrefs only.
 	AppBasePath string
+
+	// ConsoleToken is EnvConsoleToken's value, or "" if unset: the
+	// operator password. Presence-only in every rendering.
+	ConsoleToken string
+	// ConsoleAuth is EnvConsoleAuth's raw value: "true",
+	// "false", or "" (follow the token). Anything else refuses
+	// the boot in ConsoleAuthEnabled — never silently off.
+	ConsoleAuth string
+
+	// PprofAddr is EnvPprofAddr's raw value, or "" if unset: the
+	// pprof listener serve binds when non-empty.
+	PprofAddr string
 
 	// RedisAddr is EnvRedisAddr's value, or DefaultRedisAddr if unset.
 	RedisAddr string
@@ -485,6 +569,8 @@ func defaultConfig() Config {
 		AppPort:         DefaultAppPort,
 		ReceiverHost:    DefaultReceiverHost,
 		ReceiverPort:    DefaultReceiverPort,
+		ConsoleEnabled:  true,
+		AppEnabled:      true,
 		RedisAddr:       DefaultRedisAddr,
 		RegistryURL:     DefaultRegistryURL,
 		RegistryConfig:  DefaultRegistryConfig,
@@ -576,8 +662,15 @@ func (b *Builder) FromEnv() *Builder {
 	b.cfg.ManagementHost = envOr(EnvManagementHost, DefaultManagementHost)
 	b.cfg.AppHost = envOr(EnvAppHost, DefaultAppHost)
 	b.cfg.ReceiverHost = envOr(EnvReceiverHost, DefaultReceiverHost)
+	b.cfg.ConsoleEnabled = os.Getenv(EnvManagementEnabled) != "false"
+	b.cfg.AppEnabled = os.Getenv(EnvAppEnabled) != "false"
+	b.cfg.TLSBundle = os.Getenv(EnvTLSBundle)
+	b.cfg.ConfigDir = os.Getenv(EnvConfigDir)
 	b.cfg.ConsoleBasePath = normalizeBasePath(os.Getenv(EnvConsoleBasePath))
 	b.cfg.AppBasePath = normalizeBasePath(os.Getenv(EnvAppBasePath))
+	b.cfg.ConsoleToken = os.Getenv(EnvConsoleToken)
+	b.cfg.ConsoleAuth = os.Getenv(EnvConsoleAuth)
+	b.cfg.PprofAddr = os.Getenv(EnvPprofAddr)
 	b.cfg.RedisAddr = envOr(EnvRedisAddr, DefaultRedisAddr)
 	b.cfg.RedisPassword = os.Getenv(EnvRedisPassword)
 	b.cfg.RedisDB, b.cfg.RedisDBWarning = parseDB(os.Getenv(EnvRedisDB))
@@ -663,12 +756,44 @@ func (b *Builder) Build() *Config {
 	return &cfg
 }
 
+// ConsoleAuthEnabled resolves the console guard: explicit
+// "true"/"false" wins, unset follows the token (a set token
+// guards the console, so opting into operator access never
+// leaves the mutating controls open by accident). Explicit
+// "true" without a token errors — loud — and so does any
+// other value: a misspelled opt-in must never read as
+// disabled.
+func (c *Config) ConsoleAuthEnabled() (bool, error) {
+	switch c.ConsoleAuth {
+	case "":
+		return c.ConsoleToken != "", nil
+	case "true":
+		if c.ConsoleToken == "" {
+			return false, fmt.Errorf("KPR_CONSOLE_AUTH is true with KPR_CONSOLE_TOKEN unset: " +
+				"set a token or disable console auth")
+		}
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("KPR_CONSOLE_AUTH %q: want \"true\", \"false\", or unset (follow the token)",
+			c.ConsoleAuth)
+	}
+}
+
 func (b *Builder) WithManagementHost(v string) *Builder { b.cfg.ManagementHost = v; return b }
 func (b *Builder) WithManagementPort(v int) *Builder    { b.cfg.ManagementPort = v; return b }
 func (b *Builder) WithAppHost(v string) *Builder        { b.cfg.AppHost = v; return b }
 func (b *Builder) WithAppPort(v int) *Builder           { b.cfg.AppPort = v; return b }
 func (b *Builder) WithReceiverHost(v string) *Builder   { b.cfg.ReceiverHost = v; return b }
 func (b *Builder) WithReceiverPort(v int) *Builder      { b.cfg.ReceiverPort = v; return b }
+func (b *Builder) WithConsoleEnabled(v bool) *Builder   { b.cfg.ConsoleEnabled = v; return b }
+func (b *Builder) WithAppEnabled(v bool) *Builder       { b.cfg.AppEnabled = v; return b }
+func (b *Builder) WithTLSBundle(v string) *Builder      { b.cfg.TLSBundle = v; return b }
+func (b *Builder) WithConfigDir(v string) *Builder      { b.cfg.ConfigDir = v; return b }
+func (b *Builder) WithConsoleToken(v string) *Builder   { b.cfg.ConsoleToken = v; return b }
+func (b *Builder) WithConsoleAuth(v string) *Builder    { b.cfg.ConsoleAuth = v; return b }
+func (b *Builder) WithPprofAddr(v string) *Builder      { b.cfg.PprofAddr = v; return b }
 func (b *Builder) WithConsoleBasePath(v string) *Builder {
 	b.cfg.ConsoleBasePath = normalizeBasePath(v)
 	return b
@@ -677,16 +802,21 @@ func (b *Builder) WithAppBasePath(v string) *Builder {
 	b.cfg.AppBasePath = normalizeBasePath(v)
 	return b
 }
-func (b *Builder) WithRedisAddr(v string) *Builder              { b.cfg.RedisAddr = v; return b }
-func (b *Builder) WithRedisPassword(v string) *Builder          { b.cfg.RedisPassword = v; return b }
-func (b *Builder) WithRedisDB(v int) *Builder                   { b.cfg.RedisDB = v; return b }
-func (b *Builder) WithRegistryURL(v string) *Builder            { b.cfg.RegistryURL = v; return b }
-func (b *Builder) WithRegistryUser(v string) *Builder           { b.cfg.RegistryUser = v; return b }
-func (b *Builder) WithRegistryPassword(v string) *Builder       { b.cfg.RegistryPassword = v; return b }
-func (b *Builder) WithRegistryConfig(v string) *Builder         { b.cfg.RegistryConfig = v; return b }
-func (b *Builder) WithRegistryBinPath(v string) *Builder        { b.cfg.RegistryBinPath = v; return b }
-func (b *Builder) WithEdgeAddr(v string) *Builder               { b.cfg.EdgeAddr = v; return b }
-func (b *Builder) WithEdgeEnabled(v bool) *Builder              { b.cfg.EdgeEnabled = v; return b }
+func (b *Builder) WithRedisAddr(v string) *Builder        { b.cfg.RedisAddr = v; return b }
+func (b *Builder) WithRedisPassword(v string) *Builder    { b.cfg.RedisPassword = v; return b }
+func (b *Builder) WithRedisDB(v int) *Builder             { b.cfg.RedisDB = v; return b }
+func (b *Builder) WithRegistryURL(v string) *Builder      { b.cfg.RegistryURL = v; return b }
+func (b *Builder) WithRegistryUser(v string) *Builder     { b.cfg.RegistryUser = v; return b }
+func (b *Builder) WithRegistryPassword(v string) *Builder { b.cfg.RegistryPassword = v; return b }
+func (b *Builder) WithRegistryConfig(v string) *Builder   { b.cfg.RegistryConfig = v; return b }
+func (b *Builder) WithRegistryBinPath(v string) *Builder  { b.cfg.RegistryBinPath = v; return b }
+func (b *Builder) WithEdgeAddr(v string) *Builder         { b.cfg.EdgeAddr = v; return b }
+func (b *Builder) WithEdgeEnabled(v bool) *Builder        { b.cfg.EdgeEnabled = v; return b }
+func (b *Builder) WithTimeMethod(v clock.Method) *Builder {
+	b.cfg.TimeMethod = v
+	return b
+}
+func (b *Builder) WithTimeServer(v string) *Builder             { b.cfg.TimeServer = v; return b }
 func (b *Builder) WithCLINoDryRun(v bool) *Builder              { b.cfg.CLINoDryRun = v; return b }
 func (b *Builder) WithOTELEnabled(v bool) *Builder              { b.cfg.OTELEnabled = v; return b }
 func (b *Builder) WithOTLPEndpoint(v string) *Builder           { b.cfg.OTLPEndpoint = stripScheme(v); return b }

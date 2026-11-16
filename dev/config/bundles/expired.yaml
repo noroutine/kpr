@@ -1,0 +1,11 @@
+# Expiry demo: a real but long-dead identity. Loads clean and
+# voices expired on the dashboard and `kpr status bundles` —
+# expiry is a standing, not a load error. Truly invalid PEM
+# (garbage, half a pair) refuses the whole load instead.
+apiVersion: kpr/v1alpha1
+kind: TLSBundle
+metadata:
+  name: expired
+spec:
+  certFile: /etc/kpr/tls/expired-cert.pem
+  keyFile: /etc/kpr/tls/expired-key.pem

@@ -1,5 +1,12 @@
 # syntax=docker/dockerfile:1
 
+# GO_VERSION has no default on purpose: .go-version is canonical
+# and the just/make up targets always pass it — a bare build
+# fails loud instead of drifting silent. It must sit before the
+# first FROM: an ARG declared after one is scoped to that stage
+# and stays invisible to every later FROM (empty base image).
+ARG GO_VERSION
+
 # Stock registry image (same one the stack runs): `kpr gc` shells out
 # to its garbage-collect, so collector and store versions match by
 # construction. Keep in sync with the registry service in compose.
@@ -7,7 +14,7 @@ ARG REGISTRY_IMAGE=registry:3
 FROM $REGISTRY_IMAGE AS registry-bin
 
 # Build stage
-FROM golang:1.27-alpine AS builder
+FROM golang:${GO_VERSION}-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make

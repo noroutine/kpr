@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -40,60 +39,48 @@ func liveRegistry(t *testing.T) *registry.Client {
 	return registry.NewClient(srv.URL)
 }
 
-// Without a store or registry the console still renders, with the
-// banner red: a zero Server (like today's tests build) must never 500
-// the dashboard. If this fails, keeper wiring breaks the console it
+// Without a store or registry the overview still answers, with the
+// cards red: a zero Server (like today's tests build) must never 500
+// the model. If this fails, keeper wiring breaks the console it
 // extends.
 func TestKeeperBannerDegradedWithoutBackends(t *testing.T) {
 	testConfig(t)
-	s := &Server{}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	s.indexHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
+	out := getOverview(t, &Server{})
+	if out.Registry.Standing != keeper.StandingUnavailable {
+		t.Errorf("registry = %+v, want unavailable with no prober", out.Registry)
 	}
-	body := rr.Body.String()
-	for _, want := range []string{"Registry", "Store", "unreachable"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q (degraded sections)", want)
-		}
+	if out.Store.Standing != keeper.StandingUnavailable {
+		t.Errorf("store = %+v, want unavailable with no store", out.Store)
 	}
-	// The console never sweeps, so it advertises no sweep posture:
-	// armed/dry-run lives in the CLI that runs the pass. If this
-	// fails, sweep safety wording crept back into a console that
-	// owns none of it.
-	for _, gone := range []string{"dry-run", "armed"} {
-		if strings.Contains(body, gone) {
-			t.Errorf("dashboard advertises %q (sweep posture the console doesn't own)", gone)
-		}
+	if out.Clock.Standing != keeper.StandingUnchecked {
+		t.Errorf("clock = %+v, want unchecked local with no probing", out.Clock)
 	}
 }
 
-// The edge gets its own place: the section is named edge, the
-// card inside says gateway — the role the edge plays. Closed
-// with no gate (disabled or unproven edge), open with the live
-// fence posture when serve proves it. If this fails, the
-// operator can't see whether pushes are fenced.
-func TestEdgeSectionRendersPosture(t *testing.T) {
+// The edge card carries the live fence posture: closed with no
+// gate (disabled or unproven edge), open with the posture serve
+// proved. If this fails, the operator can't see whether pushes
+// are fenced.
+func TestEdgeCardRendersPosture(t *testing.T) {
 	testConfig(t)
-	render := func(s *Server) string {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
+	render := func(s *Server) overviewData {
+		req := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
 		rr := httptest.NewRecorder()
-		s.indexHandler(rr, req)
+		s.overviewHandler(rr, req)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rr.Code)
 		}
-		return rr.Body.String()
-	}
-	if body := render(&Server{}); !strings.Contains(body, "🚪 Edge") || !strings.Contains(body, "Gateway") || !strings.Contains(body, "closed") {
-		t.Error("dashboard without a gate must render the edge section with the gateway closed")
-	}
-	body := render(&Server{Edge: &fence.Gate{Store: store.NewMemStore()}})
-	for _, want := range []string{"🚪 Edge", "Gateway", "open", "pass"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard with a gate missing %q (open fence)", want)
+		var out overviewData
+		if err := json.NewDecoder(rr.Body).Decode(&out); err != nil {
+			t.Fatalf("decode: %v", err)
 		}
+		return out
+	}
+	if out := render(&Server{}); out.Edge.Standing != keeper.StandingClosed || out.Edge.Open {
+		t.Errorf("gateless edge = %+v, want closed", out.Edge)
+	}
+	if out := render(&Server{Edge: &fence.Gate{Store: store.NewMemStore()}}); !out.Edge.Open || out.Edge.Standing == keeper.StandingClosed {
+		t.Errorf("gated edge = %+v, want open", out.Edge)
 	}
 	// Would-deny: a locked store with zero edge traffic still reads
 	// deny — the posture leads the first refused push, not trails
@@ -103,8 +90,8 @@ func TestEdgeSectionRendersPosture(t *testing.T) {
 	if err := locked.SetUnlocked(context.Background(), false); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	if body := render(&Server{Edge: &fence.Gate{Store: locked}, Store: locked}); !strings.Contains(body, ">deny<") {
-		t.Error("dashboard with a locked store must read deny before any traffic")
+	if out := render(&Server{Edge: &fence.Gate{Store: locked}, Store: locked}); out.Edge.Standing != keeper.StandingDenied {
+		t.Errorf("locked edge = %+v, want deny before any traffic", out.Edge)
 	}
 	// The other side of the same branch: an unlocked store with an
 	// open gate reads pass, never deny. The verdict is pinned on
@@ -116,13 +103,13 @@ func TestEdgeSectionRendersPosture(t *testing.T) {
 	if err := open.SetUnlocked(context.Background(), true); err != nil {
 		t.Fatalf("unlock: %v", err)
 	}
-	if body := render(&Server{Edge: &fence.Gate{Store: open}, Store: open}); !strings.Contains(body, ">pass<") || strings.Contains(body, ">deny") {
-		t.Error("dashboard with an unlocked store must read pass, not deny")
+	if out := render(&Server{Edge: &fence.Gate{Store: open}, Store: open}); out.Edge.Deny || out.Edge.Standing == keeper.StandingDenied {
+		t.Errorf("unlocked edge = %+v, want no deny", out.Edge)
 	}
 }
 
-// Activity reads like `status activity` in a code block — friendly
-// lines, capped at ten and said out loud — while /api/activity
+// Activity reads like `status activity` — friendly lines, capped
+// at ten with the uncapped total beside them — while /api/activity
 // serves every record with precise stamps. If this fails, the
 // console either hides the cap or loses precision.
 func TestActivitySectionRendersStatusShape(t *testing.T) {
@@ -142,37 +129,27 @@ func TestActivitySectionRendersStatusShape(t *testing.T) {
 	// fails, timeless rows claim 1970.
 	_ = s.Record(c, policy.Row{Repo: "timeless", Tag: "v1", Due: true, Reason: "ttl"})
 	srv := &Server{Store: s, Registry: liveRegistry(t)}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	srv.indexHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
+	out := getOverview(t, srv)
+	if len(out.Activity) != keeper.ActivityTail {
+		t.Errorf("activity tail holds %d lines, want the capped %d", len(out.Activity), keeper.ActivityTail)
 	}
-	body := rr.Body.String()
-	for _, want := range []string{"<pre>", "last 10 of 13", "/api/activity",
-		"app:v1 — deleted (untag), ", "held (gc-fence), ",
-		"timeless:v1", "unknown"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard activity missing %q", want)
+	if out.ActivityTotal != 13 {
+		t.Errorf("activity total = %d, want all 13", out.ActivityTotal)
+	}
+	joined := strings.Join(out.Activity, "\n")
+	for _, want := range []string{"app:v1 — deleted (untag), ", "held (gc-fence), "} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("overview activity missing %q", want)
 		}
 	}
 	// The control event must not wear a row prefix: ": — held" is
 	// the row branch misfiring on an empty repo:tag. If this fails,
 	// row-less events render as malformed rows.
-	if strings.Contains(body, ": — held") {
-		t.Errorf("control event rendered with a row prefix:\n%s", body)
+	if strings.Contains(joined, ": — held") {
+		t.Errorf("control event rendered with a row prefix:\n%s", joined)
 	}
-	section := body[strings.Index(body, ">Activity</div>"):]
-	if end := strings.Index(section, "</pre>"); end >= 0 {
-		section = section[:end]
-	}
-	if strings.Contains(section, "<li>") {
-		t.Error("dashboard activity still renders bullets, want the code block")
-	}
-	// Placement: the card lives in Store, not its own section. If
-	// this fails, activity drifted back out of Store.
-	if store, activity := strings.Index(body, "💾 Store"), strings.Index(body, ">Activity</div>"); activity < store {
-		t.Error("Activity card renders outside Store")
+	if len(out.Plan) != 1 || out.Plan[0].Repo != "timeless" || out.Plan[0].Pushed != "unknown" {
+		t.Errorf("plan = %+v, want the timeless row with unknown push", out.Plan)
 	}
 
 	apiReq := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
@@ -268,14 +245,9 @@ func TestActivityZeroStampReadsUnknown(t *testing.T) {
 	_ = s.PushActivity(context.Background(), store.Outcome{Repo: "app", Tag: "v1",
 		Reason: "untag", Outcome: "deleted"})
 	srv := &Server{Store: s, Registry: liveRegistry(t)}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	srv.indexHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	if !strings.Contains(rr.Body.String(), "unknown") {
-		t.Errorf("dashboard hides the zero stamp:\n%s", rr.Body.String())
+	out := getOverview(t, srv)
+	if len(out.Activity) != 1 || !strings.Contains(out.Activity[0], "unknown") {
+		t.Errorf("activity = %q, want the zero stamp as unknown", out.Activity)
 	}
 
 	apiReq := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
@@ -292,32 +264,32 @@ func TestActivityZeroStampReadsUnknown(t *testing.T) {
 // Redis naming now lives in keeper.FetchStoreCard (spike
 // milestone 1); the case moved with the function, not dropped.
 
-// Clock, endpoints, and capacity read off the cards: the local
-// transport voices unchecked (never a fake zero skew), the cards
-// name the endpoints serve was given, and the file card stays
-// silent about size until a proof says whose dir it is. If this
-// fails, the console guesses where it should voice.
+// Clock, endpoints, and the app link read off the cards: the
+// local transport voices unchecked (never a fake zero skew),
+// the cards name the endpoints serve was given, and the app
+// status URL keeps the browser's host with the app port. If
+// this fails, the console guesses where it should voice.
 func TestInfoCardsVoiceConfigAndProof(t *testing.T) {
 	testConfig(t)
-	srv := &Server{
+	out := getOverview(t, &Server{
 		RegistryURL: "http://registry:5000",
 		EdgeAddr:    ":5000",
 		Edge:        &fence.Gate{Store: store.NewMemStore()},
+	})
+	if out.Clock.Standing != keeper.StandingUnchecked || out.Clock.Method != "local" {
+		t.Errorf("clock = %+v, want unchecked local", out.Clock)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	srv.indexHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
+	if out.ClockNow == "" {
+		t.Error("clock carries no server render stamp")
 	}
-	body := rr.Body.String()
-	for _, want := range []string{"Clock", "local", "machine clock", "unchecked",
-		"Server time", "as kpr sees it",
-		"http://registry:5000", ":5000 → http://registry:5000",
-		`href="http://example.com:18080/api/status"`} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q (clock/endpoints)", want)
-		}
+	if out.Registry.URL != "http://localhost:5000" {
+		t.Errorf("registry url = %q, want the configured endpoint", out.Registry.URL)
+	}
+	if out.Edge.EdgeAddr != ":5000" || out.Edge.RegistryURL != "http://registry:5000" {
+		t.Errorf("edge addrs = %+v", out.Edge)
+	}
+	if out.AppStatusURL == "" || !strings.HasSuffix(out.AppStatusURL, ":18080/api/status") {
+		t.Errorf("app status url = %q, want the browser host with the app port", out.AppStatusURL)
 	}
 }
 
@@ -390,37 +362,26 @@ func TestAppStatusURLKeepsBrowserHost(t *testing.T) {
 	}
 }
 
-// The dashboard shows only what kpr tracks: due rows with reasons
+// The overview shows only what kpr tracks: due rows with reasons
 // (the plan), outcome counts, and the activity ring — never a registry
 // catalog. If this fails, the console either leaks registry browsing
 // or hides the pending work.
 func TestKeeperSectionsRenderTrackedState(t *testing.T) {
 	testConfig(t)
-	s := &Server{Store: keeperStore(t), Registry: liveRegistry(t)}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	s.indexHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
+	out := getOverview(t, &Server{Store: keeperStore(t), Registry: liveRegistry(t)})
+	if !out.StoreOK || !out.RegistryOK {
+		t.Errorf("banner = store %v registry %v, want both ok", out.StoreOK, out.RegistryOK)
 	}
-	body := rr.Body.String()
-	for _, want := range []string{
-		"scratch", "10m", "ttl:10m elapsed", // the plan, with reason
-		"deleted", // activity outcome
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q", want)
-		}
+	if len(out.Plan) != 1 || out.Plan[0].Repo != "scratch" || out.Plan[0].Tag != "10m" ||
+		out.Plan[0].Reason != "ttl:10m elapsed" {
+		t.Errorf("plan = %+v, want the due row with its reason", out.Plan)
 	}
-	// The probe cell anchored on its label: both banner cells share the
-	// same markup (and "unreachable" contains "reachable"), so neither
-	// a bare word nor a bare cell proves the REGISTRY row is green.
-	registryGreen := regexp.MustCompile(`Registry</div>\s*<div class="value">reachable</div>`)
-	if !registryGreen.MatchString(body) {
-		t.Error("registry banner cell is not green")
+	joined := strings.Join(out.Activity, "\n")
+	if !strings.Contains(joined, "deleted") {
+		t.Errorf("activity hides the outcome:\n%s", joined)
 	}
-	if strings.Contains(body, "/v2/app/tags/list") {
-		t.Error("dashboard links registry catalog browsing, want tracked-state only")
+	if out.Tracked != 2 || out.Due != 1 {
+		t.Errorf("counters = %d tracked/%d due, want 2/1", out.Tracked, out.Due)
 	}
 }
 
@@ -445,36 +406,24 @@ func TestKeeperCountersAndPlanOrder(t *testing.T) {
 			Reason: "r", Outcome: outcome, At: time.Now().UTC()})
 	}
 	srv := &Server{Store: s, Registry: liveRegistry(t)}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	srv.indexHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
+	out := getOverview(t, srv)
+	if out.Tracked != 4 || out.Due != 3 {
+		t.Errorf("counters = %d tracked/%d due, want 4/3", out.Tracked, out.Due)
 	}
-	body := rr.Body.String()
-	for _, want := range []string{
-		"4 / 3",
-		"performed 1 · planned 1 · failed 1 · untracked 1",
-		"a-repo:c", "a-repo:m", "b-repo:z",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard missing %q", want)
-		}
+	if len(out.Activity) != 4 {
+		t.Errorf("activity holds %d lines, want one per outcome", len(out.Activity))
 	}
-	// Order is checked inside the Plan section: the Activity card
-	// above it names the same repos, so a whole-body index would
-	// hit the activity lines first. If this fails, the plan list
-	// lost its repo-then-tag sort.
-	plan := body[strings.Index(body, "📋 Plan"):]
+	// Order is repo, then tag — fetch it from the JSON array, not
+	// from rendered text. If this fails, the plan list lost its
+	// sort.
 	ordered := []string{"a-repo:c", "a-repo:m", "b-repo:z"}
-	last := -1
-	for _, want := range ordered {
-		at := strings.Index(plan, want)
-		if at <= last {
-			t.Errorf("plan order broken at %q (repo, then tag)", want)
-			break
+	if len(out.Plan) != len(ordered) {
+		t.Fatalf("plan holds %d rows, want %d: %+v", len(out.Plan), len(ordered), out.Plan)
+	}
+	for i, want := range ordered {
+		if got := out.Plan[i].Repo + ":" + out.Plan[i].Tag; got != want {
+			t.Errorf("plan[%d] = %q, want %q", i, got, want)
 		}
-		last = at
 	}
 }
 
@@ -512,51 +461,18 @@ func TestConsoleDoesNotServeSweepEndpoint(t *testing.T) {
 	}
 }
 
-// Standing paints the card's left border: deny red, held and
-// degraded amber, ok teal — the console half of the rule both
-// renderers sign. Anything else gets no class (the default
-// border) rather than a wrong color: the words carry those
-// states. If this fails, the dashboard bulbs lie or vanish.
-func TestBulbClassTruthTable(t *testing.T) {
-	for _, tc := range []struct {
-		standing keeper.Standing
-		want     string
-	}{
-		{keeper.StandingDenied, "bulb-deny"},
-		{keeper.StandingHold, "bulb-warn"},
-		{keeper.StandingDegraded, "bulb-warn"},
-		{keeper.StandingOK, "bulb-ok"},
-		{keeper.StandingClosed, ""},
-		{keeper.StandingLocked, ""},
-		{keeper.StandingUnreachable, ""},
-		{keeper.StandingUnproven, ""},
-		{keeper.StandingUnchecked, ""},
-		{keeper.StandingUnavailable, ""},
-	} {
-		if got := bulbClass(tc.standing); got != tc.want {
-			t.Errorf("bulbClass(%q) = %q, want %q", tc.standing, got, tc.want)
-		}
-	}
-}
-
-// A denied fence paints its card red end to end: the model
-// decides deny in keeper, the template only hangs the class.
-// If this fails, deny reads as words with a calm blue border.
-func TestEdgeBulbRedOnDeny(t *testing.T) {
+// A denied fence voices deny in the card: the model decides deny
+// in keeper, the SPA only colors the word. If this fails, deny
+// reads as a calm standing.
+func TestEdgeDeniedStandingOnDeny(t *testing.T) {
 	testConfig(t)
 	locked := store.NewMemStore()
 	if err := locked.SetUnlocked(context.Background(), false); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	srv := &Server{Edge: &fence.Gate{Store: locked}, Store: locked}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	srv.indexHandler(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	if !strings.Contains(rr.Body.String(), "bulb-deny") {
-		t.Error("denied dashboard lacks the red bulb class")
+	out := getOverview(t, &Server{Edge: &fence.Gate{Store: locked}, Store: locked})
+	if out.Edge.Standing != keeper.StandingDenied {
+		t.Errorf("edge = %+v, want deny voiced", out.Edge)
 	}
 }
 
