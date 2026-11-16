@@ -1,8 +1,11 @@
-.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report codecov-validate bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc licenses
+.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report codecov-validate bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc licenses web-build
 .DEFAULT_GOAL := help
 
 # Version information
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+# Version always carries the short HEAD: a dirty tree reuses its
+# tag, so the hash is what tells builds apart. The sed prefixes
+# "-g" only when rev-parse prints (no git → no suffix).
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")$(shell git rev-parse --short HEAD 2>/dev/null | sed 's/^/-g/')
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -19,6 +22,15 @@ LDFLAGS := -s -w \
 ifeq ($(CI),true)
 GOTESTSUM_FLAGS := --no-color
 endif
+
+# Canonical Go version, single variable: .go-version feeds the test
+# image, the compose builder arg, and CI's go-version-file alike —
+# flip it there and everything follows. go.mod stays a floor.
+# Exported so every compose invocation below (up and down alike)
+# interpolates — a missing value fails in the compose file with
+# a sentence, never in buildx with a parse error.
+GO_VERSION := $(shell cat .go-version)
+export GO_VERSION
 
 # Directories
 DIST_DIR := dist
@@ -116,26 +128,36 @@ test:
 e2e:
 	go test -race -tags e2e ./test/e2e/ -count=1 -v
 
+## check-devnull: Fail fast when /dev/null is no character device
+check-devnull:
+	@ls -l /dev/null /dev/zero /dev/full /dev/urandom /dev/stdin 2>&1 || true
+	@test -c /dev/null || { echo "no /dev/null character device" >&2; exit 1; }
+
 ## coverage: Run tests with coverage (coverprofile + terminal summary + HTML report)
-coverage:
-	@if command -v gotestsum >/dev/null 2>&1; then \
-		gotestsum $(GOTESTSUM_FLAGS) --format pkgname -- -race -coverprofile=coverage.raw.out -coverpkg=./... ./...; \
+# Device nodes gate before the run (broken runner fails fast)
+# and report after it (diagnostic only, never gates).
+# storetest/ is shared contract scaffolding (exercised only under
+# docker runs), not product code: the roll-up excludes it the way
+# *_test.go is excluded.
+coverage: check-devnull
+	@status=0; \
+	if command -v gotestsum >/dev/null 2>&1; then \
+		gotestsum $(GOTESTSUM_FLAGS) --format pkgname -- -race -coverprofile=coverage.raw.out -coverpkg=./... ./... || status=$$?; \
 	else \
 		echo "gotestsum not found, using go test..."; \
 		echo "Install gotestsum for a dense pass/fail summary:"; \
 		echo "  go install gotest.tools/gotestsum@latest"; \
 		echo ""; \
-		go test -race -coverprofile=coverage.raw.out -coverpkg=./... ./...; \
-	fi
-	@# storetest/ is shared contract scaffolding (exercised only under docker runs),
-	@# not product code: exclude it from the roll-up the way *_test.go is excluded.
-	grep -v '^nrtn.dev/catalyst/kpr/internal/testing/storetest/' coverage.raw.out > coverage.out
-	rm -f coverage.raw.out
-	@# Sub-90% functions, worst last; total closes the summary.
-	go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | awk '$$3+0 < 90'
-	go tool cover -func=coverage.out | grep '^total:'
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report: coverage.html"
+		go test -race -coverprofile=coverage.raw.out -coverpkg=./... ./... || status=$$?; \
+	fi; \
+	$(MAKE) check-devnull || true; \
+	grep -v '^nrtn.dev/catalyst/kpr/internal/testing/storetest/' coverage.raw.out > coverage.out; \
+	rm -f coverage.raw.out; \
+	go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | awk '$$3+0 < 90'; \
+	go tool cover -func=coverage.out | grep '^total:'; \
+	go tool cover -html=coverage.out -o coverage.html; \
+	echo "Coverage report: coverage.html"; \
+	exit $$status
 
 ## coverage-report: Reprint the coverage summary from the last run without re-running tests
 coverage-report:
@@ -176,7 +198,7 @@ mutation:
 	gremlins unleash --timeout-coefficient=100 --workers=$(WORKERS) \
 		--threshold-efficacy=90 --threshold-mcover=85 \
 		--exclude-files 'test/e2e/(clients|scenario|fixture|toolbox)\.go$$' \
-		--exclude-files 'internal/testing/storetest/contract\.go$$' .
+		--exclude-files 'internal/testing/storetest/contract\.go$$' . 2>&1 | tee gremlins.log
 
 ## mutation-dry: Discover mutation candidates without running any tests
 mutation-dry:
@@ -190,7 +212,7 @@ mutation-dry:
 # Docker image used by test-linux*. Tracks go.mod's `go` directive closely
 # enough for chasing Linux-only flakes; not meant to byte-for-byte match
 # the Forgejo runner image.
-LINUX_TEST_IMAGE := golang:1.27
+LINUX_TEST_IMAGE := golang:$(GO_VERSION)
 # Named volumes (not a bind mount) so module downloads and build cache
 # persist between runs without polluting the host's own Go caches or the
 # repo working tree with root-owned files written by the container.
@@ -228,7 +250,7 @@ test-linux-repeat:
 ## test-docker: Test Docker image
 test-docker:
 	@set -e; \
-	VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
+	VERSION=$$(git describe --tags --always --dirty 2>/dev/null || echo "dev")$$(git rev-parse --short HEAD 2>/dev/null | sed 's/^/-g/'); \
 	HOST="[::1]"; \
 	echo "Smoking the stock registry binary \`kpr gc\` shells out to..."; \
 	docker run --rm --entrypoint /bin/registry $(DOCKER_IMAGE):$$VERSION garbage-collect --help >/dev/null; \
@@ -347,6 +369,18 @@ clean-dist:
 run:
 	go run $(CMD_DIR) serve
 
+## web-build: Build the SvelteKit frontends and copy the static output into the Go embed dirs (needs pnpm)
+web-build:
+	pnpm --dir web install
+	pnpm --dir web -r exec svelte-kit sync
+	pnpm --dir web -r check
+	pnpm --dir web -r build
+	rm -rf internal/console/static internal/app/static
+	mkdir -p internal/console/static internal/app/static
+	cp -r web/console/build/. internal/console/static/
+	cp -r web/app/build/. internal/app/static/
+	@echo "Frontends copied to the Go embed dirs"
+
 ## release: Build release archives for all platforms
 release: clean-dist
 	@echo "Building release $(VERSION)..."
@@ -372,17 +406,21 @@ install-prereqs:
 ## install-ci-prereqs: Install the CI tool set (same tools; keeps CI output rich instead of fallback blurbs). Both Forgejo workflows call this
 install-ci-prereqs: install-prereqs
 
-## install: Install binary to /usr/local/bin
+## install: Install binary (root: /usr/local/bin, otherwise ~/.local/bin, no sudo inside)
 install: build
-	@echo "Installing $(BINARY_NAME) to /usr/local/bin..."
-	@GOOS=$$(go env GOOS); GOARCH=$$(go env GOARCH); \
-		sudo cp $(DIST_DIR)/$(BINARY_NAME)-$$GOOS-$$GOARCH /usr/local/bin/$(BINARY_NAME)
+	@if [ "$$(id -u)" -eq 0 ]; then dest=/usr/local/bin; else dest="$$HOME/.local/bin"; fi; \
+	mkdir -p "$$dest"; \
+	GOOS=$$(go env GOOS); GOARCH=$$(go env GOARCH); \
+	echo "Installing $(BINARY_NAME) to $$dest..."; \
+	cp $(DIST_DIR)/$(BINARY_NAME)-$$GOOS-$$GOARCH "$$dest/$(BINARY_NAME)"
 	@echo "Installed successfully"
+	@if [ "$$dest" != "/usr/local/bin" ]; then case ":$(PATH):" in *"$$dest:"*) ;; *) echo "Note: $$dest is not on PATH";; esac; fi
 
-## uninstall: Remove binary from /usr/local/bin
+## uninstall: Remove binary (same location install would use)
 uninstall:
-	@echo "Removing $(BINARY_NAME) from /usr/local/bin..."
-	sudo rm -f /usr/local/bin/$(BINARY_NAME)
+	@if [ "$$(id -u)" -eq 0 ]; then dest=/usr/local/bin; else dest="$$HOME/.local/bin"; fi; \
+	echo "Removing $(BINARY_NAME) from $$dest..."; \
+	rm -f "$$dest/$(BINARY_NAME)"
 	@echo "Uninstalled successfully"
 
 ## version: Show version information
@@ -515,16 +553,38 @@ CLAIM_STORE = docker compose -f $(COMPOSE_FILE) run --rm -u 0 --no-deps --entryp
 
 ## up: Start full dev stack locally (detached) — base plus the
 ## observability and shadow overlays
-up:
+up: dev-certs
 	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
 	docker compose -f $(COMPOSE_FILE) -f docker-compose.observability.yml -f docker-compose.shadow.yml up -d --build
 	@$(CLAIM_STORE) >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
 
 ## up-minimal: Start the base dev stack only (no overlays)
-up-minimal:
+up-minimal: dev-certs
 	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
 	docker compose -f $(COMPOSE_FILE) up -d --build
 	@$(CLAIM_STORE) >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
+
+## dev-certs: Refresh dev TLS staging from scripts/dev-certs.sh (rerun after deleting a fixture)
+dev-certs:
+	bash scripts/dev-certs.sh
+
+# pprof endpoint serve exposes with KPR_PPROF_ADDR (see docs/PROFILING.md)
+PPROF_ADDR ?= 127.0.0.1:6060
+PPROF_SECONDS ?= 30
+
+## pprof-cpu: Capture a CPU profile from serve with KPR_PPROF_ADDR set, print top callers (see docs/PROFILING.md)
+pprof-cpu:
+	go tool pprof -top -nodecount=25 'http://$(PPROF_ADDR)/debug/pprof/profile?seconds=$(PPROF_SECONDS)'
+
+## pprof-heap: Same, for the heap — what the process holds, not what it burns
+pprof-heap:
+	go tool pprof -top -nodecount=25 'http://$(PPROF_ADDR)/debug/pprof/heap'
+
+## up-tls: Start dev stack with the TLS overlay (detached)
+up-tls: dev-certs
+	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
+	docker compose -f $(COMPOSE_FILE) -f docker-compose.tls.yml up -d --build
+	@docker compose -f $(COMPOSE_FILE) -f docker-compose.tls.yml run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
 
 ## down: Stop local stacks (base plus every overlay)
 down:

@@ -1,0 +1,19 @@
+# Example TLS bundles: copy, uncomment, point KPR_CONFIG_DIR here.
+#
+# This file is all comments, so it loads as nothing: a pointed-at
+# folder with only this file behaves exactly like unconfigured.
+# Uncomment a bundle and fill absolute paths to file it for real.
+# Every path must exist and parse — one broken bundle rejects the
+# whole load (see docs/TLS.md), never half-applies.
+
+# apiVersion: kpr/v1alpha1
+# kind: TLSBundle
+# metadata:
+#   name: web
+# spec:
+#   certFile: /srv/tls/web/fullchain.pem
+#   keyFile: /srv/tls/web/privkey.pem
+#   chainFile: ""     # split layouts only: cert.pem plus chain.pem
+#   caFile: ""        # trust pool for outbound verification; empty means system roots
+#   minTLS: "1.3"     # "1.2", "1.3", or empty for Go's default
+#   # enabled: false  # parked: validated and materialized, but serving refuses listeners that name it

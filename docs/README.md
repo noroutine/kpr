@@ -27,6 +27,7 @@ and quickstart commands are in the [top-level README](../README.md).
 | [STORES](STORES.md) | file and redis backends, layouts, invariants |
 | [GC](GC.md) | reclaiming blob bytes: the proof chain, the two paths |
 | [BACKFILL](BACKFILL.md) | adopting pre-kpr tags into tracked rows |
+| [ANALYSIS](ANALYSIS.md) | registry magnitude: `registry analyze` numbers |
 
 ## Understand it
 
@@ -39,7 +40,10 @@ and quickstart commands are in the [top-level README](../README.md).
 | [EDGE](EDGE.md) | the edge proxy, HOLD/DENY fence, RelativeURLs proof |
 | [RECEIVER](RECEIVER.md) | the registry webhook: `/events` on its own port |
 | [TIMESTAMPS](TIMESTAMPS.md) | checked clock: transports, wiring, skew semantics |
+| [PROFILING](PROFILING.md) | pprof setup, reading profiles, bench recipe |
+| [TLS](TLS.md) | one switch, filed bundles, reload, standings |
 | [REGISTRY_LAYOUT](REGISTRY_LAYOUT.md) | registry:3 filesystem layout, observed |
+| [DRY_RUN](DRY_RUN.md) | dry-run by default: rule, terminology, overrides |
 
 ## Hack on it
 
@@ -49,6 +53,7 @@ and quickstart commands are in the [top-level README](../README.md).
 | [HEXAGONAL_WISDOMS](HEXAGONAL_WISDOMS.md) | port-cutting rules learned the hard way |
 | [HEXAGONAL_STUDY](HEXAGONAL_STUDY.md) | the post-mortem those rules came from |
 | [TESTING](TESTING.md) | unit, e2e, coverage, mutation gates |
+| [MUTATION_TESTING_NOTES](MUTATION_TESTING_NOTES.md) | where gremlins is blind: earned field notes |
 | [BUILD](BUILD.md) | builds, releases, cross-compilation |
 | [CLI](CLI.md) | command inventory, subpackage layout, shared wiring |
 | [REVIEWER_CONTEXT](REVIEWER_CONTEXT.md) | review loop contract (Claude) |
@@ -65,6 +70,7 @@ reference pages above. Each `X.md` states what ships today; its
 | [GC_FUTURE](GC_FUTURE.md) | per-repo collection |
 | [BACKFILL_FUTURE](BACKFILL_FUTURE.md) | filling missing digests on tracked rows |
 | [PROOFS_FUTURE](PROOFS_FUTURE.md) | proofs over registry config |
+| [ANALYSIS_FUTURE](ANALYSIS_FUTURE.md) | registry magnitude work, not built |
 
 Deferred by decision, kept so the reasoning survives:
 

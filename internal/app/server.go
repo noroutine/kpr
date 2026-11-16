@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -17,6 +18,10 @@ type Server struct {
 	Host        string
 	Port        int
 	OTELEnabled bool
+	// TLSConfig, when set, serves the app over HTTPS. Serve
+	// builds it from the KPR_TLS_BUNDLE pair; half a pair
+	// refuses the boot there, never here.
+	TLSConfig *tls.Config
 	// Store backs /api/status. Nil renders it unbacked (but
 	// still 200); production always wires the keeper store.
 	Store store.Store
@@ -33,31 +38,21 @@ type Server struct {
 
 // Start starts the application HTTP server on port 8080
 func (s *Server) Start(ctx context.Context) error {
+	assets, err := staticFS()
+	if err != nil {
+		return fmt.Errorf("app static files: %w", err)
+	}
 	mux := http.NewServeMux()
 
-	// Serve static files
-	staticFS, err := GetStaticFS()
-	if err != nil {
-		return fmt.Errorf("failed to load static files: %w", err)
-	}
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(staticFS)))
+	// Built SPA shell at root, hashed assets under /_app/.
+	mux.HandleFunc("/", indexHandler)
+	mux.Handle("/_app/", http.FileServer(http.FS(assets)))
 
-	// Serve index.html at root, templated with the app base path so
-	// the stylesheet href survives a stripped subpath prefix. Routes
-	// stay put — only UI hrefs move. The template parses once at
-	// init (a broken embed fails the boot, not each request); the
-	// only per-request failure left is the execute, which a static
-	// page with one string key never produces.
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			renderIndex(w, config.Current().AppBasePath)
-		} else {
-			http.NotFound(w, r)
-		}
-	})
+	// Tab icon browsers request unprompted — same mark as the console.
+	mux.HandleFunc("/favicon.ico", faviconHandler)
 
 	// Machine-readable expected state (ok/degraded + store); the
-	// landing page carries no state.
+	// landing page fetches it at runtime.
 	mux.HandleFunc("/api/status", StatusHandler(s.Store))
 
 	// /events lives on the receiver's own port (see
@@ -87,6 +82,9 @@ func (s *Server) Start(ctx context.Context) error {
 		WriteTimeout: cfg.HTTPWriteTimeout,
 		IdleTimeout:  cfg.HTTPIdleTimeout,
 	}
+	if s.TLSConfig != nil {
+		s.server.TLSConfig = s.TLSConfig
+	}
 
 	// Listen on the specified address, unless a listener was injected.
 	listener := s.Listener
@@ -101,7 +99,11 @@ func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting app server")
 	// The socket names itself: configured host, ephemeral port,
 	// injected listener — the log reads what is actually bound.
-	log.Printf("Application: http://%s", listener.Addr())
+	scheme := "http"
+	if s.TLSConfig != nil {
+		scheme = "https"
+	}
+	log.Printf("Application: %s://%s", scheme, listener.Addr())
 
 	// Handle graceful shutdown
 	s.shutdownDone = make(chan struct{})
@@ -115,7 +117,11 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
+	serve := s.server.Serve
+	if s.TLSConfig != nil {
+		serve = func(l net.Listener) error { return s.server.ServeTLS(l, "", "") }
+	}
+	if err := serve(listener); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 	return nil

@@ -40,6 +40,15 @@ func TestNewBuilderDefaults(t *testing.T) {
 	if cfg.ManagementPortWarning != nil || cfg.AppPortWarning != nil {
 		t.Error("clean environment must not produce port warnings")
 	}
+	if !cfg.ConsoleEnabled || !cfg.AppEnabled {
+		t.Error("servers must be on by default; only an explicit \"false\" stops them")
+	}
+	if cfg.TLSBundle != "" || cfg.ConfigDir != "" {
+		t.Errorf("serving identity = %q/%q, want plaintext unconfigured", cfg.TLSBundle, cfg.ConfigDir)
+	}
+	if cfg.ConsoleToken != "" || cfg.ConsoleAuth != "" || cfg.PprofAddr != "" {
+		t.Error("console guard and pprof must default to open/off")
+	}
 	if cfg.HTTPReadTimeout != 10*time.Second || cfg.HTTPWriteTimeout != 10*time.Second ||
 		cfg.HTTPIdleTimeout != 60*time.Second || cfg.ShutdownTimeout != 5*time.Second {
 		t.Errorf("timeouts = %v/%v/%v/%v, want 10s/10s/60s/5s",
@@ -257,6 +266,13 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 		WithAppPort(2).
 		WithReceiverHost("h3").
 		WithReceiverPort(3).
+		WithConsoleEnabled(false).
+		WithAppEnabled(false).
+		WithTLSBundle("web").
+		WithConfigDir("./etc").
+		WithConsoleToken("tok").
+		WithConsoleAuth("true").
+		WithPprofAddr("127.0.0.1:6060").
 		WithRedisAddr("r:1").
 		WithRedisPassword("pw").
 		WithRedisDB(4).
@@ -265,6 +281,8 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 		WithRegistryPassword("p").
 		WithRegistryConfig("/r.yml").
 		WithRegistryBinPath("/b/reg").
+		WithTimeMethod(clock.MethodNTP).
+		WithTimeServer("time.example:123").
 		WithCLINoDryRun(true).
 		WithOTELEnabled(true).
 		WithOTLPEndpoint("e:1").
@@ -285,6 +303,15 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 	if cfg.ReceiverHost != "h3" || cfg.ReceiverPort != 3 {
 		t.Errorf("receiver = %s:%d", cfg.ReceiverHost, cfg.ReceiverPort)
 	}
+	if cfg.ConsoleEnabled || cfg.AppEnabled {
+		t.Error("server toggles not applied")
+	}
+	if cfg.TLSBundle != "web" || cfg.ConfigDir != "./etc" {
+		t.Errorf("serving identity = %q/%q, want web/./etc", cfg.TLSBundle, cfg.ConfigDir)
+	}
+	if cfg.ConsoleToken != "tok" || cfg.ConsoleAuth != "true" || cfg.PprofAddr != "127.0.0.1:6060" {
+		t.Errorf("console guard/pprof = %q/%q/%q", cfg.ConsoleToken, cfg.ConsoleAuth, cfg.PprofAddr)
+	}
 	if cfg.RedisAddr != "r:1" || cfg.RedisPassword != "pw" || cfg.RedisDB != 4 || !cfg.OTELEnabled || cfg.OTLPEndpoint != "e:1" {
 		t.Errorf("backend/otel = %q/%q/%d/%v/%q", cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.OTELEnabled, cfg.OTLPEndpoint)
 	}
@@ -296,6 +323,9 @@ func TestBuilderEveryWithSetterAppliesItsOwnField(t *testing.T) {
 	}
 	if cfg.RegistryBinPath != "/b/reg" {
 		t.Errorf("RegistryBinPath = %q, want /b/reg", cfg.RegistryBinPath)
+	}
+	if cfg.TimeMethod != clock.MethodNTP || cfg.TimeServer != "time.example:123" {
+		t.Errorf("time = %q/%q", cfg.TimeMethod, cfg.TimeServer)
 	}
 	if cfg.OTELServiceName != "s" || cfg.OTELServiceVersion != "v" || cfg.OTELEnvironment != "env" {
 		t.Error("otel identity not applied")
@@ -364,7 +394,10 @@ func TestEnvVarsDocumentsEveryEnvConst(t *testing.T) {
 	consts := []string{
 		EnvManagementHost, EnvManagementPort, EnvAppHost, EnvAppPort,
 		EnvReceiverHost, EnvReceiverPort,
+		EnvManagementEnabled, EnvAppEnabled,
+		EnvTLSBundle, EnvConfigDir,
 		EnvConsoleBasePath, EnvAppBasePath,
+		EnvConsoleToken, EnvConsoleAuth, EnvPprofAddr,
 		EnvRedisAddr, EnvRedisPassword, EnvRedisDB, EnvStore, EnvStoreDir,
 		EnvRegistryURL, EnvRegistryUser, EnvRegistryPassword,
 		EnvRegistryConfig, EnvRegistryBinPath,
@@ -489,6 +522,64 @@ func TestDBWarningNamesRawAndDefault(t *testing.T) {
 	for _, want := range []string{`"bogus"`, "using default"} {
 		if !strings.Contains(err, want) {
 			t.Errorf("DBWarning = %q, lacks %q", err, want)
+		}
+	}
+}
+
+// The serving switches resolve from the environment: exact
+// "false" stops a server, the serving bundle and config dir ride
+// through verbatim, the token lands verbatim, and the pprof bind
+// is stored raw (serve validates loopback at boot). If this
+// fails, compose cannot switch or secure a listener.
+func TestFromEnvResolvesServingSwitches(t *testing.T) {
+	t.Setenv(EnvManagementEnabled, "false")
+	t.Setenv(EnvAppEnabled, "false")
+	t.Setenv(EnvTLSBundle, "web")
+	t.Setenv(EnvConfigDir, "/etc/kpr/resources")
+	t.Setenv(EnvConsoleToken, "tok")
+	t.Setenv(EnvConsoleAuth, "true")
+	t.Setenv(EnvPprofAddr, "127.0.0.1:6060")
+	cfg := NewBuilder().FromEnv().Build()
+	if cfg.ConsoleEnabled || cfg.AppEnabled {
+		t.Error("servers not switched off by explicit \"false\"")
+	}
+	if cfg.TLSBundle != "web" || cfg.ConfigDir != "/etc/kpr/resources" {
+		t.Errorf("serving identity = %q/%q", cfg.TLSBundle, cfg.ConfigDir)
+	}
+	if cfg.ConsoleToken != "tok" || cfg.ConsoleAuth != "true" {
+		t.Errorf("console guard = %q/%q", cfg.ConsoleToken, cfg.ConsoleAuth)
+	}
+	if cfg.PprofAddr != "127.0.0.1:6060" {
+		t.Errorf("PprofAddr = %q", cfg.PprofAddr)
+	}
+}
+
+// The console guard must fail closed: a set token guards on its
+// own, explicit "true" without a token refuses loudly, and a
+// misspelled opt-in never reads as disabled. If this fails, an
+// operator can land an open console while believing it guarded.
+func TestConsoleAuthEnabledMatrix(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		token string
+		auth  string
+		want  bool
+		fail  bool
+	}{
+		{"unset pair stays open", "", "", false, false},
+		{"token alone guards", "tok", "", true, false},
+		{"explicit true guards", "tok", "true", true, false},
+		{"explicit false opens", "tok", "false", false, false},
+		{"true without token refuses", "", "true", false, true},
+		{"misspelling refuses", "tok", "yes", false, true},
+	} {
+		cfg := NewBuilder().WithConsoleToken(tc.token).WithConsoleAuth(tc.auth).Build()
+		got, err := cfg.ConsoleAuthEnabled()
+		if tc.fail && err == nil {
+			t.Errorf("%s: expected a refusal, got open=%v", tc.name, got)
+		}
+		if !tc.fail && (err != nil || got != tc.want) {
+			t.Errorf("%s: guard = %v/%v, want %v/nil", tc.name, got, err, tc.want)
 		}
 	}
 }

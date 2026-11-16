@@ -67,8 +67,8 @@ make test-linux-repeat N=50
 make check
 ```
 
-`test-linux*` run inside a `golang:1.27` Docker container — for
-Linux/filesystem-only flakes, not CPU-arch-specific ones. Module
+`test-linux*` run inside a `golang:` image pinned to `.go-version`
+— for Linux/filesystem-only flakes, not CPU-arch-specific ones. Module
 downloads and build cache persist between runs in named Docker volumes
 (`kpr-linux-test-gomod`, `kpr-linux-test-gobuild`) so repeat runs are
 fast; the first run per volume pays the full download/compile cost. The

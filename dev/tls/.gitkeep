@@ -1,0 +1,2 @@
+# Staging dir for `scripts/dev-certs.sh` (gitignored PEMs land
+# here). This file keeps the folder in the tree.

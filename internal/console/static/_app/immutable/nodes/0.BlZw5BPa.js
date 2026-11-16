@@ -1,0 +1,1 @@
+import{A as e,_ as t,f as n,v as r}from"../chunks/FwHrN2gr.js";var i=Object.defineProperty,a=((e,t)=>{let n={};for(var r in e)i(n,r,{get:e[r],enumerable:!0});return t||i(n,Symbol.toStringTag,{value:`Module`}),n})({prerender:()=>!0});function o(i,a){var o=r(),s=e(o);n(s,()=>a.children),t(i,o)}export{o as component,a as universal};

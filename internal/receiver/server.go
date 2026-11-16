@@ -2,6 +2,7 @@ package receiver
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -22,6 +23,10 @@ type Server struct {
 	Host        string
 	Port        int
 	OTELEnabled bool
+	// TLSConfig, when set, serves the receiver over HTTPS. Serve
+	// builds it from the KPR_TLS_BUNDLE pair; half a pair
+	// refuses the boot there, never here.
+	TLSConfig *tls.Config
 	// Store backs the notification receiver. Nil disables /events
 	// (503); production always wires the keeper store.
 	Store store.Store
@@ -68,6 +73,9 @@ func (s *Server) Start(ctx context.Context) error {
 		WriteTimeout: cfg.HTTPWriteTimeout,
 		IdleTimeout:  cfg.HTTPIdleTimeout,
 	}
+	if s.TLSConfig != nil {
+		s.server.TLSConfig = s.TLSConfig
+	}
 
 	// Listen on the specified address, unless a listener was injected.
 	listener := s.Listener
@@ -82,7 +90,11 @@ func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting receiver server")
 	// The socket names itself: configured host, ephemeral port,
 	// injected listener — the log reads what is actually bound.
-	log.Printf("Receiver: http://%s/events", listener.Addr())
+	scheme := "http"
+	if s.TLSConfig != nil {
+		scheme = "https"
+	}
+	log.Printf("Receiver: %s://%s/events", scheme, listener.Addr())
 
 	// Handle graceful shutdown
 	s.shutdownDone = make(chan struct{})
@@ -96,7 +108,11 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
-	if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
+	serve := s.server.Serve
+	if s.TLSConfig != nil {
+		serve = func(l net.Listener) error { return s.server.ServeTLS(l, "", "") }
+	}
+	if err := serve(listener); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 	return nil

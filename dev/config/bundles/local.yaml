@@ -1,0 +1,15 @@
+# Local dev bundle: the self-signed identity staged into
+# dev/tls/ by `scripts/dev-certs.sh` (host paths stay out —
+# the compose file mounts dev/tls here). Container paths —
+# never host ones; the same file loads on any checkout because
+# the mount point, not the checkout, is the address.
+apiVersion: kpr/v1alpha1
+kind: TLSBundle
+metadata:
+  name: local
+spec:
+  certFile: /etc/kpr/tls/local-cert.pem
+  keyFile: /etc/kpr/tls/local-key.pem
+  # Pinned floor: the dev listeners serve this identity, so
+  # both negotiate 1.3 — the dashboard proves the floor.
+  minTLS: "1.3"

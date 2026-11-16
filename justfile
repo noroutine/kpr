@@ -1,6 +1,9 @@
 # kpr development tasks
 
-VERSION := `git describe --tags --always --dirty 2>/dev/null || echo "dev"`
+# Version always carries the short HEAD: a dirty tree reuses its
+# tag, so the hash is what tells builds apart. The sed prefixes
+# "-g" only when rev-parse prints (no git → no suffix, still "dev").
+VERSION := `git describe --tags --always --dirty 2>/dev/null || echo "dev"` + `git rev-parse --short HEAD 2>/dev/null | sed 's/^/-g/'`
 COMMIT := `git rev-parse --short HEAD 2>/dev/null || echo "unknown"`
 BUILD_TIME := `date -u +%Y-%m-%dT%H:%M:%SZ`
 PKG := "nrtn.dev/catalyst/kpr"
@@ -13,6 +16,15 @@ gotestsum_flags := if env("CI", "") == "true" { "--no-color" } else { "" }
 # Pinned gremlins (mutation testing) version. go install keeps it out of
 # go.mod/go.sum; same pattern as gotestsum above.
 GREMLINS_VERSION := "v0.6.0"
+
+# Canonical Go version, single variable: .go-version feeds the test
+# image, the compose builder arg, and CI's go-version-file alike —
+# flip it there and everything follows. go.mod stays a floor.
+# Exported so every compose invocation below (up and down alike)
+# interpolates — a missing value fails in the compose file with
+# a sentence, never in buildx with a parse error.
+go_version := `cat .go-version`
+export GO_VERSION := go_version
 
 # Default recipe - show available commands
 default:
@@ -36,7 +48,7 @@ prereqs:
     REQUIRED=(go git)
     # Optional tools (for development) — optional but hard to live
     # without; install-prereqs installs all of them.
-    OPTIONAL=(golangci-lint gotestsum gremlins)
+    OPTIONAL=(golangci-lint gotestsum gremlins node pnpm)
 
     all_good=true
 
@@ -55,9 +67,10 @@ prereqs:
     echo "Optional tools:"
     for tool in "${OPTIONAL[@]}"; do
         if command -v "$tool" &> /dev/null; then
-            # gotestsum and gremlins take --version; golangci-lint takes version.
+            # gotestsum, gremlins, node, and pnpm take --version;
+            # golangci-lint takes version.
             case "$tool" in
-                gotestsum|gremlins)
+                gotestsum|gremlins|node|pnpm)
                     version=$($tool --version 2>&1 | head -n1 || echo "installed")
                     ;;
                 *)
@@ -132,6 +145,32 @@ release: clean-dist
 run:
     go run ./cmd/app serve
 
+# Capture a CPU profile from a serve running with KPR_PPROF_ADDR set
+# (see docs/PROFILING.md), then print the top callers. go tool pprof
+# fetches and symbolizes straight from the URL — no local binary needed.
+pprof-cpu addr="127.0.0.1:6060" seconds="30":
+    go tool pprof -top -nodecount=25 'http://{{addr}}/debug/pprof/profile?seconds={{seconds}}'
+
+# Same, for the heap: what the process holds, not what it burns.
+pprof-heap addr="127.0.0.1:6060":
+    go tool pprof -top -nodecount=25 'http://{{addr}}/debug/pprof/heap'
+
+# Build the SvelteKit frontends and copy the static output into the
+# Go embed dirs (needs pnpm; see web/README.md). The copies are
+# committed, so go build needs no node and CI never runs pnpm.
+web-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    pnpm --dir web install
+    pnpm --dir web -r exec svelte-kit sync
+    pnpm --dir web -r check
+    pnpm --dir web -r build
+    rm -rf internal/console/static internal/app/static
+    mkdir -p internal/console/static internal/app/static
+    cp -r web/console/build/. internal/console/static/
+    cp -r web/app/build/. internal/app/static/
+    echo "Frontends copied to the Go embed dirs"
+
 # Format code
 fmt:
     go fmt ./...
@@ -194,23 +233,35 @@ coverage-e2e:
     go test -race -tags e2e -coverpkg='./internal/...,./cmd/...' -coverprofile=coverage-e2e.out ./...
     go tool cover -func=coverage-e2e.out | tail -n 5
 
-# Run tests with coverage (coverprofile + terminal summary + HTML report)
-coverage:
+# Fail fast when /dev/null is no character device
+check-devnull:
     #!/usr/bin/env bash
+    ls -l /dev/null /dev/zero /dev/full /dev/urandom /dev/stdin 2>&1 || true
+    test -c /dev/null || { echo "no /dev/null character device" >&2; exit 1; }
+
+# Run tests with coverage (coverprofile + terminal summary + HTML report)
+# Device nodes gate before the run (broken runner fails fast)
+# and report after it (diagnostic only, never gates).
+coverage: check-devnull
+    #!/usr/bin/env bash
+    set -euo pipefail
+    status=0
     if command -v gotestsum &> /dev/null; then
-        gotestsum {{gotestsum_flags}} --format pkgname -- -race -coverprofile=coverage.out ./...
+        gotestsum {{gotestsum_flags}} --format pkgname -- -race -coverprofile=coverage.out ./... || status=$?
     else
         echo "gotestsum not found, using go test..."
         echo "Install gotestsum for a dense pass/fail summary:"
         echo "  go install gotest.tools/gotestsum@latest"
         echo ""
-        go test -race -coverprofile=coverage.out ./...
+        go test -race -coverprofile=coverage.out ./... || status=$?
     fi
+    just check-devnull || true
     # Sub-90% functions, worst last; total closes the summary.
     go tool cover -func=coverage.out | grep -v '^total:' | sort -k3 -rn | awk '$3+0 < 90'
     go tool cover -func=coverage.out | grep '^total:'
     go tool cover -html=coverage.out -o coverage.html
     echo "Coverage report: coverage.html"
+    exit $status
 
 # Reprint the coverage summary from the last run without re-running tests
 coverage-report:
@@ -241,10 +292,12 @@ mutation workers="4":
         echo "  go install github.com/go-gremlins/gremlins/cmd/gremlins@{{GREMLINS_VERSION}}"
         exit 1
     fi
+    # The full per-mutant stream tees to gremlins.log
+    # (gitignored): triage reads the file, never a tail pipe.
     gremlins unleash --timeout-coefficient=100 --workers={{workers}} \
         --threshold-efficacy=90 --threshold-mcover=85 \
         --exclude-files 'test/e2e/(clients|scenario|fixture|toolbox)\.go$' \
-        --exclude-files 'internal/storetest/contract\.go$' .
+        --exclude-files 'internal/storetest/contract\.go$' . 2>&1 | tee gremlins.log
 
 # Discover mutation candidates without running any tests
 mutation-dry:
@@ -257,10 +310,10 @@ mutation-dry:
     fi
     gremlins unleash --dry-run .
 
-# Docker image used by test-linux*. Tracks go.mod's `go` directive closely
+# Docker image used by test-linux*. Tracks .go-version closely
 # enough for chasing Linux-only flakes; not meant to byte-for-byte match
 # the Forgejo runner image.
-linux_test_image := "golang:1.27"
+linux_test_image := "golang:" + go_version
 # Named volumes (not a bind mount) so module downloads and build cache
 # persist between runs without polluting the host's own Go caches or the
 # repo working tree with root-owned files written by the container.
@@ -298,7 +351,7 @@ test-linux-repeat n="20":
 test-docker:
     #!/usr/bin/env bash
     set -euo pipefail
-    VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+    VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")$(git rev-parse --short HEAD 2>/dev/null | sed 's/^/-g/')
     HOST="[::1]"
 
     echo "Cleaning up any existing container..."
@@ -434,21 +487,28 @@ info:
     @echo ""
     @go list -m all
 
-# Install binary to /usr/local/bin
+# Install binary (root: /usr/local/bin, otherwise ~/.local/bin).
+# No sudo inside: run `sudo just install` for the system path.
 install: build
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "Installing kpr to /usr/local/bin..."
+    if [ "$(id -u)" -eq 0 ]; then dest=/usr/local/bin; else dest="$HOME/.local/bin"; fi
+    mkdir -p "$dest"
     GOOS=$(go env GOOS)
     GOARCH=$(go env GOARCH)
-    sudo cp dist/kpr-$GOOS-$GOARCH /usr/local/bin/kpr
+    echo "Installing kpr to $dest..."
+    cp dist/kpr-$GOOS-$GOARCH "$dest/kpr"
     echo "Installed successfully"
+    case ":$PATH:" in *":$dest:"*) ;; *) echo "Note: $dest is not on PATH";; esac
 
-# Remove binary from /usr/local/bin
+# Remove binary (same location install would use)
 uninstall:
-    @echo "Removing kpr from /usr/local/bin..."
-    sudo rm -f /usr/local/bin/kpr
-    @echo "Uninstalled successfully"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "$(id -u)" -eq 0 ]; then dest=/usr/local/bin; else dest="$HOME/.local/bin"; fi
+    echo "Removing kpr from $dest..."
+    rm -f "$dest/kpr"
+    echo "Uninstalled successfully"
 
 # Docker configuration
 DOCKER_REGISTRY := env_var_or_default("DOCKER_REGISTRY", "nrtn.dev/catalyst")
@@ -558,16 +618,28 @@ COMPOSE := env_var_or_default('COMPOSE', 'file')
 COMPOSE_FILE := if COMPOSE == 'redis' { 'docker-compose.redis.yml' } else if COMPOSE == 'file' { 'docker-compose.yml' } else { error('COMPOSE must be file or redis, got ' + COMPOSE) }
 
 # Start full dev stack locally (detached) — base plus the observability and shadow overlays
-up:
+up: dev-certs
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml -f docker-compose.shadow.yml up -d --build
     docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
 
 # Start the base dev stack only (no overlays)
-up-minimal:
+up-minimal: dev-certs
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     docker compose -f {{COMPOSE_FILE}} up -d --build
     docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
+
+# Start dev stack with the TLS overlay: console, app, receiver, and
+# edge serve HTTPS with the staged self-signed identity (detached)
+up-tls: dev-certs
+    @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
+    docker compose -f {{COMPOSE_FILE}} -f docker-compose.tls.yml up -d --build
+    docker compose -f {{COMPOSE_FILE}} -f docker-compose.tls.yml run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
+
+# Refresh dev TLS staging from scripts/dev-certs.sh.
+# Rerun after deleting a fixture.
+dev-certs:
+    bash scripts/dev-certs.sh
 
 # Stop local stacks (base plus every overlay)
 down:

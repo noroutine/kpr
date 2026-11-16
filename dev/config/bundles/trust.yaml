@@ -1,0 +1,10 @@
+# Trust-only demo: the local identity as its own trust
+# anchor. No leaf by design — a bundle naming only a CA reads
+# ok with no lifetime, and proves the trust-only standing on
+# the dashboard next to the expiring one.
+apiVersion: kpr/v1alpha1
+kind: TLSBundle
+metadata:
+  name: trust
+spec:
+  caFile: /etc/kpr/tls/local-cert.pem

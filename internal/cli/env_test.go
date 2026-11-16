@@ -84,6 +84,37 @@ func TestEnvCommandRedactsRedisPassword(t *testing.T) {
 	}
 }
 
+// The console token redacts the same way: presence only, never
+// the value — a screen share of `kpr env` must not leak the
+// operator password. If this fails, the guard credential prints
+// in the clear.
+func TestEnvCommandRedactsConsoleToken(t *testing.T) {
+	t.Setenv(config.EnvConsoleToken, "s3cret")
+
+	out := runEnv(t)
+	if strings.Contains(out, "s3cret") {
+		t.Errorf("kpr env leaks KPR_CONSOLE_TOKEN value:\n%s", out)
+	}
+	if !strings.Contains(out, "KPR_CONSOLE_TOKEN=set") {
+		t.Errorf("kpr env must show KPR_CONSOLE_TOKEN presence:\n%s", out)
+	}
+}
+
+// The serving switches must render their effective values: an
+// explicit "false" and a named bundle must both show. If this
+// fails, `kpr env` documents without reflecting reality.
+func TestEnvCommandShowsServingSwitches(t *testing.T) {
+	t.Setenv(config.EnvManagementEnabled, "false")
+	t.Setenv(config.EnvTLSBundle, "web")
+
+	out := runEnv(t)
+	for _, want := range []string{"KPR_MANAGEMENT_ENABLED=false", "KPR_TLS_BUNDLE=web"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("kpr env missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // The registry password redacts the same way: presence only,
 // never the value — and an empty one reads unset, not set. If
 // this fails, `kpr env` leaks a secret or inverts the presence.

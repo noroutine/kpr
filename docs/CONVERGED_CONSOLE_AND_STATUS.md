@@ -2,8 +2,10 @@
 
 One status model, two renderers. Every card is a `keeper`
 struct assembled once; `kpr status <card>` renders it as
-plain text, the console renders it as HTML. Neither renderer
-recomputes what the model already decided.
+plain text, the console serves a SvelteKit shell whose
+`/api/overview` JSON carries the same model for the pages
+to render (see `web/`, built by `just web-build`). Neither
+renderer recomputes what the model already decided.
 
 ## Contents <!-- omit in toc -->
 
@@ -53,20 +55,21 @@ backend, and `posture` is the aggregate overview. One word,
 machine-readable, decided once at assembly — the code both
 renderers sign:
 
-| Standing | Console bulb | CLI words |
+| Standing | Console badge | CLI words |
 |---|---|---|
-| `ok` | teal | ready / skew / gen (…ago) |
+| `ok` | green | ready / skew / gen (…ago) |
 | `hold` | amber | hold lease pinning writes |
 | `denied` | red | deny — writes refused |
 | `degraded` | amber | degraded — … / skew (degraded) |
-| `unreachable` | default border | unreachable — not answering |
-| `unproven` | default border | unproven |
-| `locked` | default border | locked — writes denied, reads continue |
-| `closed` | default border | gateway: closed |
-| `unavailable` | default border | unavailable — no … wired |
-| `unchecked` | default border | — / unchecked |
+| `unreachable` | gray | unreachable — not answering |
+| `unproven` | gray | unproven |
+| `locked` | gray | locked — writes denied, reads continue |
+| `closed` | gray | gateway: closed |
+| `unavailable` | gray | unavailable — no … wired |
+| `unchecked` | gray | — / unchecked |
+| `incomplete` | amber | incomplete chain — missing issuer … (TLS bundles only) |
 
-The bulb depends only on the standing, never on the kind.
+The badge depends only on the standing, never on the kind.
 The CLI words depend on the kind: `ok` reads `ready` on the
 store, a skew on the clock, `gen (…ago)` on the proof —
 each kind voices its own words for the same code.
@@ -107,18 +110,24 @@ renderers spell the same values the same way:
 
 | Card | `keeper` model | CLI | Console section |
 |---|---|---|---|
-| Store | `StoreCard` + `Status` counts + proof voice | `status store` | Store |
+| Store | `StoreCard` + `Status` counts + proof voice | `status store` | Keeper |
 | Trust | `TrustCard{Standing, Word}` | `trust:` line on `status store` | — (none yet) |
-| Registry | `RegistryCard{Standing, URL, Reachable}` | `status registry` | Registry |
-| Edge | `EdgeCard{Standing, Open, Deny, Hold, EdgeAddr, RegistryURL}` | `status edge` | Fence |
-| Clock | `ClockCard` (raw durations, not words) | `status clock` | Server time |
-| Proof | `ProofCard{Standing, Gen, TS}` | `proof:` line on `status store` | Sentinel |
+| Registry | `RegistryCard{Standing, URL, Reachable}` | `status registry` | Keeper |
+| Edge | `EdgeCard{Standing, Open, Deny, Hold, EdgeAddr, RegistryURL}` | `status edge` | Keeper |
+| Clock | `ClockCard` (raw durations, not words) | `status clock` | Keeper |
+| Proof | `ProofCard{Standing, Gen, TS}` | `proof:` line on `status store` | Keeper |
 | Activity | `ActivityCard{Outcomes, Total}` | `status activity` | Activity |
-| Plan | `Status.Plan` rows | — (`kpr plan` owns the human view) | Plan list |
-| Observability | `ObsCard{Links}` | `status observability` | Launchpad |
+| Plan | `Status.Plan` rows | — (`kpr plan` owns the human view) | Plan |
+| Observability | `ObsCard{Links}` | `status observability` | Observability |
+
+TLS bundles ride the same convergence through
+`internal/console.StandBundle`, shared by `/api/overview`
+and `status bundles` — judged once, rendered twice. They
+are not keeper cards (no prober, no store), so they sit
+outside the table above.
 
 Console-only, no model: Metrics (`/metrics` serves both),
-Configuration (`kpr config`'s job), API Endpoints (static
+Configuration (`kpr env`'s job), API Endpoints (static
 list).
 
 Field notes:
@@ -167,19 +176,20 @@ readable in one is readable in the other.
 
 - Standing codes: CLI text voices words (fence effects,
   registry reachability, clock state lines); the console
-  maps standing to a bulb class (`bulbClass`: deny red,
-  hold/degraded amber, ok teal, else the default border).
+  maps standing to a badge (deny red, hold/degraded amber,
+  ok green, else gray).
 - Trust has a CLI line but no console card yet.
 - Plan has a console list but no `status plan` twin.
 - Proof has no `status proof` command: the card feeds the
-  `status store` proof line and the console sentinel
+  `status store` proof line and the console keeper
   section.
 - Clock: the CLI prints a `now:` line, the console a
-  Server-time card — same stamp-beside-card shape.
+  clock card with the server stamp beside it — same
+  stamp-beside-card shape.
 - Activity: both cap at the last 10; the CLI indents entries
-  with two spaces, the console pads via CSS. The full ring
-  keeps the `/api/activity` shape; CLI `--json` carries the
-  card instead.
+  with two spaces, the console renders one row per line.
+  The full ring keeps the `/api/activity` shape; CLI
+  `--json` carries the card instead.
 - `--json` is each card verbatim, plus the same extras the
   text carries (clock stamp) — never a subset the text
   outgrows.
@@ -199,8 +209,10 @@ Model first, one slice at a time:
 2. CLI render in `internal/cli/status_<card>.go`: text +
    `--json` from the model, golden tests, and a row in the
    bad-backend refusal test.
-3. Console section: read the model in the page assembly in
-   `internal/console/handlers.go`, with a passthrough test.
+3. Console section: carry the model in `/api/overview` in
+   `internal/console/handlers.go`, render it in the Svelte
+   page under `web/console`, rebuild with `just web-build`
+   — with an overview test pinning the new fields.
 4. `go test ./...` and `make lint` green, then a Claude
    review per [`REVIEWER_CONTEXT.md`](REVIEWER_CONTEXT.md)
    before the next card starts.
