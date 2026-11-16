@@ -581,3 +581,25 @@ spec:
 		t.Errorf("ChainGaps = %v, want none: the root lives next door", snap.ChainGaps)
 	}
 }
+
+// Two broken bundles refuse with the alphabetically first
+// name, every run: compile walks the sorted entries, never
+// the map order. If this fails, a multi-broken dir names a
+// different culprit per boot.
+func TestLoadNamesFirstBrokenBundleDeterministically(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"b-broken", "a-broken"} {
+		writeFile(t, filepath.Join(dir, name+".yaml"), []byte(`apiVersion: kpr/v1alpha1
+kind: TLSBundle
+metadata:
+  name: `+name+`
+spec:
+  certFile: /nonexistent/`+name+".pem\n"))
+	}
+	for i := 0; i < 25; i++ {
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), `"a-broken"`) {
+			t.Fatalf("run %d: Load err = %v, want the a-broken refusal", i, err)
+		}
+	}
+}

@@ -42,10 +42,12 @@ func Load(dir string) (*Snapshot, error) {
 
 // compile validates every bundle and materializes its TLS:
 // a bad path, broken PEM, or unknown floor word fails the
-// load, never a live listener.
+// load, never a live listener. Bundles compile in sorted
+// name order: with two broken bundles the first name wins
+// every run, never whichever the map yields first.
 func (s *Snapshot) compile() error {
-	for name, b := range s.Bundles {
-		if err := s.materialize(name, b.Spec); err != nil {
+	for _, e := range SortedEntries(s.Bundles) {
+		if err := s.materialize(e.Name, e.Value.Spec); err != nil {
 			return err
 		}
 	}
