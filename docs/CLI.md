@@ -10,7 +10,7 @@ each other: the parent only registers their exported `Cmd`.
 
 ```
 kpr
-├── status                    banner + counters as text
+├── status                    banner + counters as text (`bundles` reads the TLS bundle cards, `--json` for scripts)
 ├── plan add|remove|discard   pending candidates
 ├── reap [policy]             run a reaping policy once
 ├── sweep                     directed sweep pass

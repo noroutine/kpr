@@ -174,8 +174,9 @@ This embeds version information in the binary.
 For reproducible builds, you can use Docker:
 
 ```bash
-# Build inside Docker (Linux binary)
-docker run --rm -v "$PWD":/src -w /src golang:1.27 \
+# Build inside Docker (Linux binary) — image tag tracks `.go-version`
+# at the repo root.
+docker run --rm -v "$PWD":/src -w /src golang:$(cat .go-version) \
     go build -o kpr-linux-amd64 ./cmd/app
 ```
 

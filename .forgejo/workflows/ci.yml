@@ -23,7 +23,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v7
       with:
-        go-version: '1.27'
+        go-version-file: .go-version
 
     # Tools come from the module proxy (go install), not release
     # tarballs — the latter failed checksum verification on these
@@ -79,7 +79,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v7
       with:
-        go-version: '1.27'
+        go-version-file: .go-version
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
@@ -111,7 +111,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v7
       with:
-        go-version: '1.27'
+        go-version-file: .go-version
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4

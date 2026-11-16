@@ -1,45 +1,57 @@
 package console
 
 import (
-	_ "embed"
-	"html/template"
+	"embed"
+	"io/fs"
 	"log"
 	"net/http"
 )
 
-//go:embed static/index.html
-var indexHTML string
+//go:embed all:static
+var staticFiles embed.FS
 
-//go:embed static/style.css
-var styleCSS string
+// staticFS is the embedded SvelteKit build output (see
+// web/console, copied by `just web-build`): one static
+// export, no server rendering — the page fetches /metrics
+// and /api/overview at runtime, so the bundle carries no
+// build-time data.
+func staticFS() (fs.FS, error) {
+	return fs.Sub(staticFiles, "static")
+}
 
-// styleHandler serves the dashboard stylesheet as CSS: one
-// file, one route, no file server to feed. GET only, like the
-// other readers; the href carries the base path, so a
-// stripped-prefix console resolves it.
-func styleHandler(w http.ResponseWriter, r *http.Request) {
+// indexHandler serves the built SPA shell. A dying connection
+// mid-write logs the refusal instead of panicking.
+func indexHandler(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	data, err := staticFiles.ReadFile("static/index.html")
+	if err != nil {
+		http.Error(w, "dashboard unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := w.Write(data); err != nil {
+		log.Printf("Error writing dashboard: %v", err)
+	}
+}
+
+// faviconHandler serves the tab icon browsers request unprompted
+// (/favicon.ico): without it every page view logs a 404. SVG under
+// the .ico path — every modern browser accepts it — so the icon
+// stays a readable text file, not a binary blob. GET only.
+func faviconHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	_, _ = w.Write([]byte(styleCSS))
-}
-
-// indexTmpl renders the dashboard (see pageData): parsed once at
-// init, so a broken page fails the boot instead of every request.
-// The bulb func hangs the standing color on a card; the model
-// decides the standing in keeper, the template only colors it.
-var indexTmpl = template.Must(template.New("index").Funcs(template.FuncMap{
-	"bulb": bulbClass,
-}).Parse(indexHTML))
-
-// renderIndex writes the dashboard for data. The execute fails only
-// when the client goes away mid-write; that refusal is logged,
-// never a 500 after a partial page.
-func renderIndex(w http.ResponseWriter, data pageData) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := indexTmpl.Execute(w, data); err != nil {
-		log.Printf("Error executing dashboard: %v", err)
+	data, err := staticFiles.ReadFile("static/favicon.svg")
+	if err != nil {
+		http.Error(w, "icon unavailable", http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(data)
 }

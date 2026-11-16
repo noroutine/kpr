@@ -7,6 +7,10 @@ services:
         VERSION: ${VERSION:-dev}
         COMMIT: ${COMMIT:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
+        # No default on purpose: .go-version is canonical and the
+        # just/make up targets pass it — a bare build fails here
+        # with a sentence, not in buildx with a parse error.
+        GO_VERSION: ${GO_VERSION:?GO_VERSION is empty - run via 'just up'/'make up' (reads .go-version) or export GO_VERSION}
     image: nrtn.dev/catalyst/kpr:${VERSION:-latest}
     container_name: kpr
     ports:

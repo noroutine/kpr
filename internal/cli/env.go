@@ -48,6 +48,24 @@ func envValue(cfg *config.Config, name string) string {
 		return cfg.ReceiverHost
 	case config.EnvReceiverPort:
 		return strconv.Itoa(cfg.ReceiverPort)
+	case config.EnvManagementEnabled:
+		return strconv.FormatBool(cfg.ConsoleEnabled)
+	case config.EnvAppEnabled:
+		return strconv.FormatBool(cfg.AppEnabled)
+	case config.EnvTLSBundle:
+		return cfg.TLSBundle
+	case config.EnvConfigDir:
+		return cfg.ConfigDir
+	case config.EnvConsoleToken:
+		// A secret: presence only, never the value.
+		if cfg.ConsoleToken == "" {
+			return "unset"
+		}
+		return "set"
+	case config.EnvConsoleAuth:
+		return cfg.ConsoleAuth
+	case config.EnvPprofAddr:
+		return cfg.PprofAddr
 	case config.EnvRedisAddr:
 		return cfg.RedisAddr
 	case config.EnvRedisDB:

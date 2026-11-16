@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"sync"
@@ -22,6 +24,7 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/otel"
 	"nrtn.dev/catalyst/kpr/internal/receiver"
 	"nrtn.dev/catalyst/kpr/internal/registry"
+	"nrtn.dev/catalyst/kpr/internal/resources"
 	"nrtn.dev/catalyst/kpr/internal/sentinel"
 )
 
@@ -62,6 +65,72 @@ var serveCmd = &cobra.Command{
 		}
 		if cfg.TimeMethodWarning != nil {
 			log.Printf("Warning: %v", cfg.TimeMethodWarning)
+		}
+
+		// Config source, dir or unconfigured: the dir wins when
+		// set, and neither means the env-only tree. A broken
+		// load refuses the boot — serve must never run on half
+		// config.
+		var loadSnapshot func() (*resources.Snapshot, error)
+		source := "unconfigured"
+		switch {
+		case cfg.ConfigDir != "":
+			source = "KPR_CONFIG_DIR=" + cfg.ConfigDir
+			loadSnapshot = func() (*resources.Snapshot, error) { return resources.Load(cfg.ConfigDir) }
+		default:
+			loadSnapshot = func() (*resources.Snapshot, error) { return resources.Load("") }
+		}
+		snap, err := loadSnapshot()
+		if err != nil {
+			log.Fatalf("load resources: %v", err)
+		}
+		holder := resources.NewHolder(snap, loadSnapshot)
+		log.Printf("config: %s: %d bundles", source, len(snap.Bundles))
+		// Serving TLS resolves from the named bundle before
+		// any bind: one identity filed once, served on every
+		// listener. Empty serves plaintext; an unknown, parked,
+		// or identity-less name refuses the boot — a listener
+		// that names a bundle with no identity serves nothing.
+		servingTLS, servingFloor, err := bundleTLSConfig(snap, cfg.TLSBundle)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if servingTLS != nil {
+			floor := resources.MinTLSName(servingFloor)
+			if floor == "" {
+				floor = "Go default"
+			}
+			log.Printf("tls: serving bundle %q (min TLS %s) on every listener", cfg.TLSBundle, floor)
+		}
+		// Console auth resolves before any bind: "true" without
+		// a token, and any misspelling, refuses the boot —
+		// opting into operator access must never land open.
+		consoleAuth, err := cfg.ConsoleAuthEnabled()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Pprof is a debug listener, off unless asked: it can
+		// dump heap contents, so anything but loopback refuses
+		// the boot, and there is no flag — env only, like the
+		// backend secret. See docs/PROFILING.md for the workflow.
+		if cfg.PprofAddr != "" {
+			if err := checkPprofAddr(cfg.PprofAddr); err != nil {
+				log.Fatal(err)
+			}
+			ln, err := net.Listen("tcp", cfg.PprofAddr)
+			if err != nil {
+				log.Fatalf("pprof listen %s: %v (free the port or unset %s)", cfg.PprofAddr, err, config.EnvPprofAddr)
+			}
+			// No graceful stop and deliberately not in wg: the
+			// process exit takes it (http.Serve never returns,
+			// so waiting on it would hang shutdown).
+			go func() {
+				log.Printf("Starting pprof on %s", cfg.PprofAddr)
+				if err := http.Serve(ln, nil); err != nil {
+					log.Printf("pprof: %v", err)
+				}
+			}()
 		}
 
 		// Initialize OpenTelemetry
@@ -145,50 +214,63 @@ var serveCmd = &cobra.Command{
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-		// Start management console server
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			managementServer := &console.Server{
-				Host:        managementHost,
-				Port:        managementPort,
-				OTELEnabled: otelCfg.Enabled,
-				Store:       keeperStore,
-				Registry:    regClient,
-				// Same client speaks sentinel.API (GetManifest +
-				// GetBlob): the proof card reads the live
-				// generation through it.
-				Sentinel: regClient,
-				// Nil when the edge is disabled or unproven: the
-				// console renders it closed, never 500.
-				Edge: edgeGate,
-				// Endpoints the cards name (edge forwards
-				// EdgeAddr → RegistryURL).
-				RegistryURL: cfg.RegistryURL,
-				EdgeAddr:    cfg.EdgeAddr,
-			}
-			addr := net.JoinHostPort(managementHost, fmt.Sprintf("%d", managementPort))
-			log.Printf("Starting management console on %s", addr)
-			// Always forward the result, including a nil graceful stop:
-			// the select below filters, so a dropped-nil versus
-			// sent-nil difference can't hide here.
-			errors <- managementServer.Start(ctx)
-		}()
+		// Start management console server, unless switched off.
+		if cfg.ConsoleEnabled {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				managementServer := &console.Server{
+					Host:        managementHost,
+					Port:        managementPort,
+					OTELEnabled: otelCfg.Enabled,
+					TLSConfig:   servingTLS,
+					Token:       cfg.ConsoleToken,
+					AuthEnabled: consoleAuth,
+					Resources:   holder,
+					Store:       keeperStore,
+					Registry:    regClient,
+					// Same client speaks sentinel.API (GetManifest +
+					// GetBlob): the proof card reads the live
+					// generation through it.
+					Sentinel: regClient,
+					// Nil when the edge is disabled or unproven: the
+					// console renders it closed, never 500.
+					Edge: edgeGate,
+					// Endpoints the cards name (edge forwards
+					// EdgeAddr → RegistryURL).
+					RegistryURL: cfg.RegistryURL,
+					EdgeAddr:    cfg.EdgeAddr,
+				}
+				addr := net.JoinHostPort(managementHost, fmt.Sprintf("%d", managementPort))
+				log.Printf("Starting management console on %s", addr)
+				// Always forward the result, including a nil graceful stop:
+				// the select below filters, so a dropped-nil versus
+				// sent-nil difference can't hide here.
+				errors <- managementServer.Start(ctx)
+			}()
+		} else {
+			log.Print("Management console disabled by KPR_MANAGEMENT_ENABLED=false")
+		}
 
-		// Start application server
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			appServer := &app.Server{
-				Host:        appHost,
-				Port:        appPort,
-				OTELEnabled: otelCfg.Enabled,
-				Store:       keeperStore,
-			}
-			addr := net.JoinHostPort(appHost, fmt.Sprintf("%d", appPort))
-			log.Printf("Starting application server on %s", addr)
-			errors <- appServer.Start(ctx)
-		}()
+		// Start application server, unless switched off.
+		if cfg.AppEnabled {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				appServer := &app.Server{
+					Host:        appHost,
+					Port:        appPort,
+					OTELEnabled: otelCfg.Enabled,
+					TLSConfig:   servingTLS,
+					Store:       keeperStore,
+				}
+				addr := net.JoinHostPort(appHost, fmt.Sprintf("%d", appPort))
+				log.Printf("Starting application server on %s", addr)
+				errors <- appServer.Start(ctx)
+			}()
+		} else {
+			log.Print("Application server disabled by KPR_APP_ENABLED=false")
+		}
 
 		// Start registry receiver: /events on its own port, so
 		// topologies that must not expose registry coupling alongside
@@ -200,6 +282,7 @@ var serveCmd = &cobra.Command{
 				Host:        receiverHost,
 				Port:        receiverPort,
 				OTELEnabled: otelCfg.Enabled,
+				TLSConfig:   servingTLS,
 				Store:       keeperStore,
 			}
 			addr := net.JoinHostPort(receiverHost, fmt.Sprintf("%d", receiverPort))
@@ -212,13 +295,17 @@ var serveCmd = &cobra.Command{
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				srv := &http.Server{Addr: cfg.EdgeAddr, Handler: edgeHandler}
+				srv := &http.Server{Addr: cfg.EdgeAddr, Handler: edgeHandler, TLSConfig: servingTLS}
 				go func() {
 					<-ctx.Done()
 					_ = srv.Close()
 				}()
 				log.Printf("edge on %s -> %s", cfg.EdgeAddr, cfg.RegistryURL)
-				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				serveEdge := srv.ListenAndServe
+				if servingTLS != nil {
+					serveEdge = func() error { return srv.ListenAndServeTLS("", "") }
+				}
+				if err := serveEdge(); err != nil && err != http.ErrServerClosed {
 					errors <- err
 				} else {
 					errors <- nil
@@ -288,4 +375,44 @@ func logProofAge(ctx context.Context, api sentinel.API) {
 		return
 	}
 	log.Printf("Warning: same-store proof %s", note)
+}
+
+// bundleTLSConfig resolves the serving TLS from the named
+// bundle: its materialized cert plus its resolved floor.
+// Empty names plaintext. Unknown names, parked bundles, and
+// bundles with no identity refuse — a listener that names a
+// bundle with no identity serves nothing. Pure so the matrix
+// is testable without binding.
+func bundleTLSConfig(snap *resources.Snapshot, name string) (*tls.Config, uint16, error) {
+	if name == "" {
+		return nil, 0, nil
+	}
+	b, ok := snap.Bundles[name]
+	if !ok {
+		var have []string
+		for _, e := range resources.SortedEntries(snap.Bundles) {
+			have = append(have, e.Name)
+		}
+		return nil, 0, fmt.Errorf("KPR_TLS_BUNDLE %q: no such bundle (have %v)", name, have)
+	}
+	if !resources.Enabled(b.Spec.Enabled) {
+		return nil, 0, fmt.Errorf("KPR_TLS_BUNDLE %q: bundle is parked", name)
+	}
+	cert, ok := snap.Certs[name]
+	if !ok {
+		return nil, 0, fmt.Errorf("KPR_TLS_BUNDLE %q: bundle has no identity (trust-only)", name)
+	}
+	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: snap.Floors[name]}, snap.Floors[name], nil
+}
+
+// checkPprofAddr validates an explicitly requested pprof bind: only
+// a loopback host:port is accepted, everything else (including an
+// unparseable address) refuses the boot. Pure so the refusal matrix
+// is testable without booting servers.
+func checkPprofAddr(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || !net.ParseIP(host).IsLoopback() {
+		return fmt.Errorf("%s %q: refusing non-loopback pprof bind (heap contents must not leave this machine)", config.EnvPprofAddr, addr)
+	}
+	return nil
 }

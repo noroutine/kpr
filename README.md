@@ -110,7 +110,7 @@ promise hasn't elapsed is never wiped by a stale mark.
 kpr serve    # console :9300 + app :8080 + receiver + sweeper loop
 kpr status   # high-level posture, one line per section
 kpr status <card>  # detail behind a line: store, registry, edge,
-                   # clock, activity, observability (--json)
+                   # clock, activity, observability, bundles (--json)
 kpr plan     # pending candidates (--json for piping)
 kpr plan discard  # drop the whole plan (clear due marks, no dry-run)
 kpr plan add <pattern>...     # mark tracked repo:tag by glob, regex: or
