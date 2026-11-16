@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,6 +25,80 @@ import (
 	"nrtn.dev/catalyst/kpr/internal/keeper"
 	"nrtn.dev/catalyst/kpr/internal/resources"
 )
+
+// The OTel switch exposes the Prometheus exposition beside
+// the JSON metrics: scraped, not linked. If this fails, the
+// meter provider runs blind.
+func TestServerServesPrometheusWhenOTELEnabled(t *testing.T) {
+	testConfig(t)
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln, OTELEnabled: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
+	waitFor(t, "http://"+ln.Addr().String()+"/health")
+
+	resp, err := testClient.Get("http://" + ln.Addr().String() + "/metrics/prometheus") //nolint:gosec,noctx // test-only loopback
+	if err != nil {
+		t.Fatalf("GET /metrics/prometheus: %v", err)
+	}
+	drainAndClose(t, resp)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /metrics/prometheus = %d, want 200 with OTel on", resp.StatusCode)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
+	}
+}
+
+// A shutdown with clients still holding connections waits out
+// the timeout instead of hanging: the error voices which
+// shutdown gave up. Open a raw socket and hold it past the
+// grace period — no response is ever written, so Shutdown can
+// only time out. If this fails, a stuck client wedges the
+// console drain.
+func TestServerShutdownErrorOnHeldConnections(t *testing.T) {
+	testConfig(t)
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
+	waitFor(t, "http://"+ln.Addr().String()+"/health")
+
+	held, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("hold a connection: %v", err)
+	}
+	defer func() { _ = held.Close() }()
+	logs := captureLog(t)
+	// Cancel with the socket held: the watcher's drain waits
+	// out the grace period and voices the timeout instead of
+	// hanging. If this fails, a stuck client wedges the
+	// console drain.
+	cancel()
+	waitShutdown(t, s)
+	if out := logs.String(); !strings.Contains(out, "shutdown error") {
+		t.Errorf("shutdown timeout not logged:\n%s", out)
+	}
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
+	}
+}
 
 // A console armed with auth but no token must refuse before
 // binding: comparing empty against empty would otherwise serve

@@ -132,10 +132,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.AuthEnabled && s.Token == "" {
 		return fmt.Errorf("console auth enabled without a token: refusing to serve authless")
 	}
-	assets, err := staticFS()
-	if err != nil {
-		return fmt.Errorf("console static files: %w", err)
-	}
+	assets := staticFS()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.indexHandler)
 	mux.Handle("/_app/", http.FileServer(http.FS(assets)))

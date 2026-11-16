@@ -3,12 +3,20 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"embed"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"io/fs"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -88,10 +96,7 @@ func (pingDownStore) Ping(context.Context) error { return errors.New("store down
 // index.html at runtime, not just at compile time. If this fails, the
 // binary serves a 404 for its own UI.
 func TestStaticFSHasIndex(t *testing.T) {
-	fsys, err := staticFS()
-	if err != nil {
-		t.Fatalf("staticFS: %v", err)
-	}
+	fsys := staticFS()
 	f, err := fsys.Open("index.html")
 	if err != nil {
 		t.Fatalf("open index.html: %v", err)
@@ -104,10 +109,7 @@ func TestStaticFSHasIndex(t *testing.T) {
 // file for file. If this fails, the embed and the build output
 // drifted apart.
 func TestStaticAssetsServe(t *testing.T) {
-	fsys, err := staticFS()
-	if err != nil {
-		t.Fatalf("staticFS: %v", err)
-	}
+	fsys := staticFS()
 	var sawJS bool
 	if err := fs.WalkDir(fsys, "_app", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -476,6 +478,74 @@ func TestIndexPageIgnoresBasePath(t *testing.T) {
 	drainAndClose(t, resp2)
 	if resp2.StatusCode != http.StatusNotFound {
 		t.Errorf("POST /events = %d, want 404 (receiver owns this route now)", resp2.StatusCode)
+	}
+}
+
+// A TLS-configured app serves HTTPS: the scheme switches with
+// the bundle, and the boot line names it. If this fails, serve
+// believes it secured a listener that still answers plaintext.
+func TestServerServesHTTPSWhenTLSConfigured(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "app.test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	der, err = x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := tls.X509KeyPair(certPEM, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln := loopbackListener(t)
+	s := &Server{Listener: ln, TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logs := captureLog(t)
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
+
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test-only loopback
+		DisableKeepAlives: true,
+	}}
+	deadline := time.Now().Add(10 * time.Second)
+	var resp *http.Response
+	for {
+		resp, err = client.Get("https://" + ln.Addr().String() + "/api/status") //nolint:gosec,noctx // test-only loopback
+		if err == nil {
+			drainAndClose(t, resp)
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for https app: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(logs.String(), "https://") {
+		t.Errorf("boot log lacks the https scheme:\n%s", logs.String())
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
 	}
 }
 

@@ -125,12 +125,7 @@ var serveCmd = &cobra.Command{
 			// No graceful stop and deliberately not in wg: the
 			// process exit takes it (http.Serve never returns,
 			// so waiting on it would hang shutdown).
-			go func() {
-				log.Printf("Starting pprof on %s", cfg.PprofAddr)
-				if err := http.Serve(ln, nil); err != nil {
-					log.Printf("pprof: %v", err)
-				}
-			}()
+			go servePprof(ln, cfg.PprofAddr)
 		}
 
 		// Initialize OpenTelemetry
@@ -403,6 +398,17 @@ func bundleTLSConfig(snap *resources.Snapshot, name string) (*tls.Config, uint16
 		return nil, 0, fmt.Errorf("KPR_TLS_BUNDLE %q: bundle has no identity (trust-only)", name)
 	}
 	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: snap.Floors[name]}, snap.Floors[name], nil
+}
+
+// servePprof blocks serving the debug endpoints on ln: the
+// listener dies with the process, and the close voices itself
+// instead of reading as a crash. A lost listener mid-run is a
+// log line, never a second boot.
+func servePprof(ln net.Listener, addr string) {
+	log.Printf("Starting pprof on %s", addr)
+	if err := http.Serve(ln, nil); err != nil {
+		log.Printf("pprof: %v", err)
+	}
 }
 
 // checkPprofAddr validates an explicitly requested pprof bind: only
