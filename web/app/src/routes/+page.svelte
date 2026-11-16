@@ -36,7 +36,7 @@
 </svelte:head>
 
 <div class="min-h-screen bg-gray-50 text-gray-900">
-	<div class="mx-auto max-w-3xl px-6 py-8">
+	<div class="mx-auto max-w-5xl px-6 py-8">
 		<header class="flex items-baseline justify-between">
 			<div>
 				<h1 class="text-2xl font-semibold">kpr</h1>
