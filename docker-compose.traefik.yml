@@ -1,0 +1,58 @@
+# Traefik front for the dev stack: terminates TLS with the
+# local certbot identity and routes the app by hostname.
+# Opt-in only — the base stack stays on plain localhost ports.
+#
+#   just up-traefik   # or: make up-traefik
+#
+# The backend stays plaintext (no KPR_TLS_BUNDLE here):
+# Traefik terminates, kpr serves. Console rides the same
+# kpr container on its own cert/hostname (and stays directly
+# exposed on :9300 too).
+services:
+  traefik:
+    image: traefik:v3
+    container_name: kpr-traefik
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Whole certbot tree, not just live/: live/ holds symlinks
+      # into ../archive/, which would dangle on a narrower mount.
+      - ${HOME}/.certbot:/certbot:ro
+      - ./dev/traefik:/etc/traefik/dynamic:ro
+
+  kpr:
+    labels:
+      - "traefik.enable=true"
+      # App at the cert's hostname, root-mounted: shell, hashed
+      # assets, icon, and /api/status all ride the same router.
+      - "traefik.http.routers.kpr-app.rule=Host(`mystic-raven-13.topteil.dev`)"
+      - "traefik.http.routers.kpr-app.tls=true"
+      - "traefik.http.routers.kpr-app.entrypoints=websecure"
+      - "traefik.http.routers.kpr-app.service=kpr-app@docker"
+      - "traefik.http.services.kpr-app.loadbalancer.server.port=8080"
+      # Registry API through the edge (longer rule wins over the
+      # bare-Host app router): pushes, pulls, and catalog reads.
+      # The edge is proven off the stack's registry config, so it
+      # is open wherever the stack runs.
+      - "traefik.http.routers.kpr-edge.rule=Host(`mystic-raven-13.topteil.dev`) && PathPrefix(`/v2`)"
+      - "traefik.http.routers.kpr-edge.tls=true"
+      - "traefik.http.routers.kpr-edge.entrypoints=websecure"
+      - "traefik.http.routers.kpr-edge.service=kpr-edge@docker"
+      - "traefik.http.services.kpr-edge.loadbalancer.server.port=5000"
+      # Console on its own hostname + cert, root-mounted like
+      # the app: same kpr container, management port.
+      - "traefik.http.routers.kpr-console.rule=Host(`sneaky-fox-07.topteil.dev`)"
+      - "traefik.http.routers.kpr-console.tls=true"
+      - "traefik.http.routers.kpr-console.entrypoints=websecure"
+      - "traefik.http.routers.kpr-console.service=kpr-console@docker"
+      - "traefik.http.services.kpr-console.loadbalancer.server.port=9300"
