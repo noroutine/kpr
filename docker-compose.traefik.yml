@@ -5,8 +5,9 @@
 #   just up-traefik   # or: make up-traefik
 #
 # The backend stays plaintext (no KPR_TLS_BUNDLE here):
-# Traefik terminates, kpr serves. Console stays directly
-# exposed on :9300, untouched by the proxy.
+# Traefik terminates, kpr serves. Console rides the same
+# kpr container on its own cert/hostname (and stays directly
+# exposed on :9300 too).
 services:
   traefik:
     image: traefik:v3
@@ -48,3 +49,10 @@ services:
       - "traefik.http.routers.kpr-edge.entrypoints=websecure"
       - "traefik.http.routers.kpr-edge.service=kpr-edge@docker"
       - "traefik.http.services.kpr-edge.loadbalancer.server.port=5000"
+      # Console on its own hostname + cert, root-mounted like
+      # the app: same kpr container, management port.
+      - "traefik.http.routers.kpr-console.rule=Host(`sneaky-fox-07.topteil.dev`)"
+      - "traefik.http.routers.kpr-console.tls=true"
+      - "traefik.http.routers.kpr-console.entrypoints=websecure"
+      - "traefik.http.routers.kpr-console.service=kpr-console@docker"
+      - "traefik.http.services.kpr-console.loadbalancer.server.port=9300"

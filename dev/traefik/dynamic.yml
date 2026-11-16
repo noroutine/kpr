@@ -5,3 +5,5 @@ tls:
   certificates:
     - certFile: /certbot/live/mystic-raven-13.topteil.dev/fullchain.pem
       keyFile: /certbot/live/mystic-raven-13.topteil.dev/privkey.pem
+    - certFile: /certbot/live/sneaky-fox-07.topteil.dev/fullchain.pem
+      keyFile: /certbot/live/sneaky-fox-07.topteil.dev/privkey.pem
