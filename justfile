@@ -156,9 +156,10 @@ pprof-heap addr="127.0.0.1:6060":
     go tool pprof -top -nodecount=25 'http://{{addr}}/debug/pprof/heap'
 
 # Build the SvelteKit frontends and copy the static output into the
-# Go embed dirs (needs pnpm — `mise install` provides node/pnpm, see
-# mise.toml; also see web/README.md). The copies are committed, so
-# go build needs no node and CI never runs pnpm.
+# Go embed dirs (internal/console/static,
+# internal/app/static). Built, never committed (gitignored): run
+# this (or any up target) before `go build` on a fresh tree.
+# Requires pnpm — `mise install` provides node/pnpm (see mise.toml).
 web-build:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -644,27 +645,27 @@ COMPOSE := env_var_or_default('COMPOSE', 'file')
 COMPOSE_FILE := if COMPOSE == 'redis' { 'docker-compose.redis.yml' } else if COMPOSE == 'file' { 'docker-compose.yml' } else { error('COMPOSE must be file or redis, got ' + COMPOSE) }
 
 # Start full dev stack locally (detached) — base plus the observability and shadow overlays
-up: dev-certs
+up: dev-certs web-build
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml -f docker-compose.shadow.yml up -d --build
     docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
 
 # Start the base dev stack only (no overlays)
-up-minimal: dev-certs
+up-minimal: dev-certs web-build
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     docker compose -f {{COMPOSE_FILE}} up -d --build
     docker compose -f {{COMPOSE_FILE}} run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
 
 # Start dev stack behind a Traefik front: TLS terminates on the
 # local certbot identity, the app serves at its hostname (detached)
-up-traefik:
+up-traefik: web-build
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     GO_VERSION={{go_version}} docker compose -f {{COMPOSE_FILE}} -f docker-compose.traefik.yml up -d --build
     docker compose -f {{COMPOSE_FILE}} -f docker-compose.traefik.yml run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
 
 # Start dev stack with the TLS overlay: console, app, receiver, and
 # edge serve HTTPS with the staged self-signed identity (detached)
-up-tls: dev-certs
+up-tls: dev-certs web-build
     @if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
     docker compose -f {{COMPOSE_FILE}} -f docker-compose.tls.yml up -d --build
     docker compose -f {{COMPOSE_FILE}} -f docker-compose.tls.yml run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed (fresh volumes arrive root-owned; both writers run as uid 1000)"
@@ -677,6 +678,10 @@ dev-certs:
 # Stop local stacks (base plus every overlay)
 down:
     docker compose -f {{COMPOSE_FILE}} -f docker-compose.observability.yml -f docker-compose.shadow.yml down
+
+# Stop the Traefik-fronted stack (keeps the data volumes)
+down-traefik:
+    docker compose -f {{COMPOSE_FILE}} -f docker-compose.traefik.yml down
 
 # Garbage-collect unreferenced registry blobs (API deletes drop the
 # tag reference only; --delete-untagged also drops the orphaned

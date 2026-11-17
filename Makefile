@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report codecov-validate bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc licenses web-build web-e2e
+.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report codecov-validate bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down down-traefik gc licenses web-build web-e2e
 .DEFAULT_GOAL := help
 
 # Version information
@@ -385,7 +385,7 @@ clean-dist:
 run:
 	go run $(CMD_DIR) serve
 
-## web-build: Build the SvelteKit frontends and copy the static output into the Go embed dirs (committed; needs pnpm — `mise install` provides node/pnpm, see mise.toml)
+## web-build: Build the SvelteKit frontends into the Go embed dirs (built, never committed; needs pnpm — `mise install` provides node/pnpm, see mise.toml)
 web-build:
 	pnpm --dir web install
 	pnpm --dir web -r exec svelte-kit sync
@@ -569,13 +569,13 @@ CLAIM_STORE = docker compose -f $(COMPOSE_FILE) run --rm -u 0 --no-deps --entryp
 
 ## up: Start full dev stack locally (detached) — base plus the
 ## observability and shadow overlays
-up: dev-certs
+up: dev-certs web-build
 	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
 	docker compose -f $(COMPOSE_FILE) -f docker-compose.observability.yml -f docker-compose.shadow.yml up -d --build
 	@$(CLAIM_STORE) >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
 
 ## up-minimal: Start the base dev stack only (no overlays)
-up-minimal: dev-certs
+up-minimal: dev-certs web-build
 	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
 	docker compose -f $(COMPOSE_FILE) up -d --build
 	@$(CLAIM_STORE) >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
@@ -585,7 +585,7 @@ dev-certs:
 	bash scripts/dev-certs.sh
 
 ## up-traefik: Start dev stack behind a Traefik front (detached)
-up-traefik:
+up-traefik: web-build
 	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
 	GO_VERSION=$(GO_VERSION) docker compose -f $(COMPOSE_FILE) -f docker-compose.traefik.yml up -d --build
 	@docker compose -f $(COMPOSE_FILE) -f docker-compose.traefik.yml run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
@@ -603,7 +603,7 @@ pprof-heap:
 	go tool pprof -top -nodecount=25 'http://$(PPROF_ADDR)/debug/pprof/heap'
 
 ## up-tls: Start dev stack with the TLS overlay (detached)
-up-tls: dev-certs
+up-tls: dev-certs web-build
 	@if curl -s -m 3 -D - -o /dev/null http://localhost:5000/v2/ 2>/dev/null | grep -qi airtunes; then echo "WARNING: localhost:5000 answers like macOS AirPlay Receiver (Server: AirTunes) — turn it off in System Settings → General → AirDrop & Handoff and retry"; fi
 	docker compose -f $(COMPOSE_FILE) -f docker-compose.tls.yml up -d --build
 	@docker compose -f $(COMPOSE_FILE) -f docker-compose.tls.yml run --rm -u 0 --no-deps --entrypoint chown kpr -R 1000:1000 /var/lib/registry /var/lib/kpr >/dev/null 2>&1 || echo "WARNING: shared store claim failed"
@@ -611,6 +611,10 @@ up-tls: dev-certs
 ## down: Stop local stacks (base plus every overlay)
 down:
 	docker compose -f $(COMPOSE_FILE) -f docker-compose.observability.yml -f docker-compose.shadow.yml down
+
+## down-traefik: Stop the Traefik-fronted stack (keeps the data volumes)
+down-traefik:
+	docker compose -f $(COMPOSE_FILE) -f docker-compose.traefik.yml down
 
 ## gc: Garbage-collect unreferenced registry blobs (API deletes drop the
 ## tag reference only; --delete-untagged also drops the orphaned
