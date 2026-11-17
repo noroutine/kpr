@@ -31,6 +31,12 @@ jobs:
       with:
         go-version-file: .go-version
 
+    # The Go embed needs the built frontends, which are no longer
+    # committed: web-build self-provisions the mise toolchain via
+    # bootstrap, so the binaries below embed the real pages.
+    - name: Build frontends
+      run: make web-build
+
     # Rebuilt here, like the Forgejo release: no artifact handoff
     # between jobs, so the multiplatform target rebuilds dist/
     # itself (binaries, checksums, licenses) before pushing.

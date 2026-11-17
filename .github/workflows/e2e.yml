@@ -27,18 +27,9 @@ jobs:
       with:
         go-version-file: .go-version
 
-    # Single toolchain for local and CI: versions live in
-    # mise.toml, installed here straight from the vendor.
-    - name: Set up mise
-      run: |
-        curl -fsSL https://mise.run | sh
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
-        echo "$HOME/.local/share/mise/shims" >> $GITHUB_PATH
-
-    - name: Install toolchain
-      run: mise install
-
     # Single step: web-build runs as a prerequisite of the
-    # target itself, so the suite stays correct standalone.
+    # target itself (and self-provisions the mise toolchain via
+    # bootstrap), so the suite stays correct standalone with no
+    # toolchain setup here.
     - name: Run browser suite
       run: make web-e2e

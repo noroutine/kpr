@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report codecov-validate bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down down-traefik gc licenses web-build web-e2e
+.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report codecov-validate bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down down-traefik gc licenses web-build web-e2e bootstrap
 .DEFAULT_GOAL := help
 
 # Version information
@@ -31,6 +31,20 @@ endif
 # a sentence, never in buildx with a parse error.
 GO_VERSION := $(shell cat .go-version)
 export GO_VERSION
+
+# Pinned JS toolchain on every recipe's PATH (mise shims first,
+# then the mise binary dir): shell recipes resolve node/pnpm with
+# no ambient setup, local or CI. Split over two lines: the
+# combined `export VAR := ...` form needs a newer GNU make
+# than macOS ships (3.81).
+PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
+export PATH
+
+# Absolute pnpm path for direct recipes: macOS system make (3.81)
+# execs simple lines straight, bypassing the exported PATH above,
+# so bare `pnpm` reads ENOENT there. The bootstrap target keeps
+# this file populated from mise.toml.
+PNPM := $(HOME)/.local/share/mise/shims/pnpm
 
 # Directories
 DIST_DIR := dist
@@ -180,18 +194,18 @@ coverage-e2e:
 ## web-e2e: Browser suite (chromium, manual like mutation; `e2e` stays reserved for the Go container scenarios)
 web-e2e: web-build
 	rm -rf web/e2e/.data
-	cd web/e2e && pnpm install --ignore-workspace
-	cd web/e2e && pnpm exec playwright install chromium
+	cd web/e2e && $(PNPM) install --ignore-workspace
+	cd web/e2e && $(PNPM) exec playwright install chromium
 	if [ "$$(uname)" = Linux ]; then \
 		if [ "$$(id -u)" -eq 0 ]; then \
-			cd web/e2e && pnpm exec playwright install --with-deps chromium; \
+			cd web/e2e && $(PNPM) exec playwright install --with-deps chromium; \
 		elif sudo -n true 2>/dev/null; then \
-			cd web/e2e && sudo -n env "PATH=$$PATH" pnpm exec playwright install --with-deps chromium; \
+			cd web/e2e && sudo -n env "PATH=$$PATH" $(PNPM) exec playwright install --with-deps chromium; \
 		else \
 			echo "WARNING: no root or passwordless sudo; hoping the image already carries the browser libraries"; \
 		fi; \
 	fi
-	cd web/e2e && pnpm exec playwright test
+	cd web/e2e && $(PNPM) exec playwright test
 
 ## bench: Run benchmarks (no tests, measurements only)
 bench:
@@ -385,12 +399,12 @@ clean-dist:
 run:
 	go run $(CMD_DIR) serve
 
-## web-build: Build the SvelteKit frontends into the Go embed dirs (built, never committed; needs pnpm — `mise install` provides node/pnpm, see mise.toml)
-web-build:
-	pnpm --dir web install
-	pnpm --dir web -r exec svelte-kit sync
-	pnpm --dir web -r check
-	pnpm --dir web -r build
+## web-build: Build the SvelteKit frontends into the Go embed dirs (built, never committed; toolchain self-provisions via bootstrap, see mise.toml)
+web-build: bootstrap
+	$(PNPM) --dir web install
+	$(PNPM) --dir web -r exec svelte-kit sync
+	$(PNPM) --dir web -r check
+	$(PNPM) --dir web -r build
 	rm -rf internal/console/static internal/app/static
 	mkdir -p internal/console/static internal/app/static
 	cp -r web/console/build/. internal/console/static/
@@ -421,6 +435,14 @@ install-prereqs:
 
 ## install-ci-prereqs: Install the CI tool set (same tools; keeps CI output rich instead of fallback blurbs). Both Forgejo workflows call this
 install-ci-prereqs: install-prereqs
+
+## bootstrap: Install the pinned developer toolchain (mise itself when missing, plus the node/pnpm pins from mise.toml)
+bootstrap:
+	@if ! command -v mise >/dev/null 2>&1; then \
+		echo "mise not found, installing..."; \
+		curl -fsSL https://mise.run | sh; \
+	fi
+	mise install
 
 ## install: Install binary (root: /usr/local/bin, otherwise ~/.local/bin, no sudo inside)
 install: build
