@@ -300,6 +300,7 @@ func TestServerStartLogsBoundAddress(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
 	}
+	waitShutdown(t, s)
 }
 
 // An unlistenable address must fail Start fast with an error, not block
@@ -355,6 +356,10 @@ func TestServerShutdown(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after Shutdown")
 	}
+	// The watcher only finishes after the context drops; the
+	// deferred cancel runs too late for the join below.
+	cancel()
+	waitShutdown(t, s)
 }
 
 // The front page serves the built SPA shell: the kpr title, the
@@ -366,7 +371,8 @@ func TestIndexPageIsKeeperFront(t *testing.T) {
 	s := &Server{Listener: ln}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = s.Start(ctx) }()
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
 	base := "http://" + ln.Addr().String()
 	waitFor(t, base+"/")
 
@@ -394,6 +400,17 @@ func TestIndexPageIsKeeperFront(t *testing.T) {
 	if strings.Contains(body, "<style>") {
 		t.Error("front page carries an inline style block; styling lives in the bundle")
 	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
+	}
+	waitShutdown(t, s)
 }
 
 // A client that goes away mid-write must not 500 the shell: the
@@ -451,7 +468,8 @@ func TestIndexPageIgnoresBasePath(t *testing.T) {
 	s := &Server{Listener: ln}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = s.Start(ctx) }()
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
 	base := "http://" + ln.Addr().String()
 	waitFor(t, base+"/")
 
@@ -479,6 +497,17 @@ func TestIndexPageIgnoresBasePath(t *testing.T) {
 	if resp2.StatusCode != http.StatusNotFound {
 		t.Errorf("POST /events = %d, want 404 (receiver owns this route now)", resp2.StatusCode)
 	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
+	}
+	waitShutdown(t, s)
 }
 
 // A TLS-configured app serves HTTPS: the scheme switches with
@@ -547,6 +576,7 @@ func TestServerServesHTTPSWhenTLSConfigured(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
 	}
+	waitShutdown(t, s)
 }
 
 // The console's request metric counts real app-server traffic:
@@ -557,7 +587,8 @@ func TestRequestCounterCountsLiveTraffic(t *testing.T) {
 	s := &Server{Listener: ln}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = s.Start(ctx) }()
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start(ctx) }()
 	base := "http://" + ln.Addr().String()
 	waitFor(t, base+"/")
 
@@ -572,4 +603,15 @@ func TestRequestCounterCountsLiveTraffic(t *testing.T) {
 	if got := GetAPIRequestCount(); got != before+3 {
 		t.Errorf("counter moved by %d, want 3 for 3 live requests", got-before)
 	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("Start returned %v after cancel, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancel")
+	}
+	waitShutdown(t, s)
 }
