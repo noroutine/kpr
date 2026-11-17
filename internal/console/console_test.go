@@ -560,6 +560,7 @@ func TestServerStartLogsBoundAddress(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
 	}
+	waitShutdown(t, s)
 }
 
 // An unlistenable address must fail Start fast with an error, not block

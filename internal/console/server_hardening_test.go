@@ -57,6 +57,7 @@ func TestServerServesPrometheusWhenOTELEnabled(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
 	}
+	waitShutdown(t, s)
 }
 
 // A shutdown with clients still holding connections waits out
@@ -200,6 +201,7 @@ func TestAuthGatesLiveServer(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
 	}
+	waitShutdown(t, s)
 }
 
 // Every server answers /ops/ honestly: 503 with the reason
@@ -740,4 +742,5 @@ func TestServerServesHTTPSWhenTLSConfigured(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
 	}
+	waitShutdown(t, s)
 }

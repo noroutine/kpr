@@ -459,6 +459,7 @@ func TestConsoleDoesNotServeSweepEndpoint(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancel")
 	}
+	waitShutdown(t, s)
 }
 
 // A denied fence voices deny in the card: the model decides deny
