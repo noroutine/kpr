@@ -25,6 +25,23 @@ jobs:
       with:
         go-version-file: .go-version
 
+    # The Go embed needs the built frontends, which are no longer
+    # committed. Plain tarball + npm: no action-mirror
+    # dependency, versions match mise.toml.
+    # Single toolchain for local and CI: versions live in
+    # mise.toml, installed here straight from the vendor.
+    - name: Set up mise
+      run: |
+        curl -fsSL https://mise.run | sh
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        echo "$HOME/.local/share/mise/shims" >> $GITHUB_PATH
+
+    - name: Install toolchain
+      run: mise install
+
+    - name: Build frontends
+      run: make web-build
+
     # Tools come from the module proxy (go install), not release
     # tarballs — the latter failed checksum verification on these
     # runners. With the tools present, lint/test run full strength

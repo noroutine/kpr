@@ -24,8 +24,9 @@ web/
 `just web-build` (repo root) installs, type-checks, builds
 both projects, and copies each `build/` into the Go embed
 dirs (`internal/console/static`, `internal/app/static`).
-The copies are committed: `go build` needs no node, and CI
-never runs pnpm.
+Built, never committed (gitignored): run this (or any `up`
+target, which depends on it) before `go build` on a fresh
+tree — CI builds them the same way.
 
 ## Develop
 

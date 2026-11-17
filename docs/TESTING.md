@@ -396,10 +396,11 @@ present and ready, and skips otherwise.
 
 ## Browser suite (`just web-e2e`)
 
-Chromium-driven end to end, manual like mutation testing —
-never on the per-push path (run it from
-[.forgejo/workflows/e2e.yml](../.forgejo/workflows/e2e.yml)
-on demand):
+Chromium-driven end to end, per-push like the unit suite
+([.github/workflows/e2e.yml](../.github/workflows/e2e.yml)
+and [.forgejo/workflows/e2e.yml](../.forgejo/workflows/e2e.yml)
+run it on every push and PR; `workflow_dispatch` stays for
+on-demand runs):
 
 ```bash
 just web-e2e   # or: make web-e2e

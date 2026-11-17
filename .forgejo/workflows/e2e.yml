@@ -1,8 +1,13 @@
 name: Browser E2E
 
-# Manual like mutation testing: minutes per run (browser
-# download plus the full suite), never on the per-push path.
+# Per-push like the unit suite: web-build plus the browser run
+# take minutes, and the suite stays green — cheap enough to
+# gate on. Manual dispatch stays for on-demand runs.
 on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
   workflow_dispatch:
 
 jobs:
