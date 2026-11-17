@@ -1,9 +1,14 @@
 name: Browser E2E
 
-# GitHub mirror of the Forgejo pipeline: same make gate, manual
-# like mutation testing (minutes per run — browser download plus
-# the full suite), never on the per-push path.
+# GitHub mirror of the Forgejo pipeline: same make gate, per-push
+# like the unit suite (minutes per run — web-build plus the browser
+# run — cheap enough to gate on). Manual dispatch stays for
+# on-demand runs.
 on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
   workflow_dispatch:
 
 jobs:
