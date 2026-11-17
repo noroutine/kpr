@@ -40,17 +40,9 @@ jobs:
       with:
         go-version-file: .go-version
 
-    # Single toolchain for local and CI: versions live in
-    # mise.toml, installed here straight from the vendor.
-    - name: Set up mise
-      run: |
-        curl -fsSL https://mise.run | sh
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
-        echo "$HOME/.local/share/mise/shims" >> $GITHUB_PATH
-
-    - name: Install toolchain
-      run: mise install
-
+    # Frontends self-provision: web-build depends on bootstrap
+    # (mise plus the pinned node/pnpm from mise.toml), so no
+    # toolchain setup lives here.
     - name: Build frontends
       run: make web-build
 

@@ -26,6 +26,12 @@ GREMLINS_VERSION := "v0.6.0"
 go_version := `cat .go-version`
 export GO_VERSION := go_version
 
+# Pinned JS toolchain on every recipe's PATH (mise shims first,
+# then the mise binary dir): recipes resolve node/pnpm with no
+# ambient setup, local or CI. The bootstrap recipe keeps both
+# dirs populated from mise.toml.
+export PATH := home_directory() + "/.local/share/mise/shims:" + home_directory() + "/.local/bin:" + env_var_or_default("PATH", "")
+
 # Default recipe - show available commands
 default:
     @just --list
@@ -159,8 +165,10 @@ pprof-heap addr="127.0.0.1:6060":
 # Go embed dirs (internal/console/static,
 # internal/app/static). Built, never committed (gitignored): run
 # this (or any up target) before `go build` on a fresh tree.
-# Requires pnpm — `mise install` provides node/pnpm (see mise.toml).
-web-build:
+# Toolchain self-contained: the bootstrap prerequisite installs
+# mise and the pinned node/pnpm (see mise.toml); every recipe
+# already carries them on PATH, so no ambient pnpm is needed.
+web-build: bootstrap
     #!/usr/bin/env bash
     set -euo pipefail
     pnpm --dir web install
@@ -495,6 +503,19 @@ install-prereqs:
 # Install the CI tool set (same tools; keeps CI output rich instead of
 # fallback blurbs). Both Forgejo workflows call this.
 install-ci-prereqs: install-prereqs
+
+# Install the pinned developer toolchain: the mise binary itself
+# (when missing) plus the node/pnpm pins from mise.toml. Web
+# targets depend on this, so CI and fresh trees self-provision —
+# workflows never install tools inline.
+bootstrap:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v mise &> /dev/null; then
+        echo "mise not found, installing..."
+        curl -fsSL https://mise.run | sh
+    fi
+    mise install
 
 # Show version information
 version:

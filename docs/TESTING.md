@@ -413,8 +413,9 @@ Playwright: landing render, `/api/status` shape, console
 dashboard, `/metrics` and `/api/overview` shapes. Every spec
 fails on any page or console error, so a silently dead page
 reads red. Chromium only; browsers install on first run.
-The node/pnpm toolchain comes from `mise install` (see
-`mise.toml`), same as `web-build`.
+The node/pnpm toolchain self-provisions: `web-build` depends
+on `bootstrap` (mise plus the pins from `mise.toml`), so neither
+local runs nor CI need ambient shims or a global pnpm.
 
 The server runs on test ports off the dev ones (app `18092`,
 console `19312`, receiver `19012` on `127.0.0.1`), each
