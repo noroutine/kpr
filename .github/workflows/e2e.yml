@@ -1,0 +1,39 @@
+name: Browser E2E
+
+# GitHub mirror of the Forgejo pipeline: same make gate, manual
+# like mutation testing (minutes per run — browser download plus
+# the full suite), never on the per-push path.
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: Playwright (chromium)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: .go-version
+
+    # Single toolchain for local and CI: versions live in
+    # mise.toml, installed here straight from the vendor.
+    - name: Set up mise
+      run: |
+        curl -fsSL https://mise.run | sh
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        echo "$HOME/.local/share/mise/shims" >> $GITHUB_PATH
+
+    - name: Install toolchain
+      run: mise install
+
+    # Single step: web-build runs as a prerequisite of the
+    # target itself, so the suite stays correct standalone.
+    - name: Run browser suite
+      run: make web-e2e

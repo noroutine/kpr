@@ -18,6 +18,7 @@ covers, and the gates each must pass.
   - [Fixtures](#fixtures)
   - [What is covered](#what-is-covered)
   - [Not yet covered](#not-yet-covered)
+- [Browser suite (`just web-e2e`)](#browser-suite-just-web-e2e)
 
 ## Quick Start
 
@@ -392,3 +393,39 @@ present and ready, and skips otherwise.
   push → notification → row is the next slice.
 - The registry blobdescriptor cache on shared redis.
 - Offline GC (collector against a stopped registry's volume).
+
+## Browser suite (`just web-e2e`)
+
+Chromium-driven end to end, manual like mutation testing —
+never on the per-push path (run it from
+[.forgejo/workflows/e2e.yml](../.forgejo/workflows/e2e.yml)
+on demand):
+
+```bash
+just web-e2e   # or: make web-e2e
+```
+
+`web/e2e` is a standalone package (own lockfile, deliberately
+not a pnpm workspace member) that boots a real `kpr serve`
+on test ports and drives the app plus the console with
+Playwright: landing render, `/api/status` shape, console
+dashboard, `/metrics` and `/api/overview` shapes. Every spec
+fails on any page or console error, so a silently dead page
+reads red. Chromium only; browsers install on first run.
+The node/pnpm toolchain comes from `mise install` (see
+`mise.toml`), same as `web-build`.
+
+The server runs on test ports off the dev ones (app `18092`,
+console `19312`, receiver `19012` on `127.0.0.1`), each
+overridable via `E2E_HOST`, `E2E_APP_PORT`,
+`E2E_CONSOLE_PORT`, `E2E_RECEIVER_PORT`. State lands in
+`web/e2e/.data` (gitignored) under the file backend with the
+edge shut (`KPR_EDGE=false`): no registry runs alongside the
+suite, so the keeper cards render their degraded standings —
+the suite pins the shapes, never the standings.
+
+The same address rule as the container suite applies: every
+address is built from an env-exported host — never hardcoded
+`localhost` (inside CI job containers the fixtures are
+siblings whose published ports live on the host, so container
+localhost never works there).
