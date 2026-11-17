@@ -156,8 +156,9 @@ pprof-heap addr="127.0.0.1:6060":
     go tool pprof -top -nodecount=25 'http://{{addr}}/debug/pprof/heap'
 
 # Build the SvelteKit frontends and copy the static output into the
-# Go embed dirs (needs pnpm; see web/README.md). The copies are
-# committed, so go build needs no node and CI never runs pnpm.
+# Go embed dirs (needs pnpm — `mise install` provides node/pnpm, see
+# mise.toml; also see web/README.md). The copies are committed, so
+# go build needs no node and CI never runs pnpm.
 web-build:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -232,6 +233,31 @@ coverage-e2e:
     #!/usr/bin/env bash
     go test -race -tags e2e -coverpkg='./internal/...,./cmd/...' -coverprofile=coverage-e2e.out ./...
     go tool cover -func=coverage-e2e.out | tail -n 5
+
+# Browser suite (chromium, manual like mutation; `e2e` stays reserved for the Go container scenarios)
+web-e2e: web-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf web/e2e/.data
+    # Standalone package (own lockfile, not a workspace member,
+    # so the -r recipes above never touch it): install, browsers,
+    # run. Browsers skip when already present.
+    (cd web/e2e && pnpm install --ignore-workspace)
+    (cd web/e2e && pnpm exec playwright install chromium)
+    # Linux additionally needs OS libraries: same install with
+    # --with-deps where root or passwordless sudo exists, else a
+    # warning and the plain install stands (fails loudly later
+    # if the libs are actually missing).
+    if [ "$(uname)" = Linux ]; then
+        if [ "$(id -u)" -eq 0 ]; then
+            (cd web/e2e && pnpm exec playwright install --with-deps chromium)
+        elif sudo -n true 2>/dev/null; then
+            (cd web/e2e && sudo -n env "PATH=$PATH" pnpm exec playwright install --with-deps chromium)
+        else
+            echo "WARNING: no root or passwordless sudo; hoping the image already carries the browser libraries"
+        fi
+    fi
+    (cd web/e2e && pnpm exec playwright test)
 
 # Fail fast when /dev/null is no character device
 check-devnull:

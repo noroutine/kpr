@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report codecov-validate bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc licenses web-build
+.PHONY: all build build-all clean clean-dist test e2e coverage coverage-e2e coverage-report codecov-validate bench mutation mutation-dry test-linux test-linux-verbose test-linux-repeat fmt fmt-check check fix vet lint run release help prereqs deps verify install-prereqs install-ci-prereqs install uninstall version info docker-build docker-build-multiplatform docker-run docker-clean up up-minimal down gc licenses web-build web-e2e
 .DEFAULT_GOAL := help
 
 # Version information
@@ -176,6 +176,22 @@ coverage-e2e:
 	@# Sub-90% functions, worst last; total closes the summary.
 	go tool cover -func=coverage-e2e.out | grep -v '^total:' | sort -k3 -rn | awk '$$3+0 < 90'
 	go tool cover -func=coverage-e2e.out | grep '^total:'
+
+## web-e2e: Browser suite (chromium, manual like mutation; `e2e` stays reserved for the Go container scenarios)
+web-e2e: web-build
+	rm -rf web/e2e/.data
+	cd web/e2e && pnpm install --ignore-workspace
+	cd web/e2e && pnpm exec playwright install chromium
+	if [ "$$(uname)" = Linux ]; then \
+		if [ "$$(id -u)" -eq 0 ]; then \
+			cd web/e2e && pnpm exec playwright install --with-deps chromium; \
+		elif sudo -n true 2>/dev/null; then \
+			cd web/e2e && sudo -n env "PATH=$$PATH" pnpm exec playwright install --with-deps chromium; \
+		else \
+			echo "WARNING: no root or passwordless sudo; hoping the image already carries the browser libraries"; \
+		fi; \
+	fi
+	cd web/e2e && pnpm exec playwright test
 
 ## bench: Run benchmarks (no tests, measurements only)
 bench:
@@ -369,7 +385,7 @@ clean-dist:
 run:
 	go run $(CMD_DIR) serve
 
-## web-build: Build the SvelteKit frontends and copy the static output into the Go embed dirs (needs pnpm)
+## web-build: Build the SvelteKit frontends and copy the static output into the Go embed dirs (committed; needs pnpm — `mise install` provides node/pnpm, see mise.toml)
 web-build:
 	pnpm --dir web install
 	pnpm --dir web -r exec svelte-kit sync

@@ -1,3 +1,6 @@
 packages:
   - console
   - app
+  # NOTE: web/e2e stays a standalone package (own lockfile) on
+  # purpose — adding it here would run the -r web-build steps
+  # (sync, check, build) inside a package that has none of them.
