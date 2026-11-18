@@ -5,4 +5,4 @@
 # SvelteKit frontends (web-build). Major pins: new minors stay
 # compatible, majors get a deliberate bump.
 node = "26"
-pnpm = "9"
+pnpm = "12"
